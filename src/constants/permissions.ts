@@ -51,6 +51,10 @@ export const PERMISSIONS = {
   VER_CARTERA: 'VER_CARTERA',
   VER_JURIDICA: 'VER_JURIDICA',
   VER_PAPELERA: 'VER_PAPELERA',
+
+  // Contabilidad / Siigo
+  VER_CONTABILIDAD: 'VER_CONTABILIDAD',
+  SINCRONIZAR_SIIGO: 'SINCRONIZAR_SIIGO',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

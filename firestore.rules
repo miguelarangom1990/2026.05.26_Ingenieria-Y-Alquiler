@@ -1,8 +1,38 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    function isAuthed() {
+      return request.auth != null;
     }
+
+    // --- Colecciones operativas de la app (lectura/escritura para usuarios autenticados) ---
+    match /companies/{id}            { allow read, write: if isAuthed(); }
+    match /sites/{id}                { allow read, write: if isAuthed(); }
+    match /equipment/{id}            { allow read, write: if isAuthed(); }
+    match /equipmentCategories/{id}  { allow read, write: if isAuthed(); }
+    match /itemTypes/{id}            { allow read, write: if isAuthed(); }
+    match /people/{id}               { allow read, write: if isAuthed(); }
+    match /activities/{id}           { allow read, write: if isAuthed(); }
+    match /orders/{id}               { allow read, write: if isAuthed(); }
+    match /maintenanceCards/{id}     { allow read, write: if isAuthed(); }
+    match /roles/{id}                { allow read, write: if isAuthed(); }
+    match /users/{id}                { allow read, write: if isAuthed(); }
+    match /recycleBin/{id}           { allow read, write: if isAuthed(); }
+    match /settings/{id}             { allow read, write: if isAuthed(); }
+
+    // --- Caché de Siigo: SOLO LECTURA para usuarios. ---
+    // La escritura la realiza únicamente el backend (Cloud Functions / Admin SDK,
+    // que ignora estas reglas). 'allow write: if false' impide cualquier
+    // modificación desde el cliente, garantizando que los datos contables espejados
+    // no puedan alterarse desde la app.
+    match /siigo_invoices/{id}       { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_purchases/{id}      { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_vouchers/{id}       { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_journals/{id}       { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_customers/{id}      { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_products/{id}       { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_catalogs/{id}       { allow read: if isAuthed(); allow write: if false; }
+    match /siigo_sync_state/{id}     { allow read: if isAuthed(); allow write: if false; }
   }
 }

@@ -30,6 +30,7 @@ const AppRoutes = ({ itemTypes, companies, sites, equipment, categories, people,
         <Route path="/ajustes/roles" element={<AuthGuard requiredPermission="GESTIONAR_ROLES"><Layout><RolesView /></Layout></AuthGuard>} />
         <Route path="/pagos" element={<AuthGuard requiredPermission="VER_PAGOS"><Layout><PaymentsView /></Layout></AuthGuard>} />
         <Route path="/cartera" element={<AuthGuard requiredPermission="VER_CARTERA"><Layout><PortfolioView /></Layout></AuthGuard>} />
+        <Route path="/contabilidad" element={<AuthGuard requiredPermission="VER_CONTABILIDAD"><Layout><SiigoReportsView /></Layout></AuthGuard>} />
         <Route path="/juridica" element={<AuthGuard requiredPermission="VER_JURIDICA"><Layout><LegalView /></Layout></AuthGuard>} />
         <Route path="/papelera" element={<AuthGuard requiredPermission="VER_PAPELERA"><Layout><RecycleBinView /></Layout></AuthGuard>} />
         <Route path="/prueba-app" element={<AuthGuard><Layout><PruebaApp realCompanies={companies} realSites={sites} realEquipment={equipment} realCategories={categories} /></Layout></AuthGuard>} />
@@ -63,6 +64,7 @@ import CompaniesView from './views/CompaniesView';
 import PruebaApp from './views/OrdersAndMaintenance';
 import RecycleBinView from './views/RecycleBinView';
 import RolesView from './views/RolesView';
+import SiigoReportsView from './views/SiigoReportsView';
 import { ConstructionSite, Equipment, Person, CommercialActivity, EquipmentCategory, Company, Order, ItemType } from './types';
 import { subscribeToCollection, saveItem, deleteItem, seedDatabase, propagateEquipmentNameChange } from './services/firebaseService';
 import { Database, UploadCloud, Loader2 } from 'lucide-react';

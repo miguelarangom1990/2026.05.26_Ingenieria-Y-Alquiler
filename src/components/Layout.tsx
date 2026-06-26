@@ -28,7 +28,8 @@ import {
   Wrench,
   Trash2,
   LogOut,
-  Shield
+  Shield,
+  Calculator
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -139,6 +140,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     },
     { id: 'pagos', label: 'Pagos', icon: CreditCard, path: '/pagos', permission: 'VER_PAGOS' },
     { id: 'cartera', label: 'Cartera', icon: Wallet, path: '/cartera', permission: 'VER_CARTERA' },
+    { id: 'contabilidad', label: 'Contabilidad', icon: Calculator, path: '/contabilidad', permission: 'VER_CONTABILIDAD' },
     { id: 'juridica', label: 'Gestión Jurídica', icon: Scale, path: '/juridica', permission: 'VER_JURIDICA' },
     { id: 'papelera', label: 'Papelera', icon: Trash2, path: '/papelera', permission: 'VER_PAPELERA' },
   ].filter(item => {

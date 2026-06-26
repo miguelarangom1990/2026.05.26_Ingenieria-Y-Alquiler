@@ -52,6 +52,22 @@ export const getCommercialReport = async (clientCount: number, supplierCount: nu
   }
 };
 
+export const getAccountingInsights = async (summary: string) => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `Actúa como un Director Financiero (CFO) de una empresa de alquiler de maquinaria pesada en Colombia. Con base en estos datos contables extraídos de Siigo, genera un resumen ejecutivo breve (máximo 200 palabras) en español. Divide el reporte en: 1. Estado Financiero, 2. Alertas (cartera vencida, caídas de ventas) y 3. Recomendaciones. Datos: ${summary}`,
+      config: {
+        temperature: 0.5,
+      }
+    });
+    return response.text || "Resumen no disponible.";
+  } catch (error) {
+    console.error("Error generating accounting insights:", error);
+    return "Ocurrió un error al generar el resumen contable inteligente.";
+  }
+};
+
 export const suggestSynonyms = async (equipmentName: string): Promise<string[]> => {
   try {
     const response = await ai.models.generateContent({

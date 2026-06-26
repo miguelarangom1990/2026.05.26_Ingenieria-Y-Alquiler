@@ -1,0 +1,18 @@
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local"
+    ]
+  },
+  "firestore": {
+    "database": "ai-studio-fe7d4ea6-addc-4881-af9f-3f42ed025019",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

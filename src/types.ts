@@ -354,3 +354,102 @@ export interface User {
   createdAt?: string;
   updatedAt?: string;
 }
+
+// =====================================================================
+// Integración Siigo Nube (SOLO LECTURA) — espejo de la contabilización.
+// Estos documentos los escribe únicamente el backend (Cloud Functions);
+// la app solo los lee. Cada uno conserva el payload original en `raw`.
+// =====================================================================
+
+export interface SiigoLineItem {
+  code?: string;
+  description?: string;
+  quantity?: number;
+  price?: number;
+  total?: number;
+}
+
+export interface SiigoInvoice {
+  id: string;
+  date?: string;
+  number?: string;
+  customerId?: string;
+  customerName?: string;
+  documentType?: string;
+  costCenter?: string;
+  total: number;
+  taxes?: number;
+  balance?: number;
+  items?: SiigoLineItem[];
+  syncedAt?: string;
+  raw?: any;
+}
+
+export interface SiigoPurchase {
+  id: string;
+  date?: string;
+  number?: string;
+  supplierId?: string;
+  supplierName?: string;
+  documentType?: string;
+  costCenter?: string;
+  total: number;
+  taxes?: number;
+  syncedAt?: string;
+  raw?: any;
+}
+
+export interface SiigoVoucher {
+  id: string;
+  date?: string;
+  customerId?: string;
+  customerName?: string;
+  type?: string;
+  value: number;
+  syncedAt?: string;
+  raw?: any;
+}
+
+export interface SiigoJournal {
+  id: string;
+  date?: string;
+  documentType?: string;
+  costCenter?: string;
+  debit: number;
+  credit: number;
+  items?: { account?: string; debit?: number; credit?: number; costCenter?: string }[];
+  syncedAt?: string;
+  raw?: any;
+}
+
+export interface SiigoCustomer {
+  id: string;
+  identification?: string;
+  name: string;
+  branchOffice?: string;
+  active?: boolean;
+  raw?: any;
+}
+
+export interface SiigoProduct {
+  id: string;
+  code?: string;
+  name: string;
+  price?: number;
+  raw?: any;
+}
+
+export interface SiigoCatalog {
+  id: string;
+  items: any[];
+  syncedAt?: string;
+}
+
+export interface SiigoSyncState {
+  id: string;
+  lastUpdatedCursor?: string;
+  lastRunAt?: string;
+  lastRunStatus?: 'ok' | 'error' | 'running';
+  recordsProcessed?: number;
+  error?: string | null;
+}
