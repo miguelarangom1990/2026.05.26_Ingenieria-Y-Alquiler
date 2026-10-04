@@ -5,6 +5,10 @@
    baselines, flows}}. Todo es determinista (ids fijos, sin azar): dos
    construcciones dan el mismo resultado. Las líneas base LB0 y LB1 se
    calculan aquí con PM.calc.computeSchedule y PM.calc.makeBaselineSnapshot.
+   Los documentos salen de los ejemplos de las plantillas; su estado, revisión
+   y fecha de aprobación se ajustan para que ningún documento aprobado cite
+   hechos posteriores (incidentes, cambios, LB1) y sus revisiones anteriores
+   se derivan quitando esos hechos.
    Se usan roles, no nombres de personas; el proyecto y el cliente son
    ficticios y se identifican como ejemplo.
    ========================================================================== */
@@ -12,6 +16,7 @@
   'use strict';
   const PM = window.PM;
   if (!PM || typeof PM.registerExample !== 'function') return;
+  const D = PM.date;
 
   /* ---------------------------------------------------------------- datos generales */
   const CODE = 'PRY-2026-014';
@@ -177,7 +182,7 @@
   const TASKS = [
     { id: 't01', name: 'Acta de constitución aprobada', wbsId: 'w111', duration: 0, milestone: true, deps: [], cost: 0, resources: [], responsible: 'Gerencia General', progress: 100, notes: 'Firmada el 3 de agosto por el patrocinador y el director de proyecto.' },
     { id: 't02', name: 'Registro de interesados y reunión de arranque', wbsId: 'w111', duration: 2, deps: [FS('t01')], cost: 1400000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-04' },
-    { id: 't03', name: 'Plan para la dirección del proyecto y líneas base', wbsId: 'w112', duration: 4, deps: [FS('t01')], cost: 5600000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-06', notes: 'Línea base LB0 establecida el 7 de agosto.' },
+    { id: 't03', name: 'Plan para la dirección del proyecto y líneas base', wbsId: 'w112', duration: 4, deps: [FS('t01')], cost: 5600000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-06', notes: 'Plan y línea base LB0 aprobados por la Gerencia General el 6 de agosto (el 7 es festivo).' },
     { id: 't04', name: 'Programa de protección contra caídas y certificación del personal', wbsId: 'w112', duration: 3, deps: [SS('t03', 1)], cost: 2600000, resources: res([R.sst, 1]), responsible: R.sst, progress: 100, actualStart: '2026-08-04', actualFinish: '2026-08-06' },
     { id: 't05', name: 'Seguimiento y control: comités de obra, informes y control de cambios', wbsId: 'w113', duration: 106, base: { duration: 103 }, deps: [SS('t03', 5), FS('t02')], cost: 24800000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 43, actualStart: '2026-08-10', notes: 'Esfuerzo de nivel: el avance es proporcional al tiempo transcurrido.' },
     { id: 't06', name: 'Levantamiento topográfico y de fachada', wbsId: 'w121', duration: 4, deps: [FS('t01')], cost: 3600000, resources: res([R.top, 2]), responsible: R.ing, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-06' },
@@ -507,7 +512,9 @@
   };
   /* Plan de estado y revisiones por plantilla (grupo de procesos y casos particulares).
      fixed: registro con fecha propia (acta, solicitud): no se reemite. history: [rev, estado, fecha, nota, variante]. */
-  const LB0_DATE = '2026-08-07';
+  /* LB0 se aprueba al terminar la planificación (jueves 6 de agosto; el 7 es festivo, Batalla de Boyacá).
+     LB1 se establece el lunes siguiente a la aprobación del CC-002 (viernes 11 de septiembre). */
+  const LB0_DATE = '2026-08-06';
   const LB1_DATE = '2026-09-14';
   const SPECIAL = {
     'caso-negocio': { status: 'aprobado', rev: '0', date: '2026-07-24' },
@@ -517,7 +524,7 @@
       history: [['A', 'borrador', '2026-07-28', 'Primer borrador para revisión del patrocinador.', 'draft'], ['B', 'revision', '2026-07-31', 'Ajustes de la Gerencia General: reservas y límite de gasto del director.', 'review'], ['0', 'aprobado', '2026-08-03', 'Emisión aprobada y firmada por el patrocinador.']],
     },
     'registro-supuestos': { status: 'aprobado', rev: '0', date: '2026-08-04' },
-    'registro-interesados': { status: 'aprobado', rev: '1', date: '2026-09-15', history: [['0', 'aprobado', '2026-08-04', 'Emisión inicial aprobada.', 'before'], ['1', 'aprobado', '2026-09-15', 'Actualizado tras el CC-002 y la LB1.']] },
+    'registro-interesados': { status: 'aprobado', rev: '1', date: '2026-09-15', history: [['0', 'aprobado', '2026-08-04', 'Emisión inicial aprobada.', 'before'], ['1', 'aprobado', '2026-09-15', null]] },
     'plan-direccion': { status: 'aprobado', rev: '1', date: LB1_DATE, history: [['0', 'aprobado', LB0_DATE, 'Emisión aprobada con la línea base LB0.', 'before'], ['1', 'aprobado', LB1_DATE, 'Actualizado con la línea base LB1 (CC-002).']] },
     'registro-riesgos': { status: 'aprobado', rev: '1', date: '2026-09-15', history: [['0', 'aprobado', '2026-08-06', 'Emisión inicial con el plan para la dirección del proyecto.', 'before'], ['1', 'aprobado', '2026-09-15', 'Reevaluación quincenal: riesgos de grúa, pagos y extensión del alquiler actualizados; respuestas ajustadas tras el CC-002.']] },
     'entregables': { status: 'revision', rev: 'B' },
@@ -596,17 +603,26 @@
     const lastFact = D.max(...late.map((c) => evDate(c, ev)), lastPastDate(fields));
     const at = D.min(nextBusinessDay(lastFact), STATUS_DATE);
     if (p.history && p.history.length) {
+      /* la emisión vigente se mueve después del último hecho citado */
       const history = p.history.map((h, i) => (i === p.history.length - 1 ? [h[0], h[1], at, h[3], h[4]] : h));
       return { ...p, date: at, history };
     }
     const rev = PM.calc.approvedRev(p.rev);
-    return { ...p, rev, date: at, history: [[p.rev, 'aprobado', p.date, 'Emisión inicial aprobada.', 'before'], [rev, 'aprobado', at, 'Actualizado tras ' + listEs(late.map(codeLabel)) + '.']] };
+    return { ...p, rev, date: at, history: [[p.rev, 'aprobado', p.date, 'Emisión inicial aprobada.', 'before'], [rev, 'aprobado', at, null]] };
+  };
+  /* Nota de una emisión sin nota propia: los hechos citados posteriores a la emisión anterior. */
+  const autoNote = (fields, ev, since) => {
+    const codes = [...new Set(stringsOf(fields).flatMap((s) => mentionsIn(s, ev)))].filter((c) => !since || evDate(c, ev) > since);
+    codes.sort((a, b) => evDate(a, ev).localeCompare(evDate(b, ev)) || a.localeCompare(b));
+    return codes.length ? 'Actualizado tras ' + listEs(codes.map(codeLabel)) + '.' : 'Emisión actualizada.';
   };
 
   /* Contenido de una revisión anterior: sin los hechos posteriores a su fecha (cutoff). Antes del CC-002 rigen
      la LB0, el BAC de $ 442,2 M y la reserva para contingencias de $ 32,4 M. */
   const BEFORE_CC002 = [[/\$ 452,0 M/g, '$ 442,2 M'], [/\$ 22,6 M/g, '$ 32,4 M'], [/COP 22,6 millones/g, 'COP 32,4 millones']];
-  const SENTENCE_SPLIT = /(?<=[.;:])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/;
+  /* separa oraciones y cláusulas de una enumeración con punto y coma (el signo queda con su segmento) */
+  const SEGMENT_SPLIT = /((?<=[.:])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])|(?<=;)\s+)/;
+  const capitalize = (t) => t.replace(/^([a-záéíóúñ])/, (c) => c.toUpperCase()).replace(/([.:]\s+)([a-záéíóúñ])/g, (m, a, c) => a + c.toUpperCase());
   const olderText = (s, cutoff, ev) => {
     if (typeof s !== 'string') return s;
     const isLate = (x) => mentionsIn(x, ev).some((c) => evDate(c, ev) > cutoff);
@@ -624,9 +640,15 @@
         .replace(/, prueba de carga de la plataforma(?: de descargue)?/gi, '');
     }
     const src = x.split('\n');
-    const lines = src.map((line) => (isLate(line) ? line.split(SENTENCE_SPLIT).filter((sn) => !isLate(sn)).join(' ') : line));
+    const lines = src.map((line) => {
+      if (!isLate(line)) return line;
+      const parts = line.split(SEGMENT_SPLIT);
+      const kept = [];
+      for (let i = 0; i < parts.length; i += 2) if (!isLate(parts[i])) kept.push(parts[i]);
+      return capitalize(kept.join(' ').trim().replace(/[;:,]$/, '.'));
+    });
     /* se quitan las líneas que quedaron vacías; se conservan las que ya eran separadores */
-    return lines.filter((line, i) => line.trim() || !src[i].trim()).join('\n').trim().replace(/:$/, '.');
+    return lines.filter((line, i) => line.trim() || !src[i].trim()).join('\n').trim();
   };
   const isEventCode = (v, cutoff, ev) => typeof v === 'string' && /^(?:INC|CC)-\d{3}$/.test(v.trim()) && evDate(v.trim(), ev) > cutoff;
   const beforeChange = (fields, cutoff, ev) => {
@@ -666,13 +688,21 @@
 
   function docsData(project) {
     const list = (PM.templateList || []).filter((t) => t && t.id && t.example && typeof t.example === 'object' && t.group !== 'cierre');
+    const ev = eventDates();
     const out = [];
     for (const t of list) {
       const ex = PM.clone(t.example);
-      const p = docPlan(t, ex);
       const multiple = !!t.multiple;
       const id = multiple ? t.id + '--ej1' : t.id;
-      const history = p.history || [];
+      const title = multiple ? t.name + ' — ' + instanceSuffix(t, ex) : t.name;
+      /* campos: el ejemplo de la plantilla; las claves que no trae toman el valor inicial (con ids fijos) */
+      const fields = ex;
+      for (const [k, v] of Object.entries(PM.newDocBody(t, project, {}).fields || {})) {
+        if (k in fields) continue;
+        fields[k] = Array.isArray(v) ? v.map((r, i) => (r && typeof r === 'object' ? { ...r, id: k + '-' + (i + 1) } : r)) : v;
+      }
+      const p = reissue(docPlan(t, ex), fields, ev);
+      const history = (p.history || []).map((h, i, arr) => (h[3] ? h : [h[0], h[1], h[2], autoNote(fields, ev, i ? arr[i - 1][2] : null), h[4]]));
       const approved = p.status === 'aprobado';
       const titleBlock = {
         codigo: CODE + '-' + (t.abbr || 'DOC') + (multiple ? '-01' : ''),
@@ -681,20 +711,13 @@
         aprobo: p.aprobo || 'Gerencia General',
         fechaAprobacion: approved ? p.date : null,
       };
-      const title = multiple ? t.name + ' — ' + instanceSuffix(t, ex) : t.name;
       const created = history.length ? history[0][2] : approved ? p.date : '2026-09-18';
       const updated = history.length ? history[history.length - 1][2] : approved ? p.date : STATUS_DATE;
       const body = PM.newDocBody(t, project, { title, status: p.status, rev: p.rev, titleBlock, createdAt: ts(created, '13:00'), updatedAt: ts(updated), createdBy: null, updatedBy: null });
-      /* campos: el ejemplo de la plantilla; las claves que no trae toman el valor inicial (con ids fijos) */
-      const fields = ex;
-      for (const [k, v] of Object.entries(body.fields || {})) {
-        if (k in fields) continue;
-        fields[k] = Array.isArray(v) ? v.map((r, i) => (r && typeof r === 'object' ? { ...r, id: k + '-' + (i + 1) } : r)) : v;
-      }
       body.fields = fields;
       if (multiple) body.seq = 1;
       const revs = history.map(([rev, status, date, note, variant]) => {
-        const f = variant === 'before' ? beforeChange(fields, t.id) : variant === 'draft' || variant === 'review' ? draftOf(fields, variant) : PM.clone(fields);
+        const f = variant === 'before' ? beforeChange(fields, date, ev) : variant === 'draft' || variant === 'review' ? draftOf(fields, variant) : PM.clone(fields);
         const tb = { ...titleBlock, fechaAprobacion: status === 'aprobado' ? date : null };
         return { id: 'rev-' + rev, data: { rev, status, date: ts(date), byId: null, note, fields: f, titleBlock: tb, title } };
       });
@@ -702,20 +725,32 @@
     }
     return out;
   }
+  /* Contenido aprobado vigente en una fecha: la última emisión aprobada (documento o revisión) hasta esa fecha. */
+  const approvedFieldsAt = (doc, date) => {
+    if (!doc) return null;
+    const cands = [{ date: doc.data.titleBlock && doc.data.titleBlock.fechaAprobacion, status: doc.data.status, fields: doc.data.fields, cur: 1 }]
+      .concat((doc.revs || []).map((r) => ({ date: String(r.data.date || '').slice(0, 10), status: r.data.status, fields: r.data.fields, cur: 0 })))
+      .filter((c) => c.status === 'aprobado' && D.valid(c.date) && c.date <= date)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.cur - a.cur);
+    return cands.length ? PM.clone(cands[0].fields) : null;
+  };
 
-  /* ---------------------------------------------------------------- líneas base */
-  function baselinesData(nodesLb0, scopeStatement) {
+  /* ---------------------------------------------------------------- líneas base
+     LB0: plan original (sin la plataforma del CC-002 y con las duraciones aprobadas en agosto).
+     LB1: plan con el CC-002. El cambio agrega un entregable al alcance (plataforma de descargue, REQ-011), así que
+     actualiza las tres líneas base. Ambas instantáneas salen de computeSchedule sobre el plan sin avance. */
+  function baselinesData(scopeDoc) {
     const plan = (which) => {
       const data = scheduleData(which);
       return { data, sched: PM.calc.computeSchedule(data, START) };
     };
     const lb0 = plan('lb0');
     const lb1 = plan('lb1');
-    const snap0 = PM.calc.makeBaselineSnapshot({ includes: ['scope', 'schedule', 'cost'], sched: lb0.sched, wbs: { nodes: nodesLb0 }, costs: { reserves: { ...RESERVES_LB0 } }, scopeStatement });
-    const snap1 = PM.calc.makeBaselineSnapshot({ includes: ['schedule', 'cost'], sched: lb1.sched, wbs: null, costs: { reserves: { ...RESERVES } }, scopeStatement: null });
+    const snap0 = PM.calc.makeBaselineSnapshot({ includes: ['scope', 'schedule', 'cost'], sched: lb0.sched, wbs: { nodes: wbsNodes(lb0.data.tasks, 'lb0') }, costs: { reserves: { ...RESERVES_LB0 } }, scopeStatement: approvedFieldsAt(scopeDoc, LB0_DATE) });
+    const snap1 = PM.calc.makeBaselineSnapshot({ includes: ['scope', 'schedule', 'cost'], sched: lb1.sched, wbs: { nodes: wbsNodes(lb1.data.tasks, 'lb1') }, costs: { reserves: { ...RESERVES } }, scopeStatement: approvedFieldsAt(scopeDoc, LB1_DATE) });
     return [
-      { id: 'lb0', data: { number: 0, label: 'LB0', date: '2026-08-07', includes: ['scope', 'schedule', 'cost'], note: 'Línea base inicial aprobada por la Gerencia General con el plan para la dirección del proyecto (rev. 0).', changeRef: null, byId: null, ...snap0 } },
-      { id: 'lb1', data: { number: 1, label: 'LB1', date: '2026-09-14', includes: ['schedule', 'cost'], note: 'Plataforma adicional de descargue en piso 8 (+4 días, +COP 9.800.000)', changeRef: 'CC-002', byId: null, ...snap1 } },
+      { id: 'lb0', data: { number: 0, label: 'LB0', date: LB0_DATE, includes: ['scope', 'schedule', 'cost'], note: 'Línea base inicial aprobada por la Gerencia General con el plan para la dirección del proyecto (rev. 0).', changeRef: null, byId: null, ...snap0 } },
+      { id: 'lb1', data: { number: 1, label: 'LB1', date: LB1_DATE, includes: ['scope', 'schedule', 'cost'], note: 'Plataforma adicional de descargue en piso 8 (+4 días, +COP 9.800.000)', changeRef: 'CC-002', byId: null, ...snap1 } },
     ];
   }
 
@@ -723,12 +758,7 @@
   function buildExample() {
     const project = { ...META };
     const schedule = scheduleData('current');
-    const nodes = wbsNodes(schedule.tasks);
-    const nodesLb0 = wbsNodes(scheduleData('lb0').tasks).map((n) => ({ ...n, notes: '' }));
     const docs = docsData(project);
-    /* El enunciado del alcance de la LB0 es el mismo documento aprobado que se guarda en el proyecto. */
-    const scopeDoc = docs.find((d) => d.id === 'enunciado-alcance');
-    const scopeStatement = scopeDoc ? PM.clone(scopeDoc.data.fields) : null;
     return {
       format: 'gestor-pmbok',
       version: 1,
@@ -736,13 +766,13 @@
       collections: {
         docs,
         tools: [
-          { id: 'wbs', data: { nodes } },
+          { id: 'wbs', data: { nodes: wbsNodes(schedule.tasks) } },
           { id: 'schedule', data: schedule },
           { id: 'costs', data: costsData() },
           { id: 'raci', data: raciData() },
           { id: 'quality', data: qualityData() },
         ],
-        baselines: baselinesData(nodesLb0, scopeStatement),
+        baselines: baselinesData(docs.find((d) => d.id === 'enunciado-alcance') || null),
         flows: flowsData(),
       },
     };

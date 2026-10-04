@@ -105,9 +105,12 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-bar-track { height: 8px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
 .matrices-bar-fill { height: 100%; border-radius: 4px; background: var(--s1); }
 .matrices-bar-row .cnt { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: var(--fs-xs); }
-.matrices-scale { min-width: 112px; }
-.matrices-scale.is-impact { min-width: 126px; }
+.matrices-scale { min-width: 104px; }
+.matrices-scale.is-impact { min-width: 116px; }
 .matrices-cat-col { min-width: 96px; }
+/* En pantallas medianas la categoría pasa a la línea de tipo (bajo la descripción) para que la tabla quepa sin desplazamiento */
+.matrices-kind-cat { display: none; }
+@media (max-width: 1599px) { .matrices-risk-table .matrices-cat-col { display: none; } .matrices-kind-cat { display: inline; } }
 .matrices-sel-estado { min-width: 132px; }
 .matrices-desc { min-width: 220px; max-width: 400px; white-space: normal; }
 .matrices-desc .matrices-kind { font-size: var(--fs-xs); color: var(--fg-3); margin-top: 2px; }
@@ -299,6 +302,15 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       onInput=${(e) => onValue(e.currentTarget.value.replace(/[\r\n]+/g, ' '))} ...${rest}></textarea>`;
   }
 
+  /* Exportación SVG: PM.svgToString conserva los atributos style con var(--…), que fuera de la página no se resuelven
+     (las líneas con stroke:var(--x) desaparecerían). Aquí se sustituyen por el valor actual de cada token. */
+  const svgExport = (el) => {
+    if (!el) return '';
+    const cs = getComputedStyle(document.documentElement);
+    return PM.svgToString(el).replace(/var\((--[\w-]+)\)/g, (m, v) => cs.getPropertyValue(v).trim() || m);
+  };
+  const SvgDownloadBtn = ({ getSvg, filename }) => html`<${ui.Button} size="sm" icon="image" onClick=${() => { const el = getSvg(); if (el) PM.download(filename, svgExport(el)); }}>Descargar SVG</${ui.Button}>`;
+
   const Note = ({ tone, icon = 'info', children }) => html`<div class=${cx('matrices-note', tone && 'is-' + tone)}><${ui.Icon} name=${icon} size=${16} /><div style="min-width:0;flex:1">${children}</div></div>`;
 
   /* ---------------------------------------------------------------- popover anclado (teclado + clic fuera) */
@@ -321,14 +333,16 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         setPos((p) => (p && Math.abs(p.left - left) < 0.5 && Math.abs(p.top - top) < 0.5 ? p : { left, top }));
       };
       place();
+      /* foco en la opción actual en el mismo ciclo de pintura: el teclado funciona apenas se abre */
+      const el0 = ref.current;
+      const first = el0 && (el0.querySelector('[data-autofocus]') || el0.querySelector('button:not([disabled]), input, select'));
+      if (first) { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }
       window.addEventListener('resize', place);
       window.addEventListener('scroll', place, true);
       return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
     }, [anchor]);
     useEffect(() => {
       const el = ref.current;
-      const first = el && (el.querySelector('[data-autofocus]') || el.querySelector('button:not([disabled]), input, select'));
-      if (first) { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }
       const onDown = (e) => { if (el && !el.contains(e.target) && !(anchor && anchor.contains(e.target))) closeRef.current(false); };
       const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); closeRef.current(true); } };
       document.addEventListener('pointerdown', onDown, true);
@@ -366,10 +380,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   /* Selector de nombres con casillas (roles). */
   function PickNamesModal({ close, title, subtitle, candidates, emptyText, emptyAction, onConfirm, intro, resetKey }) {
     const fresh = candidates.filter((c) => !c.exists);
-    const [picked, setPicked] = useState(() => new Set(fresh.map((c) => c.name)));
-    const firstReset = useRef(true);
-    /* al cambiar la fuente de los nombres, la selección vuelve a "todos los nuevos" */
-    useEffect(() => { if (firstReset.current) { firstReset.current = false; return; } setPicked(new Set(fresh.map((c) => c.name))); }, [resetKey]);
+    const allFresh = () => new Set(fresh.map((c) => c.name));
+    /* la selección pertenece a una fuente de nombres (resetKey): al cambiarla vuelve a "todos los nuevos" */
+    const [sel, setSel] = useState(() => ({ key: resetKey, set: allFresh() }));
+    const picked = sel.key === resetKey ? sel.set : allFresh();
+    const setPicked = (fn) => setSel((st) => ({ key: resetKey, set: typeof fn === 'function' ? fn(st.key === resetKey ? st.set : allFresh()) : fn }));
     const toggle = (name, on) => setPicked((s) => { const n = new Set(s); if (on) n.add(name); else n.delete(name); return n; });
     const count = fresh.filter((c) => picked.has(c.name)).length;
     const footer = html`<${ui.Button} onClick=${close}>${fresh.length ? 'Cancelar' : 'Cerrar'}</${ui.Button}>
@@ -872,16 +887,16 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 
     const riskRow = (x) => html`<tr key=${x.idx} data-risk=${x.code}>
       <td class="mono nowrap">${x.code}</td>
-      <td class="matrices-desc"><div class="matrices-desc-txt" title=${x.r.descripcion || undefined}>${x.r.descripcion || html`<span class="faint">Sin descripción</span>`}</div><div class=${cx('matrices-kind', x.opp && 'is-opp')}>${x.opp ? 'Oportunidad' : 'Amenaza'}</div></td>
+      <td class="matrices-desc"><div class="matrices-desc-txt" title=${x.r.descripcion || undefined}>${x.r.descripcion || html`<span class="faint">Sin descripción</span>`}</div><div class=${cx('matrices-kind', x.opp && 'is-opp')}>${x.opp ? 'Oportunidad' : 'Amenaza'}<span class="matrices-kind-cat">${' · ' + (x.r.categoria || 'Sin categoría')}</span></div></td>
       <td class="matrices-cat-col">${x.r.categoria || html`<span class="faint">—</span>`}</td>
       <td>${canWrite ? html`<${ScaleSelect} value=${x.p} labels=${P_LABELS} label=${'Probabilidad de ' + x.code} onValue=${(v) => patchRow(x.idx, { probabilidad: v })} />` : html`<span class="mono">${x.p || '—'}</span>`}</td>
       <td>${canWrite ? html`<${ScaleSelect} impact value=${x.i} labels=${I_LABELS} label=${'Impacto de ' + x.code} onValue=${(v) => patchRow(x.idx, { impacto: v })} />` : html`<span class="mono">${x.i || '—'}</span>`}</td>
       <td class="nowrap"><span class="mono" style="display:inline-block;min-width:22px;text-align:right">${x.score || '—'}</span> <${LevelChip} score=${x.score} /></td>
       <td class="nowrap">${x.r.estrategia || html`<span class="faint">—</span>`}</td>
-      <td style="min-width:140px">${x.r.propietario || html`<span class="faint">—</span>`}</td>
+      <td style="min-width:120px">${x.r.propietario || html`<span class="faint">—</span>`}</td>
       <td>${canWrite ? html`<select class="cell-input matrices-sel-estado" aria-label=${'Estado de ' + x.code} value=${x.r.estado || ''} onChange=${(e) => patchRow(x.idx, { estado: e.currentTarget.value })}><option value="">Sin estado</option>${[...new Set([...opts.estado, ...(x.r.estado ? [x.r.estado] : [])])].map((o) => html`<option key=${o} value=${o}>${o}</option>`)}</select>` : x.r.estado || html`<span class="faint">—</span>`}</td>
     </tr>`;
-    const tableHead = html`<thead><tr><th>ID</th><th>Riesgo</th><th>Categoría</th><th>Probabilidad</th><th>Impacto</th><th>Puntuación</th><th>Estrategia</th><th>Propietario</th><th>Estado</th></tr></thead>`;
+    const tableHead = html`<thead><tr><th>ID</th><th>Riesgo</th><th class="matrices-cat-col">Categoría</th><th>Probabilidad</th><th>Impacto</th><th>Puntuación</th><th>Estrategia</th><th>Propietario</th><th>Estado</th></tr></thead>`;
 
     return html`<div class="page">${header}
       <div class="row-between">
@@ -953,8 +968,9 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     return { tone: 'info', text: 'Por encima del deseado (' + -n + ')', n };
   };
 
+  const ANGLES16 = Array.from({ length: 16 }, (_, k) => [Math.cos((k * Math.PI) / 8), Math.sin((k * Math.PI) / 8)]);
   /* Ubica los puntos (dispersa coordenadas idénticas) y sus etiquetas sin colisiones. */
-  function layoutStakeholders(list, X, Y, area, obstacles, radScale = 1, clipLen = 30) {
+  function layoutStakeholders(list, X, Y, area, obstacles, radScale = 1, labelW = 130) {
     const cw = (area.ix1 - area.ix0) / 5, ch = (area.iy1 - area.iy0) / 5;
     const groups = PM.groupBy(list, (x) => x.poder + '|' + x.interes);
     const pts = [];
@@ -978,32 +994,44 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const placed = [...obstacles];
     const order = pts.map((_, k) => k).sort((a, b) => pts[b].rad - pts[a].rad || pts[a].idx - pts[b].idx);
     const labels = new Array(pts.length);
+    /* preferencia de dirección: derecha, izquierda, arriba/abajo y por último diagonales */
+    const dirCost = (a) => (a === 0 ? 0 : a === 8 ? 1 : a === 4 || a === 12 ? 2 : 3);
     for (const k of order) {
       const p = pts[k];
-      const text = clip(p.name, clipLen);
-      const w = tw(text, 11, 600) + 2, h = 14;
+      /* nombres largos en dos líneas: etiquetas más compactas que no se extienden sobre los puntos vecinos */
+      const lines = wrap(p.name, labelW, 11, 600, 2);
+      const w = Math.max(...lines.map((l) => tw(l, 11, 600))) + 2, h = 13 * lines.length + 1;
       let best = null;
-      for (const dist of [3, 10, 20, 32, 48]) {
-        const r = p.rad + dist, d = r * 0.72;
-        const cands = [[p.cx + r, p.cy - h / 2], [p.cx - r - w, p.cy - h / 2], [p.cx - w / 2, p.cy - r - h], [p.cx - w / 2, p.cy + r], [p.cx + d, p.cy - d - h], [p.cx + d, p.cy + d], [p.cx - d - w, p.cy - d - h], [p.cx - d - w, p.cy + d]];
+      for (const dist of [3, 9, 16, 26, 38, 52]) {
+        /* 16 direcciones: el borde de la etiqueta más cercano al punto queda a «dist» px de la burbuja */
+        const r = p.rad + dist;
+        const cands = [];
+        ANGLES16.forEach(([c, sn], a) => {
+          const ax = p.cx + r * c, ay = p.cy + r * sn;
+          const x = ax - w / 2 + (w / 2) * Math.sign(Math.round(c * 1000)), y = ay - h / 2 + (h / 2) * Math.sign(Math.round(sn * 1000));
+          cands.push([x, y, a]);
+          /* variante desplazada para quedar dentro del área (p. ej. debajo de un punto pegado al borde) */
+          const xc = PM.clamp(x, area.x0, Math.max(area.x0, area.x1 - w)), yc = PM.clamp(y, area.y0, Math.max(area.y0, area.y1 - h));
+          if (xc !== x || yc !== y) cands.push([xc, yc, a]);
+        });
         let levelBest = null;
-        for (const [x, y] of cands) {
+        for (const [x, y, a] of cands) {
           const rect = { x, y, w, h };
-          let cost = outside(rect) * 60;
+          let cost = outside(rect) * 60 + dirCost(a);
           for (const q of placed) cost += ov(rect, q) * 3;
           circ.forEach((c, j) => { cost += ov(rect, c) * (j === k ? 12 : 2); });
-          /* ambigüedad: otra burbuja queda tan cerca de la etiqueta como la propia → se leería como suya */
+          /* ambigüedad: si otra burbuja queda más cerca de la etiqueta que la propia, se leería como suya */
           const own = gap(rect, p);
-          pts.forEach((q, j) => { if (j === k) return; const g = gap(rect, q); if (g < own + 4) cost += 220 + (own + 4 - g) * 24; });
+          pts.forEach((q, j) => { if (j === k) return; const g = gap(rect, q); if (g < own - 1) cost += 300 + (own - 1 - g) * 30; else if (g < own + 6) cost += 20 + (own + 6 - g) * 6; });
           if (!levelBest || cost < levelBest.cost) levelBest = { ...rect, cost, dist };
         }
         if (!best || levelBest.cost + levelBest.dist < best.cost + best.dist) best = levelBest;
-        if (levelBest.cost === 0) { best = levelBest; break; }
+        if (levelBest.cost <= 3) break;
       }
       placed.push(best);
       const lx = PM.clamp(p.cx, best.x, best.x + best.w), ly = PM.clamp(p.cy, best.y, best.y + best.h);
       const dx = lx - p.cx, dy = ly - p.cy, len = Math.hypot(dx, dy) || 1;
-      labels[k] = { x: best.x, y: best.y, w: best.w, h: best.h, text, leader: best.dist > 6 ? { x1: p.cx + (dx / len) * (p.rad + 1), y1: p.cy + (dy / len) * (p.rad + 1), x2: lx, y2: ly } : null };
+      labels[k] = { x: best.x, y: best.y, w: best.w, h: best.h, lines, leader: best.dist > 6 ? { x1: p.cx + (dx / len) * (p.rad + 1), y1: p.cy + (dy / len) * (p.rad + 1), x2: lx, y2: ly } : null };
     }
     return { pts, labels };
   }
@@ -1019,7 +1047,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const narrow = W < 560;
     const H = Math.round(narrow ? PM.clamp(W * 1.08, 330, 600) : PM.clamp(W * 0.66, 300, 540));
     const radScale = PM.clamp(W / 640, 0.72, 1);
-    const clipLen = narrow ? 22 : 30;
+    const labelW = narrow ? 104 : 136;
     const m = { l: 40, r: 8, t: 6, b: 42 };
     const band = 22;
     const pw = W - m.l - m.r, ph = H - m.t - m.b;
@@ -1035,7 +1063,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const plotted = items.filter((x) => x.poder && x.interes);
     const lay = useMemo(() => {
       const obstacles = quads.map((q) => { const w = tw(QUAD[q.id].label, 11, 600); return { x: q.anchor === 'end' ? q.lx - w : q.lx, y: q.ly - 11, w, h: 14 }; });
-      return layoutStakeholders(plotted, X, Y, area, obstacles, radScale, clipLen);
+      return layoutStakeholders(plotted, X, Y, area, obstacles, radScale, labelW);
     }, [items, W, H, fv]);
     const snapI = (x) => PM.clamp(Math.round(0.5 + ((x - area.ix0) / (area.ix1 - area.ix0)) * 5), 1, 5);
     const snapP = (y) => PM.clamp(Math.round(5.5 - ((y - area.iy0) / (area.iy1 - area.iy0)) * 5), 1, 5);
@@ -1102,9 +1130,9 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
             <text x=${m.l + pw / 2} y=${H - 6} text-anchor="middle" style="fill:var(--fg-2);font-weight:600">Interés →</text>
             <text transform=${'translate(12,' + (m.t + ph / 2) + ') rotate(-90)'} text-anchor="middle" style="fill:var(--fg-2);font-weight:600">Poder →</text>
             ${snap ? html`<circle cx=${X(snap.i)} cy=${Y(snap.p)} r=${dragP ? dragP.rad + 4 : 12} style="fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3" />` : null}
-            ${lay.pts.map((p, k) => { const l = lay.labels[k]; if (!l || (drag && drag.idx === p.idx)) return null; return html`<g key=${'lb' + p.idx} pointer-events="none">
+            ${lay.pts.map((p, k) => { const l = lay.labels[k]; if (!l || (drag && drag.idx === p.idx)) return null; return html`<g key=${'lb' + p.idx} pointer-events="none" data-label-for=${p.idx}>
               ${l.leader ? html`<line x1=${l.leader.x1} y1=${l.leader.y1} x2=${l.leader.x2} y2=${l.leader.y2} style="stroke:var(--fg-3);stroke-width:1" />` : null}
-              <text x=${l.x + 1} y=${l.y + 11} style="fill:var(--fg);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round">${l.text}</text>
+              <text y=${l.y + 11} style="fill:var(--fg);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round">${l.lines.map((ln, j) => html`<tspan key=${j} x=${l.x + 1} dy=${j ? 13 : 0}>${ln}</tspan>`)}</text>
             </g>`; })}
             ${lay.pts.map((p) => {
               const isDrag = drag && drag.idx === p.idx;
@@ -1118,7 +1146,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
                 <circle cx=${cxp} cy=${cyp} r=${p.rad + 6} style="fill:transparent" />
                 <circle class="matrices-dot-ring" cx=${cxp} cy=${cyp} r=${p.rad + 3} style="fill:none" />
                 <circle cx=${cxp} cy=${cyp} r=${p.rad} style=${'fill:' + classColor(p.r.clasificacion) + ';fill-opacity:0.9;stroke:var(--surface);stroke-width:2'} />
-                ${isDrag ? html`<text x=${cxp + p.rad + 5} y=${cyp + 4} style="fill:var(--fg);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px">${clip(p.name, clipLen)}</text>` : null}
+                ${isDrag ? html`<text x=${cxp + p.rad + 5} y=${cyp + 4} style="fill:var(--fg);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px">${clip(p.name, narrow ? 22 : 30)}</text>` : null}
               </g>`;
             })}
           </svg>
@@ -1435,7 +1463,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${create}>Nuevo diagrama</${ui.Button}>
           <${ui.Dropdown} label="Opciones del diagrama" items=${[{ label: 'Renombrar', icon: 'edit', onClick: rename }, { label: 'Eliminar diagrama', icon: 'trash', danger: true, onClick: remove }]} />` : null}
         <div class="spacer"></div>
-        <${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project, 'ishikawa-' + (PM.slug(cur.name) || 'diagrama')) + '.svg'} />
+        <${SvgDownloadBtn} getSvg=${() => svgRef.current} filename=${fileBase(project, 'ishikawa-' + (PM.slug(cur.name) || 'diagrama')) + '.svg'} />
       </div>
       <${ui.Field} label="Efecto (problema que se analiza)" for="mx-ish-effect" hint="Escríbelo como un resultado medible, p. ej. «Montaje del nivel 6–10 con 4 días de retraso».">
         ${canWrite ? html`<${ui.TextArea} id="mx-ish-effect" data-mx-focus="effect" rows=${2} value=${cur.effect || ''} onValue=${(v) => updCur((d) => ({ ...d, effect: v }))} placeholder="Describe el efecto o problema" />` : html`<div class="small">${cur.effect || html`<span class="faint">Sin efecto definido.</span>`}</div>`}
@@ -1522,6 +1550,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         <span class="legend-item"><span class="legend-line" style="background:var(--s2)"></span>Frecuencia acumulada (rótulos en % del total)</span>
         <span class="legend-item"><svg width="16" height="4" aria-hidden="true"><line x1="0" y1="2" x2="16" y2="2" style="stroke:var(--fg-2);stroke-width:1.5;stroke-dasharray:4 3" /></svg>80 % del total</span>
       </div>
+      ${W > cw + 2 ? html`<div class="xsmall faint">El gráfico es más ancho que la pantalla: desplázalo horizontalmente para verlo completo.</div>` : null}
       <div ref=${host} style="min-width:0">
         <div class="chart matrices-chart" ref=${tip.ref}>
           <svg ref=${svgRef} width=${W} height=${H} viewBox=${'0 0 ' + W + ' ' + H} role="img" aria-label=${'Diagrama de Pareto: ' + name + '. ' + plural(n, 'causa', 'causas') + ', ' + PM.fmt.num(data.total) + ' casos en total.'} data-pareto-chart>
@@ -1598,7 +1627,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${create}>Nuevo análisis</${ui.Button}>
           <${ui.Dropdown} label="Opciones del análisis" items=${[{ label: 'Renombrar', icon: 'edit', onClick: rename }, isMed && { label: 'Convertir en datos manuales', icon: 'table', onClick: freeze, disabled: !med.items.length }, { label: 'Eliminar análisis', icon: 'trash', danger: true, onClick: remove }]} />` : null}
         <div class="spacer"></div>
-        ${data.rows.length ? html`<${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project, 'pareto-' + (PM.slug(cur.name) || 'analisis')) + '.svg'} />` : null}
+        ${data.rows.length ? html`<${SvgDownloadBtn} getSvg=${() => svgRef.current} filename=${fileBase(project, 'pareto-' + (PM.slug(cur.name) || 'analisis')) + '.svg'} />` : null}
       </div>
       <div class="row-between">
         ${canWrite ? html`<${ui.Segmented} label="Origen de los datos" value=${cur.source || 'manual'} onChange=${(v) => updCur((d) => ({ ...d, source: v, items: d.items || [] }))} options=${[{ value: 'manual', label: 'Datos manuales' }, { value: 'mediciones', label: 'Desde mediciones' }]} />` : html`<span class="chip">${isMed ? 'Calculado desde las mediciones de control de calidad' : 'Datos manuales'}</span>`}
@@ -1691,6 +1720,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${st.out.length ? html`<span class="legend-item"><span class="dot" style="background:var(--crit)"></span>Fuera de control</span>` : null}
         ${st.runs.length ? html`<span class="legend-item"><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" style="fill:none;stroke:var(--warn);stroke-width:1.5" /></svg>Regla de los siete</span>` : null}
       </div>
+      ${W > cw + 2 ? html`<div class="xsmall faint">El gráfico es más ancho que la pantalla: desplázalo horizontalmente para verlo completo.</div>` : null}
       <div ref=${host} style="min-width:0">
         <div class="chart matrices-chart" ref=${tip.ref}>
           <svg ref=${svgRef} width=${W} height=${H} viewBox=${'0 0 ' + W + ' ' + H} role="img" aria-label=${'Gráfico de control: ' + (series.name || '') + '. ' + plural(n, 'punto', 'puntos') + ', ' + plural(st.out.length, 'fuera de control', 'fuera de control') + '.'} data-control-chart>
@@ -1799,7 +1829,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       { key: 'n', label: 'N.º', type: 'calc', calc: (row, rows) => rows.indexOf(row) + 1, width: 40 },
       { key: 'date', label: 'Fecha', type: 'date' },
       { key: 'value', label: 'Valor' + (cur.unit ? ' (' + cur.unit + ')' : ''), type: 'number', width: 110 },
-      { key: 'flag', label: 'Resultado', type: 'calc', calc: (row, rows) => (st.flags[row.id || 'row' + (rows.indexOf(row) + 1)] || []).join(' · '), format: (v) => html`<span class="row" style="gap:4px;flex-wrap:nowrap;justify-content:flex-start">${v ? v.split(' · ').map((f) => html`<${ui.Chip} key=${f} tone=${/^Fuera de control/.test(f) ? 'crit' : /^Regla/.test(f) ? 'warn' : 'signal'}>${f}</${ui.Chip}>`) : html`<span class="faint">Sin observaciones</span>`}</span>` },
+      { key: 'flag', label: 'Resultado', type: 'calc', align: 'left', calc: (row, rows) => (st.flags[row.id || 'row' + (rows.indexOf(row) + 1)] || []).join(' · '), format: (v) => html`<span class="row" style="gap:4px;flex-wrap:nowrap;justify-content:flex-start">${v ? v.split(' · ').map((f) => html`<${ui.Chip} key=${f} tone=${/^Fuera de control/.test(f) ? 'crit' : /^Regla/.test(f) ? 'warn' : 'signal'}>${f}</${ui.Chip}>`) : html`<span class="faint">Sin observaciones</span>`}</span>` },
     ];
     return html`<div class="stack-lg">
       <div class="matrices-picker">
@@ -1807,7 +1837,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${create}>Nueva serie</${ui.Button}>
           <${ui.Dropdown} label="Opciones de la serie" items=${[{ label: 'Pegar mediciones', icon: 'copy', onClick: paste }, { label: 'Eliminar serie', icon: 'trash', danger: true, onClick: remove }]} />` : null}
         <div class="spacer"></div>
-        ${st.n ? html`<${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project, 'control-' + (PM.slug(cur.name) || 'serie')) + '.svg'} />` : null}
+        ${st.n ? html`<${SvgDownloadBtn} getSvg=${() => svgRef.current} filename=${fileBase(project, 'control-' + (PM.slug(cur.name) || 'serie')) + '.svg'} />` : null}
       </div>
       ${canWrite ? html`<div class="matrices-series-form">
         <${ui.Field} label="Qué se mide" for="mx-cs-name"><${ui.Input} id="mx-cs-name" value=${cur.name || ''} onValue=${(v) => updCur((s) => ({ ...s, name: v }))} /></${ui.Field}>

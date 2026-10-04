@@ -122,13 +122,14 @@ const colorDist = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math
 /* Etiquetas de la matriz de poder e interés: ¿alguna queda más cerca de otra burbuja que de la suya? */
 const ambiguousLabels = (page) => page.evaluate(() => {
   const svg = document.querySelector('[data-pi-chart]');
-  const dots = [...svg.querySelectorAll('g.matrices-dot')].map((g) => { const c = g.querySelectorAll('circle')[2]; return { name: g.getAttribute('aria-label').split(':')[0], x: +c.getAttribute('cx'), y: +c.getAttribute('cy'), r: +c.getAttribute('r') }; });
+  const dots = [...svg.querySelectorAll('g.matrices-dot')].map((g) => { const c = g.querySelectorAll('circle')[2]; return { idx: g.getAttribute('data-stake'), name: g.getAttribute('aria-label').split(':')[0], x: +c.getAttribute('cx'), y: +c.getAttribute('cy'), r: +c.getAttribute('r') }; });
   const out = [];
-  for (const t of svg.querySelectorAll('g[pointer-events="none"] text')) {
-    const b = t.getBBox(); const txt = t.textContent.replace('…', '');
+  for (const g of svg.querySelectorAll('g[data-label-for]')) {
+    const t = g.querySelector('text'); const b = t.getBBox();
     const d = (p) => Math.hypot(Math.max(b.x - p.x, 0, p.x - (b.x + b.width)), Math.max(b.y - p.y, 0, p.y - (b.y + b.height))) - p.r;
-    const own = dots.find((p) => p.name.startsWith(txt));
+    const own = dots.find((p) => p.idx === g.getAttribute('data-label-for'));
     if (!own) { out.push('sin punto: ' + t.textContent); continue; }
+    if (!own.name.replace(/\s+/g, '').startsWith(t.textContent.replace('…', '').replace(/\s+/g, ''))) out.push('texto distinto: ' + t.textContent + ' / ' + own.name);
     const other = dots.filter((p) => p !== own && d(p) < d(own) - 2);
     if (other.length) out.push(t.textContent + ' → ' + other.map((p) => p.name).join(', '));
   }
@@ -278,7 +279,7 @@ try {
     await m.getByRole('button', { name: 'Cargo', exact: true }).click();
     await m.getByText('Asesor de riesgos laborales').waitFor();
     eq(await m.getByText('Patrocinador', { exact: true }).count(), 0, 'con Cargo ya no se listan los roles');
-    eq(await m.getByRole('button', { name: 'Agregar 9 roles' }).count(), 1, 'selección reiniciada a todos los nuevos (9 cargos)');
+    await m.getByRole('button', { name: 'Agregar 6 roles' }).waitFor({ timeout: 3000 }); // selección reiniciada: los 6 cargos nuevos (2 ya están en la matriz)
     await m.getByRole('button', { name: 'Cancelar' }).click();
     eq(await page.locator('.matrices-role-h').count(), 5, 'cancelar no agrega roles');
   });

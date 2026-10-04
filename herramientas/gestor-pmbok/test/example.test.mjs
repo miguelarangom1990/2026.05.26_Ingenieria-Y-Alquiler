@@ -1,9 +1,10 @@
 // Prueba del proyecto de ejemplo (src/90-example.js).
-// Uso: node test/example.test.mjs [--out dir] [--shots dir]
+// Uso: node test/example.test.mjs [--out dir] [--shots dir] [--quick]
 //   1) Construye una página aislada (núcleo + 90) y valida el constructor, la importación y los cálculos.
 //   2) Crea el ejemplo desde el estado vacío del portafolio (botón «Crear proyecto de ejemplo») y verifica persistencia.
 //   3) Ejecuta test/smoke.mjs sobre esa página.
 //   4) Si existen plantillas (12-, 13-), construye núcleo + plantillas + 90 y valida los documentos y revisiones.
+//   5) Sin --quick: construye con todos los módulos presentes y recorre todas las vistas (claro, oscuro, 400 px).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -107,9 +108,36 @@ async function validateInPage(page) {
     /* Líneas base */
     const blDocs = await PM.store.list(PM.paths.baselines(pid));
     const lb0 = blDocs.find((b) => b.data.label === 'LB0'), lb1 = blDocs.find((b) => b.data.label === 'LB1');
-    ok(lb0 && lb0.data.number === 0 && lb0.data.date === '2026-08-07' && lb0.data.includes.join() === 'scope,schedule,cost' && lb0.data.byId === null, 'LB0', lb0 && { ...lb0.data, scope: undefined, schedule: undefined, cost: undefined });
-    ok(lb1 && lb1.data.number === 1 && lb1.data.date === '2026-09-14' && lb1.data.includes.join() === 'schedule,cost' && lb1.data.changeRef === 'CC-002' && /Plataforma adicional de descargue en piso 8/.test(lb1.data.note), 'LB1 con CC-002', lb1 && lb1.data.note);
-    ok(lb0.data.scope && lb0.data.scope.wbs.length === nodes.length, 'LB0 incluye la EDT');
+    ok(lb0 && lb0.data.number === 0 && lb0.data.date === '2026-08-06' && lb0.data.includes.join() === 'scope,schedule,cost' && lb0.data.byId === null, 'LB0', lb0 && { ...lb0.data, scope: undefined, schedule: undefined, cost: undefined });
+    ok(lb1 && lb1.data.number === 1 && lb1.data.date === '2026-09-14' && lb1.data.includes.join() === 'scope,schedule,cost' && lb1.data.changeRef === 'CC-002' && lb1.data.byId === null && /Plataforma adicional de descargue en piso 8/.test(lb1.data.note), 'LB1 con CC-002 (el cambio agrega alcance: actualiza las tres líneas base)', lb1 && { ...lb1.data, scope: undefined, schedule: undefined, cost: undefined });
+    ok([lb0, lb1].every((bl) => sched.cal.isWork(bl.data.date) && D.dow(bl.data.date) !== 6), 'líneas base aprobadas en días hábiles de oficina (no festivos)', [lb0.data.date, lb1.data.date]);
+    ok(lb0.data.scope && lb0.data.scope.wbs.length === nodes.length && lb1.data.scope && lb1.data.scope.wbs.length === nodes.length, 'LB0 y LB1 incluyen la EDT');
+    const w144 = (bl) => bl.data.scope.wbs.find((n) => n.id === 'w144');
+    ok(!/plataforma (adicional )?de descargue/i.test(JSON.stringify(w144(lb0))) && /plataforma adicional de descargue/i.test(w144(lb1).description), 'diccionario de 1.4.4: sin la plataforma en LB0 y con ella en LB1');
+    ok([lb0, lb1].every((bl) => bl.data.scope.wbs.every((n) => !n.notes)), 'las notas de seguimiento no entran en las líneas base');
+    ok(w144(lb0).costEstimate === 22800000 && w144(lb1).costEstimate === 32600000, 'costo estimado de 1.4.4 en LB0 y LB1', [w144(lb0).costEstimate, w144(lb1).costEstimate]);
+    /* las instantáneas salen del CPM: duraciones en días hábiles y dependencias respetadas */
+    for (const bl of [lb0, lb1]) {
+      const bt = new Map(bl.data.schedule.tasks.map((t) => [t.id, t]));
+      const idx = (d) => sched.cal.indexOf(d);
+      const bad = [];
+      for (const t of bl.data.schedule.tasks) {
+        if (!t.milestone && sched.cal.countWork(t.start, t.finish) !== t.duration) bad.push(t.id + ' duración');
+        const src = tasks.find((x) => x.id === t.id);
+        for (const d of src.deps) {
+          const p = bt.get(d.id);
+          if (!p) { if (!(bl.data.label === 'LB0' && d.id === 't21')) bad.push(t.id + ' sin ' + d.id); continue; }
+          /* convención del CPM: [es, ef) en días hábiles; un hito se fecha al cierre del día anterior a es (o el día 0) */
+          if (p.milestone && idx(p.start) === 0) continue;
+          const ps = idx(p.start) + (p.milestone ? 1 : 0), pf = idx(p.finish) + 1, ts = idx(t.start) + (t.milestone ? 1 : 0), tf = idx(t.finish) + 1;
+          if (d.type === 'FS' && ts < pf + d.lag) bad.push(t.id + ' FS ' + d.id);
+          if (d.type === 'SS' && ts < ps + d.lag) bad.push(t.id + ' SS ' + d.id);
+          if (d.type === 'FF' && tf < pf + d.lag) bad.push(t.id + ' FF ' + d.id);
+        }
+      }
+      ok(!bad.length, bl.data.label + ': cronograma coherente con el CPM (duraciones y dependencias)', bad);
+      ok(bl.data.schedule.start === '2026-08-03' && bl.data.cost.tasks.length === bl.data.schedule.tasks.length, bl.data.label + ': inicio y costos por actividad');
+    }
     ok(!lb0.data.schedule.tasks.some((t) => t.id === 't21') && lb1.data.schedule.tasks.some((t) => t.id === 't21'), 'la plataforma (CC-002) solo está en LB1');
     ok(lb1.data.cost.bac - lb0.data.cost.bac === 9800000, 'LB1 = LB0 + 9,8 M', lb1.data.cost.bac - lb0.data.cost.bac);
     ok(lb1.data.cost.bac === bac && lb1.data.cost.contingency === 22600000 && lb0.data.cost.contingency === 32400000, 'BAC y reservas de las líneas base');
@@ -118,7 +146,7 @@ async function validateInPage(page) {
     const lb1t = lb1.data.schedule.tasks.find((t) => t.id === 't19');
     ok(lb1t.duration === 18 && lb1t.start === '2026-09-19' && lb1t.finish === '2026-10-09', 'niveles 6 a 10 en LB1: 18 días del 19 de sep al 9 de oct', lb1t);
     const actives = PM.calc.activeBaselines(blDocs);
-    ok(actives.cost && actives.cost.label === 'LB1' && actives.scope && actives.scope.label === 'LB0', 'línea base activa de costos LB1 y de alcance LB0');
+    ok(actives.cost && actives.cost.label === 'LB1' && actives.schedule.label === 'LB1' && actives.scope && actives.scope.label === 'LB1', 'líneas base activas: LB1 en alcance, cronograma y costos');
 
     /* Costos y valor ganado */
     const costs = await P('/tools/costs');
@@ -183,11 +211,29 @@ async function validateInPage(page) {
       const decisions = d.nodes.filter((x) => x.type === 'decision');
       ok(decisions.every((x) => { const ls = d.edges.filter((e) => e.from === x.id).map((e) => e.label).sort().join(); return ls === 'No,Sí'; }), f.id + ': decisiones con salidas Sí y No');
       ok(d.nodes.filter((x) => x.type !== 'note').every((x) => d.edges.some((e) => e.from === x.id || e.to === x.id)), f.id + ': ningún paso suelto');
+      const real = d.nodes.filter((x) => x.type !== 'note');
+      const starts = real.filter((x) => x.type === 'terminal' && !d.edges.some((e) => e.to === x.id));
+      const ends = real.filter((x) => x.type === 'terminal' && !d.edges.some((e) => e.from === x.id));
+      const reach = (from, dir) => { const seen = new Set([from]); const st = [from]; while (st.length) { const c = st.pop(); for (const e of d.edges) { const [a, b] = dir ? [e.from, e.to] : [e.to, e.from]; if (a === c && !seen.has(b)) { seen.add(b); st.push(b); } } } return seen; };
+      ok(starts.length === 1 && ends.length === 1, f.id + ': un inicio y un fin', [starts.map((x) => x.id), ends.map((x) => x.id)]);
+      if (starts.length === 1 && ends.length === 1) {
+        const fwd = reach(starts[0].id, true), back = reach(ends[0].id, false);
+        ok(real.every((x) => fwd.has(x.id) && back.has(x.id)), f.id + ': todo paso es alcanzable desde el inicio y lleva al fin', real.filter((x) => !fwd.has(x.id) || !back.has(x.id)).map((x) => x.id));
+      }
+      ok(d.nodes.every((x) => x.type === 'decision' ? x.w >= 120 && x.h >= 80 : x.type === 'note' || (x.w >= 144 && x.h >= 48)), f.id + ': tamaños legibles');
       if (d.lanes.length) {
         let y = 0; const bands = d.lanes.map((l) => { const b = [y, y + (l.h || 176)]; y = b[1]; return b; });
         ok(d.nodes.every((x) => bands.some(([a, b]) => x.y >= a && x.y + x.h <= b)), f.id + ': cada nodo dentro de un carril');
         ok(d.nodes.every((x) => x.x >= 160), f.id + ': nodos a la derecha de los rótulos de carril');
       }
+    }
+
+    /* Control de cambios: el director aprueba el nivel 1; lo demás (y lo que no aprueba) decide el comité, que puede rechazar */
+    {
+      const d = f1.data; const to = (from, label) => (d.edges.find((e) => e.from === from && e.label === label) || {}).to;
+      const niv = d.nodes.find((x) => x.type === 'decision' && /director/i.test(x.text)), ccb = d.nodes.find((x) => x.type === 'decision' && /comité/i.test(x.text));
+      ok(niv && ccb && to(niv.id, 'No') === ccb.id && to(niv.id, 'Sí') === to(ccb.id, 'Sí') && /rechazo/i.test((d.nodes.find((x) => x.id === to(ccb.id, 'No')) || {}).text || ''), 'flujo 4.6: aprobación del director (nivel 1), escalamiento al comité y rechazo registrado');
+      ok(d.nodes.some((x) => x.type === 'note' && /nivel 1/i.test(x.text)), 'flujo 4.6: nota con el criterio de nivel 1');
     }
 
     /* Documentos */
@@ -218,8 +264,34 @@ async function validateInPage(page) {
         ok(docs.find((x) => x.id === 'registro-riesgos').data.rev === '1', 'registro de riesgos en rev. 1');
       }
       for (const id of ['plan-direccion', 'registro-interesados']) if (PM.templates[id]) { const b = docs.find((x) => x.id === id).data; ok(b.rev === '1' && b.titleBlock.fechaAprobacion >= '2026-09-14', id + ': rev. 1 aprobada después de la LB1', b.titleBlock.fechaAprobacion); }
+      /* Coherencia temporal: nada aprobado cita un hecho posterior a su aprobación. */
+      const EV = { 'INC-001': '2026-08-25', 'INC-002': '2026-09-08', 'INC-003': '2026-09-15', 'INC-004': '2026-09-24', 'INC-005': '2026-09-30', 'CC-001': '2026-08-19', 'CC-002': '2026-09-11', 'CC-003': '2026-09-29' };
+      for (const r of (PM.templates['registro-incidentes'] && PM.templates['registro-incidentes'].example.incidentes) || []) if (D.valid(r.fecha)) EV[r.id] = r.fecha;
+      for (const r of (PM.templates['registro-cambios'] && PM.templates['registro-cambios'].example.cambios) || []) { const x = D.valid(r.fechaDecision) ? r.fechaDecision : r.fecha; if (D.valid(x)) EV[r.id] = x; }
+      const facts = (fields) => { const sTxt = JSON.stringify(fields).replace(/LB0, LB1|LB1, LB2/g, ''); const out = (sTxt.match(/\b(?:INC|CC)-\d{3}\b/g) || []).filter((c) => EV[c]).map((c) => [c, EV[c]]); if (/\bLB1\b/.test(sTxt) || /plataforma (?:adicional |voladiza )?de descargue/i.test(sTxt)) out.push(['CC-002/LB1', EV['CC-002']]); return out; };
+      const anach = [];
+      for (const d of docs) {
+        const b = d.data;
+        if (b.status === 'aprobado') { const late = facts(b.fields).filter(([, dt]) => dt > b.titleBlock.fechaAprobacion); if (late.length) anach.push(d.id + ' (' + b.titleBlock.fechaAprobacion + '): ' + late.map((x) => x[0]).join(',')); }
+        const revs = await PM.store.list(PM.paths.revs(pid, d.id));
+        for (const r of revs) { const dt = String(r.data.date).slice(0, 10); const late = facts(r.data.fields).filter(([, x]) => x > dt); if (late.length) anach.push(d.id + ' rev ' + r.data.rev + ' (' + dt + '): ' + late.map((x) => x[0]).join(',')); }
+        if (revs.length) {
+          const sorted = revs.map((r) => r.data).sort((a, x) => String(a.date).localeCompare(String(x.date)));
+          const last = sorted[sorted.length - 1];
+          ok(last.rev === b.rev && last.status === b.status && (b.status !== 'aprobado' || String(last.date).slice(0, 10) === b.titleBlock.fechaAprobacion), d.id + ': la última revisión del historial es la vigente', [last.rev, b.rev, last.date, b.titleBlock.fechaAprobacion]);
+          ok(sorted.every((r) => r.title === b.title && r.titleBlock && r.titleBlock.codigo === b.titleBlock.codigo), d.id + ': revisiones con título y código del documento');
+          ok(String(b.createdAt).slice(0, 10) <= String(sorted[0].date).slice(0, 10) && String(b.updatedAt).slice(0, 10) === String(last.date).slice(0, 10), d.id + ': creado y actualizado según el historial');
+        }
+        if (b.status === 'aprobado') ok(b.titleBlock.fechaAprobacion <= st && D.dow(b.titleBlock.fechaAprobacion) % 6 !== 0, d.id + ': aprobado en día hábil hasta el corte', b.titleBlock.fechaAprobacion);
+      }
+      ok(!anach.length, 'ningún documento aprobado cita hechos posteriores a su aprobación', anach);
       const scope = docs.find((x) => x.id === 'enunciado-alcance');
-      if (scope) ok(JSON.stringify(lb0.data.scope.scopeStatement) === JSON.stringify(scope.data.fields), 'el enunciado del alcance de la LB0 coincide con el documento');
+      if (scope) {
+        const r0 = (await PM.store.list(PM.paths.revs(pid, 'enunciado-alcance'))).find((r) => r.data.rev === '0');
+        ok(JSON.stringify(lb1.data.scope.scopeStatement) === JSON.stringify(scope.data.fields), 'el enunciado del alcance de la LB1 es el documento vigente');
+        ok(r0 ? JSON.stringify(lb0.data.scope.scopeStatement) === JSON.stringify(r0.data.fields) : JSON.stringify(lb0.data.scope.scopeStatement) === JSON.stringify(scope.data.fields), 'el enunciado del alcance de la LB0 es la emisión aprobada en agosto');
+        ok(!facts(lb0.data.scope.scopeStatement).length, 'el enunciado de la LB0 no menciona la plataforma ni hechos posteriores', facts(lb0.data.scope.scopeStatement));
+      }
     }
     out.pid = pid;
     return out;
@@ -281,6 +353,21 @@ section('Portafolio vacío → «Crear proyecto de ejemplo» → recarga');
   console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);
 }
 
+/* ------------------------------------------------------------------ 2b) modo de solo lectura */
+section('Portafolio en solo lectura');
+{
+  const before = { passes, failures };
+  const { browser, page, errors } = await openApp({ file: file90 });
+  try {
+    await page.evaluate(() => { PM.setState({ canWrite: false }); PM.navigate('portafolio'); });
+    await page.waitForTimeout(300);
+    check(await page.locator('.empty').count() === 1, 'estado vacío visible en solo lectura');
+    check(await page.getByRole('button', { name: 'Crear proyecto de ejemplo' }).count() === 0, 'sin botón «Crear proyecto de ejemplo» en solo lectura');
+    check(errors.length === 0, 'sin errores de consola', errors);
+  } finally { await browser.close(); }
+  console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);
+}
+
 /* ------------------------------------------------------------------ 3) prueba de humo */
 section('Prueba de humo (test/smoke.mjs)');
 {
@@ -305,6 +392,22 @@ else {
   section('Prueba de humo con plantillas');
   process.stdout.write(r.stdout.split('\n').map((l) => (l ? '  ' + l : l)).join('\n'));
   check(r.status === 0, 'smoke.mjs con plantillas termina sin errores', r.stderr);
+}
+
+/* ------------------------------------------------------------------ 5) con todos los módulos disponibles: el ejemplo en todas las vistas */
+if (!args.includes('--quick')) {
+  const mods = [...new Set(readdirSync(join(root, 'src')).filter((f) => /^\d\d-.*\.js$/.test(f) && !/^0\d-|^99-/.test(f)).map((f) => f.slice(0, 2)))];
+  const fileAll = build('example-all.html', mods.join(','));
+  for (const mode of [[], ['--dark'], ['--mobile']]) {
+    const extra = [...mode, ...(shots ? ['--shots', shots] : [])];
+    let r = spawnSync(process.execPath, [join(root, 'test/smoke.mjs'), '--file', fileAll, ...extra], { encoding: 'utf8' });
+    if (r.status !== 0 && /TimeoutError/.test(r.stderr)) r = spawnSync(process.execPath, [join(root, 'test/smoke.mjs'), '--file', fileAll, ...extra], { encoding: 'utf8' });
+    section('Prueba de humo con todos los módulos (' + mods.join(', ') + ')' + (mode.length ? ' ' + mode[0] : ''));
+    const lines = r.stdout.split('\n').filter(Boolean);
+    process.stdout.write('  ' + lines.filter((l) => l.startsWith('OK')).length + ' vistas sin errores\n');
+    for (const l of lines.filter((l) => !l.startsWith('OK'))) console.log('  ' + l);
+    check(r.status === 0, 'smoke.mjs con todos los módulos' + (mode.length ? ' ' + mode[0] : ''), r.stderr.slice(0, 400));
+  }
 }
 
 console.log(`\n${failures ? 'FALLÓ' : 'OK'}: ${passes} verificaciones correctas, ${failures} fallidas.`);
