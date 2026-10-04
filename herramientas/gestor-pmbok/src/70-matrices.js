@@ -105,7 +105,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-bar-track { height: 8px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
 .matrices-bar-fill { height: 100%; border-radius: 4px; background: var(--s1); }
 .matrices-bar-row .cnt { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: var(--fs-xs); }
-.matrices-scale { min-width: 104px; }
+.matrices-scale { min-width: 112px; }
 .matrices-scale.is-impact { min-width: 116px; }
 .matrices-cat-col { min-width: 96px; }
 /* En pantallas medianas la categoría pasa a la línea de tipo (bajo la descripción) para que la tabla quepa sin desplazamiento */

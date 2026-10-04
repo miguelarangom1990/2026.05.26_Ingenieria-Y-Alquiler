@@ -61,7 +61,7 @@
       const file = input.files && input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async () => {
-        try { const obj = JSON.parse(String(reader.result)); const id = await PM.projectOps.importData(obj); PM.toast('Proyecto importado.'); PM.selectProject(id, 'tablero'); }
+        try { const obj = JSON.parse(String(reader.result)); const id = await PM.runWithProgress('Importando el proyecto', (onProgress) => PM.projectOps.importData(obj, { onProgress })); if (!id) return; PM.toast('Proyecto importado.'); PM.selectProject(id, 'tablero'); }
         catch (e) { PM.toast(e && e.message && !e.code ? e.message : 'No se pudo importar el archivo. Verifica que sea una exportación del Gestor PMBOK.', { tone: 'crit' }); }
       };
       reader.readAsText(file);
@@ -82,7 +82,8 @@
     if (!PM.exampleBuilders.length) return;
     try {
       const data = PM.exampleBuilders[0]({ today: PM.date.today() });
-      const id = await PM.projectOps.importData(data);
+      const id = await PM.runWithProgress('Creando el proyecto de ejemplo', (onProgress) => PM.projectOps.importData(data, { onProgress }));
+      if (!id) return;
       PM.toast('Proyecto de ejemplo creado.');
       PM.selectProject(id, 'tablero');
     } catch (e) { console.error(e); PM.toast('No se pudo crear el proyecto de ejemplo.', { tone: 'crit' }); }
@@ -134,7 +135,7 @@
               <td class="nowrap xsmall faint">${PM.fmt.datetime(p.updatedAt)}</td>
               <td class="no-row-click"><${ui.Dropdown} label=${'Acciones de ' + p.name} items=${[
                 { label: 'Abrir tablero', icon: 'dashboard', onClick: () => PM.selectProject(p.id, 'tablero') },
-                canWrite && { label: 'Duplicar', icon: 'copy', onClick: async () => { const id = await PM.projectOps.duplicate(p.id, p.name + ' (copia)'); PM.toast('Proyecto duplicado.'); PM.selectProject(id, 'tablero'); } },
+                canWrite && { label: 'Duplicar', icon: 'copy', onClick: async () => { try { const id = await PM.runWithProgress('Duplicando el proyecto', (onProgress) => PM.projectOps.duplicate(p.id, p.name + ' (copia)', { onProgress })); if (!id) return; PM.toast('Proyecto duplicado.'); PM.selectProject(id, 'tablero'); } catch (e) { PM.toast('No se pudo duplicar el proyecto.', { tone: 'crit' }); } } },
                 { label: 'Exportar (.json)', icon: 'download', onClick: () => PM.exportProjectFile(p.id, p) },
                 canWrite && 'sep',
                 canWrite && { label: 'Eliminar', icon: 'trash', danger: true, onClick: () => PM.deleteProjectFlow(p) },

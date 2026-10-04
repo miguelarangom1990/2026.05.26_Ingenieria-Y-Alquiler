@@ -272,7 +272,19 @@
   const writeChains = new Map();
   const chain = (path, fn) => { const prev = writeChains.get(path) || Promise.resolve(); const p = prev.catch(() => {}).then(fn); writeChains.set(path, p); p.finally(() => { if (writeChains.get(path) === p) writeChains.delete(path); }); return p; };
   const track = async (p) => { PM.setState((s) => ({ saving: s.saving + 1 })); try { const r = await p; PM.setState((s) => ({ saving: s.saving - 1, lastSaved: Date.now() })); return r; } catch (e) { PM.setState((s) => ({ saving: s.saving - 1 })); throw e; } };
-  const withRetry = async (fn) => { try { return await fn(); } catch (e) { if (e && e.code === 'unavailable') { await new Promise((r) => setTimeout(r, 800 + Math.random() * 900)); return fn(); } throw e; } };
+  /* Reintenta una vez si la plataforma no está disponible y con espera creciente si se excede la cuota de llamadas. */
+  const withRetry = async (fn) => {
+    let busyTries = 0, unavailTries = 0;
+    for (;;) {
+      try { return await fn(); }
+      catch (e) {
+        const code = e && e.code;
+        if (code === 'unavailable' && unavailTries++ < 1) { await new Promise((r) => setTimeout(r, 800 + Math.random() * 900)); continue; }
+        if (code === 'resource_exhausted' && busyTries++ < 4) { await new Promise((r) => setTimeout(r, 1200 * Math.pow(2, busyTries - 1) + Math.random() * 400)); continue; }
+        throw e;
+      }
+    }
+  };
   PM.store = {
     get kind() { return backend ? backend.kind : 'loading'; },
     async get(path) { await PM.storeReady; return backend.get(path); },
@@ -386,7 +398,10 @@
     const st = PM.useAppState();
     const r = PM.useDoc(st.projectId ? PM.paths.tool(st.projectId, toolId) : null);
     const data = r.exists && r.data ? r.data : defaultValue;
-    return [data, r.save, { loading: r.loading, exists: r.exists, saveNow: r.saveNow }];
+    const pid = st.projectId;
+    const save = useCallback((v) => { PM.touchProject && PM.touchProject(pid); return r.save(v); }, [r.save, pid]);
+    const saveNow = useCallback((v) => { PM.touchProject && PM.touchProject(pid); return r.saveNow(v); }, [r.saveNow, pid]);
+    return [data, save, { loading: r.loading, exists: r.exists, saveNow }];
   };
   PM.useCanWrite = () => PM.useAppState().canWrite;
   /* Lectura puntual (no reactiva) de datos de herramienta, p. ej. para exportar. */
@@ -774,6 +789,18 @@
     </div>`;
   };
 
+  /* Ejecuta una tarea larga mostrando un diálogo de progreso no cancelable: fn(onProgress(done,total)). */
+  let busyTask = false;
+  PM.runWithProgress = async (title, fn) => {
+    if (busyTask) { PM.toast('Espera a que termine la operación en curso.'); return undefined; }
+    busyTask = true;
+    let set = null; let state = { done: 0, total: 0 };
+    function Progress() { const [st, setSt] = useState(state); set = setSt; const pct = st.total ? Math.round((st.done / st.total) * 100) : 0; return html`<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-label=${title} style="max-width:420px"><div class="modal-body"><div class="h3">${title}</div><${ui.Meter} value=${st.total ? st.done / st.total : 0} label=${title} /><div class="small muted num" role="status">${st.total ? 'Guardando ' + st.done + ' de ' + st.total + ' registros (' + pct + ' %)…' : 'Preparando…'}</div></div></div></div>`; }
+    const close = PM.openModal(() => html`<${Progress} />`);
+    try { return await fn((done, total) => { state = { done, total }; set && set(state); }); }
+    finally { busyTask = false; close(); }
+  };
+
   /* ------------------------------------------------------------------ descargas y portapapeles */
   PM.copyText = async (text) => { try { await navigator.clipboard.writeText(text); PM.toast('Copiado al portapapeles.'); return true; } catch (e) { return false; } };
   ui.CopyBlock = function CopyBlock({ text, rows = 12 }) {
@@ -801,9 +828,19 @@
   PM.svgToString = (svgEl) => {
     if (!svgEl) return '';
     const clone = svgEl.cloneNode(true);
-    const src = svgEl.querySelectorAll('*'); const dst = clone.querySelectorAll('*');
-    const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'fill-opacity', 'stroke-opacity', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'dominant-baseline'];
-    src.forEach((el, i) => { const cs = getComputedStyle(el); const d = dst[i]; props.forEach((p) => { const v = cs.getPropertyValue(p); if (v && v !== 'none' || p === 'fill' || p === 'stroke') d.setAttribute(p, v); }); d.removeAttribute('class'); });
+    const rootCS = getComputedStyle(document.documentElement);
+    const resolveVars = (str) => { let out = String(str); for (let k = 0; k < 4 && out.includes('var('); k++) out = out.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)/g, (m, name, fb) => rootCS.getPropertyValue(name).trim() || (fb ? fb.trim() : '') || 'currentColor'); return out; };
+    const src = [svgEl, ...svgEl.querySelectorAll('*')]; const dst = [clone, ...clone.querySelectorAll('*')];
+    const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-anchor', 'dominant-baseline', 'paint-order', 'visibility'];
+    src.forEach((el, i) => {
+      const d = dst[i]; if (!d) return;
+      const cs = getComputedStyle(el);
+      if (el !== svgEl) props.forEach((p) => { const v = cs.getPropertyValue(p); if ((v && v !== 'normal' && v !== 'auto') || p === 'fill' || p === 'stroke') d.setAttribute(p, v); });
+      if (cs.display === 'none') d.setAttribute('display', 'none');
+      for (const a of [...d.attributes]) if (a.value && a.value.includes('var(')) d.setAttribute(a.name, resolveVars(a.value));
+      d.removeAttribute('class');
+    });
+    clone.querySelectorAll('style').forEach((st) => { st.textContent = resolveVars(st.textContent); });
     const bg = getComputedStyle(document.body).backgroundColor;
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     const w = svgEl.getAttribute('width') || svgEl.viewBox?.baseVal?.width; const hgt = svgEl.getAttribute('height') || svgEl.viewBox?.baseVal?.height;
@@ -812,6 +849,7 @@
     if (w) clone.setAttribute('width', w); if (hgt) clone.setAttribute('height', hgt);
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
   };
+
   ui.SvgDownload = function SvgDownload({ getSvg, filename, label = 'Descargar SVG' }) {
     return html`<${ui.Button} size="sm" icon="image" onClick=${() => { const el = typeof getSvg === 'function' ? getSvg() : getSvg?.current; if (!el) return; PM.download(filename, PM.svgToString(el)); }}>${label}</${ui.Button}>`;
   };
@@ -858,18 +896,28 @@
       }
       return out;
     },
-    async importData(obj, { rename } = {}) {
+    async importData(obj, { rename, onProgress } = {}) {
       if (!obj || obj.format !== 'gestor-pmbok' || !obj.project) throw new Error('El archivo no es una exportación válida del Gestor PMBOK.');
       const id = PM.uid('p'); const now = PM.nowIso();
       const meta = { ...obj.project, name: rename || obj.project.name, updatedAt: now, importedAt: now };
+      const writes = [];
       for (const [name, items] of Object.entries(obj.collections || {})) {
+        if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
         for (const it of items || []) {
-          if (!it || !it.id || !it.data) continue;
-          await PM.store.set(PM.paths.project(id) + '/' + name + '/' + it.id, it.data);
-          for (const [k, v] of Object.entries(it)) { if (k === 'id' || k === 'data' || !Array.isArray(v)) continue; for (const sub of v) if (sub && sub.id && sub.data) await PM.store.set(PM.paths.project(id) + '/' + name + '/' + it.id + '/' + k + '/' + sub.id, sub.data); }
+          if (!it || !it.id || !it.data || typeof it.data !== 'object') continue;
+          writes.push([PM.paths.project(id) + '/' + name + '/' + it.id, it.data]);
+          for (const [k, v] of Object.entries(it)) { if (k === 'id' || k === 'data' || !Array.isArray(v)) continue; for (const sub of v) if (sub && sub.id && sub.data && typeof sub.data === 'object') writes.push([PM.paths.project(id) + '/' + name + '/' + it.id + '/' + k + '/' + sub.id, sub.data]); }
         }
       }
-      await PM.store.set(PM.paths.project(id), meta);
+      const total = writes.length + 1; let done = 0;
+      try {
+        for (const [path, data] of writes) { await PM.store.set(path, data); done++; onProgress && onProgress(done, total); }
+        /* el proyecto se escribe al final: solo aparece en el portafolio si todo lo demás quedó guardado */
+        await PM.store.set(PM.paths.project(id), meta); onProgress && onProgress(total, total);
+      } catch (e) {
+        try { for (const [path] of writes.slice(0, done)) await PM.store.delete(path); } catch (e2) { /* limpieza parcial */ }
+        throw e;
+      }
       return id;
     },
     async remove(id) {
@@ -882,7 +930,7 @@
       }
       await PM.store.delete(PM.paths.project(id));
     },
-    async duplicate(id, name) { const data = await PM.projectOps.exportData(id); return PM.projectOps.importData(data, { rename: name }); },
+    async duplicate(id, name, opts = {}) { const data = await PM.projectOps.exportData(id); return PM.projectOps.importData(data, { rename: name, onProgress: opts.onProgress }); },
   };
   PM.nextProjectCode = (projects) => { const y = new Date().getFullYear(); let n = 1; const codes = new Set(projects.map((p) => p.code)); while (codes.has('PRY-' + y + '-' + String(n).padStart(3, '0'))) n++; return 'PRY-' + y + '-' + String(n).padStart(3, '0'); };
 })();

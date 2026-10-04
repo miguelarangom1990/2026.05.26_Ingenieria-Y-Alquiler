@@ -75,10 +75,10 @@ son cadenas ISO `YYYY-MM-DD`; las marcas de tiempo, ISO completas (`PM.nowIso()`
 | `projects/{pid}/docs/{docId}` | documento (ver §5). `docId` = id de plantilla; si la plantilla es `multiple`, `docId = <plantilla>--<uid>` |
 | `projects/{pid}/docs/{docId}/revs/{revId}` | revisión emitida (instantánea) |
 | `projects/{pid}/tools/wbs` | `{nodes:[{id, parentId, name, order, description, responsible, deliverable, acceptance, costEstimate, notes, kind}]}` |
-| `projects/{pid}/tools/schedule` | `{settings:{workweek:5|6|7, holidaysCO:bool, extraHolidays:[]}, tasks:[Task]}` |
+| `projects/{pid}/tools/schedule` | `{settings:{workweek:5|6|7, holidaysCO:bool, extraHolidays:[], resourceLimits:{nombre:unidades}}, tasks:[Task]}` |
 | `projects/{pid}/tools/costs` | `{actuals:[{id,date,amount,taskId,wbsId,category,description,document}], statusUpdates:[{id,date,progress:{taskId:pct},note}], reserves:{contingency, management}}` |
 | `projects/{pid}/tools/raci` | `{roles:[{id,name}], rows:[{id, wbsId, activity, cells:{roleId:'R'|'A'|'C'|'I'|'RA'|…}}]}` |
-| `projects/{pid}/tools/quality` | `{ishikawa:[{id,name,effect,categories:[{id,name,causes:[{id,text,sub:[{id,text}]}]}]}], pareto:[{id,name,source:'manual'|'mediciones',items:[{id,cause,count}]}]}` |
+| `projects/{pid}/tools/quality` | `{ishikawa:[{id,name,effect,categories:[{id,name,causes:[{id,text,sub:[{id,text}]}]}]}], pareto:[{id,name,source:'manual'|'mediciones',items:[{id,cause,count}]}], control:[{id,name,unit,target,lsl,usl,points:[{id,date,value,note}]}]}` |
 | `projects/{pid}/baselines/{bid}` | `{number, label:'LB0', date, includes:['scope','schedule','cost'], note, changeRef, byId, scope?, schedule?, cost?}` (ver `PM.calc.makeBaselineSnapshot`) |
 | `projects/{pid}/flows/{fid}` | `{name, description, nodes:[{id,type,x,y,w,h,text}], edges:[{id,from,to,label}], lanes?:[{id,name}], updatedAt}` |
 

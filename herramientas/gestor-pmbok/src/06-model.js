@@ -13,7 +13,7 @@
     schedule: { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: [] },
     costs: { actuals: [], statusUpdates: [], reserves: { contingency: 0, management: 0 } },
     raci: { roles: [], rows: [] },
-    quality: { ishikawa: [], pareto: [] },
+    quality: { ishikawa: [], pareto: [], control: [] },
   });
 
   /* Fecha de corte del proyecto (project.statusDate) o, si no hay, hoy. */

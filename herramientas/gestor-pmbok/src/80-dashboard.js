@@ -1121,7 +1121,7 @@
       const name = await PM.promptText({ title: 'Duplicar proyecto', label: 'Nombre de la copia', value: project.name + ' (copia)', confirmText: 'Duplicar proyecto' });
       if (!name) return;
       setBusy('dup');
-      try { const id = await PM.projectOps.duplicate(project.id, name); PM.toast('Proyecto duplicado. Revisa el código y los datos de la copia.'); PM.selectProject(id, 'ficha'); }
+      try { const id = await PM.runWithProgress('Duplicando el proyecto', (onProgress) => PM.projectOps.duplicate(project.id, name, { onProgress })); if (!id) return; PM.toast('Proyecto duplicado. Revisa el código y los datos de la copia.'); PM.selectProject(id, 'ficha'); }
       catch (e) { PM.toast('No se pudo duplicar el proyecto. Intenta de nuevo.', { tone: 'crit' }); setBusy(null); }
     };
     const exportFile = async () => { setBusy('exp'); try { await PM.exportProjectFile(project.id, project); } finally { setBusy(null); } };
