@@ -124,6 +124,19 @@ try {
   const tipText = norm(await page.locator('.evm-chart .chart-tip').innerText().catch(() => ''));
   check('curva S: información al pasar el cursor (fecha, PV, EV, AC, SV, CV)', tipText.includes('Valor planificado (PV)') && tipText.includes('SV = EV − PV') && tipText.includes('CV = EV − AC') && /\d{4}/.test(tipText), tipText);
   check('curva S: cruceta visible', (await page.locator('[data-role="crosshair"]').count()) === 1);
+  const tipOk = await page.evaluate(async ({ pid, tipText }) => {
+    const project = await PM.store.get(PM.paths.project(pid)); const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const costs = await PM.store.get(PM.paths.tool(pid, 'costs')); const bl = PM.calc.activeBaselines(await PM.store.list(PM.paths.baselines(pid)));
+    const e = PM.calc.evm({ sched: PM.calc.computeSchedule(schedule, project.start), costBaseline: bl.cost, costs, statusDate: PM.statusDateOf(project) });
+    const t = tipText.replace(/\u00a0/g, ' ');
+    const p = e.series.find((q) => t.includes(PM.fmt.date(q.date, 'long')));
+    return !!p && t.includes(PM.fmt.moneyShort(p.pv, 'COP')) && (p.ev === null || t.includes(PM.fmt.moneyShort(p.ev, 'COP')));
+  }, { pid, tipText });
+  check('curva S: la información muestra los valores de la fecha más cercana de la serie', tipOk, tipText);
+  const outOfBounds = await page.evaluate(() => { const svg = document.querySelector('[data-chart="curva-s"]'); const W = +svg.getAttribute('width'), H = +svg.getAttribute('height'); return [...svg.querySelectorAll('text')].filter((t) => { const b = t.getBBox(); return b.x < -0.5 || b.y < -0.5 || b.x + b.width > W + 0.5 || b.y + b.height > H + 0.5; }).map((t) => t.textContent); });
+  check('curva S: todas las etiquetas dentro del gráfico', outOfBounds.length === 0, outOfBounds);
+  const xOverlap = await page.evaluate(() => { const svg = document.querySelector('[data-chart="curva-s"]'); const bs = [...svg.querySelectorAll('text')].map((t) => ({ s: t.textContent, b: t.getBBox() })); const out = []; for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) { const a = bs[i].b, b = bs[j].b; if (a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5) out.push(bs[i].s + ' / ' + bs[j].s); } return out; });
+  check('curva S: ninguna etiqueta se superpone con otra', xOverlap.length === 0, xOverlap);
   await page.mouse.move(5, 5);
   await page.waitForTimeout(100);
   check('curva S: la información se oculta al salir', (await page.locator('.evm-chart .chart-tip').count()) === 0);
@@ -136,6 +149,7 @@ try {
   check('interpretación con SPI y CPI', interp.includes('SPI ' + exp.spi) && interp.includes('CPI ' + exp.cpi) && interp.includes('atrasado'), interp.slice(0, 200));
   await page.click('button:has-text("Ver tabla")');
   check('Ver tabla: una fila por fecha de la serie', (await page.locator('[data-role="series-table"] tbody tr').count()) === exp.seriesLen, exp.seriesLen);
+  check('Ver tabla: la tabla cabe sin desplazamiento lateral a 1360 px', await page.$eval('[data-role="series-table"] .table-wrap', (el) => el.scrollWidth <= el.clientWidth + 1));
   await page.click('[data-role="series-table"] button:has-text("Descargar CSV")');
   let dl = await lastDownload(page);
   check('Ver tabla: CSV de la serie', dl && dl.name === 'curva-s_pry-test-001.csv' && dl.data.includes('Fecha;PV (COP);EV (COP);AC (COP)'), dl && dl.name);
@@ -200,6 +214,13 @@ try {
   await page.waitForTimeout(100);
   check('costos reales: filtro de búsqueda', (await page.locator('[data-actual]').count()) === 2);
   await page.fill('[data-role="actuals"] input[type="search"]', '');
+  await page.click('[data-actual="a2"] [data-field="description"]');
+  await page.keyboard.press('End');
+  await page.keyboard.type(' (ajuste)');
+  await page.waitForTimeout(1600);
+  costs = await stored(page, pid, 'costs');
+  check('costos reales: el texto se guarda al pausar la escritura, sin salir del campo', costs.actuals.find((a) => a.id === 'a2').description === 'Saldo de horas de ingeniería (ajuste)', costs.actuals.find((a) => a.id === 'a2').description);
+  await page.locator('[data-actual="a2"] [data-field="description"]').blur();
 
   await page.reload();
   await page.waitForFunction(() => window.PM && PM.getState().mode !== 'loading');
@@ -273,6 +294,13 @@ try {
   await page.waitForTimeout(500);
   const sd = await page.evaluate((pid) => PM.store.get(PM.paths.project(pid)).then((p) => p.statusDate), pid);
   check('fecha de corte guardada en el proyecto', sd === '2026-09-15', sd);
+  await page.$eval('#evm-status-date', (el) => { el.focus(); el.value = '0002-09-15'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.waitForTimeout(900);
+  const partial = { input: await page.inputValue('#evm-status-date'), stored: await page.evaluate((pid) => PM.store.get(PM.paths.project(pid)).then((p) => p.statusDate), pid) };
+  check('fecha de corte: un año a medio escribir no se guarda ni se borra del campo', partial.input === '0002-09-15' && partial.stored === '2026-09-15', partial);
+  await page.locator('#evm-status-date').blur();
+  await page.waitForTimeout(150);
+  check('fecha de corte: al salir con una fecha no válida se restaura la guardada', (await page.inputValue('#evm-status-date')) === '2026-09-15');
   exp = await expected(page, pid);
   await tab(page, 'Indicadores');
   check('indicadores recalculados con la nueva fecha de corte', (await full('pv')) === exp.pv && (await full('ac')) === exp.ac && exp.statusDate === '2026-09-15' && exp.raw.ac === 84000000, [await full('pv'), exp.pv, await full('ac'), exp.ac]);
@@ -313,6 +341,10 @@ try {
   await tab(page, 'Presupuesto');
   check('lectura: reservas sin campos editables', (await page.locator('[data-field="contingency"]').count()) === 0);
   check('lectura: fecha de corte sin campo editable', (await page.locator('input#evm-status-date').count()) === 0 && (await page.locator('button:has-text("Usar hoy")').count()) === 0);
+  await tab(page, 'Por actividad');
+  check('lectura: por actividad sin campos editables', (await page.locator('[data-role="activities"] input:not([type="search"]), [data-role="activities"] select').count()) === 0);
+  await tab(page, 'Indicadores');
+  check('lectura: indicadores sin campos editables', (await page.locator('[data-role="indicators"] input, [data-role="indicators"] select').count()) === 0);
   await page.evaluate(() => PM.setState({ canWrite: true }));
 
   /* ---------- muchos registros: se muestran los 200 más recientes */
@@ -336,6 +368,71 @@ try {
 }
 check('sin errores de consola', errors.length === 0, errors.slice(0, 3));
 await browser.close();
+
+/* ---------- casos límite: proyecto terminado, plan corto, navegación por pestaña, sin presupuesto */
+{
+  const app = await openApp({ file });
+  const p = app.page;
+  try {
+    const mk = (meta, tasks, costs, baseline) => p.evaluate(async ({ meta, tasks, costs, baseline }) => {
+      const id = await PM.projectOps.create({ name: 'Caso límite', code: 'PRY-TEST-LIM', currency: 'COP', ...meta });
+      const schedule = { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks };
+      await PM.store.set(PM.paths.tool(id, 'schedule'), schedule);
+      await PM.store.set(PM.paths.tool(id, 'costs'), costs);
+      if (baseline) { const sched = PM.calc.computeSchedule(schedule, meta.start); await PM.store.set(PM.paths.baseline(id, 'b0'), { number: 0, label: 'LB0', date: meta.start, ...PM.calc.makeBaselineSnapshot({ includes: ['cost'], sched, wbs: { nodes: [] }, costs }) }); }
+      PM.selectProject(id, 'valor-ganado');
+      return id;
+    }, { meta, tasks, costs, baseline });
+    const T = (id, duration, cost, progress, deps = []) => ({ id, name: 'Actividad ' + id, wbsId: null, duration, cost, progress, deps: deps.map((d) => ({ id: d, type: 'FS', lag: 0 })) });
+    const noCosts = { actuals: [], statusUpdates: [], reserves: { contingency: 0, management: 0 } };
+
+    /* proyecto terminado: el cronograma ganado se mide hasta la terminación, no hasta la fecha de corte */
+    await mk({ start: '2026-03-02', statusDate: '2026-09-30', budget: 3000000 }, [T('a', 10, 1000000, 100), T('b', 10, 2000000, 100, ['a'])], { ...noCosts, actuals: [{ id: 'x1', date: '2026-03-20', amount: 3000000, category: 'Equipos' }] }, true);
+    await p.waitForSelector('[data-chart="curva-s"]');
+    check('terminado: la interpretación da la fecha de terminación', norm(await p.locator('[data-note="es"]').innerText()).includes('terminó el 30 de marzo de 2026'), norm(await p.locator('[data-note="es"]').innerText()));
+    check('terminado: aviso de EV en línea recta por falta de cortes', await p.locator('[data-role="no-cuts-hint"]').isVisible());
+    await p.click('[data-role="no-cuts-hint"] button');
+    await p.waitForTimeout(200);
+    check('terminado: el aviso lleva a la pestaña Avance', (await p.getAttribute('[role="tabpanel"]', 'data-tab')) === 'avance');
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Indicadores")');
+    await p.waitForTimeout(200);
+    const spiT = norm(await p.locator('[data-metric="spiT"] .evm-metric-value').innerText());
+    const fin = norm(await p.locator('[data-metric="forecastFinish"]').innerText());
+    check('terminado: SPI(t) = PD / duración real (1,00) y «Fin del trabajo»', spiT === '1,00' && fin.includes('Fin del trabajo') && fin.includes('30 mar 2026'), [spiT, fin]);
+
+    /* plan corto (menos de tres meses): marcas semanales en el eje x */
+    await mk({ start: '2026-08-03', statusDate: '2026-08-20', budget: 0 }, [T('a', 12, 4000000, 50), T('b', 8, 2000000, 0, ['a'])], noCosts, false);
+    await p.waitForTimeout(300);
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Curva S")');
+    await p.waitForSelector('[data-chart="curva-s"]');
+    const xl = await p.$$eval('[data-chart="curva-s"] text', (ts) => ts.map((t) => t.textContent).filter((x) => /^\d{2} [a-z]{3}$/.test(x)));
+    check('plan corto: el eje x usa semanas (al menos 3 etiquetas)', xl.length >= 3, xl);
+    check('sin línea base: botón «Establecer línea base»', (await p.locator('[data-source="schedule"] button:has-text("Establecer línea base")').count()) === 1);
+
+    /* navegación con pestaña: PM.navigate('valor-ganado', {tab}) abre la pestaña aunque se repita */
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'reales' }));
+    await p.waitForTimeout(200);
+    const t1 = await p.getAttribute('[role="tabpanel"]', 'data-tab');
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Curva S")');
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'reales' }));
+    await p.waitForTimeout(200);
+    check('navegación: PM.navigate con {tab} abre la pestaña (también al repetirla)', t1 === 'reales' && (await p.getAttribute('[role="tabpanel"]', 'data-tab')) === 'reales');
+
+    /* actividades sin presupuesto */
+    await mk({ start: '2026-08-03', statusDate: '2026-08-20' }, [T('a', 5, 0, 0)], noCosts, false);
+    await p.waitForTimeout(400);
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Curva S")');
+    await p.waitForTimeout(150);
+    check('sin presupuesto: Empty que pide asignar costos en el cronograma', await p.locator('.empty button:has-text("Asignar costos en el cronograma")').isVisible());
+    await p.evaluate(() => PM.setState({ canWrite: false }));
+    await p.waitForTimeout(150);
+    check('sin presupuesto en modo lectura: el botón solo navega («Ir al cronograma»)', await p.locator('.empty button:has-text("Ir al cronograma")').isVisible());
+    check('casos límite: sin errores', app.errors.length === 0 && (await errorCards(p)).length === 0, app.errors.slice(0, 3));
+  } catch (e) {
+    check('casos límite: excepción', false, String(e && e.stack || e).slice(0, 800));
+  }
+  await app.browser.close();
+}
 
 /* ---------- 400 px y tema oscuro */
 for (const mode of [{ name: 'móvil 400 px', width: 400, height: 860, dark: false, tag: 'm' }, { name: 'tema oscuro', width: 1360, height: 900, dark: true, tag: 'dark' }]) {

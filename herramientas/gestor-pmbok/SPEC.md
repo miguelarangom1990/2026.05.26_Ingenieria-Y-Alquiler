@@ -288,8 +288,15 @@ colores literales (salvo dentro de `head.html`). Ambos temas (claro/oscuro) debe
   Chip(tone), Empty(icon,title,actions), Card(title,subtitle,actions), PageHeader(eyebrow,title,description,actions),
   Stat(label,value,sub,tone), Meter(value 0–1,tone), Loading, Spinner, Dropdown(label,items), DataTable(columns,rows,onChange,readOnly,newRow,currency),
   Modal(title,onClose,footer,size:'wide'|'xl'), Person(id), ErrorBoundary, CopyBlock, SvgDownload(getSvg,filename)`.
-  Otros: `PM.openModal(close => html…)`, `PM.confirm`, `PM.promptText`, `PM.toast`, `PM.download`, `PM.toCSV(columns, rows)`,
-  `PM.svgToString(svgEl)`, `PM.copyText`, `PM.ai.json/text/available/errorText`.
+  Otros: `PM.openModal(close => html…)`, `PM.confirm`, `PM.promptText({…, optional, hint})`, `PM.toast`, `PM.download`, `PM.toCSV(columns, rows, currency)`,
+  `PM.svgToString(svgEl)`, `PM.copyText`, `PM.ai.json/text/available/errorText`, `PM.memo(Comp, areEqual?)`,
+  `PM.discardPending(path)` (descarta un guardado pendiente antes de eliminar), `PM.currentCurrency()`, `PM.isNum(v)`.
+  `PM.useChartTip()` → `{ref, setHost, show(e, contenido), hide, node}` (se voltea arriba/izquierda cerca de los bordes).
+  `ui.Dropdown` se posiciona `fixed` (no lo recortan contenedores con desplazamiento); `ui.Segmented` acepta `disabled`;
+  `ui.NumberInput` encadena `onFocus`/`onBlur` externos; `ui.Modal` gestiona foco y Escape solo para el modal superior;
+  `PM.ProjectForm` acepta `autoFocus={false}`. En columnas de tabla, `calc(row, rows, ctx)` y `format(v, row, ctx)` reciben
+  `ctx = {currency, rows, index}`; las celdas llevan la clase `col-<tipo>`. Los campos `table` aceptan `addLabel` y las columnas `default`.
+  Preact (paquete htm/standalone) no traduce `onFocusOut`: usa `onfocusout` en minúsculas o `onBlur`.
 - Vista típica: `<div class="page">` + `PageHeader` (eyebrow con el proceso PMBOK relacionado, p. ej. "6.5 Desarrollar el cronograma") + contenido.
   Cada vista abre en un estado útil: si no hay datos, un `Empty` que explique qué aparecerá y un botón para empezar
   (p. ej. "Agregar actividad", "Importar desde la EDT").

@@ -4,6 +4,7 @@
 (function () {
   'use strict';
   const PM = window.PM;
+  if (!PM || PM.failed || !PM.lib) return;
   const hashView = location.hash.slice(1);
   const savedView = PM.prefs.get('view', 'portafolio');
   const view = (hashView && PM.getView(hashView) && hashView) || (PM.getView(savedView) && savedView) || 'portafolio';

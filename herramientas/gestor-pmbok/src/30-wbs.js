@@ -122,10 +122,11 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
 .wbs-dict td { vertical-align: top; }
 .wbs-dict .wbs-c-code { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-2); white-space: nowrap; padding-top: 9px; }
 .wbs-dict.table-edit .wbs-c-code { padding-left: 10px; }
-.wbs-dict .wbs-dc-name { min-width: 140px; } .wbs-dict .wbs-dc-desc, .wbs-dict .wbs-dc-acc { min-width: 180px; }
-.wbs-dict .wbs-dc-resp { min-width: 135px; }
-.wbs-dict textarea.wbs-dc-name { resize: none; } .wbs-dict .wbs-dc-cost { min-width: 110px; } .wbs-dict .wbs-dc-deliv { min-width: 140px; }
+.wbs-dict .wbs-dc-name { min-width: 128px; } .wbs-dict .wbs-dc-desc, .wbs-dict .wbs-dc-acc { min-width: 155px; }
+.wbs-dict .wbs-dc-resp { min-width: 190px; }
+.wbs-dict textarea.wbs-dc-name { resize: none; } .wbs-dict .wbs-dc-cost { min-width: 110px; } .wbs-dict .wbs-dc-deliv { min-width: 130px; }
 .wbs-ta { resize: vertical; overflow: hidden; display: block; min-height: 28px; }
+.wbs-dict div.wbs-dc-cost { text-align: right; }
 .wbs-dict tfoot td { font-weight: 600; background: var(--surface-2); border-top: 1px solid var(--line-strong); padding: 8px 10px; }
 .wbs-dict-ro { white-space: pre-wrap; overflow-wrap: anywhere; padding: 4px 6px; }
 .wbs-dict-kind { margin-top: 2px; padding-left: 6px; }
@@ -861,7 +862,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       <td><${AutoTA} cls="wbs-dc-acc" value=${n.acceptance} label=${'Criterios de aceptación de ' + f.code} placeholder="Cómo se acepta" onValue=${set('acceptance')} /></td>
       <td>${f.isLeaf ? html`<${ui.NumberInput} class="cell-input wbs-dc-cost" money currency=${currency} min=${0} value=${n.costEstimate} aria-label=${'Costo estimado de ' + f.code} onValue=${set('costEstimate')} />`
         : html`<div class="cell-calc num wbs-sub wbs-dc-cost" title="Suma de los paquetes de trabajo que lo componen">${estV > 0 ? PM.fmt.money(estV, currency) : '—'}</div>`}</td>
-      <td><input class="cell-input wbs-dc-deliv" value=${n.deliverable || ''} placeholder="Entregable" aria-label=${'Entregable de ' + f.code} onInput=${(e) => actions.patch(id, { deliverable: e.currentTarget.value })} /></td>
+      <td><${AutoTA} single cls="wbs-dc-deliv" value=${n.deliverable} label=${'Entregable de ' + f.code} placeholder="Entregable" onValue=${set('deliverable')} /></td>
     </tr>`;
   }
   const DictRow = memoBy(DictRowImpl);
@@ -1328,7 +1329,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           <div class="wbs-main">${toolbar}<${Notices} issues=${issues} onPick=${actions.reveal} />${treeTable}${keysHint}</div>
           ${panel}
         </div>`
-      : tab === 'diagrama' ? html`<${WbsDiagram} tree=${tree} project=${project} est=${est} rollup=${rollup} currency=${currency} onOpen=${(id) => { setSelectedId(id); setDictId(id); }} />`
+      : tab === 'diagrama' ? html`<${WbsDiagram} tree=${tree} project=${project} est=${est} rollup=${rollup} currency=${currency} onOpen=${actions.openDict} />`
       : html`<${DictTab} tree=${tree} est=${est} directTasks=${directTasks} canWrite=${canWrite} currency=${currency} actions=${actions} project=${project} />`}
       ${dictOpen ? html`<${ui.Modal} title=${dictTitle} subtitle=${dictSub} size="wide" onClose=${() => setDictId(null)}
           footer=${html`<${ui.Button} variant="primary" onClick=${() => setDictId(null)}>Listo</${ui.Button}>`}>

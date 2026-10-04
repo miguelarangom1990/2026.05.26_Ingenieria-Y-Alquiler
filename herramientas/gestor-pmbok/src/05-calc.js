@@ -15,30 +15,37 @@
   calc.wbsTree = function (nodes) {
     const list = (nodes || []).filter((n) => n && n.id);
     const byId = new Map(list.map((n) => [n.id, n]));
-    const children = new Map();
     const keyOf = (pid) => (pid && byId.has(pid) ? pid : 'root');
-    for (const n of list) { const k = keyOf(n.parentId); if (!children.has(k)) children.set(k, []); children.get(k).push(n); }
-    for (const arr of children.values()) arr.sort((a, b) => num(a.order) - num(b.order) || String(a.name || '').localeCompare(String(b.name || '')));
-    const codes = new Map(), depth = new Map(), flat = [], leaves = new Set(), parentOf = new Map();
-    const seen = new Set();
-    const walk = (key, prefix, d) => {
-      (children.get(key) || []).forEach((n, i) => {
-        if (seen.has(n.id)) return; seen.add(n.id);
-        const code = prefix + '.' + (i + 1);
-        codes.set(n.id, code); depth.set(n.id, d); parentOf.set(n.id, key === 'root' ? null : key);
-        const isLeaf = !(children.get(n.id) || []).length;
-        if (isLeaf) leaves.add(n.id);
-        flat.push({ node: n, code, depth: d, isLeaf });
-        walk(n.id, code, d + 1);
-      });
-    };
-    walk('root', '1', 1);
-    /* nodos huérfanos por ciclos: se agregan al final como raíz */
-    for (const n of list) if (!seen.has(n.id)) { seen.add(n.id); const code = '1.' + ((children.get('root') || []).length + 1); codes.set(n.id, code); depth.set(n.id, 1); flat.push({ node: n, code, depth: 1, isLeaf: true }); leaves.add(n.id); }
-    const descendants = (id) => { const out = []; const st = [...(children.get(id) || [])]; while (st.length) { const x = st.pop(); out.push(x.id); st.push(...(children.get(x.id) || [])); } return out; };
-    const ancestors = (id) => { const out = []; let p = parentOf.get(id); while (p) { out.push(p); p = parentOf.get(p); } return out; };
+    const effParent = new Map(list.map((n) => [n.id, keyOf(n.parentId)]));
+    let children, codes, depth, flat, leaves, parentOf, seen;
+    const sortFn = (a, b) => num(a.order) - num(b.order) || String(a.name || '').localeCompare(String(b.name || ''));
+    /* Recorre desde la raíz; los nodos atrapados en ciclos (datos importados corruptos) se cuelgan de la raíz. */
+    for (let guard = 0; guard <= list.length; guard++) {
+      children = new Map();
+      for (const n of list) { const k = effParent.get(n.id); if (!children.has(k)) children.set(k, []); children.get(k).push(n); }
+      for (const arr of children.values()) arr.sort(sortFn);
+      codes = new Map(); depth = new Map(); flat = []; leaves = new Set(); parentOf = new Map(); seen = new Set();
+      const walk = (key, prefix, d) => {
+        (children.get(key) || []).forEach((n, i) => {
+          if (seen.has(n.id)) return; seen.add(n.id);
+          const code = prefix + '.' + (i + 1);
+          codes.set(n.id, code); depth.set(n.id, d); parentOf.set(n.id, key === 'root' ? null : key);
+          const isLeaf = !(children.get(n.id) || []).length;
+          if (isLeaf) leaves.add(n.id);
+          flat.push({ node: n, code, depth: d, isLeaf });
+          walk(n.id, code, d + 1);
+        });
+      };
+      walk('root', '1', 1);
+      const lost = list.find((n) => !seen.has(n.id));
+      if (!lost) break;
+      effParent.set(lost.id, 'root');
+    }
+    const descendants = (id) => { const out = []; const done = new Set([id]); const st = [...(children.get(id) || [])]; while (st.length) { const x = st.pop(); if (done.has(x.id)) continue; done.add(x.id); out.push(x.id); st.push(...(children.get(x.id) || [])); } return out; };
+    const ancestors = (id) => { const out = []; let p = parentOf.get(id); while (p && !out.includes(p)) { out.push(p); p = parentOf.get(p); } return out; };
     return { nodes: list, byId, children, codes, depth, flat, leaves, parentOf, descendants, ancestors, rootCode: '1', childrenOf: (id) => children.get(id || 'root') || [] };
   };
+
 
   /* ---------------------------------------------------------------- planificado vs fecha */
   /* Fracción planificada de una actividad al cierre del día `at`. */
@@ -149,8 +156,11 @@
     const out = new Map();
     const direct = new Map();
     for (const t of (sched && sched.tasks) || []) { if (!t.wbsId) continue; if (!direct.has(t.wbsId)) direct.set(t.wbsId, []); direct.get(t.wbsId).push(t); }
+    const visiting = new Set();
     const agg = (id) => {
       if (out.has(id)) return out.get(id);
+      if (visiting.has(id)) return { tasks: [], cost: 0, progress: 0, count: 0, start: null, finish: null, critical: false };
+      visiting.add(id);
       const tasks = [...(direct.get(id) || [])];
       for (const c of tree.childrenOf(id)) { const sub = agg(c.id); tasks.push(...sub.tasks); }
       const cost = PM.sum(tasks, (t) => num(t.cost));
@@ -198,7 +208,20 @@
       : sched.tasks.map((t) => ({ id: t.id, name: t.name, start: t.startDate, finish: t.finishDate, milestone: t.milestone, cost: num(t.cost) }));
     const budget = new Map(plan.map((p) => [p.id, p.cost]));
     const bac = PM.sum(plan, (p) => p.cost);
-    const pvAt = (date) => PM.sum(plan, (p) => p.cost * calc.plannedFraction(cal, p.start, p.finish, p.milestone, date));
+    /* PV acumulado: incrementos por día hábil (distribución lineal del presupuesto de cada actividad). */
+    const inc = new Map();
+    for (const p of plan) {
+      if (!p.cost || !D.valid(p.start)) continue;
+      if (p.milestone) { inc.set(p.start, (inc.get(p.start) || 0) + p.cost); continue; }
+      const fin = D.valid(p.finish) && p.finish >= p.start ? p.finish : p.start;
+      const a = cal.indexOf(p.start), b = cal.indexOf(D.add(fin, 1));
+      const n = b - a;
+      if (n <= 0) { inc.set(fin, (inc.get(fin) || 0) + p.cost); continue; }
+      const daily = p.cost / n;
+      for (let k = a; k < b; k++) { const d = cal.dateOf(k); inc.set(d, (inc.get(d) || 0) + daily); }
+    }
+    const pvDates = [...inc.keys()].sort(); const pvCum = []; { let acc = 0; for (const d of pvDates) { acc += inc.get(d); pvCum.push(acc); } }
+    const pvAt = (date) => { if (!pvDates.length || date < pvDates[0]) return 0; let lo = 0, hi = pvDates.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pvDates[mid] <= date) lo = mid; else hi = mid - 1; } return pvCum[lo]; };
     const evFrom = (prog) => { let s = 0; for (const [id, b] of budget) s += b * PM.clamp(num(prog[id]), 0, 100) / 100; return s; };
     const curProg = {}; for (const t of sched.tasks) curProg[t.id] = t.progress;
     const planStart = plan.length ? D.min(...plan.map((p) => p.start)) : sched.start;
@@ -236,9 +259,17 @@
     let esWd = null, atWd = null, spiT = null, forecastFinish = null, pdWd = null;
     if (D.valid(planStart) && D.valid(planFinish) && bac > 0) {
       pdWd = cal.countWork(planStart, planFinish);
-      atWd = at < planStart ? 0 : cal.countWork(planStart, at);
-      let i = 0, prevPv = 0, found = null; let day = planStart; let guard = 0;
-      while (day <= planFinish && guard++ < 6000) { if (cal.isWork(day)) { i++; const p = pvAt(day); if (p >= ev - 1e-6) { const frac = p - prevPv > 0 ? (ev - prevPv) / (p - prevPv) : 1; found = i - 1 + PM.clamp(frac, 0, 1); break; } prevPv = p; } day = D.add(day, 1); }
+      const complete = ev >= bac - 1e-6;
+      /* concluido el trabajo, el tiempo transcurrido se mide hasta su terminación (no hasta la fecha de corte) */
+      const atEnd = complete && D.valid(sched.finish) && sched.finish < at ? sched.finish : at;
+      atWd = atEnd < planStart ? 0 : cal.countWork(planStart, atEnd);
+      let found = null;
+      if (complete) found = pdWd;
+      else {
+        const startIdx = cal.indexOf(planStart), endIdx = cal.indexOf(D.add(planFinish, 1));
+        let prevPv = 0;
+        for (let k = startIdx; k < endIdx; k++) { const p = pvAt(cal.dateOf(k)); if (p >= ev - 1e-6) { const frac = p - prevPv > 0 ? (ev - prevPv) / (p - prevPv) : 1; found = k - startIdx + PM.clamp(frac, 0, 1); break; } prevPv = p; }
+      }
       esWd = found === null ? pdWd : found;
       spiT = atWd > 0 ? esWd / atWd : null;
       if (spiT && spiT > 0) { const ieac = pdWd / spiT; forecastFinish = cal.addWork(planStart, Math.max(0, Math.ceil(ieac) - 1)); }

@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   const PM = window.PM;
-  const { html, useState, useEffect, useMemo, useRef, useLayoutEffect } = PM.lib;
+  const { html, useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } = PM.lib;
   const ui = PM.ui;
   const D = PM.date;
   const fmt = PM.fmt;
@@ -115,6 +115,7 @@
 .evm-form { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 10px 12px; align-items: end; }
 @media (max-width: 680px) { .evm-form { grid-template-columns: minmax(0, 1fr); } }
 .evm-explain { font-size: var(--fs-sm); color: var(--fg-2); max-width: 82ch; }
+.evm-defer { display: block; min-width: 0; }
 .evm-pct-input { width: 92px; }
 .evm-pct-input .input { text-align: right; min-height: 28px; padding: 3px 8px; }
 .evm-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -125,6 +126,8 @@
 .evm-chip-row { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .evm-chip-row .chip { white-space: normal; line-height: 1.35; padding-top: 2px; padding-bottom: 2px; }
 .evm-colhit { cursor: default; }
+.evm-hint { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--fg-2); }
+.evm-hint > .icon { color: var(--fg-3); }
 .evm-cell-btn { display: flex; align-items: center; text-align: left; cursor: pointer; padding-right: 18px; max-width: 220px; }
 .evm-cell-btn, .evm-cell-btn:hover { background-image: linear-gradient(45deg, transparent 50%, var(--fg-3) 50%), linear-gradient(135deg, var(--fg-3) 50%, transparent 50%); background-position: calc(100% - 10px) 52%, calc(100% - 6px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
 `;
@@ -196,6 +199,44 @@
   }
   function useLatest(v) { const r = useRef(v); r.current = v; return r; }
 
+  /* Escritura diferida: los campos de texto y de número de las tablas guardan al pausar la escritura o al salir del campo.
+     Cada guardado recalcula el modelo completo (CPM y valor ganado); hacerlo en cada tecla vuelve lenta la escritura
+     en proyectos con cientos de actividades. */
+  const COMMIT_MS = 300;
+  function useDeferred(commit) {
+    const fn = useLatest(commit);
+    const st = useRef({ timer: 0, has: false, v: undefined });
+    const flush = useCallback(() => { const s = st.current; clearTimeout(s.timer); if (!s.has) return; s.has = false; fn.current(s.v); }, []);
+    const push = useCallback((v) => { const s = st.current; s.v = v; s.has = true; clearTimeout(s.timer); s.timer = setTimeout(flush, COMMIT_MS); }, [flush]);
+    useEffect(() => flush, [flush]);
+    return { push, flush };
+  }
+  function DraftInput({ value, onCommit, ...rest }) {
+    const [draft, setDraft] = useState(null);
+    const d = useDeferred(onCommit);
+    return html`<input ...${rest} value=${draft !== null ? draft : value ?? ''}
+      onInput=${(e) => { const v = e.currentTarget.value; setDraft(v); d.push(v); }}
+      onBlur=${() => { d.flush(); setDraft(null); }} />`;
+  }
+  /* NumberInput del núcleo con guardado diferido (se confirma al salir del campo: focusout del contenedor; en minúsculas
+     porque esta versión de Preact registraría "FocusOut" como nombre de evento). */
+  function DeferredNumber({ onCommit, ...rest }) {
+    const d = useDeferred(onCommit);
+    return html`<span class="evm-defer" onfocusout=${d.flush}><${ui.NumberInput} ...${rest} onValue=${d.push} /></span>`;
+  }
+
+  /* Cronograma ganado para mostrar. PM.calc.evm mide el tiempo real (AT) hasta la fecha de corte aunque el trabajo ya
+     esté completo (EV = BAC); entonces el SPI(t) cae y la fecha "pronosticada" pasa a ser la fecha de corte. Con el trabajo
+     completo, AT llega hasta la terminación (fin del cronograma vigente, sin pasar de la fecha de corte) y ES = PD. */
+  function earnedSchedule(evm, sched) {
+    const done = evm.bac > 0 && evm.ev >= evm.bac - 0.5;
+    const base = { done, actual: false, esWd: evm.esWd, atWd: evm.atWd, spiT: evm.spiT, finish: evm.forecastFinish };
+    if (!done || !D.valid(evm.planStart) || !isNum(evm.pdWd)) return base;
+    const end = D.valid(sched.finish) ? D.min(sched.finish, evm.statusDate) : evm.statusDate;
+    const at = Math.max(1, sched.cal.countWork(evm.planStart, end));
+    return { done, actual: true, esWd: evm.pdWd, atWd: at, spiT: evm.pdWd > 0 ? evm.pdWd / at : null, finish: end };
+  }
+
   /* Plan de medición por actividad (igual que PM.calc.evm): línea base de costos si existe; si no, el cronograma actual. */
   function planOf(evm, sched, baselines) {
     const bl = baselines.cost;
@@ -245,9 +286,9 @@
     return html`<span style=${t ? 'color:' + toneColor(t) : ''} title=${compact ? full : undefined}>${compact ? (signed ? signedShort(value, currency) : short(value, currency)) : full}</span>`;
   };
 
-  function NoPlan({ hasTasks }) {
+  function NoPlan({ hasTasks, canWrite }) {
     return html`<${ui.Empty} icon="scurve" title=${hasTasks ? 'Las actividades aún no tienen presupuesto' : 'Aún no hay actividades con presupuesto'}
-      actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => go('cronograma')}>${hasTasks ? 'Asignar costos en el cronograma' : 'Ir al cronograma'}</${ui.Button}><${ui.Button} icon="layers" onClick=${() => go('lineas-base')}>Ir a líneas base</${ui.Button}>`}>
+      actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => go('cronograma')}>${hasTasks && canWrite ? 'Asignar costos en el cronograma' : 'Ir al cronograma'}</${ui.Button}><${ui.Button} icon="layers" onClick=${() => go('lineas-base')}>Ir a líneas base</${ui.Button}>`}>
       ${hasTasks
         ? 'La curva S, los indicadores y el presupuesto se calculan con el costo de cada actividad. Asigna el presupuesto de las actividades en el Cronograma y luego establece la línea base de costos para medir el desempeño contra ella.'
         : 'El valor ganado se mide sobre las actividades del cronograma y su presupuesto. Crea las actividades en el Cronograma, asígnales costo y establece la línea base de costos.'}
@@ -265,10 +306,11 @@
     useEffect(() => { setDraft(effective); if (pending.current === saved) pending.current = null; }, [effective, saved]);
     useEffect(() => () => clearTimeout(timer.current), []);
     const today = D.today();
-    const commit = (v) => {
+    /* soft: guardado automático mientras se escribe; una fecha incompleta (p. ej. el año a medio escribir) no se descarta */
+    const commit = (v, soft) => {
       clearTimeout(timer.current);
       const y = D.valid(v) ? +v.slice(0, 4) : 0;
-      if (!D.valid(v) || y < 1990 || y > 2100) { setDraft(effective); return; }
+      if (!D.valid(v) || y < 1990 || y > 2100) { if (!soft) setDraft(effective); return; }
       if (v === saved || v === pending.current) return;
       pending.current = v;
       PM.projectOps.update(project.id, { statusDate: v }).catch(() => { pending.current = null; setDraft(effective); });
@@ -277,7 +319,7 @@
       ${canWrite ? html`<label class="label-caps" for="evm-status-date">Fecha de corte</label>`: html`<span class="label-caps">Fecha de corte</span>`}
       ${canWrite ? html`
         <input id="evm-status-date" type="date" class="input" value=${draft}
-          onInput=${(e) => { const v = e.currentTarget.value; setDraft(v); clearTimeout(timer.current); if (D.valid(v)) timer.current = setTimeout(() => commit(v), 600); }}
+          onInput=${(e) => { const v = e.currentTarget.value; setDraft(v); clearTimeout(timer.current); if (D.valid(v)) timer.current = setTimeout(() => commit(v, true), 600); }}
           onBlur=${(e) => commit(e.currentTarget.value)}
           onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value); } }} />
         <${ui.Button} size="sm" onClick=${() => { setDraft(today); commit(today); }} disabled=${saved === today} title="Fija la fecha de corte en la fecha de hoy">Usar hoy</${ui.Button}>`
@@ -320,18 +362,27 @@
     const y = (v) => M.t + ih - (v / sc.top) * ih;
     const pathOf = (key) => { let d = ''; for (const p of series) { if (!isNum(p[key])) continue; d += (d ? 'L' : 'M') + x(p.date).toFixed(1) + ' ' + y(p[key]).toFixed(1); } return d; };
     const lastOf = (key) => { for (let i = series.length - 1; i >= 0; i--) if (isNum(series[i][key])) return series[i]; return null; };
-    const ms = []; let m = D.startOfMonth(first); if (m < first) m = D.addMonths(m, 1);
+    /* marcas del eje x: inicio de cada mes; si el plan cruza menos de tres meses, inicio de cada semana (lunes) */
+    let ms = []; let m = D.startOfMonth(first); if (m < first) m = D.addMonths(m, 1);
     let g = 0; while (m <= end && g++ < 400) { ms.push(m); m = D.addMonths(m, 1); }
-    const every = Math.max(1, Math.ceil(ms.length / Math.max(1, Math.floor(iw / 66))));
+    let style = 'month', slot = 66;
+    if (ms.length < 3) {
+      const wk = []; let w = D.startOfWeek(first); if (w < first) w = D.add(w, 7);
+      g = 0; while (w <= end && g++ < 60) { wk.push(w); w = D.add(w, 7); }
+      if (wk.length >= ms.length) { ms = wk; style = 'dm'; slot = 52; }
+    }
+    const every = Math.max(1, Math.ceil(ms.length / Math.max(1, Math.floor(iw / slot))));
     const months = ms.map((mm, i) => {
-      const xx = x(mm); const label = fmt.date(mm, 'month'); const half = label.length * 3.2;
-      const anchor = xx + half > W - 2 ? 'end' : xx - half < 2 ? 'start' : 'middle';
-      return { key: mm, x: xx, label, show: i % every === 0, anchor, tx: anchor === 'end' ? W - 2 : anchor === 'start' ? 2 : xx };
+      const xx = x(mm); const label = fmt.date(mm, style); const half = label.length * 3.2;
+      /* el margen derecho queda para las etiquetas BAC y EAC: las del eje x no lo invaden */
+      const lim = M.l + iw + 4;
+      const anchor = xx + half > lim ? 'end' : xx - half < 2 ? 'start' : 'middle';
+      return { key: mm, x: xx, label, show: i % every === 0, anchor, tx: anchor === 'end' ? lim : anchor === 'start' ? 2 : xx };
     });
     let status = null;
     if (D.valid(at) && at >= first && at <= end) {
       const sx = x(at); const label = 'Corte ' + fmt.date(at, 'dm');
-      const anchor = sx + 6 + label.length * 6.4 > W - 2 ? 'end' : 'start';
+      const anchor = sx + 6 + label.length * 6.4 > M.l + iw ? 'end' : 'start';
       status = { x: sx, label, anchor, tx: anchor === 'end' ? sx - 6 : sx + 6 };
     }
     let eac = null;
@@ -398,7 +449,7 @@
     };
     const hp = hover !== null ? series[hover] : null;
     const right = M.l + g.iw;
-    return html`<div class="chart evm-chart" ref=${tip.ref} tabindex="0" aria-label=${g.aria + ' Usa las flechas izquierda y derecha para recorrer las fechas.'} onKeyDown=${onKey} onBlur=${leave}>
+    return html`<div class="chart evm-chart" ref=${tip.ref} tabindex="0" role="group" aria-label=${g.aria + ' Usa las flechas izquierda y derecha para recorrer las fechas.'} onKeyDown=${onKey} onBlur=${leave}>
       <svg ref=${svgRef} width=${g.W} height=${H} viewBox=${'0 0 ' + g.W + ' ' + H} role="img" aria-label=${g.aria} data-chart="curva-s">
         <defs><clipPath id=${clipId}><rect x=${M.l} y=${M.t - 2} width=${g.iw + 1} height=${g.ih + 4} /></clipPath></defs>
         ${g.ticks.map((t) => html`<g key=${'y' + t.v}><line class="grid-line" x1=${M.l} x2=${right} y1=${t.y} y2=${t.y} /><text x=${M.l - 8} y=${t.y + 3.5} text-anchor="end">${t.label}</text></g>`)}
@@ -435,16 +486,18 @@
       <span class="legend-item"><span class="evm-key-cut"></span>Fecha de corte<span class="evm-legend-v">${fmt.date(evm.statusDate, 'dm')}</span></span>
     </div>`;
   }
-  function SeriesTable({ evm, currency, project }) {
+  function SeriesTable({ evm, currency, project, reveal }) {
     const rows = evm.series || [];
+    const ref = useRef();
+    useEffect(() => { if (reveal && reveal.current && ref.current && ref.current.scrollIntoView) { reveal.current = false; ref.current.scrollIntoView({ block: 'nearest' }); } }, []);
     const exportCsv = () => {
       const cols = [{ key: 'date', label: 'Fecha' }, { key: 'pv', label: 'PV (' + currency + ')' }, { key: 'ev', label: 'EV (' + currency + ')' }, { key: 'ac', label: 'AC (' + currency + ')' }, { key: 'sv', label: 'SV (' + currency + ')' }, { key: 'cv', label: 'CV (' + currency + ')' }];
       const r2 = (v) => (isNum(v) ? Math.round(v * 100) / 100 : '');
       PM.download('curva-s_' + fileBase(project) + '.csv', PM.toCSV(cols, rows.map((p) => ({ date: p.date, pv: r2(p.pv), ev: r2(p.ev), ac: r2(p.ac), sv: isNum(p.ev) ? r2(p.ev - p.pv) : '', cv: isNum(p.ev) && isNum(p.ac) ? r2(p.ev - p.ac) : '' }))));
     };
-    return html`<div class="stack-sm" data-role="series-table">
-      <div class="row-between"><span class="xsmall faint">${rows.length} fechas: semanales, más los cortes de avance, la fecha de corte y el fin planificado.</span><${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Descargar CSV</${ui.Button}></div>
-      <div class="table-wrap" style="max-height:380px;overflow:auto"><table class="table table-tight evm-table">
+    return html`<section class="card" data-role="series-table" ref=${ref}>
+      <div class="card-head"><div class="stack-sm" style="gap:2px;min-width:0"><h3 class="h3">Datos de la curva S</h3><div class="xsmall faint">${rows.length} fechas: semanales, más los cortes de avance, la fecha de corte y el fin planificado. Valores acumulados.</div></div><div class="row"><${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Descargar CSV</${ui.Button}></div></div>
+      <div class="card-body"><div class="table-wrap" style="max-height:420px;overflow:auto"><table class="table table-tight evm-table">
         <thead><tr><th>Fecha</th><th class="num">PV</th><th class="num">EV</th><th class="num">AC</th><th class="num">SV</th><th class="num">CV</th></tr></thead>
         <tbody>${rows.map((p) => html`<tr key=${p.date} class=${p.date > evm.statusDate ? 'evm-row-after' : ''}>
           <td class="mono nowrap">${fmt.date(p.date)}${p.date === evm.statusDate ? html` <${ui.Chip} tone="signal">Corte</${ui.Chip}>` : null}</td>
@@ -454,13 +507,14 @@
           <td class="num">${isNum(p.ev) ? html`<${MoneyCell} value=${p.ev - p.pv} currency=${currency} signed />` : '—'}</td>
           <td class="num">${isNum(p.ev) && isNum(p.ac) ? html`<${MoneyCell} value=${p.ev - p.ac} currency=${currency} signed />` : '—'}</td>
         </tr>`)}</tbody>
-      </table></div>
-    </div>`;
+      </table></div></div>
+    </section>`;
   }
 
   /* Frases de interpretación a partir de los índices. */
-  function interpret(evm, currency, cal) {
+  function interpret(evm, currency, sched) {
     const out = [];
+    const cal = sched.cal;
     const nb = (s) => String(s).replace(/ /g, '\u00a0');
     const m = (v) => nb(short(v, currency));
     const sg = (v) => nb(signedShort(v, currency));
@@ -490,9 +544,11 @@
         out.push({ id: 'tcpi', tone: t > 1.1 ? 'crit' : t > 1 ? 'warn' : 'good', text: 'Para terminar con el BAC, el trabajo restante debe ejecutarse con un TCPI de ' + fmt.idx(t) + cmp + (t > 1.1 ? '. Un TCPI mayor que 1,10 rara vez se logra: revisa el EAC y evalúa una solicitud de cambio.' : '.') });
       }
     }
-    const complete = evm.bac > 0 && evm.ev >= evm.bac - 0.5;
-    if (complete) {
-      out.push({ id: 'es', tone: null, text: 'Todo el trabajo presupuestado está completo (EV = BAC). Con el trabajo terminado, el cronograma ganado ya no pronostica una fecha: compara la fecha real de terminación con la planificada (' + fmt.date(evm.planFinish, 'long') + ').' });
+    const es = earnedSchedule(evm, sched);
+    if (es.actual) {
+      const wd = D.valid(evm.planFinish) ? wdDiff(cal, evm.planFinish, es.finish) : null;
+      const tail = wd === null ? '.' : wd === 0 ? ', la misma fecha planificada.' : ', ' + wdText(wd) + (wd > 0 ? ' después' : ' antes') + ' de la planificada (' + fmt.date(evm.planFinish, 'long') + ').';
+      out.push({ id: 'es', tone: idxTone(es.spiT), text: 'Todo el trabajo presupuestado está completo (EV = BAC). Según el cronograma vigente terminó el ' + fmt.date(es.finish, 'long') + tail + (isNum(es.spiT) ? ' SPI(t) ' + fmt.idx(es.spiT) + ' (duración planificada / duración real).' : '') });
     } else if (isNum(evm.spiT) && D.valid(evm.forecastFinish) && D.valid(evm.planFinish)) {
       const ff = evm.forecastFinish, pf = evm.planFinish;
       const wd = wdDiff(cal, pf, ff);
@@ -502,31 +558,37 @@
     out.push({ id: 'avance', tone: null, text: 'Avance: ' + fmt.pct(evm.pctComplete, 1) + ' completado frente a ' + fmt.pct(evm.pctPlanned, 1) + ' planificado; se ha gastado el ' + fmt.pct(evm.pctSpent, 1) + ' del BAC.' });
     return out;
   }
-  function Interpretation({ evm, currency, cal }) {
-    const notes = useMemo(() => interpret(evm, currency, cal), [evm, currency, cal]);
+  function Interpretation({ evm, currency, sched }) {
+    const notes = useMemo(() => interpret(evm, currency, sched), [evm, currency, sched]);
     const icon = (t) => (t === 'good' ? 'check-circle' : t === 'warn' || t === 'crit' ? 'alert' : 'info');
     return html`<${SectionCard} title="Interpretación al corte" subtitle="Lectura de los índices del valor ganado" attrs=${{ 'data-role': 'interpretation' }}>
       <ul class="evm-notes">${notes.map((n) => html`<li key=${n.id} class="evm-note" data-note=${n.id} data-tone=${n.tone || undefined}><${ui.Icon} name=${icon(n.tone)} size=${16} /><span>${n.text.replace(/\b(SPI\(t\)|SPI|CPI|TCPI|SV|CV|VAC|EAC) (?=[−+\d$])/g, '$1\u00a0')}</span></li>`)}</ul>
     </${SectionCard}>`;
   }
-  function CurveTab({ model, project }) {
+  function CurveTab({ model, project, onTab }) {
     const { evm, currency, sched } = model;
     const [showTable, setShowTable] = useState(() => !!PM.prefs.get('evm.curveTable', false));
     const svgRef = useRef();
-    const toggle = () => { const v = !showTable; setShowTable(v); PM.prefs.set('evm.curveTable', v); };
+    const opened = useRef(false);
+    const toggle = () => { const v = !showTable; opened.current = v; setShowTable(v); PM.prefs.set('evm.curveTable', v); };
     const showEac = isNum(evm.eac) && evm.ac > 0;
     const sub = 'Valores acumulados al ' + fmt.date(evm.statusDate, 'long') + ' · PV hasta el fin planificado, EV y AC hasta el corte';
-    return html`<div class="split">
+    /* sin cortes de avance anteriores a la fecha de corte, PM.calc.evm traza el EV en línea recta desde el inicio */
+    const straightEv = evm.ev > 0 && Array.isArray(evm.evPoints) && evm.evPoints.length <= 2;
+    return html`<div class="stack" style="gap:16px"><div class="split">
       <${SectionCard} title="Curva S del proyecto" subtitle=${sub} attrs=${{ 'data-role': 'curve-card' }} actions=${html`
         <${ui.Button} size="sm" icon="table" aria-pressed=${showTable ? 'true' : 'false'} onClick=${toggle}>${showTable ? 'Ocultar tabla' : 'Ver tabla'}</${ui.Button}>
         <${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${'curva-s_' + fileBase(project) + '.svg'} />`}>
         <div class="stack">
           <${CurveLegend} evm=${evm} currency=${currency} showEac=${showEac} />
           <${SCurveChart} evm=${evm} currency=${currency} svgRef=${svgRef} />
-          ${showTable ? html`<${SeriesTable} evm=${evm} currency=${currency} project=${project} />` : null}
+          ${straightEv ? html`<div class="evm-hint" data-role="no-cuts-hint"><${ui.Icon} name="info" size=${14} /><span>Sin cortes de avance hasta la fecha de corte: el valor ganado se traza en línea recta desde el inicio.</span>
+            <${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => onTab('avance')}>Registrar cortes de avance</${ui.Button}></div>` : null}
         </div>
       </${SectionCard}>
-      <${Interpretation} evm=${evm} currency=${currency} cal=${sched.cal} />
+      <${Interpretation} evm=${evm} currency=${currency} sched=${sched} />
+    </div>
+    ${showTable ? html`<${SeriesTable} evm=${evm} currency=${currency} project=${project} reveal=${opened} />` : null}
     </div>`;
   }
 
@@ -567,9 +629,10 @@
       const v = evm[key];
       return html`<${Metric} id=${key} label=${label} abbr=${abbr} display=${isNum(v) ? S(v) : '—'} full=${isNum(v) ? F(v) : null} empty=${!isNum(v)} tone=${isNum(v) ? tone : null} formula=${formula} note=${isNum(v) ? note : reason} />`;
     };
-    const ff = evm.forecastFinish, pf = evm.planFinish;
+    const es = useMemo(() => earnedSchedule(evm, sched), [evm, sched]);
+    const ff = es.finish, pf = evm.planFinish;
     const ffWd = D.valid(ff) && D.valid(pf) ? wdDiff(sched.cal, pf, ff) : null;
-    const ffTone = ffWd === null ? null : ffWd <= 0 ? 'good' : idxTone(evm.spiT) || 'warn';
+    const ffTone = ffWd === null ? null : ffWd <= 0 ? 'good' : idxTone(es.spiT) || 'warn';
     const pctMeter = (v, color, label) => html`<div class="evm-meter" role="meter" aria-label=${label} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(PM.clamp(v, 0, 1) * 100)}><span style=${'width:' + PM.clamp(v, 0, 1) * 100 + '%;background:' + color}></span></div>`;
     return html`<div class="evm-groups" data-role="indicators">
       <${Group} id="valores" span title="Valores" subtitle=${'Acumulados al ' + fmt.date(evm.statusDate, 'long') + ' · ' + src}>
@@ -579,8 +642,8 @@
         <${Metric} id="bac" abbr="BAC" label="Presupuesto hasta la conclusión" display=${S(evm.bac)} full=${F(evm.bac)} formula="BAC = Σ presupuesto de las actividades" note=${evm.fromBaseline ? 'Línea base ' + blLabel(baselines.cost) : 'Cronograma actual'} />
       </${Group}>
       <${Group} id="variaciones" title="Variaciones" subtitle="Positivo: favorable · negativo: desfavorable">
-        <${Metric} id="sv" abbr="SV" label="Variación del cronograma" display=${signedShort(evm.sv, cur)} full=${signedMoney(evm.sv, cur)} tone=${idxTone(evm.spi)} formula="SV = EV − PV" note=${isNum(svPct) ? fmt.pct(svPct, 1) + ' del PV' + (evm.sv < 0 ? ' de trabajo por debajo de lo planificado' : '') : rPv} />
-        <${Metric} id="cv" abbr="CV" label="Variación del costo" display=${evm.ac > 0 ? signedShort(evm.cv, cur) : '—'} empty=${!(evm.ac > 0)} full=${evm.ac > 0 ? signedMoney(evm.cv, cur) : null} tone=${idxTone(evm.cpi)} formula="CV = EV − AC" note=${evm.ac > 0 ? (isNum(cvPct) ? fmt.pct(cvPct, 1) + ' del EV' + (evm.cv < 0 ? ' de sobrecosto' : ' de ahorro') : null) : rAc} />
+        <${Metric} id="sv" abbr="SV" label="Variación del cronograma" display=${signedShort(evm.sv, cur)} full=${signedMoney(evm.sv, cur)} tone=${idxTone(evm.spi)} formula="SV = EV − PV" note=${isNum(svPct) ? (zeroish(evm.sv, cur) ? 'Se ha ganado lo planificado.' : 'Equivale al ' + fmt.pct(Math.abs(svPct), 1) + ' del PV: se ha ganado ' + (evm.sv < 0 ? 'menos' : 'más') + ' de lo planificado.') : rPv} />
+        <${Metric} id="cv" abbr="CV" label="Variación del costo" display=${evm.ac > 0 ? signedShort(evm.cv, cur) : '—'} empty=${!(evm.ac > 0)} full=${evm.ac > 0 ? signedMoney(evm.cv, cur) : null} tone=${idxTone(evm.cpi)} formula="CV = EV − AC" note=${evm.ac > 0 ? (isNum(cvPct) ? (zeroish(evm.cv, cur) ? 'El costo real es igual al valor ganado.' : (evm.cv < 0 ? 'Sobrecosto' : 'Ahorro') + ' equivalente al ' + fmt.pct(Math.abs(cvPct), 1) + ' del EV.') : null) : rAc} />
       </${Group}>
       <${Group} id="indices" title="Índices de desempeño" subtitle="≥ 0,98 en verde · 0,90–0,98 en amarillo · < 0,90 en rojo">
         <${Metric} id="spi" abbr="SPI" label="Índice de desempeño del cronograma" display=${isNum(evm.spi) ? fmt.idx(evm.spi) : '—'} empty=${!isNum(evm.spi)} tone=${idxTone(evm.spi)} formula="SPI = EV / PV" note=${isNum(evm.spi) ? (evm.spi >= 1 ? 'Se ha ganado al menos lo planificado.' : 'Por cada ' + one + ' planificado se ha ganado ' + fmt.fixed(evm.spi, 2) + '.') : rPv}>
@@ -596,16 +659,16 @@
         ${money3('eacComposite', 'EAC con CPI y SPI', 'EAC', 'EAC = AC + (BAC − EV) / (CPI × SPI)', 'Útil cuando el cronograma restringe el costo.', !(evm.ac > 0) ? rAc : rPv)}
         ${money3('etc', 'Estimación hasta la conclusión', 'ETC', 'ETC = EAC − AC', 'Lo que falta por gastar según la EAC típica.', rAc)}
         <${Metric} id="vac" abbr="VAC" label="Variación a la conclusión" display=${isNum(evm.vac) ? signedShort(evm.vac, cur) : '—'} full=${isNum(evm.vac) ? signedMoney(evm.vac, cur) : null} empty=${!isNum(evm.vac)} tone=${isNum(evm.vac) ? (evm.vac >= -0.5 ? 'good' : idxTone(evm.cpi)) : null} formula="VAC = BAC − EAC" note=${isNum(evm.vac) ? (evm.vac < -0.5 ? 'Negativo: el proyecto terminaría por encima del presupuesto.' : 'Cero o positivo: terminaría dentro del presupuesto.') : rAc} />
-        <${Metric} id="tcpi" abbr="TCPI" label="Desempeño requerido para terminar con el BAC" display=${done ? '—' : isNum(evm.tcpi) ? fmt.idx(evm.tcpi) : '—'} empty=${done || !isNum(evm.tcpi)} tone=${done ? null : tTone(evm.tcpi)} formula="TCPI = (BAC − EV) / (BAC − AC)" note=${done ? 'El trabajo está completo: no queda trabajo por ejecutar.' : isNum(evm.tcpi) ? tNote(evm.tcpi, 'BAC') : 'No queda presupuesto por ejecutar (BAC = AC).'} />
-        <${Metric} id="tcpiEac" abbr="TCPI" label="Desempeño requerido para terminar con la EAC" display=${done ? '—' : isNum(evm.tcpiEac) ? fmt.idx(evm.tcpiEac) : '—'} empty=${done || !isNum(evm.tcpiEac)} tone=${done ? null : tTone(evm.tcpiEac)} formula="TCPI = (BAC − EV) / (EAC − AC)" note=${done ? 'El trabajo está completo: no queda trabajo por ejecutar.' : isNum(evm.tcpiEac) ? tNote(evm.tcpiEac, 'EAC') : rAc} />
+        <${Metric} id="tcpi" abbr="TCPI" label="Índice de desempeño del trabajo por completar (BAC)" display=${done ? '—' : isNum(evm.tcpi) ? fmt.idx(evm.tcpi) : '—'} empty=${done || !isNum(evm.tcpi)} tone=${done ? null : tTone(evm.tcpi)} formula="TCPI = (BAC − EV) / (BAC − AC)" note=${done ? 'El trabajo está completo: no queda trabajo por ejecutar.' : isNum(evm.tcpi) ? tNote(evm.tcpi, 'BAC') : 'No queda presupuesto por ejecutar (BAC = AC).'} />
+        <${Metric} id="tcpiEac" abbr="TCPI" label="Índice de desempeño del trabajo por completar (EAC)" display=${done ? '—' : isNum(evm.tcpiEac) ? fmt.idx(evm.tcpiEac) : '—'} empty=${done || !isNum(evm.tcpiEac)} tone=${done ? null : tTone(evm.tcpiEac)} formula="TCPI = (BAC − EV) / (EAC − AC)" note=${done ? 'El trabajo está completo: no queda trabajo por ejecutar.' : isNum(evm.tcpiEac) ? tNote(evm.tcpiEac, 'EAC') : rAc} />
       </${Group}>
       <${Group} id="cronograma-ganado" title="Cronograma ganado" subtitle="Medido en días hábiles del calendario del proyecto">
-        <${Metric} id="es" abbr="ES" label="Cronograma ganado" display=${isNum(evm.esWd) ? fmt.num(evm.esWd, 1) : '—'} full=${isNum(evm.esWd) ? 'días hábiles' : null} empty=${!isNum(evm.esWd)} formula="ES = momento en que el PV planificado igualaba el EV actual" note=${isNum(evm.esWd) ? null : 'Requiere fechas y presupuesto en el plan.'} />
-        <${Metric} id="at" abbr="AT" label="Tiempo real transcurrido" display=${isNum(evm.atWd) ? fmt.num(evm.atWd, 0) : '—'} full=${isNum(evm.atWd) ? 'días hábiles' : null} empty=${!isNum(evm.atWd)} formula="AT = días hábiles del inicio planificado al corte" />
-        <${Metric} id="spiT" abbr="SPI(t)" label="Índice del cronograma (tiempo)" display=${isNum(evm.spiT) ? fmt.idx(evm.spiT) : '—'} empty=${!isNum(evm.spiT)} tone=${idxTone(evm.spiT)} formula="SPI(t) = ES / AT" note=${done ? 'Con el trabajo completo depende de la fecha de corte: usa como corte la fecha real de terminación.' : isNum(evm.spiT) ? 'A diferencia del SPI, no tiende a 1,00 al final del proyecto.' : 'El corte es anterior al inicio planificado (AT = 0).'}>
-          <${IndexGauge} value=${evm.spiT} label="SPI(t)" />
+        <${Metric} id="es" abbr="ES" label="Cronograma ganado" display=${isNum(es.esWd) ? fmt.num(es.esWd, 1) : '—'} full=${isNum(es.esWd) ? 'días hábiles' : null} empty=${!isNum(es.esWd)} formula="ES = momento en que el PV planificado igualaba el EV actual" note=${!isNum(es.esWd) ? 'Requiere fechas y presupuesto en el plan.' : es.actual ? 'Trabajo completo: ES = PD.' : null} />
+        <${Metric} id="at" abbr="AT" label="Tiempo real transcurrido" display=${isNum(es.atWd) ? fmt.num(es.atWd, 0) : '—'} full=${isNum(es.atWd) ? 'días hábiles' : null} empty=${!isNum(es.atWd)} formula=${es.actual ? 'AT = días hábiles del inicio planificado a la terminación' : 'AT = días hábiles del inicio planificado al corte'} note=${es.actual ? 'Con el trabajo completo, el tiempo se mide hasta la terminación del ' + fmt.date(ff) + ', no hasta la fecha de corte.' : null} />
+        <${Metric} id="spiT" abbr="SPI(t)" label="Índice del cronograma (tiempo)" display=${isNum(es.spiT) ? fmt.idx(es.spiT) : '—'} empty=${!isNum(es.spiT)} tone=${idxTone(es.spiT)} formula="SPI(t) = ES / AT" note=${es.actual ? 'Duración planificada frente a la duración real del trabajo.' : isNum(es.spiT) ? 'A diferencia del SPI, no tiende a 1,00 al final del proyecto.' : 'El corte es anterior al inicio planificado (AT = 0).'}>
+          <${IndexGauge} value=${es.spiT} label="SPI(t)" />
         </${Metric}>
-        <${Metric} id="forecastFinish" label="Fin pronosticado" display=${D.valid(ff) ? fmt.date(ff) : '—'} empty=${!D.valid(ff)} tone=${ffTone} full=${D.valid(pf) ? 'Planificado: ' + fmt.date(pf) : null} formula="IEAC(t) = PD / SPI(t)" note=${ffWd === null ? 'Se calcula cuando hay SPI(t).' : ffWd === 0 ? 'Igual a la fecha planificada.' : ffWd > 0 ? wdText(ffWd) + ' de atraso.' : wdText(ffWd) + ' de adelanto.'} />
+        <${Metric} id="forecastFinish" label=${es.actual ? 'Fin del trabajo' : 'Fin pronosticado'} display=${D.valid(ff) ? fmt.date(ff) : '—'} empty=${!D.valid(ff)} tone=${ffTone} full=${D.valid(pf) ? 'Planificado: ' + fmt.date(pf) : null} formula=${es.actual ? 'Terminación según el cronograma vigente' : 'IEAC(t) = PD / SPI(t)'} note=${ffWd === null ? 'Se calcula cuando hay SPI(t).' : ffWd === 0 ? 'Igual a la fecha planificada.' : ffWd > 0 ? wdText(ffWd) + ' de atraso.' : wdText(ffWd) + ' de adelanto.'} />
         <${Metric} id="pd" abbr="PD" label="Duración planificada" display=${isNum(evm.pdWd) ? fmt.num(evm.pdWd, 0) : '—'} full=${isNum(evm.pdWd) ? 'días hábiles' : null} empty=${!isNum(evm.pdWd)} formula="PD = días hábiles del inicio al fin planificados" />
       </${Group}>
       <${Group} id="porcentajes" plain title="Porcentajes" subtitle="Respecto al BAC">
@@ -672,9 +735,9 @@
           <option value="">Sin categoría</option>
           ${catOptions.map((c) => html`<option key=${c} value=${c}>${c}</option>`)}
         </select></td>
-        <td style="min-width:160px"><input class="cell-input" data-field="description" aria-label=${L('Descripción')} placeholder="Qué se pagó" title=${a.description || undefined} value=${a.description || ''} onInput=${(e) => up({ description: e.currentTarget.value })} /></td>
-        <td style="min-width:100px"><input class="cell-input mono" data-field="document" aria-label=${L('Documento soporte')} placeholder="Factura, OC…" value=${a.document || ''} onInput=${(e) => up({ document: e.currentTarget.value })} /></td>
-        <td style="min-width:120px"><${ui.NumberInput} class="cell-input" data-field="amount" aria-label=${L('Valor')} money currency=${currency} value=${a.amount} placeholder="0" onValue=${(v) => up({ amount: v })} /></td>
+        <td style="min-width:160px"><${DraftInput} class="cell-input" data-field="description" aria-label=${L('Descripción')} placeholder="Qué se pagó" title=${a.description || undefined} value=${a.description || ''} onCommit=${(v) => up({ description: v })} /></td>
+        <td style="min-width:100px"><${DraftInput} class="cell-input mono" data-field="document" aria-label=${L('Documento soporte')} placeholder="Factura, OC…" value=${a.document || ''} onCommit=${(v) => up({ document: v })} /></td>
+        <td style="min-width:120px"><${DeferredNumber} class="cell-input" data-field="amount" aria-label=${L('Valor')} money currency=${currency} value=${a.amount} placeholder="0" onCommit=${(v) => up({ amount: v })} /></td>
         <td class="ctl"><${ui.IconButton} size="sm" icon="trash" label=${L('Eliminar')} onClick=${() => api.current.remove(this.props.a)} /></td>
       </tr>`;
     }
@@ -708,7 +771,8 @@
       setFocusId(null);
     }, [focusId, shown]);
 
-    const write = (next) => saveCosts({ ...latest.current, actuals: next });
+    /* latest se actualiza al escribir (no solo al dibujar): dos escrituras en el mismo evento no se pisan */
+    const write = (next) => { const v = { ...latest.current, actuals: next }; latest.current = v; return saveCosts(v); };
     const update = (id, patch) => write((latest.current.actuals || []).map((a) => (a.id === id ? { ...a, ...patch } : a)));
     const add = () => {
       const id = PM.uid('ac');
@@ -836,6 +900,7 @@
   function ProgressTab({ model, canWrite }) {
     const { costs, saveCosts, schedule, saveSchedule, sched, evm, statusDate, currency, tree } = model;
     const latest = useLatest({ costs, schedule });
+    const writeCosts = (v) => { latest.current = { ...latest.current, costs: v }; return saveCosts(v); };
     const updates = costs.statusUpdates || EMPTY_ARR;
     const plan = usePlan(model);
     const [date, setDate] = useState(statusDate);
@@ -874,11 +939,12 @@
         const ok = await PM.confirm({ title: 'Reemplazar corte de avance', body: 'Ya hay un corte registrado el ' + fmt.date(date, 'long') + '. ¿Quieres reemplazarlo con el avance actual de las actividades?', confirmText: 'Reemplazar corte' });
         if (!ok) return;
       }
-      const progress = {}; for (const t of sched.tasks) progress[t.id] = t.progress;
+      /* avance vigente al momento de registrar (incluye un % recién confirmado al salir del campo) */
+      const progress = {}; for (const t of latest.current.schedule.tasks || []) if (t && t.id) progress[t.id] = PM.clamp(num(t.progress), 0, 100);
       const entry = { id: PM.uid('su'), date, progress, note: note.trim() };
       const now = latest.current.costs;
       const next = [...(now.statusUpdates || []).filter((u) => u.date !== date), entry].sort((a, b) => cmpDate(a.date, b.date));
-      saveCosts({ ...now, statusUpdates: next });
+      writeCosts({ ...now, statusUpdates: next });
       setNote('');
       PM.toast('Corte de avance registrado al ' + fmt.date(date, 'long') + '.');
     };
@@ -886,13 +952,15 @@
       const ok = await PM.confirm({ title: 'Eliminar corte de avance', body: 'Se eliminará el corte del ' + fmt.date(u.date, 'long') + '. La curva del valor ganado se recalculará interpolando entre los cortes restantes.', confirmText: 'Eliminar corte', tone: 'danger' });
       if (!ok) return;
       const now = latest.current.costs;
-      saveCosts({ ...now, statusUpdates: (now.statusUpdates || []).filter((x) => x.id !== u.id) });
+      writeCosts({ ...now, statusUpdates: (now.statusUpdates || []).filter((x) => x.id !== u.id) });
       PM.toast('Corte de avance eliminado.');
     };
     const setProgress = (id, v) => {
       const s = latest.current.schedule;
       const val = PM.clamp(Math.round(num(v) * 10) / 10, 0, 100);
-      saveSchedule({ ...s, tasks: (s.tasks || []).map((t) => (t.id === id ? { ...t, progress: val } : t)) });
+      const next = { ...s, tasks: (s.tasks || []).map((t) => (t.id === id ? { ...t, progress: val } : t)) };
+      latest.current = { ...latest.current, schedule: next };
+      saveSchedule(next);
     };
     const dateAfter = D.valid(date) && date > statusDate;
 
@@ -939,7 +1007,7 @@
                 return html`<tr key=${r.t.id} data-task=${r.t.id}>
                   <td class="evm-name"><div>${r.t.name || html`<span class="faint">Actividad sin nombre</span>`}</div><div class="evm-name-sub">${r.code ? html`<span class="code-tag">${r.code}</span>` : null}${r.t.milestone ? html`<${ui.Chip} icon="milestone">Hito</${ui.Chip}>` : null}${!r.inPlan ? html`<${ui.Chip} tone="warn">Fuera de la línea base</${ui.Chip}>` : null}</div></td>
                   <td class="num">${canWrite ? html`<div class="row" style="gap:4px;flex-wrap:nowrap;justify-content:flex-end">
-                    <div class="evm-pct-input"><${ui.NumberInput} min=${0} max=${100} value=${r.t.progress} data-field="progress" aria-label=${'% de avance de ' + (r.t.name || 'la actividad')} onValue=${(v) => setProgress(r.t.id, v === null ? 0 : v)} /></div>
+                    <div class="evm-pct-input"><${DeferredNumber} min=${0} max=${100} value=${r.t.progress} data-field="progress" aria-label=${'% de avance de ' + (r.t.name || 'la actividad')} onCommit=${(v) => setProgress(r.t.id, v === null ? 0 : v)} /></div>
                     <${ui.IconButton} size="sm" icon="check" label=${'Marcar «' + (r.t.name || 'actividad') + '» como terminada (100 %)'} disabled=${r.t.progress >= 100} onClick=${() => setProgress(r.t.id, 100)} />
                   </div>` : fmt.pct100(r.t.progress, 1)}</td>
                   <td class="num">${fmt.pct(r.planned, 0)}</td>
@@ -1040,7 +1108,7 @@
     const blDoc = baselines.cost;
     const bl = blDoc && blDoc.cost ? (() => { const b = { label: blLabel(blDoc), bac: isNum(blDoc.cost.bac) ? blDoc.cost.bac : PM.sum(blDoc.cost.tasks || [], (t) => t.cost), contingency: num(blDoc.cost.contingency), management: num(blDoc.cost.management) }; b.baseline = b.bac + b.contingency; b.total = b.baseline + b.management; return b; })() : null;
     const approved = num(project.budget, 0) > 0 ? num(project.budget) : null;
-    const setReserve = (key, v) => { const c = latest.current; saveCosts({ ...c, reserves: { ...(c.reserves || {}), [key]: Math.max(0, num(v)) } }); };
+    const setReserve = (key, v) => { const c = latest.current; const next = { ...c, reserves: { ...(c.reserves || {}), [key]: Math.max(0, num(v)) } }; latest.current = next; saveCosts(next); };
     const totalCost = cur.bac;
     const funding = useMemo(() => {
       const ps = evm.planStart, pf = evm.planFinish;
@@ -1057,7 +1125,7 @@
       : html`<${ui.Chip} tone="info" icon="info">Quedan ${money(-cmp, currency)} del presupuesto aprobado sin asignar</${ui.Chip}>`;
     const blDiff = bl ? cur.bac - bl.bac : 0;
     const reserveInput = (key, label) => canWrite
-      ? html`<${ui.NumberInput} money currency=${currency} min=${0} value=${cur[key]} data-field=${key} aria-label=${label} onValue=${(v) => setReserve(key, v === null ? 0 : v)} />`
+      ? html`<${DeferredNumber} money currency=${currency} min=${0} value=${cur[key]} data-field=${key} aria-label=${label} onCommit=${(v) => setReserve(key, v === null ? 0 : v)} />`
       : money(cur[key], currency);
     const pctOf = (v) => (cur.total > 0 ? fmt.pct(v / cur.total, 1) : '—');
     const lrow = (id, op, label, sub, curCell, blVal, total) => html`<tr key=${id} data-row=${id} class=${total ? 'is-total' : ''}>
@@ -1262,7 +1330,8 @@
     const canWrite = PM.useCanWrite();
     const valid = (id) => TABS.some((t) => t.id === id);
     const [tab, setTab] = useState(() => (valid(params && params.tab) ? params.tab : valid(PM.prefs.get('evm.tab')) ? PM.prefs.get('evm.tab') : 'curva'));
-    useEffect(() => { if (params && valid(params.tab)) setTab(params.tab); }, [params && params.tab]);
+    /* cada PM.navigate crea un objeto params nuevo: se reacciona a cada navegación, aunque repita la pestaña */
+    useEffect(() => { if (params && valid(params.tab)) setTab(params.tab); }, [params]);
     const choose = (id) => { setTab(id); PM.prefs.set('evm.tab', id); };
     const p = model.project || project;
     const header = html`<${ui.PageHeader} eyebrow="7.3 Determinar el presupuesto · 7.4 Controlar los costos" title="Curva S y valor ganado"
@@ -1274,12 +1343,12 @@
     const nAct = (costs.actuals || []).length, nCut = (costs.statusUpdates || []).length;
     const tabs = TABS.map((t) => ({ ...t, count: t.id === 'reales' && nAct ? nAct : t.id === 'avance' && nCut ? nCut : undefined }));
     let body;
-    if (['curva', 'indicadores', 'presupuesto', 'actividad'].includes(tab) && !hasPlan) body = html`<${NoPlan} hasTasks=${hasTasks} />`;
+    if (['curva', 'indicadores', 'presupuesto', 'actividad'].includes(tab) && !hasPlan) body = html`<${NoPlan} hasTasks=${hasTasks} canWrite=${canWrite} />`;
     else if (tab === 'avance' && !hasTasks) {
       body = html`<${ui.Empty} icon="gantt" title="No hay actividades en el cronograma" actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => go('cronograma')}>Ir al cronograma</${ui.Button}>`}>
         Los cortes de avance congelan el % completado de cada actividad para dibujar la curva del valor ganado. Crea primero las actividades en el Cronograma.
       </${ui.Empty}>`;
-    } else if (tab === 'curva') body = html`<${CurveTab} model=${model} project=${p} />`;
+    } else if (tab === 'curva') body = html`<${CurveTab} model=${model} project=${p} onTab=${choose} />`;
     else if (tab === 'indicadores') body = html`<${IndicatorsTab} model=${model} />`;
     else if (tab === 'reales') body = html`<${ActualsTab} model=${model} canWrite=${canWrite} project=${p} />`;
     else if (tab === 'avance') body = html`<${ProgressTab} model=${model} canWrite=${canWrite} />`;

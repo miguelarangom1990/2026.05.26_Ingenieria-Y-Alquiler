@@ -1,6 +1,7 @@
 // Pruebas de cálculos compartidos (calendario, CPM, EDT, EVM, revisiones). Uso: node test/calc.test.mjs
 import { openApp } from './harness.mjs';
-const { browser, page, errors } = await openApp();
+const argv = process.argv.slice(2); const fi = argv.indexOf('--file');
+const { browser, page, errors } = await openApp({ file: fi >= 0 ? argv[fi + 1] : 'gestor-pmbok.html' });
 const results = await page.evaluate(() => {
   const out = []; const eq = (name, got, exp) => out.push({ name, ok: JSON.stringify(got) === JSON.stringify(exp), got, exp });
   const D = PM.date;
@@ -52,6 +53,20 @@ const results = await page.evaluate(() => {
   eq('CPI', +e.cpi.toFixed(3), 0.923);
   // Revisiones
   eq('revs', [PM.calc.nextDraftRev(null), PM.calc.nextDraftRev('A'), PM.calc.approvedRev('B'), PM.calc.nextDraftRev('0'), PM.calc.nextDraftRev('1A'), PM.calc.approvedRev('1B'), PM.calc.approvedRev('1')], ['A', 'B', '0', '1A', '1B', '1', '2']);
+  // EDT con ciclo (datos importados corruptos): códigos únicos y consolidado sin desbordar la pila
+  const cyc2 = PM.calc.wbsTree([{ id: 'a', parentId: 'b', name: 'A' }, { id: 'b', parentId: 'a', name: 'B' }, { id: 'c', parentId: null, name: 'C', order: 1 }]);
+  const cc = [cyc2.codes.get('a'), cyc2.codes.get('b'), cyc2.codes.get('c')];
+  eq('EDT ciclo: códigos únicos', new Set(cc).size, 3);
+  eq('EDT ciclo: consolidado', PM.calc.rollupWbs(cyc2, { tasks: [] }).size, 3);
+  // PV acumulado equivale a la fracción planificada
+  const s3 = PM.calc.computeSchedule({ settings: { workweek: 6, holidaysCO: true }, tasks: [{ id: 'a', duration: 7, cost: 700 }, { id: 'b', duration: 4, cost: 400, deps: [{ id: 'a', type: 'SS', lag: 2 }] }, { id: 'm', duration: 0, milestone: true, cost: 50, deps: [{ id: 'b' }] }] }, '2026-08-03');
+  const e3 = PM.calc.evm({ sched: s3, costBaseline: null, costs: {}, statusDate: '2026-08-06' });
+  const ref = (d) => s3.tasks.reduce((acc, t) => acc + t.cost * PM.calc.plannedFraction(s3.cal, t.startDate, t.finishDate, t.milestone, d), 0);
+  eq('PV acumulado = fracción planificada', ['2026-08-03', '2026-08-06', '2026-08-07', '2026-08-08', '2026-08-12', '2026-08-20'].map((d) => Math.round(e3.pvAt(d) * 1000)), ['2026-08-03', '2026-08-06', '2026-08-07', '2026-08-08', '2026-08-12', '2026-08-20'].map((d) => Math.round(ref(d) * 1000)));
+  // Cronograma ganado con el trabajo concluido a tiempo: SPI(t) = 1
+  const s4 = PM.calc.computeSchedule({ settings: { workweek: 5, holidaysCO: false }, tasks: [{ id: 'a', duration: 5, cost: 100, progress: 100 }] }, '2026-08-03');
+  const e4 = PM.calc.evm({ sched: s4, costBaseline: null, costs: {}, statusDate: '2026-09-30' });
+  eq('SPI(t) concluido', +e4.spiT.toFixed(2), 1);
   eq('riesgo', [PM.calc.riskLevel(4).label, PM.calc.riskLevel(9).label, PM.calc.riskLevel(12).label, PM.calc.riskLevel(25).label], ['Bajo', 'Medio', 'Alto', 'Muy alto']);
   return out;
 });

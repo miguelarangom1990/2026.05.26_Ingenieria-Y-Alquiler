@@ -6,6 +6,12 @@
 (function () {
   'use strict';
   const lib = window.htmPreact;
+  if (!lib) {
+    const el = document.getElementById('app');
+    if (el) el.innerHTML = '<div style="max-width:520px;margin:15vh auto;padding:20px 22px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);font-family:var(--font-body)"><strong>No se pudo cargar la interfaz.</strong><p style="margin-top:8px;color:var(--fg-2)">La librería de la aplicación no respondió. Revisa tu conexión y recarga la página; tus datos no se han perdido.</p></div>';
+    window.PM = { failed: true };
+    return;
+  }
   const { h, html, render, createContext, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useContext, useReducer, useErrorBoundary } = lib;
   const PM = (window.PM = window.PM || {});
   PM.lib = lib;
@@ -36,25 +42,27 @@
   const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const DOW = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
   PM.CURRENCIES = { COP: { symbol: '$', decimals: 0 }, USD: { symbol: 'US$', decimals: 2 }, EUR: { symbol: '€', decimals: 2 } };
+  const isNum = (v) => v !== null && v !== undefined && v !== '' && typeof v !== 'boolean' && Number.isFinite(Number(v));
+  PM.isNum = isNum;
   PM.fmt = {
     num(n, d = 0) { if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '—'; return nf(0, d).format(Number(n)); },
-    fixed(n, d = 2) { if (!Number.isFinite(Number(n))) return '—'; return nf(d, d).format(Number(n)); },
+    fixed(n, d = 2) { if (!isNum(n)) return '—'; return nf(d, d).format(Number(n)); },
     money(n, cur = 'COP') {
-      if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '—';
+      if (!isNum(n)) return '—';
       const c = PM.CURRENCIES[cur] || PM.CURRENCIES.COP; const v = Number(n);
       return (v < 0 ? '−' : '') + c.symbol + ' ' + nf(0, c.decimals).format(Math.abs(v));
     },
     /* valores grandes en millones: "$ 480,5 M" (M = millones) */
     moneyShort(n, cur = 'COP') {
-      if (!Number.isFinite(Number(n))) return '—';
+      if (!isNum(n)) return '—';
       const c = PM.CURRENCIES[cur] || PM.CURRENCIES.COP; const v = Number(n), a = Math.abs(v), s = v < 0 ? '−' : '';
       if (a >= 1e6) return s + c.symbol + ' ' + nf(0, a >= 1e8 ? 0 : 1).format(a / 1e6) + ' M';
       if (a >= 1e4 && cur === 'COP') return s + c.symbol + ' ' + nf(0, 0).format(a / 1e3) + ' mil';
       return s + c.symbol + ' ' + nf(0, c.decimals).format(a);
     },
-    pct(x, d = 0) { if (!Number.isFinite(Number(x))) return '—'; return nf(0, d).format(Number(x) * 100) + ' %'; },
-    pct100(x, d = 0) { if (!Number.isFinite(Number(x))) return '—'; return nf(0, d).format(Number(x)) + ' %'; },
-    idx(x) { if (!Number.isFinite(Number(x))) return '—'; return nf(2, 2).format(Number(x)); },
+    pct(x, d = 0) { if (!isNum(x)) return '—'; return nf(0, d).format(Number(x) * 100) + ' %'; },
+    pct100(x, d = 0) { if (!isNum(x)) return '—'; return nf(0, d).format(Number(x)) + ' %'; },
+    idx(x) { if (!isNum(x)) return '—'; return nf(2, 2).format(Number(x)); },
     date(iso, style = 'medium') {
       if (!PM.date.valid(iso)) return '—';
       const y = +iso.slice(0, 4), m = +iso.slice(5, 7) - 1, d = +iso.slice(8, 10);
@@ -67,7 +75,7 @@
       return pad2(d) + ' ' + MONTHS[m] + ' ' + y;
     },
     datetime(isoTs) { if (!isoTs) return '—'; const d = new Date(isoTs); if (isNaN(d)) return '—'; return pad2(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear() + ', ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); },
-    days(n) { if (!Number.isFinite(Number(n))) return '—'; const v = Number(n); return nf(0, 1).format(v) + (Math.abs(v) === 1 ? ' día' : ' días'); },
+    days(n) { if (!isNum(n)) return '—'; const v = Number(n); return nf(0, 1).format(v) + (Math.abs(v) === 1 ? ' día' : ' días'); },
   };
   PM.MONTHS = MONTHS; PM.MONTHS_LONG = MONTHS_LONG; PM.DOW = DOW;
 
@@ -327,6 +335,10 @@
   }
   const getDocSync = (path) => { let s = docSyncs.get(path); if (!s) { s = new DocSync(path); docSyncs.set(path, s); } return s; };
   PM.flushAll = () => Promise.all([...docSyncs.values()].map((s) => s.flush()));
+  /* Descarta un guardado pendiente (antes de eliminar un documento). */
+  PM.discardPending = (path) => { const s = docSyncs.get(path); if (s) { clearTimeout(s.timer); s.dirty = false; s.again = false; } };
+  /* Moneda del proyecto actual (para formatos fuera de componentes). */
+  PM.currentCurrency = () => { const pid = PM.getState().projectId; const s = pid && docSyncs.get(PM.paths.project(pid)); return (s && s.value && s.value.currency) || 'COP'; };
   window.addEventListener('pagehide', () => PM.flushAll());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') PM.flushAll(); });
 
@@ -464,6 +476,14 @@
   PM.ICONS = ICONS;
   PM.iconSvg = (name, size = 16, stroke = 1.75) => '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + stroke + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || ICONS.file) + '</svg>';
 
+  /* memo(Componente, sonIguales?) — Preact estándar no lo incluye en el paquete htm/standalone. */
+  PM.memo = function (Comp, areEqual) {
+    const eq = areEqual || ((a, b) => { const ka = Object.keys(a), kb = Object.keys(b); if (ka.length !== kb.length) return false; for (const k of ka) if (a[k] !== b[k]) return false; return true; });
+    class Memo extends lib.Component { shouldComponentUpdate(next) { return !eq(this.props, next); } render() { return h(Comp, this.props); } }
+    Memo.displayName = 'Memo(' + (Comp.displayName || Comp.name || 'Componente') + ')';
+    return Memo;
+  };
+
   /* ------------------------------------------------------------------ kit de UI */
   const cx = (...a) => a.filter(Boolean).join(' ');
   PM.cx = cx;
@@ -505,13 +525,13 @@
     </select>`;
   };
   /* Número con edición libre; onValue(number|null) */
-  ui.NumberInput = function NumberInput({ value, onValue, class: cls, money, currency = 'COP', min, max, step, ...rest }) {
+  ui.NumberInput = function NumberInput({ value, onValue, class: cls, money, currency = 'COP', min, max, step, onFocus: extFocus, onBlur: extBlur, ...rest }) {
     const [focus, setFocus] = useState(false);
     const [draft, setDraft] = useState('');
     const shown = focus ? draft : value === null || value === undefined || value === '' ? '' : money ? PM.fmt.num(value, (PM.CURRENCIES[currency] || {}).decimals || 0) : PM.fmt.num(value, 4);
     return html`<input class=${cx('input num', cls)} inputmode="decimal" value=${shown}
-      onFocus=${() => { setDraft(value === null || value === undefined ? '' : String(value).replace('.', ',')); setFocus(true); }}
-      onBlur=${() => setFocus(false)}
+      onFocus=${(e) => { setDraft(value === null || value === undefined ? '' : String(value).replace('.', ',')); setFocus(true); extFocus && extFocus(e); }}
+      onBlur=${(e) => { setFocus(false); extBlur && extBlur(e); }}
       onInput=${(e) => { const raw = e.currentTarget.value; setDraft(raw); const clean = raw.replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); if (clean === '' || clean === '-') return onValue && onValue(null); let n = parseFloat(clean); if (!Number.isFinite(n)) return; if (min !== undefined && n < min) n = min; if (max !== undefined && n > max) n = max; onValue && onValue(n); }}
       ...${rest} />`;
   };
@@ -531,10 +551,10 @@
       </button>`)}
     </div>`;
   };
-  ui.Segmented = function Segmented({ options, value, onChange, size = 'sm', label }) {
+  ui.Segmented = function Segmented({ options, value, onChange, size = 'sm', label, disabled }) {
     const opts = normOptions(options);
     return html`<div class="btn-group" role="group" aria-label=${label}>
-      ${opts.map((o) => html`<button key=${o.value} type="button" class=${cx('btn', size === 'sm' && 'btn-sm')} aria-pressed=${String(value) === String(o.value) ? 'true' : 'false'} onClick=${() => onChange(o.value)} title=${o.title}>${o.icon ? html`<${ui.Icon} name=${o.icon} size=${14} />` : null}${o.label}</button>`)}
+      ${opts.map((o) => html`<button key=${o.value} type="button" class=${cx('btn', size === 'sm' && 'btn-sm')} aria-pressed=${String(value) === String(o.value) ? 'true' : 'false'} disabled=${disabled || o.disabled} onClick=${() => onChange(o.value)} title=${o.title}>${o.icon ? html`<${ui.Icon} name=${o.icon} size=${14} />` : null}${o.label}</button>`)}
     </div>`;
   };
   ui.Chip = function Chip({ tone, icon, children, class: cls, title }) {
@@ -568,14 +588,42 @@
   ui.Loading = function Loading({ rows = 3 }) { return html`<div class="stack" aria-busy="true">${Array.from({ length: rows }, (_, i) => html`<div key=${i} class="skeleton" style=${'height:' + (i === 0 ? 28 : 16) + 'px;width:' + (90 - i * 12) + '%'}></div>`)}</div>`; };
 
   /* Menú desplegable: items = [{label, icon, onClick, danger, disabled} | 'sep' | {heading}] */
-  ui.Dropdown = function Dropdown({ label, icon = 'more', items, align = 'right', variant = 'ghost', size = 'sm', buttonLabel }) {
-    const [open, setOpen] = useState(false);
-    const ref = useRef();
-    useEffect(() => { if (!open) return; const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; const onKey = (e) => { if (e.key === 'Escape') setOpen(false); }; document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey); return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); }; }, [open]);
+  ui.Dropdown = function Dropdown({ label, icon = 'more', items, align = 'right', variant = 'ghost', size = 'sm', buttonLabel, disabled }) {
+    const [pos, setPos] = useState(null);
+    const ref = useRef(); const menuRef = useRef();
+    const open = !!pos;
+    const place = () => {
+      const btn = ref.current && ref.current.querySelector('button'); if (!btn) return null;
+      const r = btn.getBoundingClientRect(); const vw = window.innerWidth;
+      const width = Math.min(Math.max(200, r.width), vw - 16);
+      let left = align === 'right' ? r.right - width : r.left;
+      left = Math.max(8, Math.min(left, vw - width - 8));
+      return { left, top: r.bottom + 4, width, anchorTop: r.top };
+    };
+    useLayoutEffect(() => {
+      if (!open || !menuRef.current) return;
+      const m = menuRef.current.getBoundingClientRect(); const vh = window.innerHeight;
+      if (m.bottom > vh - 8 && pos.anchorTop - m.height - 4 > 8 && !pos.flipped) setPos({ ...pos, top: pos.anchorTop - m.height - 4, flipped: true });
+    }, [open, pos && pos.top]);
+    useEffect(() => {
+      if (!open) return;
+      const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target) && menuRef.current && !menuRef.current.contains(e.target)) setPos(null); };
+      const onKey = (e) => { if (e.key === 'Escape') { setPos(null); ref.current?.querySelector('button')?.focus(); } };
+      const onMove = (e) => { if (menuRef.current && e && e.target && menuRef.current.contains(e.target)) return; setPos(null); };
+      document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey); window.addEventListener('resize', onMove); window.addEventListener('scroll', onMove, true);
+      setTimeout(() => menuRef.current?.querySelector('.menu-item:not([disabled])')?.focus(), 0);
+      return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onMove); window.removeEventListener('scroll', onMove, true); };
+    }, [open]);
+    const onMenuKey = (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const list = [...menuRef.current.querySelectorAll('.menu-item:not([disabled])')]; const i = list.indexOf(document.activeElement);
+      const n = list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]; n && n.focus();
+    };
     return html`<div class="switcher" ref=${ref} style="display:inline-block">
-      <${ui.Button} variant=${variant} size=${size} icon=${icon} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} aria-label=${label} title=${label} onClick=${() => setOpen(!open)}>${buttonLabel}</${ui.Button}>
-      ${open ? html`<div class="menu" role="menu" style=${(align === 'right' ? 'right:0;' : 'left:0;') + 'top:calc(100% + 4px);min-width:200px'}>
-        ${items.filter(Boolean).map((it, i) => it === 'sep' ? html`<div class="menu-sep" key=${i}></div>` : it.heading ? html`<div class="menu-label" key=${i}>${it.heading}</div>` : html`<button key=${i} type="button" role="menuitem" class="menu-item" disabled=${it.disabled} style=${it.danger ? 'color:var(--crit)' : ''} onClick=${() => { setOpen(false); it.onClick && it.onClick(); }}>${it.icon ? html`<${ui.Icon} name=${it.icon} size=${15} />` : null}${it.label}</button>`)}
+      <${ui.Button} variant=${variant} size=${size} icon=${icon} disabled=${disabled} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} aria-label=${label} title=${label} onClick=${() => setPos(open ? null : place())}>${buttonLabel}</${ui.Button}>
+      ${open ? html`<div class="menu" role="menu" ref=${menuRef} onKeyDown=${onMenuKey} style=${'position:fixed;left:' + pos.left + 'px;top:' + pos.top + 'px;width:' + pos.width + 'px;max-width:calc(100vw - 16px);z-index:85'}>
+        ${items.filter(Boolean).map((it, i) => it === 'sep' ? html`<div class="menu-sep" key=${i}></div>` : it.heading ? html`<div class="menu-label" key=${i}>${it.heading}</div>` : html`<button key=${i} type="button" role="menuitem" class="menu-item" disabled=${it.disabled} style=${it.danger ? 'color:var(--crit)' : ''} onClick=${() => { setPos(null); it.onClick && it.onClick(); }}>${it.icon ? html`<${ui.Icon} name=${it.icon} size=${15} />` : null}${it.label}</button>`)}
       </div>` : null}
     </div>`;
   };
@@ -591,10 +639,12 @@
     const move = (i, d) => onChange(PM.moveItem(rows, i, i + d));
     const renderCell = (c, r, i) => {
       const v = r[c.key];
-      if (c.type === 'calc') { const val = c.calc ? c.calc(r, rows) : v; return html`<div class="cell-calc">${c.format ? c.format(val, r) : val ?? '—'}</div>`; }
+      const ctx = { currency, rows, index: i };
+      if (c.type === 'calc') { const val = c.calc ? c.calc(r, rows, ctx) : v; return html`<div class="cell-calc">${c.format ? c.format(val, r, ctx) : val ?? '—'}</div>`; }
       if (!canEdit) {
-        const shown = c.format ? c.format(v, r) : c.type === 'money' ? PM.fmt.money(v, currency) : c.type === 'number' ? PM.fmt.num(v, 2) : c.type === 'pct' ? (v === null || v === undefined || v === '' ? '—' : PM.fmt.pct100(v)) : c.type === 'date' ? PM.fmt.date(v) : c.type === 'check' ? (v ? 'Sí' : 'No') : c.type === 'select' ? (normOptions(c.options).find((o) => String(o.value) === String(v))?.label ?? v ?? '') : v ?? '';
-        return html`<div class=${cx('cell-calc', (c.type === 'money' || c.type === 'number' || c.type === 'pct') && 'num')} style="white-space:pre-wrap;color:var(--fg)">${shown === '' ? html`<span class="faint">—</span>` : shown}</div>`;
+        const shown = c.format ? c.format(v, r, ctx) : c.type === 'money' ? PM.fmt.money(v, currency) : c.type === 'number' ? PM.fmt.num(v, 2) : c.type === 'pct' ? (v === null || v === undefined || v === '' ? '—' : PM.fmt.pct100(v)) : c.type === 'date' ? PM.fmt.date(v) : c.type === 'check' ? (v ? 'Sí' : 'No') : c.type === 'select' ? (normOptions(c.options).find((o) => String(o.value) === String(v))?.label ?? v ?? '') : v ?? '';
+        const wrap = c.type === 'text' || c.type === 'textarea' || !c.type;
+        return html`<div class=${cx('cell-calc', (c.type === 'money' || c.type === 'number' || c.type === 'pct') && 'num')} style=${'color:var(--fg);white-space:' + (wrap ? 'pre-wrap' : 'nowrap')}>${shown === '' || shown === null || shown === undefined ? html`<span class="faint">—</span>` : shown}</div>`;
       }
       const label = c.label + ' — fila ' + (i + 1);
       if (c.type === 'textarea') return html`<${CellTextArea} value=${v} label=${label} placeholder=${c.placeholder} onValue=${(x) => setCell(i, c.key, x)} />`;
@@ -607,11 +657,11 @@
     return html`<div class="stack-sm">
       <div class="table-wrap">
         <table class=${cx('table', canEdit && 'table-edit', compact && 'table-tight')}>
-          <thead><tr>${columns.map((c) => html`<th key=${c.key} class=${(c.type === 'money' || c.type === 'number' || c.type === 'pct') ? 'num' : ''} style=${c.width ? 'min-width:' + c.width + (typeof c.width === 'number' ? 'px' : '') : ''} title=${c.hint}>${c.label}</th>`)}${canEdit ? html`<th class="ctl"><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
+          <thead><tr>${columns.map((c) => html`<th key=${c.key} class=${cx((c.type === 'money' || c.type === 'number' || c.type === 'pct' || (c.type === 'calc' && c.align !== 'left')) && 'num', 'col-' + (c.type || 'text'))} style=${c.width ? 'min-width:' + c.width + (typeof c.width === 'number' ? 'px' : '') : ''} title=${c.hint}>${c.label}</th>`)}${canEdit ? html`<th class="ctl"><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
           <tbody>
             ${rows.length === 0 ? html`<tr><td colspan=${columns.length + (canEdit ? 1 : 0)} class="faint" style="padding:14px 12px">${emptyText}</td></tr>` : null}
             ${rows.map((r, i) => html`<tr key=${r.id || i} class=${onRowClick ? 'clickable' : ''} style=${rowTone ? rowTone(r) : ''} onClick=${onRowClick ? () => onRowClick(r, i) : undefined}>
-              ${columns.map((c) => html`<td key=${c.key} class=${(c.type === 'money' || c.type === 'number' || c.type === 'calc' || c.type === 'pct') ? 'num' : ''}>${renderCell(c, r, i)}</td>`)}
+              ${columns.map((c) => html`<td key=${c.key} class=${cx((c.type === 'money' || c.type === 'number' || c.type === 'pct' || (c.type === 'calc' && c.align !== 'left')) && 'num', 'col-' + (c.type || 'text'))}>${renderCell(c, r, i)}</td>`)}
               ${canEdit ? html`<td class="ctl"><div class="row" style="gap:0;flex-wrap:nowrap">
                 ${reorder ? html`<${ui.IconButton} size="sm" icon="chevron-up" label="Subir fila" disabled=${i === 0} onClick=${() => move(i, -1)} /><${ui.IconButton} size="sm" icon="chevron-down" label="Bajar fila" disabled=${i === rows.length - 1} onClick=${() => move(i, 1)} />` : null}
                 <${ui.IconButton} size="sm" icon="trash" label="Eliminar fila" onClick=${() => del(i)} />
@@ -632,7 +682,7 @@
   PM.toCSV = (columns, rows, currency) => {
     const esc = (v) => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const head = columns.map((c) => esc(c.label)).join(';');
-    const body = rows.map((r) => columns.map((c) => { let v = c.type === 'calc' && c.calc ? c.calc(r, rows) : r[c.key]; if (c.type === 'select') v = normOptions(c.options).find((o) => String(o.value) === String(v))?.label ?? v; if (typeof v === 'number') v = String(v).replace('.', ','); if (typeof v === 'boolean') v = v ? 'Sí' : 'No'; return esc(v); }).join(';')).join('\r\n');
+    const body = rows.map((r, i) => columns.map((c) => { let v = c.type === 'calc' && c.calc ? c.calc(r, rows, { currency, rows, index: i }) : r[c.key]; if (c.type === 'select') v = normOptions(c.options).find((o) => String(o.value) === String(v))?.label ?? v; if (typeof v === 'number') v = String(v).replace('.', ','); if (typeof v === 'boolean') v = v ? 'Sí' : 'No'; return esc(v); }).join(';')).join('\r\n');
     return '﻿' + head + '\r\n' + body;
   };
 
@@ -654,10 +704,19 @@
   /* Tooltip de gráficos: const tip = PM.useChartTip(); <div class="chart" ref=${tip.ref}> … onMouseMove=${(e)=>tip.show(e, contenido)} … ${tip.node}</div> */
   PM.useChartTip = function () {
     const ref = useRef(); const [state, setState] = useState(null);
-    const show = useCallback((e, content) => { const host = ref.current; if (!host) return; const r = host.getBoundingClientRect(); let x = e.clientX - r.left + host.scrollLeft + 14, y = e.clientY - r.top + host.scrollTop + 14; const maxX = host.scrollLeft + host.clientWidth - 200; if (x > maxX) x = Math.max(host.scrollLeft + 4, e.clientX - r.left + host.scrollLeft - 214); setState({ x, y, content }); }, []);
+    const show = useCallback((e, content) => {
+      const host = ref.current; if (!host) return;
+      const r = host.getBoundingClientRect();
+      const px = e.clientX - r.left + host.scrollLeft, py = e.clientY - r.top + host.scrollTop;
+      let x = px + 14, y = py + 14;
+      if (x > host.scrollLeft + host.clientWidth - 210) x = Math.max(host.scrollLeft + 4, px - 224);
+      const flipY = py - host.scrollTop > host.clientHeight * 0.55;
+      setState({ x, y: flipY ? py - 12 : y, flipY, content });
+    }, []);
     const hide = useCallback(() => setState(null), []);
-    const node = state ? html`<div class="chart-tip" style=${'left:' + state.x + 'px;top:' + state.y + 'px'}>${state.content}</div>` : null;
-    return { ref, show, hide, node };
+    const setHost = useCallback((el) => { ref.current = el; }, []);
+    const node = state ? html`<div class="chart-tip" role="status" style=${'left:' + state.x + 'px;top:' + state.y + 'px;' + (state.flipY ? 'transform:translateY(-100%)' : '')}>${state.content}</div>` : null;
+    return { ref, setHost, show, hide, node };
   };
 
   /* ------------------------------------------------------------------ superposiciones: modales, confirmación, avisos */
@@ -670,23 +729,37 @@
     let done = false; const finish = (v, close) => { if (done) return; done = true; close(); resolve(v); };
     PM.openModal((close) => html`<${ui.Modal} title=${title} onClose=${() => finish(false, close)} footer=${html`<${ui.Button} onClick=${() => finish(false, close)}>${cancelText}</${ui.Button}><${ui.Button} variant=${tone === 'danger' ? 'danger-solid' : 'primary'} onClick=${() => finish(true, close)} autoFocus>${confirmText}</${ui.Button}>`}>${typeof body === 'string' ? html`<p>${body}</p>` : body}</${ui.Modal}>`);
   });
-  PM.promptText = ({ title, label, value = '', placeholder, confirmText = 'Aceptar', multiline } = {}) => new Promise((resolve) => {
+  PM.promptText = ({ title, label, value = '', placeholder, confirmText = 'Aceptar', multiline, optional, hint } = {}) => new Promise((resolve) => {
     let done = false; const finish = (v, close) => { if (done) return; done = true; close(); resolve(v); };
     function PromptBody({ close }) {
       const [v, setV] = useState(value);
-      return html`<${ui.Modal} title=${title} onClose=${() => finish(null, close)} footer=${html`<${ui.Button} onClick=${() => finish(null, close)}>Cancelar</${ui.Button}><${ui.Button} variant="primary" disabled=${!String(v).trim()} onClick=${() => finish(String(v).trim(), close)}>${confirmText}</${ui.Button}>`}>
-        <form onSubmit=${(e) => { e.preventDefault(); if (String(v).trim()) finish(String(v).trim(), close); }}>
-          <${ui.Field} label=${label} for="pm-prompt">${multiline ? html`<${ui.TextArea} id="pm-prompt" value=${v} onValue=${setV} placeholder=${placeholder} autoFocus />` : html`<${ui.Input} id="pm-prompt" value=${v} onValue=${setV} placeholder=${placeholder} autoFocus />`}</${ui.Field}>
+      const ok = optional || String(v).trim();
+      const submit = () => { if (ok) finish(String(v).trim(), close); };
+      return html`<${ui.Modal} title=${title} onClose=${() => finish(null, close)} footer=${html`<${ui.Button} onClick=${() => finish(null, close)}>Cancelar</${ui.Button}><${ui.Button} variant="primary" disabled=${!ok} onClick=${submit}>${confirmText}</${ui.Button}>`}>
+        <form onSubmit=${(e) => { e.preventDefault(); submit(); }}>
+          <${ui.Field} label=${label} for="pm-prompt" hint=${hint}>${multiline ? html`<${ui.TextArea} id="pm-prompt" value=${v} onValue=${setV} placeholder=${placeholder} autoFocus />` : html`<${ui.Input} id="pm-prompt" value=${v} onValue=${setV} placeholder=${placeholder} autoFocus />`}</${ui.Field}>
         </form>
       </${ui.Modal}>`;
     }
     PM.openModal((close) => html`<${PromptBody} close=${close} />`);
   });
+  const modalStack = [];
   ui.Modal = function Modal({ title, onClose, children, footer, size, subtitle }) {
-    useEffect(() => { const k = (e) => { if (e.key === 'Escape') onClose && onClose(); }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, [onClose]);
+    const id = useMemo(() => PM.uid('dlg'), []);
+    const boxRef = useRef(); const closeRef = useRef(onClose); closeRef.current = onClose;
+    useLayoutEffect(() => {
+      modalStack.push(id);
+      const prev = document.activeElement;
+      const k = (e) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) { e.stopPropagation(); closeRef.current && closeRef.current(); } };
+      document.addEventListener('keydown', k);
+      const box = boxRef.current;
+      if (box && !box.contains(document.activeElement)) { const f = box.querySelector('[autofocus], .modal-body input:not([type=hidden]):not([disabled]), .modal-body select, .modal-body textarea, .modal-foot .btn-primary, button'); f && f.focus({ preventScroll: true }); }
+      return () => { const i = modalStack.indexOf(id); if (i >= 0) modalStack.splice(i, 1); document.removeEventListener('keydown', k); const ae = document.activeElement; const focusLost = !ae || ae === document.body || (box && box.contains(ae)); if (focusLost && prev && prev.focus && document.contains(prev)) prev.focus({ preventScroll: true }); };
+    }, []);
+    const titleId = id + '-t';
     return html`<div class="modal-backdrop" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose && onClose(); }}>
-      <div class=${cx('modal', size === 'wide' && 'modal-wide', size === 'xl' && 'modal-xl')} role="dialog" aria-modal="true" aria-label=${typeof title === 'string' ? title : undefined}>
-        <div class="modal-head"><div class="stack-sm" style="gap:2px;min-width:0"><h2 class="modal-title">${title}</h2>${subtitle ? html`<div class="small muted">${subtitle}</div>` : null}</div><${ui.IconButton} icon="x" label="Cerrar" onClick=${onClose} /></div>
+      <div ref=${boxRef} class=${cx('modal', size === 'wide' && 'modal-wide', size === 'xl' && 'modal-xl')} role="dialog" aria-modal="true" aria-labelledby=${titleId}>
+        <div class="modal-head"><div class="stack-sm" style="gap:2px;min-width:0"><h2 class="modal-title" id=${titleId}>${title}</h2>${subtitle ? html`<div class="small muted">${subtitle}</div>` : null}</div><${ui.IconButton} icon="x" label="Cerrar" onClick=${onClose} /></div>
         <div class="modal-body">${children}</div>
         ${footer ? html`<div class="modal-foot">${footer}</div>` : null}
       </div>

@@ -17,7 +17,7 @@
   </svg>`;
 
   /* ---------------------------------------------------------------- formulario de proyecto */
-  PM.ProjectForm = function ProjectForm({ initial, projects, onSubmit, onCancel, submitText = 'Crear proyecto' }) {
+  PM.ProjectForm = function ProjectForm({ initial, projects, onSubmit, onCancel, submitText = 'Crear proyecto', autoFocus = true }) {
     const [f, setF] = useState(() => ({ name: '', code: PM.nextProjectCode(projects || []), client: '', sponsor: '', manager: '', start: PM.date.today(), end: '', budget: null, currency: 'COP', status: 'En planificación', lifecycle: 'Predictivo', description: '', location: '', ...(initial || {}) }));
     const [touched, setTouched] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -30,7 +30,7 @@
     const submit = async (e) => { e && e.preventDefault(); setTouched(true); if (!ok || busy) return; setBusy(true); try { await onSubmit({ ...f, name: f.name.trim(), code: String(f.code || '').trim() }); } finally { setBusy(false); } };
     return html`<form class="stack" onSubmit=${submit}>
       <div class="grid cols-2">
-        <${ui.Field} label="Nombre del proyecto" required for="pf-name" error=${touched && errors.name} class="span-all"><${ui.Input} id="pf-name" value=${f.name} onValue=${set('name')} placeholder="Ej.: Suministro y montaje de andamio — Torre 2" autoFocus /></${ui.Field}>
+        <${ui.Field} label="Nombre del proyecto" required for="pf-name" error=${touched && errors.name} class="span-all"><${ui.Input} id="pf-name" value=${f.name} onValue=${set('name')} placeholder="Ej.: Suministro y montaje de andamio — Torre 2" autoFocus=${autoFocus} /></${ui.Field}>
         <${ui.Field} label="Código" for="pf-code" hint="Identificador corto para documentos y reportes."><${ui.Input} id="pf-code" class="mono" value=${f.code} onValue=${set('code')} /></${ui.Field}>
         <${ui.Field} label="Cliente" for="pf-client"><${ui.Input} id="pf-client" value=${f.client} onValue=${set('client')} /></${ui.Field}>
         <${ui.Field} label="Patrocinador" for="pf-sponsor"><${ui.Input} id="pf-sponsor" value=${f.sponsor} onValue=${set('sponsor')} /></${ui.Field}>
