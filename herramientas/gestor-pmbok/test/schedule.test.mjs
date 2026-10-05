@@ -577,6 +577,146 @@ try {
   await page.evaluate(() => PM.prefs.set('red.zoom', 1));
   void pidC;
 
+  /* ================= Bloque D: pronóstico al corte (red actualizada a la fecha de corte, 6.6) ================= */
+  await page.evaluate(() => { PM.prefs.set('sched.group', false); PM.prefs.set('sched.tab', 'gantt'); PM.prefs.set('sched.zoom', 'semana'); PM.prefs.set('sched.cols', 'auto'); PM.prefs.set('sched.base', true); });
+  const pidD = await createProject(page, { name: 'Proyecto D', code: 'PRY-D', start: '2026-08-03', statusDate: '2026-09-15' });
+  await page.evaluate(async (pid) => {
+    const T = (id, name, duration, deps, extra = {}) => ({ id, name, wbsId: null, duration, milestone: duration === 0, start: null, deps, progress: 0, cost: 1000000, resources: [], responsible: '', actualStart: null, actualFinish: null, notes: '', ...extra });
+    const fs = (id) => [{ id, type: 'FS', lag: 0 }];
+    await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: [
+      T('a', 'Diseño del andamio', 10, [], { progress: 100 }),
+      T('b', 'Alistamiento en bodega', 10, fs('a'), { progress: 40 }),
+      T('m1', 'Equipo listo para despacho', 0, fs('b')),
+      T('c', 'Montaje niveles 1 a 5', 8, fs('m1')),
+      T('m2', 'Andamio certificado', 0, fs('c')),
+      T('e', 'Mantenimiento programado', 3, [], { start: '2026-09-21' }),
+    ] });
+  }, pidD);
+  await gotoView(page, 'cronograma');
+  await page.waitForSelector('.sched-row[data-id="m2"]');
+  await page.waitForTimeout(250);
+  const storedD = () => page.evaluate(async (pid) => JSON.stringify(await PM.store.get(PM.paths.tool(pid, 'schedule'))), pidD);
+  const expD = () => page.evaluate(async (pid) => {
+    const project = await PM.store.get(PM.paths.project(pid));
+    const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const bls = await PM.store.list(PM.paths.baselines(pid));
+    const bl = bls.length ? bls[0].data : null;
+    const sched = PM.calc.computeSchedule(schedule, project.start);
+    const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
+    const moved = sched.tasks.filter((t) => t.progress < 100 && (fc.byId.get(t.id).startDate !== t.startDate || fc.byId.get(t.id).finishDate !== t.finishDate)).map((t) => t.id);
+    const ref = bl ? bl.schedule.finish : sched.finish;
+    const v = sched.cal.indexOf(fc.finish) - sched.cal.indexOf(ref);
+    const vs = bl ? 'frente a ' + bl.label : 'frente al fin planificado';
+    const phrase = v === 0 ? 'sin variación ' + vs : Math.abs(v) + (Math.abs(v) === 1 ? ' día hábil' : ' días hábiles') + (v > 0 ? ' de atraso ' : ' de adelanto ') + vs;
+    const fcDates = Object.fromEntries(sched.tasks.map((t) => [t.id, { plan: t.startDate, planFin: t.finishDate, f: fc.byId.get(t.id).startDate, ff: fc.byId.get(t.id).finishDate, blStart: bl ? (bl.schedule.tasks.find((x) => x.id === t.id) || {}).start : null }]));
+    return { sd: project.statusDate, planFinish: PM.fmt.date(sched.finish), fcFinish: PM.fmt.date(fc.finish), fcFinishIso: fc.finish, planFinishIso: sched.finish, phrase, moved, fcDates };
+  }, pidD);
+  let eD = await expD();
+  const stripText = async (id) => (await page.locator(`.sched-strip [data-stat="${id}"]`).innerText()).split('\n').map((x) => x.trim()).filter(Boolean);
+  let fcStat = await stripText('forecast');
+  check('pronóstico: hay trabajo pendiente desplazado (b en curso, m1, c y m2; no la terminada ni la que empieza después del corte)', JSON.stringify(eD.moved) === '["b","m1","c","m2"]' && eD.fcFinishIso > eD.planFinishIso, eD.moved);
+  check('resumen: «Fin» sigue siendo el planificado', (await stripText('finish'))[1] === eD.planFinish, await stripText('finish'));
+  check('resumen: «Fin pronosticado al corte» = fin de la red actualizada, con su variación en días hábiles frente al fin planificado (sin línea base)', fcStat[0] === 'Fin pronosticado al corte' && fcStat[1] === eD.fcFinish && fcStat[2] === eD.phrase && (await page.locator('.sched-strip [data-stat="forecast"] .stat-value').getAttribute('style')).includes('var(--crit)'), { fcStat, eD: [eD.fcFinish, eD.phrase] });
+  const stripTops = await page.$$eval('.sched-strip > .stat', (els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().top)))]);
+  check('resumen: una sola fila a 1360 px', stripTops.length === 1, stripTops);
+  /* conmutador «Pronóstico al corte»: activo por defecto cuando el corte desplaza trabajo pendiente */
+  const fcToggle = page.locator('label.check:has-text("Pronóstico al corte") input');
+  check('Gantt: «Pronóstico al corte» activo por defecto (corte posterior al inicio con trabajo pendiente desplazado)', (await fcToggle.isChecked()) && !(await fcToggle.isDisabled()));
+  const ghosts = () => page.$$eval('g.sched-fc', (els) => els.map((e) => ({ id: e.getAttribute('data-id'), s: e.getAttribute('data-start'), f: e.getAttribute('data-finish') })));
+  let gh = await ghosts();
+  check('Gantt: una barra de pronóstico por actividad pendiente desplazada, con las fechas de la red actualizada', gh.length === eD.moved.length && gh.every((g) => eD.moved.includes(g.id) && g.s === eD.fcDates[g.id].f && g.f === eD.fcDates[g.id].ff), { gh, moved: eD.moved });
+  const ghostGeo = await page.evaluate(() => {
+    const svg = document.querySelector('svg.sched-body'); const origin = svg.getAttribute('data-origin'); const ppd = +svg.getAttribute('data-ppd');
+    const g = document.querySelector('g.sched-fc[data-id="c"]'); const r = g.querySelector('rect');
+    return { x: +r.getAttribute('x'), exp: PM.date.diff(origin, g.getAttribute('data-start')) * ppd, fill: r.getAttribute('fill'), stroke: r.getAttribute('stroke'), dash: r.getAttribute('stroke-dasharray'), ms: !!document.querySelector('g.sched-fc[data-id="m2"] path') };
+  });
+  check('Gantt: la barra del pronóstico empieza en la fecha pronosticada, con trama y contorno discontinuo en --signal (rombo para hitos)', Math.abs(ghostGeo.x - ghostGeo.exp) < 0.01 && /^url\(#/.test(ghostGeo.fill) && ghostGeo.stroke === 'var(--signal)' && !!ghostGeo.dash && ghostGeo.ms, ghostGeo);
+  const gdD = await page.$$eval('.sched-row[data-id] [data-col="finish"]', (els) => els.map((e) => e.innerText.trim()));
+  check('Gantt: las fechas de la tabla siguen siendo las planificadas', gdD.length === 6 && gdD[1] === fd(eD.fcDates.b.planFin) && gdD[3] === fd(eD.fcDates.c.planFin), gdD);
+  check('Gantt: leyenda y nota del pronóstico al corte', (await page.locator('.sched-legend [data-legend="forecast"]').innerText()).includes('Pronóstico al corte') && (await page.locator('[data-fc-note]').innerText()).includes('4 actividades pendientes cambian de fecha'));
+  /* línea de la fecha de corte: trazo --signal y rótulo --signal-ink */
+  const statusLine = await page.evaluate(() => {
+    const t = [...document.querySelectorAll('.sched-headrow text.sched-mark')].find((x) => x.textContent.startsWith('Corte'));
+    const line = t && t.parentNode.querySelector('line');
+    const probe = document.createElement('span'); probe.style.color = 'var(--signal-ink)'; document.body.appendChild(probe); const ink = getComputedStyle(probe).color; probe.remove();
+    return { label: t && t.textContent, stroke: line && line.getAttribute('stroke'), fill: t && getComputedStyle(t).fill, ink };
+  });
+  check('línea de corte: trazo en --signal y rótulo en --signal-ink', String(statusLine.label || '').startsWith('Corte 15') && statusLine.stroke === 'var(--signal)' && !!statusLine.ink && statusLine.fill === statusLine.ink, statusLine);
+  /* tooltip de una actividad desplazada */
+  await page.evaluate(() => { const f = document.querySelector('.sched-frame'); const r = document.querySelector('g.sched-bar[data-id="c"] .sched-bar-main'); f.scrollLeft = Math.max(0, +r.getAttribute('x') - 60); });
+  await page.waitForTimeout(100);
+  await page.hover('g.sched-bar[data-id="c"] .sched-bar-main');
+  await page.waitForTimeout(150);
+  const tipD = await page.locator('.chart-tip').innerText().catch(() => '');
+  check('tooltip: muestra el pronóstico al corte de una actividad desplazada', tipD.includes('Pronóstico al corte') && tipD.includes('Inicio – fin'), tipD);
+  await page.mouse.move(5, 5);
+  /* ocultar y volver a mostrar: no toca los datos guardados; la elección se recuerda por proyecto */
+  const before = await storedD();
+  await page.click('label.check:has-text("Pronóstico al corte")');
+  await page.waitForTimeout(150);
+  check('ocultar el pronóstico al corte: sin barras ni leyenda', (await page.locator('g.sched-fc').count()) === 0 && (await page.locator('.sched-legend [data-legend="forecast"]').count()) === 0 && (await page.evaluate((pid) => PM.prefs.get('sched.fcHide.' + pid), pidD)) === true);
+  await page.click('label.check:has-text("Pronóstico al corte")');
+  await page.waitForTimeout(950);
+  check('mostrar de nuevo el pronóstico; el cronograma guardado no cambia', (await page.locator('g.sched-fc').count()) === eD.moved.length && (await storedD()) === before);
+  /* descarga SVG con el pronóstico */
+  await page.evaluate(() => { window.__dl = []; PM.download = async (name, data) => { window.__dl.push({ name, data }); return true; }; });
+  await page.click('button:has-text("Descargar SVG")');
+  const dlD = await page.evaluate(() => window.__dl);
+  check('SVG del Gantt con el pronóstico al corte (barras con trama y nota al pie)', dlD.length === 1 && (dlD[0].data.match(/data-start=/g) || []).length === eD.moved.length && dlD[0].data.includes('<pattern') && dlD[0].data.includes('pronóstico al corte con trama'), dlD.map((d) => d.name));
+  /* hitos: columna «Pronóstico al corte» con variación; «Vencido» sigue el plan */
+  await page.click('.tabs .tab:has-text("Hitos")');
+  await page.waitForTimeout(150);
+  const msD = await page.$$eval('.sched-tbl tbody tr', (trs) => trs.map((tr) => { const c = tr.querySelector('[data-col="forecast"]'); return { id: tr.getAttribute('data-id'), state: tr.lastElementChild.previousElementSibling.innerText.trim(), date: c && c.getAttribute('data-date'), v: c && +c.getAttribute('data-var'), txt: c && c.innerText.trim() }; }));
+  const wdv = (a, b) => page.evaluate(({ a, b }) => { const cal = PM.cal.make({ workweek: 5, holidaysCO: true }, '2026-08-03'); return cal.indexOf(a) - cal.indexOf(b); }, { a, b });
+  const m1 = msD.find((x) => x.id === 'm1');
+  check('hitos: columna «Pronóstico al corte» con la fecha de la red actualizada', (await page.locator('.sched-tbl thead th:has-text("Pronóstico al corte")').count()) === 1 && msD.length === 2 && msD.every((x) => x.date === eD.fcDates[x.id].f), msD);
+  check('hitos: «Vencido» según la fecha planificada aunque el pronóstico quede después del corte', m1.state === 'Vencido' && eD.fcDates.m1.plan < eD.sd && m1.date > eD.sd, { m1, sd: eD.sd });
+  check('hitos: variación del pronóstico en días hábiles frente a la fecha planificada (sin línea base)', m1.v === (await wdv(eD.fcDates.m1.f, eD.fcDates.m1.plan)) && m1.v > 0 && m1.txt.includes('+' + m1.v + ' d'), m1);
+  check('hitos: chip con los hitos desplazados al corte', (await page.locator('.chip:has-text("desplazados al corte")').innerText()).trim() === '2 desplazados al corte');
+  if (shots) await shot('pronostico-hitos');
+  /* con línea base: la variación se mide frente a LB0 (fin y fechas de hitos) */
+  await page.evaluate(async (pid) => {
+    const project = await PM.store.get(PM.paths.project(pid));
+    const s = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const snap = PM.calc.makeBaselineSnapshot({ includes: ['schedule'], sched: PM.calc.computeSchedule(s, project.start) });
+    await PM.store.set(PM.paths.baseline(pid, 'lb0'), { number: 0, label: 'LB0', date: '2026-08-01', includes: ['schedule'], note: '', changeRef: '', byId: null, ...snap });
+  }, pidD);
+  await page.waitForTimeout(400);
+  eD = await expD();
+  const m1b = await page.$eval('.sched-tbl tbody tr[data-id="m1"] [data-col="forecast"]', (c) => +c.getAttribute('data-var'));
+  check('hitos con LB0: variación del pronóstico frente a la fecha de LB0', m1b === (await wdv(eD.fcDates.m1.f, eD.fcDates.m1.blStart)), { m1b, d: eD.fcDates.m1 });
+  await page.click('.tabs .tab:has-text("Gantt")');
+  await page.waitForTimeout(150);
+  fcStat = await stripText('forecast');
+  const blStat = await stripText('baseline');
+  check('resumen con LB0: variación del fin pronosticado «frente a LB0» y el fin de LB0 con la variación de lo planificado', fcStat[2] === eD.phrase && eD.phrase.endsWith('frente a LB0') && blStat[0] === 'Fin LB0' && blStat[2] === 'planificado 0 d', { fcStat, blStat, phrase: eD.phrase });
+  if (shots) await shot('pronostico-gantt');
+  /* solo lectura: el pronóstico es una vista, sigue disponible sin controles de edición */
+  await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(150);
+  check('solo lectura: el pronóstico al corte se dibuja y se puede conmutar, sin controles de edición', (await page.locator('g.sched-fc').count()) === eD.moved.length && !(await fcToggle.isDisabled()) && (await page.locator('button:has-text("Agregar actividad")').count()) === 0 && (await page.locator('.sched-handle').count()) === 0);
+  await page.evaluate(() => PM.setState({ canWrite: true }));
+  /* 400 px y tema oscuro con el pronóstico */
+  await page.setViewportSize({ width: 400, height: 860 });
+  for (const tab of ['Gantt', 'Hitos']) {
+    await page.click(`.tabs .tab:has-text("${tab}")`); await page.waitForTimeout(200);
+    const ov = await horizontalOverflow(page);
+    check(`400 px sin desborde con el pronóstico: ${tab}`, ov <= 1, ov);
+  }
+  await page.click('.tabs .tab:has-text("Gantt")');
+  const fcBox = await page.locator('.sched-strip [data-stat="forecast"]').boundingBox();
+  const stripBox = await page.locator('.sched-strip').boundingBox();
+  check('400 px: «Fin pronosticado al corte» legible dentro del resumen', fcBox.width >= 200 && fcBox.x + fcBox.width <= stripBox.x + stripBox.width + 1 && !(await page.$eval('.sched-strip [data-stat="forecast"] .stat-label', (e) => e.scrollWidth > e.clientWidth + 1)), { fcBox, stripBox });
+  if (shots) await shot('pronostico-400');
+  await page.setViewportSize({ width: 1360, height: 900 });
+  if (shots) { await page.emulateMedia({ colorScheme: 'dark' }); await shot('pronostico-dark'); await page.emulateMedia({ colorScheme: 'light' }); }
+  /* corte anterior al inicio: la red actualizada coincide con lo planificado → conmutador desactivado y sin barras */
+  await page.evaluate((pid) => PM.projectOps.update(pid, { statusDate: '2026-07-31' }), pidD);
+  await page.waitForTimeout(350);
+  eD = await expD();
+  fcStat = await stripText('forecast');
+  check('corte anterior al inicio: conmutador desactivado, sin barras de pronóstico y fin pronosticado = planificado', (await fcToggle.isDisabled()) && !(await fcToggle.isChecked()) && (await page.locator('g.sched-fc').count()) === 0 && eD.moved.length === 0 && fcStat[1] === eD.planFinish && fcStat[2] === 'sin variación frente a LB0', { fcStat, moved: eD.moved });
+  void pidD;
+
   /* 300 actividades: respuesta y números de fila legibles */
   const pidBig = await page.evaluate(async () => {
     const id = await PM.projectOps.create({ name: 'Proyecto grande', code: 'PRY-G', start: '2026-01-05' });

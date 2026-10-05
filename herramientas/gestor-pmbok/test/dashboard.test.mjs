@@ -144,15 +144,26 @@ try {
     const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
     const costs = await PM.store.get(PM.paths.tool(pid, 'costs'));
     const sched = PM.calc.computeSchedule(schedule, project.start);
+    const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
     const e = PM.calc.evm({ sched, costBaseline: null, costs, statusDate: project.statusDate });
-    return { spi: PM.fmt.idx(e.spi), cpi: PM.fmt.idx(e.cpi), avance: PM.fmt.pct(e.pctComplete, 1), eac: PM.fmt.moneyShort(e.eac, 'COP'), fin: PM.fmt.date(e.forecastFinish || sched.finish), bac: e.bac };
+    const vNet = sched.cal.indexOf(fc.finish) - sched.cal.indexOf(sched.finish);
+    return { spi: PM.fmt.idx(e.spi), cpi: PM.fmt.idx(e.cpi), avance: PM.fmt.pct(e.pctComplete, 1), eac: PM.fmt.moneyShort(e.eac, 'COP'), fin: PM.fmt.date(e.forecastFinish || fc.finish), hasEs: !!e.forecastFinish, bac: e.bac,
+      net: fc.finish, netFmt: PM.fmt.date(fc.finish), planFmt: PM.fmt.date(sched.finish), netLater: fc.finish > sched.finish,
+      netPhrase: vNet === 0 ? 'sin variación frente al fin planificado' : Math.abs(vNet) + (Math.abs(vNet) === 1 ? ' día hábil' : ' días hábiles') + (vNet > 0 ? ' de atraso' : ' de adelanto') + ' frente al fin planificado' };
   }, pid);
   const kpi = async (sel) => (await page.locator(sel).first().innerText()).trim();
   check('KPI avance = EV/BAC', (await kpi('[data-kpi="avance"] .stat-value')) === expected.avance, [await kpi('[data-kpi="avance"] .stat-value'), expected.avance]);
   check('KPI SPI', (await kpi('[data-index="spi"] .stat-value')) === expected.spi, [await kpi('[data-index="spi"] .stat-value'), expected.spi]);
   check('KPI CPI', (await kpi('[data-index="cpi"] .stat-value')) === expected.cpi, [await kpi('[data-index="cpi"] .stat-value'), expected.cpi]);
   check('KPI EAC', (await kpi('[data-kpi="eac"] .stat-value')) === expected.eac, [await kpi('[data-kpi="eac"] .stat-value'), expected.eac]);
-  check('KPI fin pronosticado', (await kpi('[data-kpi="fin"] .stat-value')) === expected.fin, [await kpi('[data-kpi="fin"] .stat-value'), expected.fin]);
+  check('KPI fin pronosticado (cronograma ganado o, sin él, red actualizada al corte)', (await kpi('[data-kpi="fin"] .stat-value')) === expected.fin, [await kpi('[data-kpi="fin"] .stat-value'), expected.fin]);
+  /* fin pronosticado: además del cronograma ganado, la red actualizada a la fecha de corte (6.6), con la misma referencia
+     y redacción del cronograma (sin línea base: el fin planificado; «N días hábiles de atraso frente a …») */
+  const netLine = page.locator('[data-kpi="fin"] [data-network]');
+  const netTxt = (await netLine.count()) ? (await netLine.innerText()).replace(/\s+/g, ' ').trim() : '';
+  check('KPI fin: segunda línea «Red actualizada al corte» con la fecha de la red actualizada', expected.hasEs && (await netLine.getAttribute('data-network').catch(() => null)) === expected.net && netTxt.startsWith('Red actualizada al corte: ' + expected.netFmt), { netTxt, expected });
+  check('KPI fin: la red actualizada se desplaza tras el corte (trabajo atrasado) y su variación usa días hábiles frente al fin planificado', expected.netLater && netTxt.endsWith(expected.netPhrase) && !/ vs /.test(netTxt), { netTxt, phrase: expected.netPhrase });
+  check('KPI fin: sin línea base la referencia es el fin planificado (la misma del cronograma)', (await page.locator('[data-kpi="fin"]').innerText()).includes('Fin planificado: ' + expected.planFmt));
   check('KPI días hábiles restantes numérico', /^\d+$/.test(await page.locator('[data-kpi="fin"] [data-remaining]').getAttribute('data-remaining')));
   check('KPI avance con medidor real vs planificado', await page.locator('[data-kpi="avance"] .dashboard-meter-plan').count() === 1);
   check('curva S: 3 series dibujadas', await page.locator('[data-card="scurve"] svg path[data-series]').count() === 3);
@@ -233,6 +244,22 @@ try {
   await page.evaluate((pid) => PM.projectOps.update(pid, { statusDate: '2026-10-20' }), pid);
   await wait(page, 300);
   check('hitos: vencido después de la fecha de corte', (await page.locator('[data-milestone="m2"]').innerText()).includes('Vencido'));
+  /* próximos hitos: la fecha pronosticada al corte aparece solo cuando difiere de la planificada; «Vencido» sigue el plan */
+  const msFc = await page.evaluate(async (pid) => {
+    const project = await PM.store.get(PM.paths.project(pid));
+    const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const sched = PM.calc.computeSchedule(schedule, project.start);
+    const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
+    return [...document.querySelectorAll('[data-milestone]')].map((li) => {
+      const id = li.getAttribute('data-milestone'); const chip = li.querySelector('[data-forecast]');
+      const plan = sched.byId.get(id).startDate, f = fc.byId.get(id).startDate;
+      return { id, plan, f, shown: chip ? chip.getAttribute('data-forecast') : null, text: chip ? chip.textContent : '', ok: f !== plan ? !!chip && chip.getAttribute('data-forecast') === f && chip.textContent.includes('Pronóstico al corte: ' + PM.fmt.date(f)) : !chip };
+    });
+  }, pid);
+  check('próximos hitos: fecha pronosticada al corte cuando difiere de la planificada (y solo entonces)', msFc.length > 0 && msFc.every((x) => x.ok) && msFc.some((x) => x.shown), msFc);
+  const m2Row = await page.locator('[data-milestone="m2"]').innerText();
+  check('próximos hitos: el hito vencido según el plan muestra a la vez su pronóstico posterior al corte', m2Row.includes('Vencido') && /Pronóstico al corte: \d{2} \w{3} \d{4}/.test(m2Row) && msFc.find((x) => x.id === 'm2').f > '2026-10-20', m2Row);
+  if (shots) await page.locator('[data-card="milestones"]').screenshot({ path: join(shots, '02c-hitos-pronostico.png') });
   await page.evaluate((pid) => PM.projectOps.update(pid, { statusDate: '2026-10-02' }), pid);
   await wait(page, 300);
   check('hitos: no vencido en la fecha de corte original', !(await page.locator('[data-milestone="m2"]').innerText()).includes('Vencido'));
@@ -377,6 +404,25 @@ try {
   const m2Text = await page.locator('[data-milestone="m2"]').innerText();
   check('tablero: hito con variación «frente a» LB0', (m2Text.includes('+5 d frente a LB0') || m2Text.includes('+8 d frente a LB0')) && !m2Text.includes(' vs '), m2Text);
   check('tablero: fin pronosticado contra LB0', (await page.locator('[data-kpi="fin"]').innerText()).includes('Fin LB0'));
+  const netLB = (await page.locator('[data-kpi="fin"] [data-network]').innerText()).replace(/\s+/g, ' ').trim();
+  const expLB = await page.evaluate(async (pid) => {
+    const project = await PM.store.get(PM.paths.project(pid));
+    const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const bl = (await PM.store.list(PM.paths.baselines(pid)))[0].data;
+    const sched = PM.calc.computeSchedule(schedule, project.start);
+    const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
+    const v = sched.cal.indexOf(fc.finish) - sched.cal.indexOf(bl.schedule.finish);
+    return { date: PM.fmt.date(fc.finish), phrase: v === 0 ? 'sin variación frente a LB0' : Math.abs(v) + (Math.abs(v) === 1 ? ' día hábil' : ' días hábiles') + (v > 0 ? ' de atraso' : ' de adelanto') + ' frente a LB0' };
+  }, pid);
+  check('tablero: la red actualizada al corte se compara con LB0 en días hábiles', netLB === 'Red actualizada al corte: ' + expLB.date + ' · ' + expLB.phrase, { netLB, expLB });
+  /* el cronograma (página completa) dice lo mismo: misma fecha, misma referencia y misma redacción */
+  if (await page.evaluate(() => !!PM.getView('cronograma'))) {
+    await gotoView(page, 'cronograma');
+    await page.waitForSelector('.sched-strip [data-stat="forecast"]');
+    const strip = (await page.locator('.sched-strip [data-stat="forecast"]').innerText()).split('\n').map((x) => x.trim()).filter(Boolean);
+    check('cronograma y tablero coinciden: «Fin pronosticado al corte» = red actualizada del tablero (fecha, LB0 y días hábiles)', strip[0] === 'Fin pronosticado al corte' && strip[1] === expLB.date && strip[2] === expLB.phrase, { strip, expLB });
+    await gotoView(page, 'tablero');
+  }
   /* sugerencia de estado: con línea base y estado «En planificación» */
   check('estado: sin sugerencia si ya está «En ejecución»', await page.locator('[data-status-hint]').count() === 0);
   await page.evaluate((pid) => PM.projectOps.update(pid, { status: 'En planificación' }), pid);
@@ -514,10 +560,23 @@ try {
   check('sin costos: avance ponderado por duración', (await page.locator('[data-kpi="avance"]').innerText()).includes('Ponderado por duración') && (await kpi('[data-kpi="avance"] .stat-value')) === '60 %');
   check('sin costos: EAC explica que el BAC es cero y enlaza al cronograma', (await page.locator('[data-kpi="eac"]').innerText()).includes('el BAC es cero') && await page.locator('[data-kpi="eac"] .dashboard-link', { hasText: 'Asignar costos' }).count() === 1);
   check('sin costos: curva S explica qué falta', (await page.locator('[data-card="scurve"]').innerText()).includes('tienen costo'));
-  /* fecha de corte posterior al fin calculado con trabajo pendiente */
+  /* sin costos (sin cronograma ganado): el fin pronosticado es el de la red actualizada al corte */
+  const noEs = async () => page.evaluate(async (pid) => {
+    const project = await PM.store.get(PM.paths.project(pid));
+    const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+    const sched = PM.calc.computeSchedule(schedule, project.start);
+    const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
+    return { sd: project.statusDate, plan: sched.finish, net: fc.finish, planFmt: PM.fmt.date(sched.finish), netFmt: PM.fmt.date(fc.finish) };
+  }, pid2);
+  let ne = await noEs();
+  check('sin costos: el fin pronosticado es el de la red actualizada al corte', (await kpi('[data-kpi="fin"] .stat-value')) === ne.netFmt && await page.locator('[data-kpi="fin"] [data-network]').count() === 0 && (await page.locator('[data-kpi="fin"]').innerText()).includes('Red actualizada al corte'), ne);
+  /* fecha de corte posterior al fin planificado con trabajo pendiente: nunca el fin planificado vencido */
   await page.evaluate((pid) => PM.projectOps.update(pid, { statusDate: '2026-09-30' }), pid2);
   await wait(page, 300);
-  check('fin calculado vencido con trabajo pendiente: aviso', (await page.locator('[data-kpi="fin"]').innerText()).includes('ya vencido') && await page.locator('[data-kpi="fin"] [data-remaining]').count() === 0);
+  ne = await noEs();
+  const finStale = await page.locator('[data-kpi="fin"]').innerText();
+  check('fin planificado vencido con trabajo pendiente: el KPI muestra la red actualizada (posterior al corte), no el fin vencido', ne.plan < ne.sd && ne.net > ne.sd && (await kpi('[data-kpi="fin"] .stat-value')) === ne.netFmt && (await kpi('[data-kpi="fin"] .stat-value')) !== ne.planFmt, { ne, finStale });
+  check('fin planificado vencido: aviso con la fecha planificada, enlace para actualizar y días restantes', finStale.includes('El fin planificado (' + ne.planFmt + ') ya pasó') && await page.locator('[data-kpi="fin"] .dashboard-link', { hasText: 'Actualizar el cronograma' }).count() === 1 && /^\d+$/.test(await page.locator('[data-kpi="fin"] [data-remaining]').getAttribute('data-remaining')) && finStale.includes('Fin planificado: ' + ne.planFmt), finStale);
   /* costos pequeños en USD y costos reales sin avance */
   await page.evaluate(async (pid) => {
     await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true }, tasks: [

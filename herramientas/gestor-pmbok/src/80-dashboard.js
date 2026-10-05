@@ -23,6 +23,11 @@
 .dashboard-pair-k { font-size: var(--fs-xs); color: var(--fg-2); font-weight: 600; font-family: var(--font-mono); letter-spacing: 0.02em; }
 .dashboard-tile-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--fg-2); display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .dashboard-tile-foot strong { font-family: var(--font-display); font-size: var(--fs-lg); color: var(--fg); font-weight: 700; }
+.dashboard-net { display: flex; gap: 6px; align-items: flex-start; }
+.dashboard-net strong { color: var(--fg); font-weight: 600; }
+.dashboard-fc-chip { background: var(--surface); border: 1px dashed var(--signal); color: var(--signal-ink); font-weight: 600; }
+.dashboard-fc-chip .dashboard-fc-key { margin-top: 0; }
+.dashboard-fc-key { flex: none; width: 14px; height: 8px; border-radius: 2px; border: 1px dashed var(--signal); background: repeating-linear-gradient(135deg, var(--signal) 0 1px, transparent 1px 4px); margin-top: 4px; }
 .dashboard-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; text-align: left; }
 .dashboard-link:hover { text-decoration: underline; }
 .dashboard-meter { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); margin-top: 6px; }
@@ -183,6 +188,17 @@
   /* diferencia con signo en días hábiles de a hasta b (positivo: b es posterior) */
   const wdDiff = (cal, a, b) => (D.valid(a) && D.valid(b) ? cal.indexOf(b) - cal.indexOf(a) : null);
   const lateTone = (v) => (!isNum(v) ? null : v > 5 ? 'crit' : v > 0 ? 'warn' : 'good');
+  /* Variación en palabras, con la misma redacción del cronograma (40-schedule): «3 días hábiles de atraso frente a LB1». */
+  const varPhrase = (v, vs) => (!isNum(v) ? '' : v === 0 ? 'sin variación ' + vs : fmt.num(Math.abs(v)) + ' ' + wdUnit(v) + (v > 0 ? ' de atraso ' : ' de adelanto ') + vs);
+  /* Referencia de la variación del fin, la misma del cronograma: el fin de la línea base del cronograma vigente o,
+     sin ella, el fin planificado (red según lo programado). */
+  function finishRef(model) {
+    const bl = model.baselines.schedule;
+    const f = bl && bl.schedule && D.valid(bl.schedule.finish) ? bl.schedule.finish : null;
+    return f ? { date: f, label: 'Fin ' + (bl.label || 'línea base'), vs: 'frente a ' + (bl.label || 'la línea base') } : { date: model.sched.finish, label: 'Fin planificado', vs: 'frente al fin planificado' };
+  }
+  /* Red actualizada a la fecha de corte (6.6, PM.useProjectModel().forecast); si el modelo no la trae, la planificada. */
+  const forecastOf = (model) => (model.forecast && Array.isArray(model.forecast.tasks) && model.forecast.byId ? model.forecast : model.sched);
   const toneVar = (t) => (t === 'good' ? 'var(--good)' : t === 'warn' ? 'var(--warn)' : t === 'crit' ? 'var(--crit)' : 'var(--accent)');
   const toneStyle = (t) => (t === 'good' || t === 'warn' || t === 'crit' ? 'color:' + toneVar(t) : '');
   const trunc = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
@@ -280,13 +296,14 @@
   }
 
   /* ---------------------------------------------------------------- tablero: indicadores */
-  function Tile({ label, value, tone, sub, sub2, children, action, title, kpi, foot }) {
+  function Tile({ label, value, tone, sub, sub2, sub3, children, action, title, kpi, foot }) {
     return html`<div class="card dashboard-tile" data-kpi=${kpi}>
       <div class="stat-label">${label}</div>
       ${value !== undefined ? html`<div class="stat-value" style=${toneStyle(tone)} title=${title}>${value}</div>` : null}
       ${children}
       ${sub ? html`<div class="stat-sub">${sub}</div>` : null}
       ${sub2 ? html`<div class="stat-sub">${sub2}</div>` : null}
+      ${sub3 || null}
       ${action ? html`<div><${LinkBtn} label=${action[0]} onClick=${() => go(action[1])} /></div>` : null}
       ${foot || null}
     </div>`;
@@ -313,8 +330,8 @@
     return { actual, planned, weighted: true };
   }
 
-  function KpiRow({ model, project }) {
-    const { sched, evm, baselines, currency, statusDate } = model;
+  function KpiRow({ model }) {
+    const { sched, evm, currency, statusDate } = model;
     const cal = sched.cal;
     const hasTasks = sched.tasks.length > 0;
     const work = sched.tasks.filter((t) => !t.milestone);
@@ -349,31 +366,35 @@
       eac = { label: 'Estimación a la conclusión (EAC)', value: moneyShort(evm.eac, currency), title: money(evm.eac, currency), tone: vac >= 0 ? 'good' : -vac / bac <= 0.05 ? 'warn' : 'crit', sub: 'BAC ' + moneyShort(bac, currency) + ' · VAC ' + signedMoney(vac, currency) + (vac < 0 ? ' (sobrecosto previsto)' : vac > 0 ? ' (ahorro previsto)' : ''), sub2: 'EAC = BAC / CPI' };
     }
 
-    /* 4. fin pronosticado */
+    /* 4. fin pronosticado: por cronograma ganado (si hay valor ganado) y por la red actualizada a la fecha de corte
+       (6.6: lo pendiente no queda antes del corte). Sin valor ganado, el valor es el de la red actualizada, nunca el fin
+       planificado vencido. La variación se mide en días hábiles frente a la misma referencia del cronograma. */
     let fin;
     if (!hasTasks) fin = { value: '—', sub: 'Sin cronograma para pronosticar el fin.', action: ['Crear cronograma', 'cronograma'] };
     else {
-      const fc = evm.forecastFinish || sched.finish;
-      const blFin = baselines.schedule && baselines.schedule.schedule ? baselines.schedule.schedule.finish : null;
-      const ref = D.valid(blFin) ? blFin : D.valid(project.end) ? project.end : null;
-      const refLabel = D.valid(blFin) ? 'Fin ' + baselines.schedule.label : 'Fin previsto';
-      const v = ref ? wdDiff(cal, ref, fc) : null;
+      const forecast = forecastOf(model);
+      const ref = finishRef(model);
+      const net = D.valid(forecast.finish) ? forecast.finish : sched.finish;
+      const es = D.valid(evm.forecastFinish) ? evm.forecastFinish : null;
+      const fc = es || net;
+      const v = wdDiff(cal, ref.date, fc);
+      const vNet = wdDiff(cal, ref.date, net);
       const remaining = statusDate >= fc ? 0 : cal.countWork(D.max(D.add(statusDate, 1), sched.start), fc);
-      /* desplazamiento frente al fin planificado del cronograma (si la referencia es otra fecha) */
-      const planFin = evm.forecastFinish && D.valid(evm.planFinish) && evm.planFinish !== ref ? evm.planFinish : null;
+      /* desplazamiento frente al fin planificado del valor ganado (si la referencia es otra fecha) */
+      const planFin = es && D.valid(evm.planFinish) && evm.planFinish !== ref.date ? evm.planFinish : null;
       const slip = planFin ? wdDiff(cal, planFin, fc) : null;
-      /* sin pronóstico por valor ganado, el fin calculado no considera el avance: si ya pasó y queda trabajo, está desactualizado */
-      const stale = !evm.forecastFinish && fc < statusDate && work.some((t) => t.progress < 100);
-      let tone = stale ? 'crit' : lateTone(v);
-      if (tone === 'good' && slip > 0) tone = 'warn';
+      /* el fin planificado ya pasó con trabajo pendiente: el cronograma necesita actualizarse */
+      const overdue = sched.finish < statusDate && work.some((t) => t.progress < 100);
+      let tone = lateTone(v);
+      if (tone === 'good' && (slip > 0 || (es && vNet > 0))) tone = 'warn';
+      const netText = 'Red actualizada al corte (' + fmt.date(statusDate, 'dm') + '): ruta crítica con el trabajo pendiente reprogramado desde la fecha de corte.';
       fin = {
         value: fmt.date(fc), tone, title: fmt.date(fc, 'long'),
-        sub: ref ? refLabel + ': ' + fmt.date(ref) + ' · ' + (v === 0 ? 'sin variación' : fmt.num(Math.abs(v)) + ' ' + wdUnit(v) + (v > 0 ? ' de atraso' : ' de adelanto')) : 'Sin referencia: define la fecha de fin prevista en la ficha.',
-        sub2: evm.forecastFinish ? 'Pronóstico por cronograma ganado (SPI(t) ' + idx(evm.spiT) + ')' + (slip ? ': ' + fmt.num(Math.abs(slip)) + ' ' + wdUnit(slip) + (slip > 0 ? ' después' : ' antes') + ' del fin planificado del cronograma (' + fmt.date(planFin) + ')' : '')
-          : stale ? 'Fin calculado del cronograma, ya vencido: quedan actividades sin terminar. Reprograma el trabajo pendiente o registra el avance en el cronograma.'
-          : 'Fin calculado del cronograma (ruta crítica)',
-        action: stale ? ['Actualizar el cronograma', 'cronograma'] : undefined,
-        stale,
+        sub: ref.label + ': ' + fmt.date(ref.date) + ' · ' + (v === 0 ? 'sin variación' : fmt.num(Math.abs(v)) + ' ' + wdUnit(v) + (v > 0 ? ' de atraso' : ' de adelanto')),
+        sub2: es ? 'Pronóstico por cronograma ganado (SPI(t) ' + idx(evm.spiT) + ')' + (slip ? ': ' + fmt.num(Math.abs(slip)) + ' ' + wdUnit(slip) + (slip > 0 ? ' después' : ' antes') + ' del fin planificado del cronograma (' + fmt.date(planFin) + ')' : '')
+          : netText + (overdue ? ' El fin planificado (' + fmt.date(sched.finish) + ') ya pasó con actividades sin terminar: actualiza el avance o reprograma lo pendiente.' : ' Sin valor ganado (costos por actividad y avance) no hay pronóstico por cronograma ganado.'),
+        sub3: es ? html`<div class="stat-sub dashboard-net" data-network=${net} title=${netText}><span class="dashboard-fc-key" aria-hidden="true"></span><span>Red actualizada al corte: <strong>${fmt.date(net)}</strong> · ${varPhrase(vNet, ref.vs)}</span></div>` : null,
+        action: overdue && !es ? ['Actualizar el cronograma', 'cronograma'] : undefined,
         remaining,
       };
     }
@@ -389,8 +410,8 @@
         </div>
       </${Tile}>
       <${Tile} kpi="eac" label=${eac.label} value=${eac.value} title=${eac.title} tone=${eac.tone} sub=${eac.sub} sub2=${eac.sub2} action=${eac.action} />
-      <${Tile} kpi="fin" label="Fin pronosticado" value=${fin.value} title=${fin.title} tone=${fin.tone} sub=${fin.sub} sub2=${fin.sub2} action=${fin.action}
-        foot=${fin.remaining !== undefined && !fin.stale ? html`<div class="dashboard-tile-foot" data-remaining=${fin.remaining}><strong>${fmt.num(fin.remaining)}</strong>${fin.remaining === 1 ? 'día hábil restante' : 'días hábiles restantes'} desde la fecha de corte</div>` : null} />
+      <${Tile} kpi="fin" label="Fin pronosticado" value=${fin.value} title=${fin.title} tone=${fin.tone} sub=${fin.sub} sub2=${fin.sub2} sub3=${fin.sub3} action=${fin.action}
+        foot=${fin.remaining !== undefined ? html`<div class="dashboard-tile-foot" data-remaining=${fin.remaining}><strong>${fmt.num(fin.remaining)}</strong>${fin.remaining === 1 ? 'día hábil restante' : 'días hábiles restantes'} desde la fecha de corte</div>` : null} />
     </div>`;
   }
 
@@ -500,6 +521,7 @@
   /* ---------------------------------------------------------------- tablero: hitos */
   function MilestonesCard({ model }) {
     const { sched, baselines, statusDate } = model;
+    const forecast = forecastOf(model);
     const all = sched.tasks.filter((t) => t.milestone);
     const pending = PM.sortBy(all.filter((t) => t.progress < 100), (t) => t.startDate || '');
     const shown = pending.slice(0, 5);
@@ -510,16 +532,21 @@
       ${!all.length ? html`<div class="dashboard-blank"><div>No hay hitos en el cronograma. Agrega hitos (actividades de duración cero) para seguir las fechas clave del proyecto.</div><${ui.Button} size="sm" icon="milestone" onClick=${() => go('cronograma')}>Ir al cronograma</${ui.Button}></div>`
         : !pending.length ? html`<div class="dashboard-blank"><div class="row"><${ui.Icon} name="check-circle" size=${16} style="color:var(--good)" />Todos los hitos están cumplidos.</div></div>`
         : html`<ul class="dashboard-list">${shown.map((t) => {
+          /* «Vencido» con la fecha planificada; el pronóstico al corte se muestra aparte cuando la mueve */
           const overdue = t.startDate < statusDate;
           const b = blTasks ? blTasks.get(t.id) : null;
           const v = b ? wdDiff(sched.cal, b.finish, t.finishDate) : null;
+          const f = forecast.byId.get(t.id);
+          const fd = f && D.valid(f.startDate) && f.startDate !== t.startDate ? f.startDate : null;
+          const fTitle = fd ? 'Fecha del hito en la red actualizada a la fecha de corte (' + fmt.date(statusDate) + '): ' + varPhrase(wdDiff(sched.cal, t.finishDate, f.finishDate), 'frente a la fecha planificada') + (b ? '; ' + varPhrase(wdDiff(sched.cal, b.finish, f.finishDate), 'frente a ' + bl.label) : '') + '.' : null;
           return html`<li class="dashboard-li" key=${t.id} data-milestone=${t.id}>
             <span class="dashboard-ms" style=${'color:' + (overdue || t.critical ? 'var(--crit)' : 'var(--fg-2)')}><${ui.Icon} name="milestone" size=${16} /></span>
             <div class="dashboard-li-main">
               <div class="dashboard-li-title">${t.name || 'Hito sin nombre'}</div>
               <div class="row" style="gap:6px">
-                <span class="xsmall mono">${fmt.date(t.startDate)}</span>
+                <span class="xsmall mono" title="Fecha planificada">${fmt.date(t.startDate)}</span>
                 ${overdue ? html`<${ui.Chip} tone="crit">Vencido</${ui.Chip}>` : null}
+                ${fd ? html`<span class="chip dashboard-fc-chip" data-forecast=${fd} title=${fTitle}><span class="dashboard-fc-key" aria-hidden="true"></span>Pronóstico al corte: ${fmt.date(fd)}</span>` : null}
                 ${t.tf <= 0 ? html`<${ui.Chip} tone="crit" title="Holgura total cero: cualquier atraso mueve el fin del proyecto">Ruta crítica</${ui.Chip}>` : html`<${ui.Chip} tone="outline" title="Holgura total en días hábiles">Holgura ${fmt.num(t.tf)} d</${ui.Chip}>`}
                 ${bl ? (b ? html`<${ui.Chip} tone=${v > 0 ? lateTone(v) : v < 0 ? 'good' : 'outline'} title=${'Fin en ' + bl.label + ': ' + fmt.date(b.finish)}>${v === 0 ? 'Sin variación' : signedNum(v) + ' d'} frente a ${bl.label}</${ui.Chip}>` : html`<${ui.Chip} tone="info">Nuevo, no está en ${bl.label}</${ui.Chip}>`) : null}
               </div>
@@ -843,7 +870,7 @@
       <${TitleBlock} project=${p} />
       ${canWrite ? html`<${StatusHint} project=${p} model=${model} docs=${docs} />` : null}
       ${prominent ? html`<${RouteCard} route=${route} prominent />` : null}
-      <${KpiRow} model=${model} project=${p} />
+      <${KpiRow} model=${model} />
       <div class="dashboard-two">
         <${SCurveCard} model=${model} />
         <${MilestonesCard} model=${model} />

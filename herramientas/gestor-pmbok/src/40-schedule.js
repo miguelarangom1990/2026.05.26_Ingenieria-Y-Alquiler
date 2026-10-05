@@ -16,10 +16,14 @@
 
   /* ---------------------------------------------------------------- estilos del módulo */
   const CSS = `
-.sched-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); overflow: hidden; }
-.sched-strip > .stat { padding: 10px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -1px -1px 0; }
+.sched-strip { display: flex; flex-wrap: wrap; overflow: hidden; }
+.sched-strip > .stat { flex: 1 1 116px; padding: 10px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -1px -1px 0; }
+.sched-strip > .sched-stat-fc { flex: 2 1 232px; }
 .sched-strip .stat-value { font-size: 1.12rem; white-space: nowrap; }
 .sched-strip .stat-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sched-fc-swatch { width: 16px; height: 9px; border-radius: 2px; border: 1px dashed var(--signal); background: repeating-linear-gradient(135deg, var(--signal) 0 1px, transparent 1px 4px); }
+.sched-fcnote { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-xs); color: var(--fg-2); margin: 0; }
+.sched-fcnote .sched-fc-swatch { margin-top: 3px; flex: none; }
 .sched-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--warn); background: var(--warn-wash); color: var(--fg); border-radius: var(--r-md); font-size: var(--fs-sm); }
 .sched-banner .icon { color: var(--warn); margin-top: 2px; }
 .sched-note { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); color: var(--fg-2); background: var(--info-wash); border-radius: var(--r-md); padding: 8px 12px; }
@@ -83,6 +87,7 @@
 .sched-tbl td.wrap { white-space: normal; min-width: 180px; }
 .sched-tbl tr.is-sel td { background: var(--accent-wash); }
 .sched-tbl td.edit { padding: 2px 4px; }
+.sched-mstbl th { white-space: normal; vertical-align: bottom; line-height: 1.3; }
 .sched-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
 .sched-kv > div { display: flex; flex-direction: column; gap: 1px; }
 .sched-kv .k { font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); font-weight: 600; }
@@ -200,6 +205,30 @@ button.sched-day:hover { border-color: var(--line-strong); }
     if (!D.valid(cur) || !D.valid(base) || cur === base) return D.valid(cur) && D.valid(base) ? 0 : null;
     return cur > base ? cal.countWork(D.add(base, 1), cur) : -cal.countWork(D.add(cur, 1), base);
   }
+  /* Variación en palabras, con la misma redacción del tablero (80-dashboard): «3 días hábiles de atraso frente a LB1». */
+  const wdWord = (n) => (Math.abs(n) === 1 ? 'día hábil' : 'días hábiles');
+  const varPhrase = (v, vs) => (v === null || v === undefined ? '' : v === 0 ? 'sin variación ' + vs : fmt.num(Math.abs(v)) + ' ' + wdWord(v) + (v > 0 ? ' de atraso ' : ' de adelanto ') + vs);
+  const varColor = (v) => (v > 0 ? 'color:var(--crit)' : v < 0 ? 'color:var(--good)' : '');
+  /* Instantánea del cronograma de la línea base vigente (o null). */
+  const blSchedOf = (baselines) => { const b = baselines && baselines.schedule && baselines.schedule.schedule; return b && Array.isArray(b.tasks) ? b : null; };
+  /* Pronóstico al corte (6.6): actividades sin terminar cuyas fechas cambian al actualizar la red a la fecha de corte
+     (m.forecast) frente a lo planificado (m.sched). Map id → actividad pronosticada. Se memoriza por par de redes. */
+  const NO_DIFF = new Map();
+  const diffCache = new WeakMap();
+  function forecastDiff(sched, forecast) {
+    if (!forecast || forecast === sched || !forecast.byId) return NO_DIFF;
+    const hit = diffCache.get(forecast);
+    if (hit && hit.sched === sched) return hit.map;
+    const map = new Map();
+    for (const t of sched.tasks) {
+      if (t.progress >= 100) continue;
+      const f = forecast.byId.get(t.id);
+      if (f && (f.startDate !== t.startDate || f.finishDate !== t.finishDate)) map.set(t.id, f);
+    }
+    diffCache.set(forecast, { sched, map });
+    return map;
+  }
+  const FC_RULE = 'el trabajo no iniciado empieza, como pronto, el día hábil siguiente al corte; el iniciado programa su duración restante desde ese día y los hitos no alcanzados quedan después del corte';
   /* ¿La dependencia determina la fecha del sucesor? */
   const isDriving = (p, s, l) => (l.type === 'SS' ? s.es === p.es + l.lag : l.type === 'FF' ? s.ef === p.ef + l.lag : l.type === 'SF' ? s.ef === p.es + l.lag : s.es === p.ef + l.lag);
 
@@ -255,6 +284,13 @@ button.sched-day:hover { border-color: var(--line-strong); }
   function usePref(key, def) {
     const [v, setV] = useState(() => PM.prefs.get(key, def));
     const set = useCallback((x) => { setV(x); PM.prefs.set(key, x); }, [key]);
+    return [v, set];
+  }
+  /* Preferencia con clave variable (p. ej. por proyecto): al cambiar la clave se relee la guardada. */
+  function useKeyedPref(key, def) {
+    const [st, setSt] = useState(() => ({ key, v: PM.prefs.get(key, def) }));
+    const v = st.key === key ? st.v : PM.prefs.get(key, def);
+    const set = useCallback((x) => { setSt({ key, v: x }); PM.prefs.set(key, x); }, [key]);
     return [v, set];
   }
   /* Ancho de un elemento (ref de callback + ResizeObserver). */
@@ -554,12 +590,14 @@ button.sched-day:hover { border-color: var(--line-strong); }
     if (bS - G >= aE + G) return 'M' + aE + ',' + ya + 'H' + (aE + G) + 'V' + yb + 'H' + bS;
     return 'M' + aE + ',' + ya + 'H' + (aE + G) + 'V' + yMid + 'H' + (bS - G) + 'V' + yb + 'H' + bS;
   }
-  function ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange, showBase, showDeps, showCrit, labelMode, projectStart, statusDate, today }) {
+  function ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange, showBase, showDeps, showCrit, labelMode, projectStart, statusDate, today, fcById, fcFinish }) {
     const ppd = (ZOOMS[zoom] || ZOOMS.semana).ppd;
     const cal = sched.cal;
     const ds = [sched.start, sched.finish];
     if (D.valid(projectStart)) ds.push(projectStart);
     if (showBase && blRange) ds.push(blRange.start, blRange.finish);
+    const end = fcById && D.valid(fcFinish) && fcFinish > sched.finish ? fcFinish : sched.finish;
+    if (end !== sched.finish) ds.push(end);
     let lo = D.min(...ds) || D.today(), hi = D.max(...ds) || lo;
     lo = zoom === 'mes' ? D.startOfMonth(D.add(lo, -10)) : D.add(D.startOfWeek(lo), -7);
     hi = zoom === 'mes' ? D.endOfMonth(D.add(hi, 20)) : D.add(D.startOfWeek(D.add(hi, 10)), 6);
@@ -577,13 +615,18 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const t = r.task; const g = { r, i, top, t, ms: t.milestone, crit: showCrit && t.critical };
       if (t.milestone) { g.xm = x(t.startDate) + ppd; g.x0 = g.xm - 7; g.x1 = g.xm + 7; } else { g.x0 = x(t.startDate); g.x1 = x(t.finishDate) + ppd; }
       if (showBase && blById) { const b = blById.get(t.id); if (b && D.valid(b.start)) g.base = b.milestone ? { xm: x(b.start) + ppd } : { x0: x(b.start), x1: x(D.valid(b.finish) ? b.finish : b.start) + ppd }; }
+      /* pronóstico al corte: solo el trabajo pendiente cuyas fechas cambian (fcById ya viene filtrado) */
+      const f = fcById ? fcById.get(t.id) : null;
+      if (f) g.fc = f.milestone ? { f, xm: x(f.startDate) + ppd } : { f, x0: x(f.startDate), x1: x(f.finishDate) + ppd };
       geo.set(t.id, g);
       return g;
     });
     for (const g of bars) {
       const text = g.t ? (labelMode === 'resp' ? g.t.responsible || '' : labelMode === 'none' ? '' : taskName(g.t)) : (labelMode === 'none' ? '' : (g.r.code ? g.r.code + ' ' : '') + g.r.name + ' · ' + fmt.num(g.r.roll.progress) + ' %');
       if (!text) continue;
-      const right = g.ms ? g.xm + 10 : g.x1 + 6; const left = g.ms ? g.xm - 10 : g.x0 - 6;
+      let right = g.ms ? g.xm + 10 : g.x1 + 6; let left = g.ms ? g.xm - 10 : g.x0 - 6;
+      /* la etiqueta no tapa la barra del pronóstico */
+      if (g.fc) { right = Math.max(right, g.fc.xm !== undefined ? g.fc.xm + 11 : g.fc.x1 + 6); left = Math.min(left, g.fc.xm !== undefined ? g.fc.xm - 11 : g.fc.x0 - 6); }
       const room = width - right - 4; const need = tw(text);
       if (need <= room) g.label = { x: right, anchor: 'start', text };
       else if (left - need >= 2) g.label = { x: left, anchor: 'end', text };
@@ -605,23 +648,27 @@ button.sched-day:hover { border-color: var(--line-strong); }
     if (today !== statusDate && inRange(today)) lines.push({ kind: 'today', x: x(today) + ppd / 2, label: 'Hoy' });
     lines.sort((a, b) => a.x - b.x);
     lines.forEach((l, i) => { const w2 = tw(l.label, 10.5); if (lines.length === 2 && i === 0) l.anchor = 'end'; else l.anchor = l.x + 4 + w2 > width ? 'end' : 'start'; l.tx = l.anchor === 'end' ? l.x - 4 : l.x + 4; });
-    return { lo, hi, ppd, width, x, nonwork, bars, arrows, lines, tiers: headerTiers(lo, hi, zoom, ppd), bodyH: rows.length * ROW_H };
+    return { lo, hi, ppd, width, x, nonwork, bars, arrows, lines, end, tiers: headerTiers(lo, hi, zoom, ppd), bodyH: rows.length * ROW_H };
   }
   /* Desplazamiento inicial del Gantt: la línea de corte a un tercio del área visible (lo ejecutado a la izquierda,
-     lo pendiente a la derecha), sin pasar del inicio del cronograma ni dejar espacio vacío después de su fin. */
+     lo pendiente a la derecha), sin pasar del inicio del cronograma ni dejar espacio vacío después de su fin
+     (o del fin pronosticado, si se dibuja el pronóstico al corte). */
   function initialScrollX(L, sched, visW) {
     const lo = Math.max(0, L.x(sched.start) - 16);
     const st = L.lines.find((l) => l.kind === 'status');
     if (!st || !(visW > 0)) return lo;
-    const hi = Math.max(lo, L.x(sched.finish) + L.ppd + 40 - visW);
+    const hi = Math.max(lo, L.x(L.end || sched.finish) + L.ppd + 40 - visW);
     return PM.clamp(st.x - visW / 3, lo, hi);
   }
-  function TaskTip({ t, code, bl, cal, currency }) {
+  function TaskTip({ t, code, bl, cal, currency, fc }) {
     const v = bl ? wdVar(cal, t.finishDate, bl.finish || bl.start) : null;
+    const fv = fc ? wdVar(cal, fc.finishDate, t.finishDate) : null;
     return html`<div>
       <strong>${t.milestone ? 'Hito: ' : ''}${taskName(t)}</strong>
       <div class="sched-tipgrid">
-        <span>${t.milestone ? 'Fecha' : 'Inicio – fin'}</span><span>${t.milestone ? fmt.date(t.startDate) : fmt.date(t.startDate, 'dm') + ' – ' + fmt.date(t.finishDate)}</span>
+        <span>${t.milestone ? 'Fecha planificada' : 'Inicio – fin'}</span><span>${t.milestone ? fmt.date(t.startDate) : fmt.date(t.startDate, 'dm') + ' – ' + fmt.date(t.finishDate)}</span>
+        ${fc ? html`<span>Pronóstico al corte</span><span style="color:var(--signal-ink);font-weight:600" data-tip="forecast">${fc.milestone ? fmt.date(fc.startDate) : fmt.date(fc.startDate, 'dm') + ' – ' + fmt.date(fc.finishDate)}${fv ? ' (' + varTxt(fv) + ')' : ''}</span>` : null}
+        ${fc && fc.remaining ? html`<span>Duración restante</span><span>${daysTxt(fc.remaining)} hábiles desde el corte</span>` : null}
         ${t.milestone ? null : html`<span>Duración</span><span>${daysTxt(t.duration)} hábiles</span>`}
         <span>Holgura total / libre</span><span>${fmt.num(t.tf)} / ${fmt.num(t.ff)} d</span>
         <span>Avance</span><span>${fmt.num(t.progress)} %</span>
@@ -669,9 +716,16 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const headSvgRef = useRef(); const bodySvgRef = useRef(); const dragTipRef = useRef();
     const drag = useRef(null); const lastClick = useRef({ id: null, at: 0 });
     const uid = useMemo(() => PM.uid('gm'), []);
-    const blSched = baselines.schedule && baselines.schedule.schedule && Array.isArray(baselines.schedule.schedule.tasks) ? baselines.schedule.schedule : null;
+    const blSched = blSchedOf(baselines);
     const blById = useMemo(() => (blSched ? new Map(blSched.tasks.map((b) => [b.id, b])) : null), [blSched]);
     const showBase = !!showBaseP && !!blSched;
+    /* Pronóstico al corte (6.6): se ofrece cuando el corte es posterior al inicio y desplaza trabajo pendiente;
+       entonces se muestra por defecto. La elección de ocultarlo se recuerda por proyecto. Solo dibuja: no guarda nada. */
+    const forecast = m.forecast || sched;
+    const fcMoved = forecastDiff(sched, forecast);
+    const fcAvail = fcMoved.size > 0 && D.valid(statusDate) && (!D.valid(project.start) || statusDate > project.start);
+    const [fcHidden, setFcHidden] = useKeyedPref('sched.fcHide.' + (project.id || ''), false);
+    const showFc = fcAvail && !fcHidden;
     const colSet = colsPref === 'auto' ? (frameW && frameW < 960 ? 'compact' : 'full') : colsPref;
     const cols = COLSETS[colSet] || COLSETS.full;
     const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : GCOLS[k].w);
@@ -680,8 +734,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
     const rows = useMemo(() => buildRows(sched, tree, rollup, group, collapsed), [sched, tree, rollup, group, collapsed]);
     const today = D.today();
-    const L = useMemo(() => ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange: blSched, showBase, showDeps, showCrit, labelMode, projectStart: project.start, statusDate, today }),
-      [sched, rows, zoom, frameW, gridW, blById, blSched, showBase, showDeps, showCrit, labelMode, project.start, statusDate, today]);
+    const fcById = showFc ? fcMoved : null;
+    const L = useMemo(() => ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange: blSched, showBase, showDeps, showCrit, labelMode, projectStart: project.start, statusDate, today, fcById, fcFinish: forecast.finish }),
+      [sched, rows, zoom, frameW, gridW, blById, blSched, showBase, showDeps, showCrit, labelMode, project.start, statusDate, today, fcById, forecast.finish]);
     /* al abrir o cambiar la escala, desplaza la línea de tiempo hasta la fecha de corte (a un tercio del área visible) */
     const scrolledKey = useRef('');
     useLayoutEffect(() => {
@@ -755,7 +810,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const b2 = body.cloneNode(true); b2.setAttribute('x', LW); b2.setAttribute('y', HEAD_H);
       b2.querySelectorAll('.sched-selrect, .sched-dragtip, .sched-hit, .sched-handle').forEach((el) => el.remove());
       svg.appendChild(h2); svg.appendChild(b2);
-      svg.appendChild(mk('text', { x: 8, y: Ht - 10, class: 'sched-faint' }, 'Cronograma generado el ' + fmt.date(D.today(), 'long') + ' · fecha de corte ' + fmt.date(statusDate) + (showCrit ? ' · ruta crítica en rojo' : '') + (showBase ? ' · línea base en gris' : '')));
+      svg.appendChild(mk('text', { x: 8, y: Ht - 10, class: 'sched-faint' }, 'Cronograma generado el ' + fmt.date(D.today(), 'long') + ' · fecha de corte ' + fmt.date(statusDate) + (showCrit ? ' · ruta crítica en rojo' : '') + (showBase ? ' · línea base en gris' : '') + (showFc ? ' · pronóstico al corte con trama' : '')));
       const holder = document.createElement('div');
       holder.style.cssText = 'position:absolute;left:-100000px;top:0;width:10px;height:10px;overflow:hidden';
       holder.appendChild(svg); document.body.appendChild(holder);
@@ -765,7 +820,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     };
 
     /* tooltip */
-    const showTip = (e, t) => { if (tipApi.current) tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? tree.codes.get(t.wbsId) : ''} bl=${blById ? blById.get(t.id) : null} cal=${sched.cal} currency=${currency} />`); };
+    const showTip = (e, t) => { if (tipApi.current) tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? tree.codes.get(t.wbsId) : ''} bl=${blById ? blById.get(t.id) : null} cal=${sched.cal} currency=${currency} fc=${fcMoved.get(t.id) || null} />`); };
     const hideTip = () => { if (tipApi.current) tipApi.current.hide(); };
     const showSumTip = (e, r) => {
       if (!tipApi.current || drag.current) return;
@@ -782,6 +837,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const resetDom = (d) => {
       d.el.removeAttribute('transform'); d.el.classList.remove('is-drag');
       if (d.main) d.main.setAttribute('width', d.w0);
+      if (d.under) d.under.setAttribute('width', d.w0);
       if (d.prog) d.prog.removeAttribute('display');
       if (d.handle) d.handle.setAttribute('x', d.h0);
       if (dragTipRef.current) dragTipRef.current.setAttribute('display', 'none');
@@ -791,8 +847,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
       hideTip();
       const el = e.currentTarget;
       const mode = canWrite && !g.ms && e.target && e.target.classList && e.target.classList.contains('sched-handle') ? 'resize' : 'move';
-      const main = el.querySelector('.sched-bar-main'), prog = el.querySelector('.sched-bar-prog'), handle = el.querySelector('.sched-handle');
-      drag.current = { g, el, mode, x0: e.clientX, dx: 0, moved: false, pid: e.pointerId, main, prog, handle, w0: main ? +main.getAttribute('width') : 0, h0: handle ? +handle.getAttribute('x') : 0 };
+      const main = el.querySelector('.sched-bar-main'), prog = el.querySelector('.sched-bar-prog'), handle = el.querySelector('.sched-handle'), under = el.querySelector('.sched-bar-under');
+      drag.current = { g, el, mode, x0: e.clientX, dx: 0, moved: false, pid: e.pointerId, main, prog, handle, under, w0: main ? +main.getAttribute('width') : 0, h0: handle ? +handle.getAttribute('x') : 0 };
       /* captura también en solo lectura: así pointerup siempre llega y el estado de arrastre no queda colgado */
       try { el.setPointerCapture(e.pointerId); } catch (er) { /* el navegador no admite captura */ }
     };
@@ -811,7 +867,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         let nf = D.add(t.finishDate, steps); if (nf < t.startDate) nf = t.startDate;
         let guard = 0; while (!cal.isWork(nf) && nf > t.startDate && guard++ < 60) nf = D.add(nf, -1);
         const nw = Math.max(L.ppd, (D.diff(t.startDate, nf) + 1) * L.ppd);
-        d.main.setAttribute('width', nw); if (d.prog) d.prog.setAttribute('display', 'none'); if (d.handle) d.handle.setAttribute('x', d.h0 + (nw - d.w0));
+        d.main.setAttribute('width', nw); if (d.under) d.under.setAttribute('width', nw); if (d.prog) d.prog.setAttribute('display', 'none'); if (d.handle) d.handle.setAttribute('x', d.h0 + (nw - d.w0));
         txt = 'Fin: ' + fmt.date(nf, 'dow') + ' · ' + daysTxt(Math.max(1, cal.countWork(t.startDate, nf))); xr = d.g.x0 + nw;
       }
       const tg = dragTipRef.current;
@@ -929,11 +985,20 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const wd = Math.max(2, g.x1 - g.x0); const pw = (wd * PM.clamp(t.progress, 0, 100)) / 100;
       return html`<g key=${t.id} ...${common}>
           <rect class="sched-hit" x=${g.x0 - 2} y=${g.top + 3} width=${wd + 4} height="19" fill="transparent" />
+          ${g.fc ? html`<rect class="sched-bar-under" x=${g.x0} y=${g.top + 6} width=${wd} height="13" rx="3" fill="var(--surface)" />` : null}
           <rect class="sched-bar-main" x=${g.x0} y=${g.top + 6} width=${wd} height="13" rx="3" fill=${color} fill-opacity="0.28" stroke=${color} stroke-opacity="0.75" stroke-width="1" />
           ${pw > 0 ? html`<rect class="sched-bar-prog" x=${g.x0} y=${g.top + 6} width=${pw} height="13" rx="3" fill=${color} />` : null}
           ${canWrite ? html`<rect class="sched-handle" x=${g.x1 - 5} y=${g.top + 3} width="10" height="19" fill="transparent" />` : null}
           ${label(g)}
         </g>`;
+    };
+    /* Pronóstico al corte: barra (o rombo) con trama y contorno discontinuo en --signal, detrás de la barra planificada. */
+    const renderFc = (g) => {
+      if (!g.fc) return null;
+      const t = g.t, f = g.fc.f;
+      const attrs = { class: 'sched-fc', 'data-id': t.id, 'data-start': f.startDate, 'data-finish': f.finishDate, onMouseMove: (e) => { if (!drag.current) showTip(e, t); }, onMouseLeave: hideTip };
+      if (g.fc.xm !== undefined) return html`<g key=${'fc' + t.id} ...${attrs}><path d=${diamond(g.fc.xm, g.top + 12.5, 8)} fill=${'url(#' + uid + 'h)'} stroke="var(--signal)" stroke-width="1.5" stroke-dasharray="3 2" /></g>`;
+      return html`<g key=${'fc' + t.id} ...${attrs}><rect x=${g.fc.x0} y=${g.top + 3.5} width=${Math.max(2, g.fc.x1 - g.fc.x0)} height="18" rx="3" fill=${'url(#' + uid + 'h)'} stroke="var(--signal)" stroke-width="1.25" stroke-dasharray="4 2" /></g>`;
     };
     const headSvg = html`<svg ref=${headSvgRef} class="sched-svg" width=${L.width} height=${HEAD_H} viewBox=${'0 0 ' + L.width + ' ' + HEAD_H} role="img" aria-label="Escala de tiempo">
       <rect x="0" y="0" width=${L.width} height=${HEAD_H} fill="var(--surface-2)" />
@@ -948,12 +1013,14 @@ button.sched-day:hover { border-color: var(--line-strong); }
       <defs>
         <marker id=${uid + 'a'} viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0.5 L8,4 L0,7.5 z" fill="var(--fg-3)" /></marker>
         <marker id=${uid + 'c'} viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0.5 L8,4 L0,7.5 z" fill="var(--crit)" /></marker>
+        <pattern id=${uid + 'h'} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="var(--surface)" fill-opacity="0.55" /><line x1="0" y1="0" x2="0" y2="5" stroke="var(--signal)" stroke-width="1.5" stroke-opacity="0.6" /></pattern>
       </defs>
       ${L.nonwork.map((n) => html`<rect key=${n.d} class=${cx('sched-nonwork', n.hol && 'sched-holiday')} data-date=${n.d} x=${n.x} y="0" width=${L.ppd} height=${H} fill=${n.hol ? 'var(--signal-wash)' : 'var(--surface-3)'} fill-opacity=${n.hol ? 1 : 0.75}>${n.hol ? html`<title>${n.hol + ' · ' + fmt.date(n.d, 'long')}</title>` : null}</rect>`)}
       ${vlines.map((c) => html`<line key=${'v' + c.key} x1=${c.x} y1="0" x2=${c.x} y2=${H} stroke="var(--grid)" />`)}
       ${rows.map((r, i) => html`<line key=${'h' + r.key} x1="0" y1=${(i + 1) * ROW_H - 0.5} x2=${L.width} y2=${(i + 1) * ROW_H - 0.5} stroke="var(--grid)" />`)}
       ${selIndex >= 0 ? html`<rect class="sched-selrect" x="0" y=${selIndex * ROW_H} width=${L.width} height=${ROW_H - 1} fill="var(--accent-wash)" fill-opacity="0.7" />` : null}
       ${L.lines.map((l) => html`<g key=${'l' + l.kind}>${lineEl(l, 0, H)}</g>`)}
+      ${showFc ? L.bars.map(renderFc) : null}
       ${showBase ? L.bars.map((g) => (!g.base ? null : g.base.xm !== undefined
         ? html`<path key=${'bl' + g.t.id} class="sched-base" d=${diamond(g.base.xm, g.top + 24, 4)} fill="var(--surface)" stroke="var(--fg-3)" stroke-width="1.5" />`
         : html`<rect key=${'bl' + g.t.id} class="sched-base" x=${g.base.x0} y=${g.top + 22} width=${Math.max(2, g.base.x1 - g.base.x0)} height="4" rx="1" fill="var(--fg-3)" />`)) : null}
@@ -983,6 +1050,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <${ui.Check} label="Agrupar por EDT" checked=${!!group} onValue=${setGroup} />
           <${ui.Check} label="Ruta crítica" checked=${!!showCrit} onValue=${setShowCrit} />
           <span title=${blSched ? 'Línea base ' + (baselines.schedule.label || '') + ' del ' + fmt.date(baselines.schedule.date) : 'Aún no hay línea base del cronograma. Establécela en Líneas base.'}><${ui.Check} label="Línea base" checked=${showBase} disabled=${!blSched} onValue=${setShowBase} /></span>
+          <span data-fc-toggle title=${fcAvail ? 'Dibuja las fechas de la red actualizada a la fecha de corte (' + fmt.date(statusDate) + ') para el trabajo pendiente que se desplaza: ' + FC_RULE + '. No cambia el cronograma guardado.' : 'La red actualizada a la fecha de corte (' + fmt.date(statusDate) + ') coincide con lo planificado: ninguna actividad pendiente se desplaza.'}><${ui.Check} label="Pronóstico al corte" checked=${showFc} disabled=${!fcAvail} onValue=${(v) => setFcHidden(!v)} /></span>
           <${ui.Check} label="Dependencias" checked=${!!showDeps} onValue=${setShowDeps} />
           <label class="sched-lblsel">Etiqueta
             <select class="select" value=${labelMode} onChange=${(e) => setLabelMode(e.currentTarget.value)}><option value="name">Nombre</option><option value="resp">Responsable</option><option value="none">Ninguna</option></select>
@@ -1013,33 +1081,52 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <span class="legend-item"><${ui.Icon} name="milestone" size=${12} />Hito</span>
         ${group ? html`<span class="legend-item">${sw('background:var(--fg-2);height:5px')}Resumen de la EDT</span>` : null}
         ${showBase ? html`<span class="legend-item">${sw('background:var(--fg-3);height:4px')}Línea base ${baselines.schedule.label || ''}</span>` : null}
+        ${showFc ? html`<span class="legend-item" data-legend="forecast"><span class="swatch sched-fc-swatch"></span>Pronóstico al corte</span>` : null}
         <span class="legend-item"><span class="legend-line" style="background:var(--signal)"></span>Fecha de corte / hoy</span>
         ${colSet === 'full' ? html`<span class="legend-item"><span class="sched-pin"></span>Restricción «No comenzar antes de»</span>` : null}
         ${zoom !== 'mes' ? html`<span class="legend-item">${sw('background:var(--surface-3);border:1px solid var(--line)')}No laborable</span><span class="legend-item">${sw('background:var(--signal-wash);border:1px solid var(--line)')}Festivo</span>` : null}
       </div>
+      ${showFc ? html`<p class="sched-fcnote" data-fc-note><span class="swatch sched-fc-swatch" aria-hidden="true"></span><span>${fcMoved.size === 1 ? '1 actividad pendiente cambia de fecha' : fcMoved.size + ' actividades pendientes cambian de fecha'} al actualizar la red a la fecha de corte (${fmt.date(statusDate)}): ${FC_RULE}. La trama muestra dónde quedan; las barras sólidas siguen siendo lo planificado (por eso lo atrasado figura como vencido) y el cronograma guardado no cambia.</span></p>` : null}
       ${canWrite ? html`<p class="xsmall faint">Arrastra una barra para moverla (queda como restricción «No comenzar antes de») o su borde derecho para cambiar la duración. Haz clic en una celda para editarla; doble clic en la fila o en la barra abre el editor completo.</p>` : null}
     </div>`;
   }
 
   /* ---------------------------------------------------------------- resumen del cronograma */
+  /* Celda del resumen (como ui.Stat, con data-stat para ubicarla). */
+  const StripStat = ({ id, label, value, sub, tone, title, cls }) => html`<div class=${cx('stat', cls)} data-stat=${id} title=${title}>
+    <div class="stat-label">${label}</div>
+    <div class="stat-value" style=${tone ? 'color:var(--' + tone + ')' : ''}>${value}</div>
+    ${sub ? html`<div class="stat-sub">${sub}</div>` : null}
+  </div>`;
+  /* Resumen: lo planificado (Inicio, Fin, Duración) y el pronóstico al corte (6.6), cuya variación se mide en días hábiles
+     frente al fin de la línea base vigente o, sin ella, frente al fin planificado (la misma referencia del tablero). */
   function SummaryStrip({ m }) {
-    const { sched, baselines } = m;
+    const { sched, baselines, statusDate } = m;
+    const forecast = m.forecast || sched;
     const s = useMemo(() => {
       const ts = sched.tasks;
       const r = rollOf(ts);
       const bl = baselines.schedule && baselines.schedule.schedule ? baselines.schedule.schedule : null;
       const blFinish = bl && D.valid(bl.finish) ? bl.finish : null;
-      return { acts: ts.filter((t) => !t.milestone).length, ms: ts.filter((t) => t.milestone).length, crit: ts.filter((t) => t.critical).length, pct: r.progress, blFinish, blLabel: baselines.schedule ? baselines.schedule.label : '', varWd: blFinish ? wdVar(sched.cal, sched.finish, blFinish) : null };
-    }, [sched, baselines.schedule]);
+      const ref = blFinish || sched.finish;
+      return { crit: ts.filter((t) => t.critical).length, pct: r.progress, blFinish, blLabel: baselines.schedule ? baselines.schedule.label : '', varWd: blFinish ? wdVar(sched.cal, sched.finish, blFinish) : null,
+        fcFinish: forecast.finish, fcVar: wdVar(sched.cal, forecast.finish, ref), moved: forecastDiff(sched, forecast).size };
+    }, [sched, forecast, baselines.schedule]);
+    const vs = s.blFinish ? 'frente a ' + (s.blLabel || 'la línea base') : 'frente al fin planificado';
+    const refTxt = s.blFinish ? 'el fin de ' + (s.blLabel || 'la línea base') + ' (' + fmt.date(s.blFinish) + ')' : 'el fin planificado (' + fmt.date(sched.finish) + ')';
+    const fcTitle = 'Red actualizada a la fecha de corte (' + fmt.date(statusDate) + ', 6.6 Controlar el cronograma): ' + FC_RULE + '. '
+      + (s.moved ? (s.moved === 1 ? '1 actividad pendiente cambia de fecha. ' : s.moved + ' actividades pendientes cambian de fecha. ') : 'Ninguna actividad pendiente cambia de fecha. ')
+      + 'Variación en días hábiles frente a ' + refTxt + '.';
     return html`<div class="card sched-strip">
-      <${ui.Stat} label="Inicio" value=${fmt.date(sched.start)} />
-      <${ui.Stat} label="Fin" value=${fmt.date(sched.finish)} />
-      <${ui.Stat} label="Duración" value=${fmt.num(sched.workdays) + ' d'} sub="días hábiles" />
-      <${ui.Stat} label="Actividades" value=${fmt.num(s.acts)} sub=${s.ms === 1 ? '1 hito' : fmt.num(s.ms) + ' hitos'} />
-      <${ui.Stat} label="Críticas" value=${fmt.num(s.crit)} tone=${s.crit ? 'crit' : null} sub="sin terminar" title=${CRIT_RULE} />
-      <${ui.Stat} label="Avance" value=${fmt.num(s.pct) + ' %'} sub="ponderado" title="Avance ponderado por costo (o por duración si no hay costos)" />
-      <${ui.Stat} label=${'Fin ' + (s.blLabel || 'línea base')} value=${s.blFinish ? fmt.date(s.blFinish) : '—'} sub=${s.blFinish ? 'línea base' : 'sin línea base'} />
-      <${ui.Stat} label="Variación" value=${varTxt(s.varWd)} tone=${varTone(s.varWd)} sub=${s.varWd === null ? 'sin línea base' : s.varWd > 0 ? 'atraso' : s.varWd < 0 ? 'adelanto' : 'sin variación'} title="Variación del fin frente a la línea base, en días hábiles" />
+      <${StripStat} id="start" label="Inicio" value=${fmt.date(sched.start)} />
+      <${StripStat} id="finish" label="Fin" value=${fmt.date(sched.finish)} />
+      <${StripStat} id="forecast" cls="sched-stat-fc" label="Fin pronosticado al corte" value=${fmt.date(s.fcFinish)} tone=${varTone(s.fcVar)} sub=${varPhrase(s.fcVar, vs)} title=${fcTitle} />
+      <${StripStat} id="duration" label="Duración" value=${fmt.num(sched.workdays) + ' d'} sub="días hábiles" />
+      <${StripStat} id="critical" label="Críticas" value=${fmt.num(s.crit)} tone=${s.crit ? 'crit' : null} sub="sin terminar" title=${CRIT_RULE} />
+      <${StripStat} id="progress" label="Avance" value=${fmt.num(s.pct) + ' %'} sub="ponderado" title="Avance ponderado por costo (o por duración si no hay costos)" />
+      <${StripStat} id="baseline" label=${'Fin ' + (s.blLabel || 'línea base')} value=${s.blFinish ? fmt.date(s.blFinish) : '—'}
+        sub=${s.blFinish ? html`planificado <span style=${'white-space:nowrap;' + varColor(s.varWd)}>${varTxt(s.varWd)}</span>` : 'sin línea base'}
+        title=${s.blFinish ? 'Fin de ' + (s.blLabel || 'la línea base') + '. Variación del fin planificado (' + fmt.date(sched.finish) + ') frente a ella: ' + varPhrase(s.varWd, '').trim() + '.' : 'Establece una línea base del cronograma en Líneas base para medir la variación del fin.'} />
     </div>`;
   }
 
@@ -1113,35 +1200,47 @@ button.sched-day:hover { border-color: var(--line-strong); }
   /* ---------------------------------------------------------------- pestaña Hitos */
   function MilestonesTab({ m, canWrite, edit, addMilestone }) {
     const { sched, baselines, statusDate, tree } = m;
+    const forecast = m.forecast || sched;
     const blById = useMemo(() => { const b = baselines.schedule && baselines.schedule.schedule; return b && Array.isArray(b.tasks) ? new Map(b.tasks.map((x) => [x.id, x])) : null; }, [baselines.schedule]);
     const list = useMemo(() => sched.tasks.map((t, i) => ({ t, n: i + 1 })).filter((x) => x.t.milestone).sort((a, b) => (a.t.startDate < b.t.startDate ? -1 : a.t.startDate > b.t.startDate ? 1 : a.n - b.n)), [sched]);
     if (!list.length) return html`<${ui.Empty} icon="milestone" title="Aún no hay hitos" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="milestone" onClick=${addMilestone}>Agregar hito</${ui.Button}>` : null}>
       Los hitos marcan eventos significativos sin duración: aprobación de la ingeniería, entrega del andamio certificado, acta de cierre. Se dibujan al cierre de su fecha.</${ui.Empty}>`;
+    /* «Vencido» se mide con la fecha planificada (sched); el pronóstico al corte va en su propia columna. */
     const status = (t) => (t.progress >= 100 ? { label: 'Cumplido', tone: 'good' } : t.startDate < statusDate ? { label: 'Vencido', tone: 'crit' } : { label: 'Próximo', tone: 'info' });
     const counts = PM.groupBy(list, (x) => status(x.t).label);
+    const moved = forecastDiff(sched, forecast);
+    const nMoved = list.filter((x) => moved.has(x.t.id)).length;
+    const blLabel = baselines.schedule ? baselines.schedule.label || 'la línea base' : '';
+    const fcHead = 'Fecha del hito en la red actualizada a la fecha de corte (' + fmt.date(statusDate) + '): ' + FC_RULE + '. Variación en días hábiles frente a ' + (blById ? blLabel : 'la fecha planificada') + '; positivo = atraso.';
     return html`<div class="stack">
       <div class="row">
         <${ui.Chip} tone="good">${(counts.Cumplido || []).length} cumplidos</${ui.Chip}>
         <${ui.Chip} tone="crit">${(counts.Vencido || []).length} vencidos</${ui.Chip}>
         <${ui.Chip} tone="info">${(counts['Próximo'] || []).length} próximos</${ui.Chip}>
+        ${nMoved ? html`<${ui.Chip} tone="signal" title=${fcHead}>${nMoved === 1 ? '1 desplazado al corte' : nMoved + ' desplazados al corte'}</${ui.Chip}>` : null}
         <span class="small faint">Estado a la fecha de corte ${fmt.date(statusDate)}.</span>
         <span class="spacer"></span>
         ${canWrite ? html`<${ui.Button} size="sm" icon="milestone" onClick=${addMilestone}>Agregar hito</${ui.Button}>` : null}
       </div>
-      <div class="table-wrap"><table class="table sched-tbl">
-        <thead><tr><th class="num">#</th><th>Hito</th><th>EDT</th><th>Fecha planificada</th><th>Fecha línea base</th><th class="num" title="Días hábiles; positivo = atraso">Variación (días)</th><th class="num">Holgura total</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
-        <tbody>${list.map(({ t, n }) => { const b = blById && blById.get(t.id); const v = b ? wdVar(sched.cal, t.startDate, b.start) : null; const st = status(t); return html`<tr key=${t.id} data-id=${t.id}>
+      <div class="table-wrap"><table class="table sched-tbl sched-mstbl">
+        <thead><tr><th class="num">#</th><th>Hito</th><th>EDT</th><th>Fecha planificada</th><th>Fecha línea base</th><th class="num" title="Fecha planificada frente a la línea base, en días hábiles; positivo = atraso">Variación (días hábiles)</th><th title=${fcHead}>Pronóstico al corte</th><th class="num">Holgura total</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+        <tbody>${list.map(({ t, n }) => {
+          const b = blById && blById.get(t.id); const v = b ? wdVar(sched.cal, t.startDate, b.start) : null; const st = status(t);
+          const f = forecast.byId.get(t.id) || t; const fv = wdVar(sched.cal, f.startDate, b ? b.start : t.startDate); const isMoved = moved.has(t.id);
+          return html`<tr key=${t.id} data-id=${t.id}>
           <td class="num faint">${n}</td>
           <td class="wrap" style="min-width:260px"><strong style="font-weight:600">${taskName(t)}</strong>${t.critical ? html` <${ui.Chip} tone="crit">Crítico</${ui.Chip}>` : null}</td>
           <td class="mono xsmall">${(t.wbsId && tree.codes.get(t.wbsId)) || '—'}</td>
           <td class="mono xsmall">${fmt.date(t.startDate, 'dow')} ${t.startDate.slice(0, 4)}</td>
           <td class="mono xsmall">${b ? fmt.date(b.start, 'short') : html`<span class="faint">—</span>`}</td>
-          <td class="num" style=${v > 0 ? 'color:var(--crit)' : v < 0 ? 'color:var(--good)' : ''}>${v === null ? '—' : varTxt(v)}</td>
+          <td class="num" style=${varColor(v)}>${v === null ? '—' : varTxt(v)}</td>
+          <td class="mono xsmall" data-col="forecast" data-date=${f.startDate} data-var=${fv} title=${isMoved ? 'Se desplaza ' + varPhrase(wdVar(sched.cal, f.startDate, t.startDate), 'frente a la fecha planificada') + ' al actualizar la red a la fecha de corte.' : 'Coincide con la fecha planificada.'}><span style=${isMoved ? 'color:var(--signal-ink);font-weight:600' : ''}>${fmt.date(f.startDate, 'short')}</span> <span style=${varColor(fv)}>${varTxt(fv)}</span></td>
           <td class="num">${fmt.num(t.tf)} d</td>
           <td><${ui.Chip} tone=${st.tone}>${st.label}</${ui.Chip}></td>
           <td><${ui.IconButton} size="sm" icon=${canWrite ? 'edit' : 'eye'} label=${(canWrite ? 'Editar ' : 'Ver ') + taskName(t)} onClick=${() => edit(t.id)} /></td>
         </tr>`; })}</tbody>
       </table></div>
+      <p class="xsmall faint">«Pronóstico al corte»: fecha del hito en la red actualizada a la fecha de corte (6.6 Controlar el cronograma); su variación se mide en días hábiles frente a ${blById ? blLabel : 'la fecha planificada'}. El estado «Vencido» se mide con la fecha planificada.</p>
       ${blById ? null : html`<p class="xsmall faint">Sin línea base del cronograma: establece una en Líneas base para comparar las fechas de los hitos.</p>`}
     </div>`;
   }
