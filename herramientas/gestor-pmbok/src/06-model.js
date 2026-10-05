@@ -21,7 +21,9 @@
 
   /* Marca el proyecto como actualizado (con antirrebote por proyecto). */
   const touchers = {};
-  PM.touchProject = (pid) => { if (!pid || !PM.getState().canWrite) return; (touchers[pid] = touchers[pid] || PM.debounce(() => PM.projectOps.touch(pid), 8000))(); };
+  /* projectOps.touch comprueba que el proyecto siga existiendo; eliminarlo cancela el toque pendiente. */
+  PM.touchProject = (pid) => { if (!pid || !PM.getState().canWrite) return; (touchers[pid] = touchers[pid] || PM.debounce(() => { delete touchers[pid]; PM.projectOps.touch(pid); }, 8000))(); };
+  PM.touchProject.cancel = (pid) => { const t = touchers[pid]; if (t) { t.cancel(); delete touchers[pid]; } };
 
   /* Modelo integrado del proyecto actual: EDT, cronograma (CPM), costos, líneas base y valor ganado. */
   PM.useProjectModel = function () {
@@ -37,11 +39,15 @@
     const projectStart = project ? project.start : null;
     const statusDate = PM.statusDateOf(project);
     const tree = useMemo(() => PM.calc.wbsTree(wbs.nodes), [wbs]);
+    /* sched: red según lo programado (las actividades atrasadas conservan sus fechas: así se detectan los vencidos).
+       forecast: la misma red actualizada a la fecha de corte (6.6 Controlar el cronograma): el trabajo pendiente no
+       queda antes del corte, de modo que fin, ruta crítica e hitos pronosticados reflejan el atraso. */
     const sched = useMemo(() => PM.calc.computeSchedule(schedule, projectStart), [schedule, projectStart]);
+    const forecast = useMemo(() => PM.calc.computeSchedule(schedule, projectStart, statusDate), [schedule, projectStart, statusDate]);
     const baselines = useMemo(() => PM.calc.activeBaselines(baselineDocs), [baselineDocs]);
     const evm = useMemo(() => PM.calc.evm({ sched, costBaseline: baselines.cost, costs, statusDate }), [sched, baselines.cost, costs, statusDate]);
     const rollup = useMemo(() => PM.calc.rollupWbs(tree, sched), [tree, sched]);
-    return { project, pid, schedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading };
+    return { project, pid, schedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading };
   };
 
   /* Índice de documentos del proyecto actual. list: [{id, template, title, status, rev, fields, ...}] */
@@ -70,13 +76,16 @@
     return { template: template ? template.id : extra.template, title: template ? template.name : '', status: 'borrador', rev: null, fields, titleBlock: { codigo: '', elaboro: '', reviso: '', aprobo: '', fechaAprobacion: null }, createdAt: now, updatedAt: now, createdBy: PM.getState().meId || null, updatedBy: PM.getState().meId || null, ...extra };
   };
 
+  const EMPTY_ROWS = Object.freeze([]);
   /* Tabla de un documento (singleton) del proyecto actual: [rows, saveRows, {doc, exists, loading}].
      Crea el documento con su plantilla si no existe al guardar. Comparte la sincronización con el editor. */
   PM.useDocTable = function (templateId, fieldKey) {
     const { project } = PM.useCurrentProject();
     const pid = project ? project.id : null;
     const r = PM.useDoc(pid ? PM.paths.doc(pid, templateId) : null);
-    const rows = (r.exists && r.data && r.data.fields && Array.isArray(r.data.fields[fieldKey])) ? r.data.fields[fieldKey] : [];
+    const raw = (r.exists && r.data && r.data.fields && Array.isArray(r.data.fields[fieldKey])) ? r.data.fields[fieldKey] : EMPTY_ROWS;
+    /* filas nulas o que no son objetos (datos importados dañados) se omiten */
+    const rows = useMemo(() => (raw.every((x) => x && typeof x === 'object' && !Array.isArray(x)) ? raw : raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x))), [raw]);
     const saveRows = useCallback((next) => {
       const base = r.exists && r.data ? PM.clone(r.data) : PM.newDocBody(PM.templates[templateId], project, { template: templateId });
       base.fields = { ...(base.fields || {}), [fieldKey]: next };

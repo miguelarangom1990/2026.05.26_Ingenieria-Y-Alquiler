@@ -28,14 +28,14 @@
   const clamp = PM.clamp;
 
   const TYPES = {
-    terminal: { label: 'Inicio/Fin', hint: 'Terminal: inicio o fin del proceso', w: 144, h: 48, text: 'Inicio', min: [64, 32] },
-    process: { label: 'Proceso', hint: 'Actividad o tarea', w: 160, h: 64, text: 'Proceso', min: [56, 32] },
-    decision: { label: 'Decisión', hint: 'Pregunta con salidas Sí / No', w: 160, h: 96, text: '¿Condición?', min: [72, 48] },
-    document: { label: 'Documento', hint: 'Documento o registro que se genera', w: 160, h: 72, text: 'Documento', min: [56, 40] },
-    data: { label: 'Datos (E/S)', hint: 'Entrada o salida de datos', w: 160, h: 64, text: 'Datos', min: [64, 32] },
-    subprocess: { label: 'Subproceso', hint: 'Proceso predefinido que se documenta aparte', w: 160, h: 64, text: 'Subproceso', min: [64, 32] },
-    connector: { label: 'Conector', hint: 'Conector: el flujo continúa en otro punto', w: 40, h: 40, text: 'A', min: [24, 24] },
-    note: { label: 'Nota', hint: 'Anotación o comentario', w: 176, h: 72, text: 'Nota', min: [56, 32] },
+    terminal: { label: 'Inicio/Fin', name: 'inicio o fin', hint: 'terminal, inicio o fin del proceso', w: 144, h: 48, text: 'Inicio', min: [64, 32] },
+    process: { label: 'Proceso', name: 'proceso', hint: 'actividad o tarea', w: 160, h: 64, text: 'Proceso', min: [56, 32] },
+    decision: { label: 'Decisión', name: 'decisión', hint: 'pregunta con salidas Sí / No', w: 160, h: 96, text: '¿Condición?', min: [72, 48] },
+    document: { label: 'Documento', name: 'documento', hint: 'documento o registro que se genera', w: 160, h: 72, text: 'Documento', min: [56, 40] },
+    data: { label: 'Datos (E/S)', name: 'datos (entrada o salida)', hint: 'entrada o salida de datos', w: 160, h: 64, text: 'Datos', min: [64, 32] },
+    subprocess: { label: 'Subproceso', name: 'subproceso', hint: 'proceso predefinido que se documenta aparte', w: 160, h: 64, text: 'Subproceso', min: [64, 32] },
+    connector: { label: 'Conector', name: 'conector', hint: 'círculo con una letra; el flujo continúa en el conector que lleva la misma letra (no es una flecha)', w: 40, h: 40, text: 'A', min: [24, 24] },
+    note: { label: 'Nota', name: 'nota', hint: 'anotación o comentario', w: 176, h: 72, text: 'Nota', min: [56, 32] },
   };
   const TYPE_KEYS = Object.keys(TYPES);
   const TYPE_OPTIONS = TYPE_KEYS.map((k) => ({ value: k, label: TYPES[k].label }));
@@ -60,9 +60,24 @@
 .flow-list-name { font-weight: 600; font-size: var(--fs-sm); line-height: 1.3; overflow-wrap: anywhere; }
 .flow-list-meta { font-size: var(--fs-xs); color: var(--fg-3); }
 .flow-editor { container: flowed / inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; --flow-h: clamp(440px, calc(100vh - 290px), 820px); }
-.flow-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; min-width: 0; }
-.flow-head-text { min-width: 0; flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; }
+.flow-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: end; min-width: 0; }
+.flow-head > .flow-picker { grid-column: 1; grid-row: 1; }
+.flow-head-acts { grid-column: 2; grid-row: 1; }
+.flow-head-text { grid-column: 1 / -1; grid-row: 2; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .flow-head-title { font-size: var(--fs-xl); font-stretch: 105%; overflow-wrap: anywhere; }
+@container flowroot (min-width: 1180px) {
+  .flow-head { align-items: start; }
+  .flow-head-text { grid-column: 1; grid-row: 1; }
+}
+@container flowroot (max-width: 1179.98px) {
+  .flow-head-title { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+}
+.flow-desc-wrap { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; margin-top: 2px; }
+.flow-desc { margin: 0; max-width: 80ch; overflow-wrap: anywhere; }
+.flow-desc.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.flow-more { padding: 2px 0; min-height: 24px; border: 0; background: none; color: var(--accent); font-size: var(--fs-xs); font-weight: 500; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.flow-more:hover { color: var(--accent-hover); }
+.flow-tb-export { display: flex; flex-wrap: wrap; gap: 6px; }
 .flow-toolbar { padding: 6px 8px; gap: 6px; }
 .flow-toolbar .btn[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); border-color: var(--accent); }
 .flow-zoom { font-family: var(--font-mono); font-size: var(--fs-xs); min-width: 54px; }
@@ -76,12 +91,23 @@
 }
 @container flowed (max-width: 620px) {
   .flow-body, .flow-stage { --flow-h: 440px; }
-  .flow-pal-btn { padding: 3px 8px 3px 5px; min-height: 32px; touch-action: manipulation; }
+  .flow-tb-export, .flow-acts-label { display: none; }
 }
-.flow-stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.flow-palette { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0; min-width: 0; }
+.flow-stage { container: flowstage / inline-size; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.flow-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 0; min-width: 0; }
+.flow-pal-hint { display: none; flex: 1 1 160px; min-width: 0; font-size: var(--fs-xs); line-height: 1.3; color: var(--fg-3); padding-left: 4px; }
 .flow-pal-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 9px 4px 6px; min-height: 34px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); color: var(--fg); font-size: var(--fs-xs); font-weight: 500; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .flow-pal-btn:hover { background: var(--surface-2); border-color: var(--fg-3); }
+/* Paleta en una sola fila: si los ocho símbolos con nombre no caben, se muestran solo las formas (el nombre queda en
+   la descripción emergente y en la etiqueta accesible) y el espacio libre explica cómo usarlas. */
+@container flowstage (max-width: 899.98px) {
+  .flow-palette { gap: 4px; }
+  .flow-pal-btn { padding: 3px 4px; gap: 0; }
+  .flow-pal-text { display: none; }
+}
+@container flowstage (min-width: 520px) and (max-width: 899.98px) {
+  .flow-pal-hint { display: block; }
+}
 .flow-canvas { position: relative; height: var(--flow-h); min-height: 300px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); overflow: hidden; resize: vertical; max-width: 100%; }
 .flow-canvas:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .flow-svg { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; touch-action: none; cursor: grab; }
@@ -415,7 +441,7 @@
     else mids.push([{ x: a.x, y: b.y }]);
     return mids.map((m) => simplify([pA, a, ...m, b, pB]));
   }
-  /* Penalización por cruzar (36) o montarse (80) sobre rutas de otros conectores. */
+  /* Penalización por cruzar (36) o montarse (80) sobre rutas de otras flechas. */
   function crossPenalty(pts, segs, eid) {
     let pen = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -444,8 +470,8 @@
     }
     return len + (pts.length - 2) * 26 + pen;
   }
-  /* Ubicación de la etiqueta de un conector: lo más cerca posible del punto medio del recorrido, sin
-     tapar elementos, otras etiquetas, la punta de flecha ni los codos del propio conector. Si sobre la
+  /* Ubicación de la etiqueta de una flecha: lo más cerca posible del punto medio del recorrido, sin
+     tapar elementos, otras etiquetas, la punta de flecha ni los codos de la propia flecha. Si sobre la
      línea no hay espacio libre (dos elementos muy juntos), se prueba justo al lado de la línea. */
   const rectOverlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
   const labelSize = (label) => ({ w: Math.ceil(textWidth(label, 12, 600) + 12), h: 18 });
@@ -494,7 +520,7 @@
   }
   /* Rutas ortogonales (en codo) entre los lados más convenientes. Dos pasadas: la segunda evita compartir
      un mismo puerto entre entradas y salidas. Con opts.only (ids de elementos que se están arrastrando) y
-     opts.base (rutas ya calculadas), solo se recalculan los conectores de esos elementos: el arrastre
+     opts.base (rutas ya calculadas), solo se recalculan las flechas de esos elementos: el arrastre
      sigue siendo fluido en diagramas grandes y al soltar se recalcula todo. */
   function computeRoutes(nodes, edges, opts) {
     const only = opts && opts.only && opts.base ? opts.only : null;
@@ -533,7 +559,7 @@
         else segs.push({ id: e.id, hz: false, x: p.x, y0: Math.min(p.y, q.y), y1: Math.max(p.y, q.y) });
       }
     });
-    /* segunda pasada secuencial: cada conector ve los puertos ya elegidos por los anteriores */
+    /* segunda pasada secuencial: cada flecha ve los puertos ya elegidos por las anteriores */
     const reassign = (e, prev, r) => {
       if (prev && prev.sA === r.sA && prev.sB === r.sB) return;
       const drop = (k) => { const l = usage.get(k); if (l) usage.set(k, l.filter((u) => u.id !== e.id)); };
@@ -664,13 +690,35 @@
     return { k, x: (size.w - bb.w * k) / 2 - bb.x * k, y: (size.h - bb.h * k) / 2 - bb.y * k };
   }
 
-  /* Vista inicial: ajusta todo si el zoom resultante deja ver la estructura (≥ 40 % en lienzos anchos, ≥ 50 % en
-     teléfonos); si no, abre al 50 % desde la esquina superior izquierda. */
-  function initialView(bb, size) {
+  /* Vista inicial: el diagrama abre legible. Si cabe completo con un zoom ≥ FIT_MIN_K (texto de 13 px ≥ ~10 px),
+     se ajusta a la vista; si no, abre a READ_K anclado en el punto de partida (el terminal «Inicio» sin flechas
+     de entrada o, en su defecto, el primer elemento) y conserva el borde superior izquierdo del contenido (con la
+     columna de carriles) mientras ese punto quede a la vista. «Ajustar a la vista» sigue dando el panorama. */
+  const READ_K = 0.85;
+  const FIT_MIN_K = 0.75;
+  function startNode(nodes, edges) {
+    const list = (nodes || []).filter((n) => n.type !== 'note');
+    if (!list.length) return null;
+    const notes = new Set((nodes || []).filter((n) => n.type === 'note').map((n) => n.id));
+    const hasIn = new Set((edges || []).filter((e) => !notes.has(e.from)).map((e) => e.to));
+    const first = (arr) => arr.reduce((best, n) => (!best || n.y + n.x < best.y + best.x ? n : best), null);
+    return first(list.filter((n) => n.type === 'terminal' && !hasIn.has(n.id))) || first(list.filter((n) => !hasIn.has(n.id))) || first(list);
+  }
+  function initialView(bb, size, nodes, edges) {
     const v = fitView(bb, size);
-    if (!bb || v.k >= (size.w >= 600 ? 0.4 : 0.5)) return v;
-    const k = 0.5;
-    return { k, x: 16 - bb.x * k, y: 16 - bb.y * k };
+    if (!bb || !size.w || !size.h || v.k >= FIT_MIN_K) return v;
+    const k = READ_K, pad = 16;
+    const a = startNode(nodes, edges);
+    /* por eje: parte del borde del contenido o, si así el inicio quedaría fuera, del propio elemento de inicio;
+       en horizontal, si el contenido cabe a lo ancho, lo centra */
+    const axis = (b0, bLen, a0, aLen, view, center) => {
+      const span = view - 2 * pad;
+      if (bLen * k <= span) return pad + (center ? (span - bLen * k) / 2 : 0) - b0 * k;
+      let w0 = b0;
+      if (a0 !== null && (a0 + aLen - b0) * k > span) w0 = Math.max(b0, a0 - 24);
+      return pad - w0 * k;
+    };
+    return { k, x: axis(bb.x, bb.w, a ? a.x : null, a ? a.w : 0, size.w, true), y: axis(bb.y, bb.h, a ? a.y : null, a ? a.h : 0, size.h, false) };
   }
 
   /* ---------------------------------------------------------------- plantillas */
@@ -765,7 +813,7 @@
     const now = PM.nowIso();
     return { name: String(name || t.defaultName).trim() || t.defaultName, description: t.description, nodes, edges, lanes, createdAt: now, updatedAt: now };
   }
-  PM.flowTools = { templates: TEMPLATES, fromTemplate: flowFromTemplate, normalize: normalizeFlow, types: TYPES };
+  PM.flowTools = { templates: TEMPLATES, fromTemplate: flowFromTemplate, normalize: normalizeFlow, types: TYPES, initialView, startNode };
 
   /* ---------------------------------------------------------------- historial en memoria (por diagrama) */
   const HISTORIES = new Map();
@@ -936,7 +984,7 @@
       if (!el) return undefined;
       const measure = () => { const w = el.clientWidth, h = el.clientHeight; setSize((s) => (s.w === w && s.h === h ? s : { w, h })); return { w, h }; };
       const s0 = measure();
-      if (!fittedRef.current && R.current.flow && s0.w) { fittedRef.current = true; const f = R.current.flow; setView(initialView(contentBBox(f.nodes, computeRoutes(f.nodes, f.edges), laneGeom(f, f.nodes)), s0)); }
+      if (!fittedRef.current && R.current.flow && s0.w) { fittedRef.current = true; const f = R.current.flow; setView(initialView(contentBBox(f.nodes, computeRoutes(f.nodes, f.edges), laneGeom(f, f.nodes)), s0, f.nodes, f.edges)); }
       if (typeof ResizeObserver === 'undefined') return undefined;
       const ro = new ResizeObserver(() => measure());
       ro.observe(el);
@@ -1155,7 +1203,7 @@
       const f = R.current.flow; if (!f || !R.current.canWrite) return false;
       if (!from || !to || from === to) { PM.toast('Elige dos elementos distintos para conectarlos.'); return false; }
       const A = R.current.nodeMap.get(from), B = R.current.nodeMap.get(to);
-      if (f.edges.some((e) => e.from === from && e.to === to)) { PM.toast('Ya existe un conector de «' + shortText(A && A.text, 30) + '» a «' + shortText(B && B.text, 30) + '».'); return false; }
+      if (f.edges.some((e) => e.from === from && e.to === to)) { PM.toast('Ya existe una flecha de «' + shortText(A && A.text, 30) + '» a «' + shortText(B && B.text, 30) + '».'); return false; }
       const e = { id: PM.uid('e'), from, to, label: label || '' };
       update({ edges: [...f.edges, e] });
       setSel({ nodes: [], edge: e.id });
@@ -1290,6 +1338,8 @@
       PM.download('flujo_' + (PM.slug(flowName(f)) || 'diagrama') + '.json', JSON.stringify(out, null, 2));
     };
     const getSvg = () => (R.current.flow ? buildExportSvg(R.current.flow) : null);
+    const svgName = () => 'flujo_' + (PM.slug(flowName(R.current.flow)) || 'diagrama') + '.svg';
+    const downloadSvg = () => { const el = getSvg(); if (el) PM.download(svgName(), PM.svgToString(el)); };
 
     /* ---- render ---- */
     if (doc.loading) return html`<div class="flow-editor">${picker}<${ui.Loading} rows=${5} /></div>`;
@@ -1324,13 +1374,16 @@
       ${canWrite ? html`<${ui.Button} size="sm" icon="layers" aria-pressed=${lanesVisible ? 'true' : 'false'} title="Carriles por responsable (diagrama multifuncional)" onClick=${H.toggleLanes}>Carriles</${ui.Button}>` : null}
       <${ui.Button} size="sm" icon="settings" aria-pressed=${panelOpen ? 'true' : 'false'} title=${panelOpen ? 'Ocultar el panel de propiedades para ampliar el lienzo' : 'Mostrar el panel de propiedades'} onClick=${togglePanel}>Panel</${ui.Button}>
       <div class="spacer"></div>
-      <${ui.SvgDownload} getSvg=${getSvg} filename=${'flujo_' + (PM.slug(flowName(flow)) || 'diagrama') + '.svg'} />
-      <${ui.Button} size="sm" icon="download" onClick=${exportJson}>Exportar JSON</${ui.Button}>
+      <div class="flow-tb-export">
+        <${ui.SvgDownload} getSvg=${getSvg} filename=${svgName()} />
+        <${ui.Button} size="sm" icon="download" onClick=${exportJson}>Exportar JSON</${ui.Button}>
+      </div>
     </div>`;
 
     const palette = canWrite ? html`<div class="flow-palette" role="group" aria-label="Paleta de símbolos: haz clic para agregar en el centro o arrastra al lienzo">
-      ${TYPE_KEYS.map((t) => html`<button key=${t} type="button" class="flow-pal-btn" title=${TYPES[t].hint + '. Clic: agregar en el centro de la vista; arrastrar: soltar en el lienzo.'} aria-label=${'Agregar ' + TYPES[t].label} data-type=${t}
-        onPointerDown=${(e) => H.palDown(e, t)} onClick=${() => H.palClick(t)}><${Glyph} type=${t} />${TYPES[t].label}</button>`)}
+      ${TYPE_KEYS.map((t) => html`<button key=${t} type="button" class="flow-pal-btn" title=${TYPES[t].label + ': ' + TYPES[t].hint + '. Clic: agregar en el centro de la vista; arrastrar: soltar en el lienzo.'} aria-label=${'Agregar símbolo de ' + TYPES[t].name} data-type=${t}
+        onPointerDown=${(e) => H.palDown(e, t)} onClick=${() => H.palClick(t)}><${Glyph} type=${t} /><span class="flow-pal-text">${TYPES[t].label}</span></button>`)}
+      <span class="flow-pal-hint" aria-hidden="true">Clic en un símbolo: se agrega al centro · Arrástralo para soltarlo donde quieras</span>
     </div>` : null;
 
     const marker = (id, cls) => html`<marker id=${id} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class=${cls} d="M0,0 L10,5 L0,10 Z" /></marker>`;
@@ -1348,7 +1401,7 @@
       const r = routes.get(e.id);
       if (!r || !e.label || (editing && editing.kind === 'edge' && editing.id === e.id)) return null;
       return html`<g key=${e.id} class=${cx('flow-elabel-g', selEdge === e.id && 'is-sel')} data-edge-label=${e.id}
-        onPointerDown=${(ev) => H.edgeDown(ev, e.id)} onDblClick=${(ev) => { ev.stopPropagation(); H.startEdgeEdit(e.id); }}><title>${'Conector: ' + e.label}</title><${EdgeLabel} r=${r} label=${e.label} live=${true} /></g>`;
+        onPointerDown=${(ev) => H.edgeDown(ev, e.id)} onDblClick=${(ev) => { ev.stopPropagation(); H.startEdgeEdit(e.id); }}><title>${'Flecha: ' + e.label}</title><${EdgeLabel} r=${r} label=${e.label} live=${true} /></g>`;
     });
 
     const nodeEls = liveNodes.map((n) => {
@@ -1392,7 +1445,7 @@
         const r = routes.get(editing.id);
         if (r) {
           const left = clamp(r.mid.x * view.k + view.x - 70, 4, Math.max(4, size.w - 144)), top = clamp(r.mid.y * view.k + view.y - 15, 4, Math.max(4, size.h - 34));
-          overlay = html`<input class="flow-editbox is-input" aria-label="Etiqueta del conector (Intro guarda, Esc cancela)" placeholder="Sí, No…" style=${'left:' + left + 'px;top:' + top + 'px;width:140px;height:30px'}
+          overlay = html`<input class="flow-editbox is-input" aria-label="Etiqueta de la flecha (Intro guarda, Esc cancela)" placeholder="Sí, No…" style=${'left:' + left + 'px;top:' + top + 'px;width:140px;height:30px'}
             value=${editing.value} ref=${(el) => { if (el && !el.dataset.init) { el.dataset.init = '1'; el.focus(); el.select(); } }}
             onInput=${(e) => { const v = { ...editRef.current, value: e.currentTarget.value }; editRef.current = v; setEditingState(v); }}
             onKeyDown=${(e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); H.finishEdit(false); } else if (e.key === 'Enter') { e.preventDefault(); H.finishEdit(true); } }}
@@ -1410,23 +1463,29 @@
       temp = html`<rect class="flow-marquee" x=${Math.min(tr.x0, tr.x1)} y=${Math.min(tr.y0, tr.y1)} width=${Math.abs(tr.x1 - tr.x0)} height=${Math.abs(tr.y1 - tr.y0)} />`;
     }
 
+    /* Encabezado compacto: con el selector de diagramas a la vista (pantallas angostas), el selector ocupa el lugar
+       del título (que queda para lectores de pantalla) y comparte fila con «Acciones»; la descripción se recorta a
+       dos líneas con «Ver más». Así el lienzo empieza más arriba. */
     const head = html`<div class="flow-head">
+      ${picker}
       <div class="flow-head-text">
         <h2 class="flow-head-title">${flowName(flow)}</h2>
-        <div class="xsmall faint">${nodes.length} ${nodes.length === 1 ? 'elemento' : 'elementos'} · ${edges.length} ${edges.length === 1 ? 'conector' : 'conectores'}${lanesVisible ? ' · ' + flow.lanes.length + ' carriles' : ''} · Actualizado ${PM.fmt.datetime(flow.updatedAt)}</div>
-        ${flow.description ? html`<p class="small muted" style="max-width:80ch">${flow.description}</p>` : null}
+        <div class="xsmall faint">${nodes.length} ${nodes.length === 1 ? 'elemento' : 'elementos'} · ${edges.length} ${edges.length === 1 ? 'flecha' : 'flechas'}${lanesVisible ? ' · ' + flow.lanes.length + ' carriles' : ''} · Actualizado ${PM.fmt.datetime(flow.updatedAt)}</div>
+        ${flow.description ? html`<${ClampText} text=${flow.description} />` : null}
       </div>
-      <${ui.Dropdown} label="Acciones del diagrama" buttonLabel="Acciones" variant="" items=${[
-        canWrite && { label: 'Renombrar', icon: 'edit', onClick: async () => { const v = await PM.promptText({ title: 'Renombrar diagrama', label: 'Nombre del diagrama', value: flow.name, confirmText: 'Guardar nombre' }); if (v) update({ name: v }); } },
-        canWrite && { label: 'Duplicar diagrama', icon: 'copy', onClick: () => onDuplicate(R.current.flow) },
-        { label: 'Exportar JSON', icon: 'download', onClick: exportJson },
-        canWrite && 'sep',
-        canWrite && { label: 'Eliminar diagrama', icon: 'trash', danger: true, onClick: () => onDelete(fid, R.current.flow) },
-      ]} />
+      <div class="flow-head-acts">
+        <${ui.Dropdown} label="Acciones del diagrama" buttonLabel=${html`<span class="flow-acts-label">Acciones</span>`} variant="" items=${[
+          canWrite && { label: 'Renombrar', icon: 'edit', onClick: async () => { const v = await PM.promptText({ title: 'Renombrar diagrama', label: 'Nombre del diagrama', value: flow.name, confirmText: 'Guardar nombre' }); if (v) update({ name: v }); } },
+          canWrite && { label: 'Duplicar diagrama', icon: 'copy', onClick: () => onDuplicate(R.current.flow) },
+          { label: 'Descargar SVG', icon: 'image', onClick: downloadSvg },
+          { label: 'Exportar JSON', icon: 'download', onClick: exportJson },
+          canWrite && 'sep',
+          canWrite && { label: 'Eliminar diagrama', icon: 'trash', danger: true, onClick: () => onDelete(fid, R.current.flow) },
+        ]} />
+      </div>
     </div>`;
 
     return html`<div class="flow-editor" data-fid=${fid}>
-      ${picker}
       ${head}
       ${toolbar}
       <div class=${cx('flow-body', !panelOpen && 'is-full')}>
@@ -1458,7 +1517,7 @@
               <li>Arrastra el fondo o usa la rueda para desplazarte; <span class="kbd">Ctrl</span> + rueda o pellizco para acercar o alejar.</li>
               ${canWrite ? html`
               <li>Clic para seleccionar; <span class="kbd">Mayús</span> + clic agrega a la selección; <span class="kbd">Mayús</span> + arrastrar en el fondo selecciona por área.</li>
-              <li>Doble clic (o <span class="kbd">Intro</span>) edita el texto de un elemento o la etiqueta de un conector.</li>
+              <li>Doble clic (o <span class="kbd">Intro</span>) edita el texto de un elemento o la etiqueta de una flecha.</li>
               <li>Pasa el puntero sobre un elemento y arrastra desde uno de sus puntos azules hasta otro elemento para conectarlos; si sueltas en un espacio vacío se crea un proceso nuevo conectado.</li>
               <li><span class="kbd">Supr</span> elimina; <span class="kbd">Ctrl</span>+<span class="kbd">D</span> duplica; flechas mueven 8 px (con <span class="kbd">Mayús</span>, 40 px); <span class="kbd">Alt</span> al arrastrar desactiva el ajuste a la cuadrícula.</li>
               <li><span class="kbd">Ctrl</span>+<span class="kbd">Z</span> deshace y <span class="kbd">Ctrl</span>+<span class="kbd">Y</span> rehace.</li>` : html`<li>Modo de solo lectura: puedes desplazarte, hacer zoom y descargar el diagrama.</li>`}
@@ -1468,6 +1527,27 @@
         ${panelOpen ? html`<${FlowPanel} flow=${flow} geom=${geom} selNodes=${selNodes} selEdge=${selEdge} setSel=${setSel} H=${H} canWrite=${canWrite} tab=${tab} setTab=${setTab} formId=${ids.form} update=${update} />` : null}
       </div>
       ${ghost ? html`<div class="flow-ghost" style=${'left:' + ghost.x + 'px;top:' + ghost.y + 'px'}><${Glyph} type=${ghost.type} />${TYPES[ghost.type].label}</div>` : null}
+    </div>`;
+  }
+
+  /* Texto recortado a dos líneas; «Ver más» lo despliega (solo aparece si el texto no cabe). */
+  function ClampText({ text }) {
+    const ref = useRef(null);
+    const [open, setOpen] = useState(false);
+    const [over, setOver] = useState(false);
+    useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el || open) return undefined;
+      const check = () => setOver(el.scrollHeight > el.clientHeight + 1);
+      check();
+      if (typeof ResizeObserver === 'undefined') return undefined;
+      const ro = new ResizeObserver(check);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [text, open]);
+    return html`<div class="flow-desc-wrap">
+      <p ref=${ref} class=${cx('small muted flow-desc', !open && 'is-clamped')}>${text}</p>
+      ${over || open ? html`<button type="button" class="flow-more" aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ver menos' : 'Ver más'}</button>` : null}
     </div>`;
   }
 
@@ -1515,9 +1595,9 @@
         <span class="flow-item-num">${i + 1}</span><${Glyph} type=${n.type} size=${22} /><span class="flow-item-text">${shortText(n.text, 60) || html`<span class="faint">(sin texto)</span>`}</span></button></div>`)}</div>` : html`<p class="small faint">Aún no hay elementos.</p>`}
     </div>
     <div class="flow-sec">
-      <div class="label-caps">Conectores (${edges.length})</div>
+      <div class="label-caps">Flechas (${edges.length})</div>
       ${edges.length ? html`<div class="flow-items" role="list">${edges.map((e) => html`<div role="listitem" key=${e.id}><button type="button" class="flow-item" aria-pressed=${selEdge === e.id ? 'true' : 'false'} onClick=${() => pickEdge(e.id)}>
-        <${ui.Icon} name="arrow-right" size=${14} /><span class="flow-item-text">${labelOf(e.from)} → ${labelOf(e.to)}</span>${e.label ? html`<${ui.Chip} tone="outline">${e.label}</${ui.Chip}>` : null}</button></div>`)}</div>` : html`<p class="small faint">Aún no hay conectores.</p>`}
+        <${ui.Icon} name="arrow-right" size=${14} /><span class="flow-item-text">${labelOf(e.from)} → ${labelOf(e.to)}</span>${e.label ? html`<${ui.Chip} tone="outline">${e.label}</${ui.Chip}>` : null}</button></div>`)}</div>` : html`<p class="small faint">Aún no hay flechas.</p>`}
     </div>`;
   }
 
@@ -1557,11 +1637,11 @@
           </div>` : html`<p class="small" style="white-space:pre-wrap">${n.text || html`<span class="faint">(sin texto)</span>`}</p>${geom && lane >= 0 ? html`<div class="xsmall faint">Carril: ${geom.bands[lane].name}</div>` : null}`}
         <div class="stack-sm">
           <div class="h4">Conexiones</div>
-          ${!ins.length && !outs.length ? html`<p class="xsmall faint">Sin conectores.</p>` : null}
+          ${!ins.length && !outs.length ? html`<p class="xsmall faint">Sin conexiones.</p>` : null}
           ${[...ins.map((e) => ({ e, dir: 'in' })), ...outs.map((e) => ({ e, dir: 'out' }))].map(({ e, dir }) => html`<div class="flow-conn" key=${e.id}>
             <${ui.Icon} name=${dir === 'in' ? 'arrow-left' : 'arrow-right'} size=${14} />
             <span title=${dir === 'in' ? 'Llega desde' : 'Sale hacia'}>${dir === 'in' ? 'Desde ' : 'Hacia '}${labelOf(dir === 'in' ? e.from : e.to)}${e.label ? ' (' + e.label + ')' : ''}</span>
-            <${ui.IconButton} size="sm" icon="chevron-right" label="Seleccionar este conector" onClick=${() => pickEdge(e.id)} />
+            <${ui.IconButton} size="sm" icon="chevron-right" label="Seleccionar esta flecha" onClick=${() => pickEdge(e.id)} />
           </div>`)}
         </div>
       </div>`;
@@ -1581,11 +1661,11 @@
     } else if (selEdge) {
       const e = edges.find((x) => x.id === selEdge);
       const setEnds = (edge, from, to) => {
-        if (edges.some((x) => x.id !== edge.id && x.from === from && x.to === to)) { PM.toast('Ya existe un conector de «' + labelOf(from) + '» a «' + labelOf(to) + '». Elige otro elemento.'); return; }
+        if (edges.some((x) => x.id !== edge.id && x.from === from && x.to === to)) { PM.toast('Ya existe una flecha de «' + labelOf(from) + '» a «' + labelOf(to) + '». Elige otro elemento.'); return; }
         H.updateEdge(edge.id, { from, to });
       };
-      selection = html`<div class="flow-sec flow-sel" id=${formId + '-sel'} tabindex="-1" aria-label="Conector seleccionado">
-        <div class="row-between"><span class="label-caps">Conector</span>${e.label ? html`<${ui.Chip} tone="accent">${e.label}</${ui.Chip}>` : null}</div>
+      selection = html`<div class="flow-sec flow-sel" id=${formId + '-sel'} tabindex="-1" aria-label="Flecha seleccionada">
+        <div class="row-between"><span class="label-caps">Flecha</span>${e.label ? html`<${ui.Chip} tone="accent">${e.label}</${ui.Chip}>` : null}</div>
         ${canWrite ? html`
           <${ui.Field} label="Desde" for=${formId + '-efrom'}><${ui.Select} id=${formId + '-efrom'} value=${e.from} options=${nodeOpts.filter((o) => o.value !== e.to)} onValue=${(v) => { if (v && v !== e.to) setEnds(e, v, e.to); }} /></${ui.Field}>
           <${ui.Field} label="Hacia" for=${formId + '-eto'}><${ui.Select} id=${formId + '-eto'} value=${e.to} options=${nodeOpts.filter((o) => o.value !== e.from)} onValue=${(v) => { if (v && v !== e.from) setEnds(e, e.from, v); }} /></${ui.Field}>
@@ -1598,12 +1678,12 @@
             <${ui.Button} size="sm" variant="ghost" disabled=${!e.label} onClick=${() => H.updateEdge(e.id, { label: '' })}>Quitar etiqueta</${ui.Button}>
           </div>
           <div class="row">
-            <${ui.Button} size="sm" icon="refresh" onClick=${() => { if (flow.edges.some((x) => x.from === e.to && x.to === e.from)) { PM.toast('Ya existe un conector en el sentido contrario.'); return; } H.updateEdge(e.id, { from: e.to, to: e.from }); }}>Invertir sentido</${ui.Button}>
-            <${ui.Button} size="sm" variant="danger" icon="trash" onClick=${() => { H.deleteSel(); H.focusCanvas(); }}>Eliminar conector</${ui.Button}>
+            <${ui.Button} size="sm" icon="refresh" onClick=${() => { if (flow.edges.some((x) => x.from === e.to && x.to === e.from)) { PM.toast('Ya existe una flecha en el sentido contrario.'); return; } H.updateEdge(e.id, { from: e.to, to: e.from }); }}>Invertir sentido</${ui.Button}>
+            <${ui.Button} size="sm" variant="danger" icon="trash" onClick=${() => { H.deleteSel(); H.focusCanvas(); }}>Eliminar flecha</${ui.Button}>
           </div>` : html`<p class="small">${labelOf(e.from)} → ${labelOf(e.to)}</p>`}
       </div>`;
     } else {
-      selection = html`<div class="flow-sec"><p class="small muted">${canWrite ? 'Selecciona un elemento o un conector en el lienzo o en la pestaña «Elementos» para editarlo. También puedes construir el diagrama con los formularios de abajo.' : 'Selecciona un elemento o un conector para ver sus datos.'}</p></div>`;
+      selection = html`<div class="flow-sec"><p class="small muted">${canWrite ? 'Selecciona un elemento o una flecha en el lienzo o en la pestaña «Elementos» para editarlo. También puedes construir el diagrama con los formularios de abajo.' : 'Selecciona un elemento o una flecha para ver sus datos.'}</p></div>`;
     }
     return html`${selection}${canWrite ? html`<${AddNodeForm} flow=${flow} selNodes=${selNodes} H=${H} nodeOpts=${nodeOpts} formId=${formId} /><${AddEdgeForm} flow=${flow} selNodes=${selNodes} H=${H} nodeOpts=${nodeOpts} formId=${formId} />` : null}`;
   }
@@ -1642,19 +1722,19 @@
     const ok = (id) => flow.nodes.some((n) => n.id === id);
     const f0 = ok(from) ? from : selNodes.length === 1 ? selNodes[0] : '';
     const t0 = ok(to) ? to : '';
-    if (flow.nodes.length < 2) return html`<div class="flow-sec"><div class="h4">Agregar conector</div><p class="xsmall faint">Agrega al menos dos elementos para conectarlos.</p></div>`;
+    if (flow.nodes.length < 2) return html`<div class="flow-sec"><div class="h4">Agregar flecha</div><p class="xsmall faint">Agrega al menos dos elementos para conectarlos.</p></div>`;
     const submit = (e) => {
       e.preventDefault();
       if (!f0 || !t0) { setError('Elige el elemento de origen y el de destino.'); return; }
       if (f0 === t0) { setError('El origen y el destino deben ser elementos distintos.'); return; }
       if (H.addEdge(f0, t0, label.trim())) { setError(''); setTo(''); setLabel(''); }
     };
-    return html`<form class="flow-sec" onSubmit=${submit} aria-label="Agregar conector">
-      <div class="h4">Agregar conector</div>
+    return html`<form class="flow-sec" onSubmit=${submit} aria-label="Agregar flecha">
+      <div class="h4">Agregar flecha</div>
       <${ui.Field} label="Desde" for=${formId + '-cfrom'}><${ui.Select} id=${formId + '-cfrom'} value=${f0} placeholder="Elige el origen" options=${nodeOpts} onValue=${(v) => { setFrom(v); setError(''); }} /></${ui.Field}>
       <${ui.Field} label="Hacia" for=${formId + '-cto'}><${ui.Select} id=${formId + '-cto'} value=${t0} placeholder="Elige el destino" options=${nodeOpts.filter((o) => o.value !== f0)} onValue=${(v) => { setTo(v); setError(''); }} /></${ui.Field}>
       <${ui.Field} label="Etiqueta (opcional)" for=${formId + '-clabel'} error=${error}><${ui.Input} id=${formId + '-clabel'} value=${label} onValue=${setLabel} placeholder="Sí, No…" /></${ui.Field}>
-      <div><${ui.Button} type="submit" size="sm" icon="link">Agregar conector</${ui.Button}></div>
+      <div><${ui.Button} type="submit" size="sm" icon="link">Agregar flecha</${ui.Button}></div>
     </form>`;
   }
 
@@ -1807,7 +1887,7 @@
           <div class="flow-tpls">${TEMPLATES.filter((t) => t.id !== 'blank').map((t) => html`<div class="flow-tpl-card" key=${t.id}>
             <div class="row" style="gap:8px;flex-wrap:nowrap"><${ui.Icon} name="flow" size=${18} /><strong class="small">${t.name}</strong></div>
             <p>${t.summary}</p>
-            <div class="xsmall faint">${t.nodes.length} elementos · ${t.edges.length} conectores${t.lanes.length ? ' · ' + t.lanes.length + ' carriles' : ''}</div>
+            <div class="xsmall faint">${t.nodes.length} elementos · ${t.edges.length} flechas${t.lanes.length ? ' · ' + t.lanes.length + ' carriles' : ''}</div>
             <div><${ui.Button} size="sm" icon="plus" onClick=${() => openNew(t.id)}>Usar plantilla</${ui.Button}></div>
           </div>`)}</div>
         </section>` : null}

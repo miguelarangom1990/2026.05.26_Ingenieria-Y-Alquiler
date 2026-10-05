@@ -28,7 +28,13 @@ export async function openApp({ width = 1360, height = 900, dark = false, file =
   await page.goto(pathToFileURL(resolve(root, file)).href);
   if (clearStorage) { await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} }); await page.reload(); }
   await page.waitForFunction(() => window.PM && window.PM.getState && window.PM.getState().mode !== 'loading', null, { timeout: 15000 });
+  /* la pantalla también debe salir de «Conectando…» (no solo el estado interno) */
+  await waitScreenReady(page);
   return { browser, context, page, errors };
+}
+
+export async function waitScreenReady(page, timeout = 15000) {
+  await page.waitForFunction(() => { const h = document.querySelector('.view-host'); const f = document.querySelector('.rail-foot'); return !!h && !!f && !/Conectando/.test(h.textContent) && !/Conectando/.test(f.textContent); }, null, { timeout });
 }
 
 export async function createProject(page, meta = {}) {

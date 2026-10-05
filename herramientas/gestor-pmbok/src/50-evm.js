@@ -130,6 +130,10 @@
 .evm-hint > .icon { color: var(--fg-3); }
 .evm-cell-btn { display: flex; align-items: center; text-align: left; cursor: pointer; padding-right: 18px; max-width: 220px; }
 .evm-cell-btn, .evm-cell-btn:hover { background-image: linear-gradient(45deg, transparent 50%, var(--fg-3) 50%), linear-gradient(135deg, var(--fg-3) 50%, transparent 50%); background-position: calc(100% - 10px) 52%, calc(100% - 6px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
+.evm-capacity { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--warn-wash); color: var(--fg); font-size: var(--fs-sm); line-height: 1.5; }
+.evm-capacity > .icon { margin-top: 2px; color: var(--warn); }
+.evm-capacity[data-tone="crit"] { background: var(--crit-wash); }
+.evm-capacity[data-tone="crit"] > .icon { color: var(--crit); }
 `;
   if (!document.getElementById('css-evm')) {
     const st = document.createElement('style');
@@ -172,6 +176,94 @@
   const fileBase = (project) => PM.slug((project && (project.code || project.name)) || 'proyecto') || 'proyecto';
   const wdDiff = (cal, a, b) => (b > a ? cal.countWork(D.add(a, 1), b) : b < a ? -cal.countWork(D.add(b, 1), a) : 0);
   const toneColor = (t) => (t === 'good' ? 'var(--good)' : t === 'warn' ? 'var(--warn)' : t === 'crit' ? 'var(--crit)' : '');
+
+  /* ---------------------------------------------------------------- tamaño del registro de costos
+     tools/costs es un solo documento (máximo 256 KiB) con los costos reales, los cortes de avance y las reservas.
+     Antes, cada corte guardaba el % de TODAS las actividades (con 300 actividades, unos 5 KiB por corte): unos 30 cortes
+     semanales y 500 costos reales llenaban el documento y desde ahí ninguna escritura se guardaba.
+     Ahora cada corte guarda solo las actividades cuyo % cambió respecto al corte anterior. PM.calc.evm ya acumula los cortes
+     en orden de fecha ({...anteriores, ...corte}; una actividad sin valor cuenta 0 %), así que el valor ganado de cada corte
+     no cambia. Toda escritura de costos de esta vista compacta los cortes (también los antiguos, guardados completos) y se
+     revisa contra el límite antes de enviarse: si no cabe, no se aplica y se avisa (en vez de mostrar datos sin guardar). */
+  const DOC_MAX = 255 * 1024;   /* margen de 1 KiB bajo el límite de la plataforma */
+  const DOC_WARN = 200 * 1024;
+  const isPlainObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+  const pctVal = (v) => PM.clamp(num(v), 0, 100);
+  const utf8 = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+  const docBytes = (v) => { const s = JSON.stringify(v) || ''; return utf8 ? utf8.encode(s).length : s.length * 2; };
+  const kib = (bytes) => fmt.num(Math.ceil(bytes / 1024), 0) + ' KiB';
+  /* Estado completo de cada corte con fecha válida, en orden de fecha (igual que lo acumula PM.calc.evm). */
+  function cutStates(list) {
+    const valid = [];
+    (Array.isArray(list) ? list : []).forEach((u, i) => { if (isPlainObj(u) && D.valid(u.date)) valid.push({ u, i }); });
+    valid.sort((a, b) => cmpDate(a.u.date, b.u.date) || a.i - b.i);
+    let carry = {};
+    return valid.map(({ u }) => {
+      carry = { ...carry };
+      if (isPlainObj(u.progress)) for (const k of Object.keys(u.progress)) carry[k] = pctVal(u.progress[k]);
+      return { u, full: carry };
+    });
+  }
+  /* Cambios de un estado respecto al anterior (una actividad ausente vale 0 %). */
+  function cutDelta(prev, full) {
+    const d = {};
+    for (const k of Object.keys(full)) if (full[k] !== (k in prev ? prev[k] : 0)) d[k] = full[k];
+    for (const k of Object.keys(prev)) if (!(k in full) && prev[k] !== 0) d[k] = 0;
+    return d;
+  }
+  const sameMap = (a, b) => { if (!isPlainObj(a)) return false; const ka = Object.keys(a); return ka.length === Object.keys(b).length && ka.every((k) => k in b && a[k] === b[k]); };
+  /* Cortes sin fecha válida: PM.calc.evm los ignora; se conservan tal cual, al final de la lista. */
+  const undatedCuts = (list) => (Array.isArray(list) ? list.filter((u) => !(isPlainObj(u) && D.valid(u.date))) : []);
+  /* Lista de cortes guardable: por fecha, cada uno con solo sus cambios respecto al anterior. */
+  function encodeCuts(states, extra) {
+    let prev = {};
+    const out = states.map(({ u, full }) => { const progress = cutDelta(prev, full); prev = full; return sameMap(u.progress, progress) ? u : { ...u, progress }; });
+    return extra && extra.length ? out.concat(extra) : out;
+  }
+  const compactMemo = new WeakMap();
+  function compactCuts(list) {
+    if (!Array.isArray(list) || !list.length) return list;
+    let v = compactMemo.get(list);
+    if (!v) {
+      const out = encodeCuts(cutStates(list), undatedCuts(list));
+      v = out.length === list.length && out.every((u, i) => u === list[i]) ? list : out;
+      compactMemo.set(list, v);
+    }
+    return v;
+  }
+  const compactCosts = (c) => (c && Array.isArray(c.statusUpdates) && c.statusUpdates.length ? { ...c, statusUpdates: compactCuts(c.statusUpdates) } : c);
+  let fullToastAt = 0;
+  /* Guarda el registro de costos si cabe en el documento; devuelve false (y avisa) si no cabe. Una escritura que reduce un
+     documento que ya excede el límite (p. ej. en modo local) se permite, para poder volver a dejarlo bajo el límite.
+     edit: cambio de un campo (se confirma al pausar la escritura): el aviso no se repite en cada pausa. */
+  function saveCostsChecked(save, next, current, edit) {
+    const value = compactCosts(next);
+    const bytes = docBytes(value);
+    if (bytes > DOC_MAX && !(current && bytes < docBytes(current))) {
+      if (!edit || Date.now() - fullToastAt > 4000) {
+        fullToastAt = Date.now();
+        PM.toast('No se guardó el cambio: el registro de costos del proyecto (costos reales, cortes de avance y reservas) llegaría a ' + kib(bytes) + ' y un registro admite como máximo 256 KiB. Exporta los costos reales a CSV y agrupa en un solo registro los costos de los meses cerrados, o elimina los que ya no necesites.', { tone: 'crit' });
+      }
+      return false;
+    }
+    save(value);
+    return true;
+  }
+  /* Aviso cuando el registro de costos se acerca al límite (tamaño que tendrá al guardar, con los cortes compactos). */
+  function CapacityNote({ costs }) {
+    const bytes = useMemo(() => docBytes(compactCosts(costs)), [costs]);
+    if (bytes < DOC_WARN) return null;
+    const full = bytes > DOC_MAX;
+    return html`<div class="evm-capacity" data-role="costs-capacity" data-tone=${full ? 'crit' : 'warn'} role="status">
+      <${ui.Icon} name="alert" />
+      <div class="stack-sm" style="gap:6px;min-width:0">
+        <div><strong>${full ? 'El registro de costos está lleno' : 'El registro de costos se acerca a su límite'}</strong>${': ocupa ' + kib(bytes) + ' de 256 KiB (costos reales, cortes de avance y reservas del proyecto). '
+          + (full ? 'Los cambios que lo aumenten no se guardarán. ' : 'Al llegar al límite no se podrán guardar más costos reales ni cortes de avance. ')
+          + 'Exporta los costos reales a CSV y agrupa en un solo registro los costos de los meses cerrados, o elimina los que ya no necesites.'}</div>
+        <div class="evm-meter" style="margin-top:0" aria-hidden="true"><span style=${'width:' + Math.min(100, (bytes / (256 * 1024)) * 100) + '%;background:' + (full ? 'var(--crit)' : 'var(--warn)')}></span></div>
+      </div>
+    </div>`;
+  }
 
   function niceStep(max, count) {
     if (!(max > 0)) return 1;
@@ -496,7 +588,7 @@
       PM.download('curva-s_' + fileBase(project) + '.csv', PM.toCSV(cols, rows.map((p) => ({ date: p.date, pv: r2(p.pv), ev: r2(p.ev), ac: r2(p.ac), sv: isNum(p.ev) ? r2(p.ev - p.pv) : '', cv: isNum(p.ev) && isNum(p.ac) ? r2(p.ev - p.ac) : '' }))));
     };
     return html`<section class="card" data-role="series-table" ref=${ref}>
-      <div class="card-head"><div class="stack-sm" style="gap:2px;min-width:0"><h3 class="h3">Datos de la curva S</h3><div class="xsmall faint">${rows.length} fechas: semanales, más los cortes de avance, la fecha de corte y el fin planificado. Valores acumulados.</div></div><div class="row"><${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Descargar CSV</${ui.Button}></div></div>
+      <div class="card-head"><div class="stack-sm" style="gap:2px;min-width:0"><h3 class="h3">Datos de la curva S</h3><div class="xsmall faint">${rows.length} fechas: semanales, más los cortes de avance, la fecha de corte y el fin planificado. Valores acumulados.</div></div><div class="row"><${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}></div></div>
       <div class="card-body"><div class="table-wrap" style="max-height:420px;overflow:auto"><table class="table table-tight evm-table">
         <thead><tr><th>Fecha</th><th class="num">PV</th><th class="num">EV</th><th class="num">AC</th><th class="num">SV</th><th class="num">CV</th></tr></thead>
         <tbody>${rows.map((p) => html`<tr key=${p.date} class=${p.date > evm.statusDate ? 'evm-row-after' : ''}>
@@ -663,7 +755,7 @@
         <${Metric} id="tcpiEac" abbr="TCPI" label="Índice de desempeño del trabajo por completar (EAC)" display=${done ? '—' : isNum(evm.tcpiEac) ? fmt.idx(evm.tcpiEac) : '—'} empty=${done || !isNum(evm.tcpiEac)} tone=${done ? null : tTone(evm.tcpiEac)} formula="TCPI = (BAC − EV) / (EAC − AC)" note=${done ? 'El trabajo está completo: no queda trabajo por ejecutar.' : isNum(evm.tcpiEac) ? tNote(evm.tcpiEac, 'EAC') : rAc} />
       </${Group}>
       <${Group} id="cronograma-ganado" title="Cronograma ganado" subtitle="Medido en días hábiles del calendario del proyecto">
-        <${Metric} id="es" abbr="ES" label="Cronograma ganado" display=${isNum(es.esWd) ? fmt.num(es.esWd, 1) : '—'} full=${isNum(es.esWd) ? 'días hábiles' : null} empty=${!isNum(es.esWd)} formula="ES = momento en que el PV planificado igualaba el EV actual" note=${!isNum(es.esWd) ? 'Requiere fechas y presupuesto en el plan.' : es.actual ? 'Trabajo completo: ES = PD.' : null} />
+        <${Metric} id="es" abbr="ES" label="Cronograma ganado" display=${isNum(es.esWd) ? fmt.num(es.esWd, 1) : '—'} full=${isNum(es.esWd) ? 'días hábiles' : null} empty=${!isNum(es.esWd)} formula="ES = momento en que el PV igualaba el EV actual" note=${!isNum(es.esWd) ? 'Requiere fechas y presupuesto en el plan.' : es.actual ? 'Trabajo completo: ES = PD.' : null} />
         <${Metric} id="at" abbr="AT" label="Tiempo real transcurrido" display=${isNum(es.atWd) ? fmt.num(es.atWd, 0) : '—'} full=${isNum(es.atWd) ? 'días hábiles' : null} empty=${!isNum(es.atWd)} formula=${es.actual ? 'AT = días hábiles del inicio planificado a la terminación' : 'AT = días hábiles del inicio planificado al corte'} note=${es.actual ? 'Con el trabajo completo, el tiempo se mide hasta la terminación del ' + fmt.date(ff) + ', no hasta la fecha de corte.' : null} />
         <${Metric} id="spiT" abbr="SPI(t)" label="Índice del cronograma (tiempo)" display=${isNum(es.spiT) ? fmt.idx(es.spiT) : '—'} empty=${!isNum(es.spiT)} tone=${idxTone(es.spiT)} formula="SPI(t) = ES / AT" note=${es.actual ? 'Duración planificada frente a la duración real del trabajo.' : isNum(es.spiT) ? 'A diferencia del SPI, no tiende a 1,00 al final del proyecto.' : 'El corte es anterior al inicio planificado (AT = 0).'}>
           <${IndexGauge} value=${es.spiT} label="SPI(t)" />
@@ -771,13 +863,14 @@
       setFocusId(null);
     }, [focusId, shown]);
 
-    /* latest se actualiza al escribir (no solo al dibujar): dos escrituras en el mismo evento no se pisan */
-    const write = (next) => { const v = { ...latest.current, actuals: next }; latest.current = v; return saveCosts(v); };
-    const update = (id, patch) => write((latest.current.actuals || []).map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    /* latest se actualiza al escribir (no solo al dibujar): dos escrituras en el mismo evento no se pisan.
+       Si el registro de costos no cabe en el documento, no se aplica nada (devuelve false). */
+    const write = (next, edit) => saveCostsChecked((v) => { latest.current = v; saveCosts(v); }, { ...latest.current, actuals: next }, latest.current, edit);
+    const update = (id, patch) => write((latest.current.actuals || []).map((a) => (a.id === id ? { ...a, ...patch } : a)), true);
     const add = () => {
       const id = PM.uid('ac');
       const lastCat = sorted.length ? sorted[sorted.length - 1].category || '' : '';
-      write([...(latest.current.actuals || []), { id, date: statusDate, taskId: null, wbsId: null, category: lastCat, description: '', document: '', amount: null }]);
+      if (!write([...(latest.current.actuals || []), { id, date: statusDate, taskId: null, wbsId: null, category: lastCat, description: '', document: '', amount: null }])) return;
       setFMonth(''); setFCat(''); setQ('');
       /* la fila nueva (con la fecha de corte) debe quedar dentro de la ventana visible, que muestra los registros más recientes */
       const later = sorted.filter((x) => !D.valid(x.date) || x.date > statusDate).length;
@@ -790,8 +883,7 @@
         const ok = await PM.confirm({ title: 'Eliminar costo real', body: 'Se eliminará el registro' + (String(a.description || '').trim() ? ' «' + String(a.description).trim() + '»' : '') + ' por ' + money(num(a.amount), currency) + (D.valid(a.date) ? ' del ' + fmt.date(a.date, 'long') : '') + '. El costo real (AC) se recalculará.', confirmText: 'Eliminar registro', tone: 'danger' });
         if (!ok) return;
       }
-      write((latest.current.actuals || []).filter((x) => x.id !== a.id));
-      PM.toast('Registro de costo eliminado.');
+      if (write((latest.current.actuals || []).filter((x) => x.id !== a.id))) PM.toast('Registro de costo eliminado.');
     };
     const freeze = () => setFrozen(ordered.map((a) => a.id));
     const unfreeze = () => setFrozen(null);
@@ -839,6 +931,7 @@
     const cols = canWrite ? 7 : 6;
 
     return html`<div class="evm-tabpanel" data-role="actuals">
+      ${canWrite ? html`<${CapacityNote} costs=${costs} />` : null}
       <section class="card"><div class="evm-tiles is-flat">
         <${Metric} id="ac-total" label="Total registrado" display=${short(totalAll, currency)} full=${money(totalAll, currency)} note=${actuals.length + (actuals.length === 1 ? ' registro' : ' registros') + (undated.length ? ', ' + undated.length + ' sin fecha' : '')} />
         <${Metric} id="ac-cut" label=${'Costo real (AC) al ' + fmt.date(statusDate)} display=${short(evm.ac, currency)} full=${money(evm.ac, currency)} note=${after.length ? after.length + (after.length === 1 ? ' registro posterior al corte no cuenta.' : ' registros posteriores al corte no cuentan.') : 'Incluye todos los registros con fecha.'} />
@@ -847,7 +940,7 @@
       </div></section>
 
       <${SectionCard} title="Registro de costos reales" subtitle="Facturas, nómina, órdenes de compra y demás soportes del costo incurrido. Ordenado por fecha." pad=${false} actions=${html`
-        <${ui.Button} size="sm" icon="download" onClick=${exportCsv} disabled=${!actuals.length}>Descargar CSV</${ui.Button}>
+        <${ui.Button} size="sm" icon="download" onClick=${exportCsv} disabled=${!actuals.length}>Exportar CSV</${ui.Button}>
         ${canWrite ? html`<${ui.Button} size="sm" variant="primary" icon="plus" onClick=${add}>Agregar costo real</${ui.Button}>` : null}`}>
         <div class="card-body stack">
           ${actuals.length ? html`<div class="evm-filters">
@@ -900,7 +993,7 @@
   function ProgressTab({ model, canWrite }) {
     const { costs, saveCosts, schedule, saveSchedule, sched, evm, statusDate, currency, tree } = model;
     const latest = useLatest({ costs, schedule });
-    const writeCosts = (v) => { latest.current = { ...latest.current, costs: v }; return saveCosts(v); };
+    const writeCosts = (v) => saveCostsChecked((x) => { latest.current = { ...latest.current, costs: x }; saveCosts(x); }, v, latest.current.costs);
     const updates = costs.statusUpdates || EMPTY_ARR;
     const plan = usePlan(model);
     const [date, setDate] = useState(statusDate);
@@ -910,14 +1003,14 @@
     const [q, setQ] = useState('');
     useEffect(() => { if (!touched) setDate(statusDate); }, [statusDate, touched]);
     const planById = useMemo(() => new Map(plan.map((p) => [p.id, p])), [plan]);
+    /* estado completo de cada corte (los cortes guardan solo los cambios respecto al anterior) */
     const cuts = useMemo(() => {
-      const list = updates.filter((u) => u && D.valid(u.date)).slice().sort((a, b) => cmpDate(a.date, b.date));
-      let carry = {};
-      return list.map((u) => {
-        carry = { ...carry, ...(u.progress || {}) };
-        let ev = 0; for (const p of plan) ev += p.cost * PM.clamp(num(carry[p.id]), 0, 100) / 100;
+      let prev = {};
+      return cutStates(updates).map(({ u, full }) => {
+        let ev = 0; for (const p of plan) ev += p.cost * PM.clamp(num(full[p.id]), 0, 100) / 100;
         const pv = evm.pvAt(u.date);
-        return { u, ev, pv, spi: pv > 0 ? ev / pv : null, pct: evm.bac ? ev / evm.bac : 0, count: Object.keys(u.progress || {}).length, after: u.date > statusDate };
+        const changed = Object.keys(cutDelta(prev, full)).length; prev = full;
+        return { u, ev, pv, spi: pv > 0 ? ev / pv : null, pct: evm.bac ? ev / evm.bac : 0, changed, after: u.date > statusDate };
       });
     }, [updates, plan, evm, statusDate]);
     const rows = useMemo(() => sched.tasks.map((t, i) => {
@@ -934,17 +1027,21 @@
       if (!D.valid(date)) { PM.toast('Indica la fecha del corte de avance (día, mes y año).', { tone: 'crit' }); return; }
       const cur = latest.current.costs;
       const list = cur.statusUpdates || [];
-      const existing = list.find((u) => u.date === date);
+      const existing = list.find((u) => u && u.date === date);
       if (existing) {
         const ok = await PM.confirm({ title: 'Reemplazar corte de avance', body: 'Ya hay un corte registrado el ' + fmt.date(date, 'long') + '. ¿Quieres reemplazarlo con el avance actual de las actividades?', confirmText: 'Reemplazar corte' });
         if (!ok) return;
       }
-      /* avance vigente al momento de registrar (incluye un % recién confirmado al salir del campo) */
-      const progress = {}; for (const t of latest.current.schedule.tasks || []) if (t && t.id) progress[t.id] = PM.clamp(num(t.progress), 0, 100);
-      const entry = { id: PM.uid('su'), date, progress, note: note.trim() };
+      /* avance vigente al momento de registrar (incluye un % recién confirmado al salir del campo). El corte se agrega como
+         estado completo (lo anterior más el avance actual) y la lista se vuelve a codificar: cada corte guarda solo sus
+         cambios y los cortes posteriores conservan exactamente lo que registraron. */
+      const progress = {}; for (const t of latest.current.schedule.tasks || []) if (t && t.id) progress[t.id] = pctVal(t.progress);
       const now = latest.current.costs;
-      const next = [...(now.statusUpdates || []).filter((u) => u.date !== date), entry].sort((a, b) => cmpDate(a.date, b.date));
-      writeCosts({ ...now, statusUpdates: next });
+      const states = cutStates(now.statusUpdates).filter((s) => s.u.date !== date);
+      const before = states.filter((s) => s.u.date < date).pop();
+      states.push({ u: { id: PM.uid('su'), date, progress, note: note.trim() }, full: { ...(before ? before.full : {}), ...progress } });
+      states.sort((a, b) => cmpDate(a.u.date, b.u.date));
+      if (!writeCosts({ ...now, statusUpdates: encodeCuts(states, undatedCuts(now.statusUpdates)) })) return;
       setNote('');
       PM.toast('Corte de avance registrado al ' + fmt.date(date, 'long') + '.');
     };
@@ -952,8 +1049,7 @@
       const ok = await PM.confirm({ title: 'Eliminar corte de avance', body: 'Se eliminará el corte del ' + fmt.date(u.date, 'long') + '. La curva del valor ganado se recalculará interpolando entre los cortes restantes.', confirmText: 'Eliminar corte', tone: 'danger' });
       if (!ok) return;
       const now = latest.current.costs;
-      writeCosts({ ...now, statusUpdates: (now.statusUpdates || []).filter((x) => x.id !== u.id) });
-      PM.toast('Corte de avance eliminado.');
+      if (writeCosts({ ...now, statusUpdates: encodeCuts(cutStates(now.statusUpdates).filter((s) => s.u.id !== u.id), undatedCuts(now.statusUpdates)) })) PM.toast('Corte de avance eliminado.');
     };
     const setProgress = (id, v) => {
       const s = latest.current.schedule;
@@ -965,24 +1061,25 @@
     const dateAfter = D.valid(date) && date > statusDate;
 
     return html`<div class="evm-tabpanel" data-role="progress">
+      ${canWrite ? html`<${CapacityNote} costs=${costs} />` : null}
       <${SectionCard} title="Cortes de avance" subtitle="Historial del % completado para la curva del valor ganado" attrs=${{ 'data-role': 'cuts' }}>
         <div class="stack">
-          <p class="evm-explain">Un corte congela el % completado de cada actividad en una fecha. Con los cortes se dibuja la curva histórica del valor ganado (EV): entre dos cortes el EV se interpola y en la fecha de corte de control se usa el avance actual. Actualiza el % de avance de las actividades en la tabla de abajo y luego registra el corte.</p>
+          <p class="evm-explain">Un corte congela el % completado de cada actividad en una fecha. Con los cortes se dibuja la curva histórica del valor ganado (EV): entre dos cortes el EV se interpola y en la fecha de corte se usa el avance actual. Actualiza el % de avance de las actividades en la tabla de abajo y luego registra el corte.</p>
           ${canWrite ? html`<form class="evm-form" onSubmit=${(e) => { e.preventDefault(); register(); }}>
             <${ui.Field} label="Fecha del corte" for="evm-cut-date"><${ui.DateInput} id="evm-cut-date" value=${date} onValue=${(v) => { setTouched(true); setDate(v || ''); }} /></${ui.Field}>
             <${ui.Field} label="Nota (opcional)" for="evm-cut-note"><${ui.Input} id="evm-cut-note" value=${note} onValue=${setNote} placeholder="Ej.: montaje niveles 6 a 10 limitado por la grúa del cliente" maxlength="300" /></${ui.Field}>
             <${ui.Button} type="submit" variant="primary" icon="flag" disabled=${!sched.tasks.length}>Registrar corte de avance</${ui.Button}>
           </form>
-          ${dateAfter ? html`<div class="evm-chip-row"><${ui.Chip} tone="warn" icon="alert">La fecha es posterior a la fecha de corte de control (${fmt.date(statusDate)}): el corte no se usará en la curva hasta que avances la fecha de corte.</${ui.Chip}></div>` : null}` : null}
+          ${dateAfter ? html`<div class="evm-chip-row"><${ui.Chip} tone="warn" icon="alert">La fecha es posterior a la fecha de corte (${fmt.date(statusDate)}): el corte no se usará en la curva hasta que avances la fecha de corte.</${ui.Chip}></div>` : null}` : null}
           ${cuts.length ? html`<div class="table-wrap"><table class="table evm-table" data-role="cuts-table">
-            <thead><tr><th>Fecha</th><th class="num">Avance físico</th><th class="num">PV a la fecha</th><th class="num">EV del corte</th><th class="num">SPI</th><th class="num">Actividades</th><th>Nota</th>${canWrite ? html`<th><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
+            <thead><tr><th>Fecha</th><th class="num">Avance físico</th><th class="num">PV a la fecha</th><th class="num">EV del corte</th><th class="num">SPI</th><th class="num" title="Actividades cuyo % de avance cambió respecto al corte anterior">Cambios</th><th>Nota</th>${canWrite ? html`<th><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
             <tbody>${cuts.map((c) => html`<tr key=${c.u.id} data-cut=${c.u.id} class=${c.after ? 'evm-row-after' : ''}>
               <td class="mono nowrap">${fmt.date(c.u.date)}${c.after ? html`<span class="evm-sub">Posterior al corte: no se usa</span>` : null}</td>
               <td class="num">${fmt.pct(c.pct, 1)}</td>
               <td class="num">${money(c.pv, currency)}</td>
               <td class="num" data-role="cut-ev">${money(c.ev, currency)}</td>
               <td class="num"><${IdxChip} value=${c.spi} /></td>
-              <td class="num">${c.count}</td>
+              <td class="num" data-role="cut-changes">${c.changed}</td>
               <td style="min-width:220px">${c.u.note || html`<span class="faint">—</span>`}</td>
               ${canWrite ? html`<td class="ctl"><${ui.IconButton} size="sm" icon="trash" label=${'Eliminar corte del ' + fmt.date(c.u.date)} onClick=${() => removeCut(c.u)} /></td>` : null}
             </tr>`)}</tbody>
@@ -1102,13 +1199,16 @@
     const maxDepth = useMemo(() => tree.flat.reduce((m, f) => Math.max(m, f.depth), 0), [tree]);
     const lv = Math.min(level, Math.max(1, maxDepth));
     const accounts = useMemo(() => controlAccounts(tree, rollup, sched, lv), [tree, rollup, sched, lv]);
+    /* las actividades sin elemento de la EDT no forman una cuenta de control: se cuentan aparte */
+    const nAccounts = accounts.filter((a) => !a.none).length;
+    const noAccount = accounts.find((a) => a.none);
     const res = costs.reserves || {};
     const cur = { bac: PM.sum(sched.tasks, (t) => t.cost), contingency: num(res.contingency), management: num(res.management) };
     cur.baseline = cur.bac + cur.contingency; cur.total = cur.baseline + cur.management;
     const blDoc = baselines.cost;
     const bl = blDoc && blDoc.cost ? (() => { const b = { label: blLabel(blDoc), bac: isNum(blDoc.cost.bac) ? blDoc.cost.bac : PM.sum(blDoc.cost.tasks || [], (t) => t.cost), contingency: num(blDoc.cost.contingency), management: num(blDoc.cost.management) }; b.baseline = b.bac + b.contingency; b.total = b.baseline + b.management; return b; })() : null;
     const approved = num(project.budget, 0) > 0 ? num(project.budget) : null;
-    const setReserve = (key, v) => { const c = latest.current; const next = { ...c, reserves: { ...(c.reserves || {}), [key]: Math.max(0, num(v)) } }; latest.current = next; saveCosts(next); };
+    const setReserve = (key, v) => { const c = latest.current; saveCostsChecked((x) => { latest.current = x; saveCosts(x); }, { ...c, reserves: { ...(c.reserves || {}), [key]: Math.max(0, num(v)) } }, c, true); };
     const totalCost = cur.bac;
     const funding = useMemo(() => {
       const ps = evm.planStart, pf = evm.planFinish;
@@ -1146,13 +1246,13 @@
     const levelOpts = [1, 2, 3].filter((n) => n === 1 || n <= maxDepth).map((n) => ({ value: n, label: 'Nivel ' + n }));
 
     return html`<div class="evm-tabpanel" data-role="budget">
-      <${SectionCard} title="Agregación de costos" subtitle="Componentes del presupuesto del proyecto (Guía del PMBOK®, figura 7-8)" pad=${false} attrs=${{ 'data-role': 'ledger' }}>
+      <${SectionCard} title="Agregación de costos" subtitle="Componentes del presupuesto del proyecto (Guía del PMBOK®, gráfico 7-8)" pad=${false} attrs=${{ 'data-role': 'ledger' }}>
         <div class="card-body stack">
           <div class="table-wrap"><table class="table evm-ledger">
             <thead><tr><th class="evm-op"><span class="sr-only">Operación</span></th><th>Componente</th><th class="num">Plan vigente</th>${bl ? html`<th class="num">Línea base ${bl.label}</th>` : null}<th class="num evm-pct">% del total</th></tr></thead>
             <tbody>
               ${lrow('activities', '', 'Estimaciones de costos de las actividades', sched.tasks.length + (sched.tasks.length === 1 ? ' actividad del cronograma' : ' actividades del cronograma'), money(cur.bac, currency), bl ? bl.bac : null)}
-              ${lrow('accounts', '→', 'Cuentas de control', accounts.length + (accounts.length === 1 ? ' cuenta' : ' cuentas') + ' (EDT nivel ' + lv + '): presupuesto de las actividades, BAC', money(cur.bac, currency), bl ? bl.bac : null)}
+              ${lrow('accounts', '→', 'Cuentas de control', nAccounts + (nAccounts === 1 ? ' cuenta' : ' cuentas') + ' (EDT nivel ' + lv + '): presupuesto de las actividades, BAC' + (noAccount ? ' · ' + noAccount.count + (noAccount.count === 1 ? ' actividad sin cuenta de control' : ' actividades sin cuenta de control') + (zeroish(noAccount.cost, currency) ? '' : ' (' + money(noAccount.cost, currency) + ')') : ''), money(cur.bac, currency), bl ? bl.bac : null)}
               ${lrow('contingency', '+', 'Reserva para contingencias', 'Para riesgos identificados (incógnitas conocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.contingency / cur.bac, 1) + ' del BAC' : ''), reserveInput('contingency', 'Reserva para contingencias'), bl ? bl.contingency : null)}
               ${lrow('baseline', '=', 'Línea base de costos', 'BAC + reserva para contingencias', money(cur.baseline, currency), bl ? bl.baseline : null, true)}
               ${lrow('management', '+', 'Reserva de gestión', 'Para trabajo no previsto dentro del alcance (incógnitas desconocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.management / cur.bac, 1) + ' del BAC' : ''), reserveInput('management', 'Reserva de gestión'), bl ? bl.management : null)}
@@ -1175,7 +1275,7 @@
 
       <${SectionCard} title="Cuentas de control" subtitle="Presupuesto vigente de las actividades consolidado por elemento de la EDT" pad=${false} attrs=${{ 'data-role': 'accounts' }} actions=${html`
         ${levelOpts.length > 1 ? html`<${ui.Segmented} label="Nivel de la EDT" value=${lv} onChange=${(v) => { setLevel(Number(v)); PM.prefs.set('evm.level', Number(v)); }} options=${levelOpts} />` : null}
-        <${ui.Button} size="sm" icon="download" onClick=${exportAccounts}>Descargar CSV</${ui.Button}>`}>
+        <${ui.Button} size="sm" icon="download" onClick=${exportAccounts}>Exportar CSV</${ui.Button}>`}>
         <div class="card-body stack">
           ${!tree.nodes.length ? html`<div class="evm-chip-row"><${ui.Chip} tone="outline" icon="info">La EDT está vacía: las actividades no se pueden agrupar en cuentas de control.</${ui.Chip}><${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => go('edt')}>Ir a la EDT</${ui.Button}></div>` : null}
           <div class="table-wrap"><table class="table evm-table">
@@ -1192,7 +1292,7 @@
         </div>
       </${SectionCard}>
 
-      <${SectionCard} title="Requisitos de financiamiento" subtitle=${'Valor planificado por mes ' + (evm.fromBaseline ? 'según la línea base ' + blLabel(blDoc) : 'según el cronograma actual')} pad=${false} attrs=${{ 'data-role': 'funding' }} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportFunding} disabled=${!funding.length}>Descargar CSV</${ui.Button}>`}>
+      <${SectionCard} title="Requisitos de financiamiento" subtitle=${'Valor planificado por mes ' + (evm.fromBaseline ? 'según la línea base ' + blLabel(blDoc) : 'según el cronograma actual')} pad=${false} attrs=${{ 'data-role': 'funding' }} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportFunding} disabled=${!funding.length}>Exportar CSV</${ui.Button}>`}>
         <div class="card-body stack">
           <div class="evm-chip-row">
             <${ui.Chip} tone="outline">Línea base de costos: ${money(evm.costBaseline, currency)}</${ui.Chip}>
@@ -1282,7 +1382,7 @@
     const m = (v) => (full ? money(v, currency) : html`<span title=${money(v, currency)}>${short(v, currency)}</span>`);
     const compact = !full;
     return html`<div class="evm-tabpanel" data-role="activities">
-      <${SectionCard} title="Desempeño por actividad" subtitle=${'Al ' + fmt.date(statusDate, 'long') + ' · presupuesto ' + (evm.fromBaseline ? 'de la línea base ' + blLabel(baselines.cost) : 'del cronograma actual') + ' · AC con los costos reales asignados a cada actividad'} pad=${false} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Descargar CSV</${ui.Button}>`}>
+      <${SectionCard} title="Desempeño por actividad" subtitle=${'Al ' + fmt.date(statusDate, 'long') + ' · presupuesto ' + (evm.fromBaseline ? 'de la línea base ' + blLabel(baselines.cost) : 'del cronograma actual') + ' · AC con los costos reales asignados a cada actividad'} pad=${false} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}>`}>
         <div class="card-body stack">
           <div class="evm-filters"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar actividad o código EDT" aria-label="Buscar actividad" />
             <${ui.Segmented} label="Formato de los valores" value=${full ? 'full' : 'short'} onChange=${(v) => { setFull(v === 'full'); PM.prefs.set('evm.fullValues', v === 'full'); }} options=${[{ value: 'short', label: 'En millones' }, { value: 'full', label: 'Valores completos' }]} />${sort.key ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => setSort({ key: null, dir: 1 })}>Orden del cronograma</${ui.Button}>` : null}</div>

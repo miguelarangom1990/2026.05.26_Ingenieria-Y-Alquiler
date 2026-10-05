@@ -30,7 +30,12 @@ try {
   const pid = await createProject(page, { name: 'Andamio multidireccional Torre 2', code: 'PRY-2026-014', start: '2026-08-03', end: '2026-12-18' });
   await wait(page, 600);
   check('tablero: ruta sugerida destacada en proyecto vacío', await page.locator('[data-card="route"][data-prominent="true"]').count() === 1);
-  check('tablero: 9 pasos pendientes en proyecto vacío', await page.locator('.dashboard-step[data-state="pending"]').count() === 9);
+  check('tablero: 14 pasos pendientes en proyecto vacío (planificación + monitoreo y cierre)', await page.locator('.dashboard-step[data-state="pending"]').count() === 14);
+  const phaseCounts = await page.$$eval('[data-card="route"] [data-phase]', (els) => els.map((e) => e.getAttribute('data-phase') + ':' + e.querySelectorAll('.dashboard-step').length));
+  check('ruta sugerida: dos fases (8 de planificación, 6 de monitoreo, control y cierre)', JSON.stringify(phaseCounts) === '["plan:8","control:6"]', phaseCounts);
+  const lastSteps = await page.$$eval('[data-phase="control"] .dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
+  check('ruta sugerida: la ruta termina en el cierre (informe final y acta de cierre)', JSON.stringify(lastSteps) === '["avance","informe","cambios","entregables","informe-final","acta-cierre"]', lastSteps);
+  check('tablero: sin sugerencia de estado en un proyecto sin línea base', await page.locator('[data-status-hint]').count() === 0);
   check('tablero: KPI avance sin datos muestra —', (await page.locator('[data-kpi="avance"] .stat-value').innerText()).trim() === '—');
   check('tablero: KPI enlaza a crear cronograma', await page.locator('[data-kpi="avance"] .dashboard-link', { hasText: 'Crear cronograma' }).count() === 1);
   check('tablero: curva S vacía explica qué falta', await page.locator('[data-card="scurve"] .dashboard-blank').count() === 1);
@@ -114,6 +119,7 @@ try {
       { id: 'R-006', descripcion: 'Restricción de circulación de carga en Bogotá', probabilidad: 2, impacto: 2, tipo: 'Amenaza', estado: 'Abierto' },
       { id: 'R-007', descripcion: 'Disponibilidad de grúa del cliente', probabilidad: 1, impacto: 3, tipo: 'Amenaza', estado: 'Abierto' },
       { id: 'R-008', descripcion: 'Reutilizar formaleta de otra obra', probabilidad: 3, impacto: 2, tipo: 'Oportunidad', estado: 'Abierto' },
+      { id: 'R-009', descripcion: 'Daño de equipo en obra por impacto de maquinaria', probabilidad: 5, impacto: 4, tipo: 'Amenaza', estado: 'Materializado' },
     ] }));
     await PM.store.set(P.doc(pid, 'registro-incidentes'), doc('registro-incidentes', 'Registro de incidentes', 'borrador', { incidentes: [
       { id: 'INC-001', fecha: '2026-09-20', descripcion: 'Piezas dañadas en el lote de transporte 3', prioridad: 'Media', responsable: 'Almacén', fechaObjetivo: '2026-10-10', estado: 'En curso' },
@@ -172,8 +178,9 @@ try {
   check('hitos: próximos pendientes en orden', JSON.stringify(msIds) === JSON.stringify(['m2', 'm3', 'm4']), msIds);
   check('hitos: subtítulo con cumplidos', (await page.locator('[data-card="milestones"] .dashboard-panel-head').innerText()).includes('1 de 4 hitos cumplidos'));
   const riskIds = await page.$$eval('[data-risk]', (els) => els.map((e) => e.getAttribute('data-risk')));
-  check('riesgos: top 5 por P×I sin cerrados', JSON.stringify(riskIds) === JSON.stringify(['R-001', 'R-004', 'R-002', 'R-003', 'R-008']), riskIds);
-  check('riesgos: enlace a los restantes', (await page.locator('[data-card="risks"]').innerText()).includes('Ver los 2 riesgos activos restantes'));
+  check('riesgos: top 5 por P×I sin cerrados ni materializados', JSON.stringify(riskIds) === JSON.stringify(['R-001', 'R-004', 'R-002', 'R-003', 'R-008']), riskIds);
+  check('riesgos: un riesgo «Materializado» no cuenta como abierto (mismo criterio que la matriz)', !riskIds.includes('R-009') && (await kpi('[data-card="risks"] [data-count]')) === '7' && (await page.locator('[data-card="risks"] .dashboard-panel-head').innerText()).includes('7 abiertos · 3 de nivel alto'), await page.locator('[data-card="risks"] .dashboard-panel-head').innerText());
+  check('riesgos: enlace a los restantes', (await page.locator('[data-card="risks"]').innerText()).includes('Ver los 2 riesgos abiertos restantes'));
   check('incidentes abiertos = 2', (await kpi('[data-card="incidents"] [data-count]')) === '2');
   const incIds = await page.$$eval('[data-incident]', (els) => els.map((e) => e.getAttribute('data-incident')));
   check('incidentes: prioridad alta primero', JSON.stringify(incIds) === JSON.stringify(['INC-002', 'INC-001']), incIds);
@@ -188,18 +195,34 @@ try {
   });
   const docInt = await page.locator('[data-docrow="integracion"]').getAttribute('aria-label');
   const ei = expDocs.integ;
-  check('documentación: conteo del área de integración', ei.ok === 1 && ei.wip === 1 && docInt.includes(ei.ok + ' aprobados, ' + ei.wip + ' en elaboración y ' + ei.none + ' sin iniciar, de ' + ei.total), [docInt, ei]);
+  check('documentación: conteo del área de integración (singular concordado)', ei.ok === 1 && ei.wip === 1 && docInt.includes('1 aprobado, ' + ei.wip + ' en elaboración y ' + ei.none + ' sin iniciar, de ' + ei.total + ' documentos') && !docInt.includes('1 aprobados'), [docInt, ei]);
+  const docPlan = await page.locator('[data-docrow="planificacion"]').getAttribute('aria-label');
+  check('documentación: plural con cero aprobados', /: 0 aprobados, /.test(docPlan), docPlan);
   check('documentación: conteo del grupo de planificación', (await page.locator('[data-docrow="planificacion"] .dashboard-docrow-count').innerText()).trim() === expDocs.plan.ok + '/' + expDocs.plan.total);
   check('ruta sugerida: plegada al haber datos', await page.locator('[data-card="route"][data-prominent="false"]').count() === 1 && await page.locator('.dashboard-step').count() === 0);
   await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
   const states = await page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
-  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', presupuesto: 'done', riesgos: 'done', lineabase: 'pending', avance: 'done' }), states);
+  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', presupuesto: 'done', riesgos: 'done', lineabase: 'pending', avance: 'done', informe: 'pending', cambios: 'partial', entregables: 'pending', 'informe-final': 'pending', 'acta-cierre': 'pending' }), states);
+  check('ruta sugerida: control de cambios con solicitudes pendientes de decisión', (await page.locator('.dashboard-step[data-step="cambios"] .chip').innerText()).trim() === '2 pendientes de decisión');
+  check('ruta sugerida: no se declara completa', !(await page.locator('[data-route-summary]').innerText()).includes('Completaste'));
   check('ruta sugerida: siguiente paso = acta', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === 'acta');
   check('cajetín: cliente', (await page.locator('.dashboard-tb').innerText()).includes('Constructora Modelo S.A.S. (ficticia)'));
   check('cajetín: fecha de corte', (await page.locator('.dashboard-tb input[type="date"]').inputValue()) === '2026-10-02');
   const finText = await page.locator('[data-kpi="fin"]').innerText();
   check('KPI fin: variación sin doble signo', /\d+ días hábiles de (adelanto|atraso)/.test(finText) && !/[−+]\d+ días hábiles de/.test(finText), finText);
   check('KPI: tonos semánticos de SPI y CPI', (await page.locator('[data-index="spi"] .stat-value').getAttribute('style')).includes('var(--crit)') && (await page.locator('[data-index="cpi"] .stat-value').getAttribute('style')).includes('var(--warn)'));
+  check('KPI: lectura del CPI < 0,98 = «Por encima del presupuesto» (como la vista de valor ganado)', (await kpi('[data-index="cpi"] .stat-sub')) === 'Por encima del presupuesto' && (await kpi('[data-index="spi"] .stat-sub')) === 'Atrasado');
+  const strokes = await page.$$eval('[data-card="scurve"] svg path[data-series]', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-series'), e.style.stroke])));
+  check('curva S: colores de la vista de valor ganado (PV --s1, EV --s3, AC --s2)', strokes.pv === 'var(--s1)' && strokes.ev === 'var(--s3)' && strokes.ac === 'var(--s2)', strokes);
+  const legendKeys = await page.$$eval('[data-card="scurve"] .legend .legend-line', (els) => els.map((e) => e.style.background));
+  check('curva S: la leyenda usa los mismos colores', JSON.stringify(legendKeys) === JSON.stringify(['var(--s1)', 'var(--s3)', 'var(--s2)']), legendKeys);
+  if (await page.evaluate(() => !!PM.getView('valor-ganado'))) {
+    await gotoView(page, 'valor-ganado');
+    await wait(page, 400);
+    const evmStrokes = await page.$$eval('svg path[data-series]', (els) => Object.fromEntries(els.filter((e) => ['pv', 'ev', 'ac'].includes(e.getAttribute('data-series'))).map((e) => [e.getAttribute('data-series'), e.style.stroke])));
+    check('curva S: mismos colores que la vista «Curva S y valor ganado»', ['pv', 'ev', 'ac'].every((k) => evmStrokes[k] && evmStrokes[k] === strokes[k]), { evmStrokes, strokes });
+    await gotoView(page, 'tablero');
+  }
   await shot('02-tablero');
   /* documentación: una fila de área abre la lista filtrada */
   await page.locator('[data-docrow="riesgos"]').click();
@@ -276,6 +299,8 @@ try {
   check('comparación: t4 inicio 0', (await kpi('tr[data-task="t4"] [data-var="start"]')) === '0');
   check('comparación: t5 desplazada +5', (await kpi('tr[data-task="t5"] [data-var="start"]')) === '+5');
   check('comparación: actividad nueva', (await page.locator('tr[data-task="t10"]').getAttribute('data-kind')) === 'new');
+  const schedHead = await page.locator('[data-compare="schedule"] thead').innerText();
+  check('comparación del cronograma: columnas «Inicio vigente» y «Fin vigente» (no «actual», que se confunde con «real»)', schedHead.includes('Inicio vigente') && schedHead.includes('Fin vigente') && !/actual/i.test(schedHead), schedHead);
   await page.locator('[data-compare="schedule"]').getByText('Solo actividades con variación o cambios').click();
   const varRows = await page.locator('[data-compare="schedule"] tbody tr').count();
   check('comparación: filtro solo con variación', varRows > 0 && varRows < 14 && await page.locator('tr[data-task="t1"]').count() === 0, varRows);
@@ -283,6 +308,9 @@ try {
   await page.locator('[data-card="baseline-detail"]').getByRole('tab', { name: 'Costos' }).click();
   check('comparación de costos: variación del BAC', (await kpi('[data-summary="bac-var"] .dashboard-summary-v')) === '+$ 28 M', await kpi('[data-summary="bac-var"] .dashboard-summary-v'));
   check('comparación de costos: t6 +10 M', (await page.locator('tr[data-task="t6"]').innerText()).includes('+$ 10 M'));
+  const costHead = await page.locator('[data-compare="cost"] thead').innerText();
+  const costSummary = await page.locator('[data-compare="cost"] .dashboard-summary').innerText();
+  check('comparación de costos: «Presupuesto vigente», nunca «Costo actual» (falso amigo del AC)', costHead.includes('Presupuesto vigente') && !/costo actual/i.test(costHead) && /BAC vigente \(suma de actividades\)/i.test(costSummary) && !/actual/i.test(costSummary), { costHead, costSummary });
   await page.locator('[data-card="baseline-detail"]').getByRole('tab', { name: 'Alcance' }).click();
   check('comparación de alcance: 1 agregado', (await kpi('[data-summary="added"] .dashboard-summary-v')) === '1' && await page.locator('[data-added="n44"]').count() === 1);
   check('comparación de alcance: renombrado', await page.locator('[data-renamed="n2"]').count() === 1);
@@ -321,6 +349,16 @@ try {
   check('historial: más reciente primero', JSON.stringify(rowsOrder) === '["LB1","LB0"]', rowsOrder);
   check('historial: LB1 vigente y enlaza CC-001', (await page.locator('tr[data-bl="LB1"]').innerText()).includes('CC-001'));
   check('vigentes: cronograma en LB1', (await page.locator('[data-active="schedule"]').innerText()).includes('LB1'));
+  /* «Comparar» desplaza hasta el detalle: suave, salvo que el sistema pida reducir el movimiento */
+  await page.evaluate(() => { window.__sv = []; const orig = Element.prototype.scrollIntoView; Element.prototype.scrollIntoView = function (o) { window.__sv.push(o && typeof o === 'object' ? o.behavior : String(o)); return orig.call(this, o); }; });
+  await page.locator('tr[data-bl="LB0"]').getByRole('button', { name: 'Comparar' }).click();
+  await wait(page, 120);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.locator('tr[data-bl="LB1"]').getByRole('button', { name: 'Comparar' }).click();
+  await wait(page, 120);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const sv = await page.evaluate(() => window.__sv);
+  check('Comparar: desplazamiento suave normal y sin animación con «reducir movimiento»', JSON.stringify(sv) === '["smooth","auto"]', sv);
   await shot('07-lineas-base');
 
   /* eliminar LB1 */
@@ -336,8 +374,41 @@ try {
   /* tablero refleja la línea base */
   await gotoView(page, 'tablero');
   check('tablero: chip LB0 en las tres partes', await page.locator('[data-card="baselines"] .chip', { hasText: 'LB0' }).count() === 3);
-  check('tablero: hito con variación vs LB0', (await page.locator('[data-milestone="m2"]').innerText()).includes('+5 d vs LB0') || (await page.locator('[data-milestone="m2"]').innerText()).includes('+8 d vs LB0'), await page.locator('[data-milestone="m2"]').innerText());
+  const m2Text = await page.locator('[data-milestone="m2"]').innerText();
+  check('tablero: hito con variación «frente a» LB0', (m2Text.includes('+5 d frente a LB0') || m2Text.includes('+8 d frente a LB0')) && !m2Text.includes(' vs '), m2Text);
   check('tablero: fin pronosticado contra LB0', (await page.locator('[data-kpi="fin"]').innerText()).includes('Fin LB0'));
+  /* sugerencia de estado: con línea base y estado «En planificación» */
+  check('estado: sin sugerencia si ya está «En ejecución»', await page.locator('[data-status-hint]').count() === 0);
+  await page.evaluate((pid) => PM.projectOps.update(pid, { status: 'En planificación' }), pid);
+  await wait(page, 300);
+  check('estado: con LB0 sugiere pasar a «En ejecución»', await page.locator('[data-status-hint="En ejecución"]').count() === 1 && (await page.locator('[data-status-hint]').innerText()).includes('La línea base LB0 ya está establecida'));
+  await page.locator('[data-status-hint]').getByRole('button', { name: 'Cambiar a «En ejecución»' }).click();
+  await wait(page, 400);
+  check('estado: el botón actualiza el estado del proyecto', (await page.evaluate((pid) => PM.store.get(PM.paths.project(pid)).then((p) => p.status), pid)) === 'En ejecución' && await page.locator('[data-status-hint]').count() === 0);
+  await page.evaluate((pid) => PM.projectOps.update(pid, { status: 'En planificación' }), pid);
+  await wait(page, 300);
+  await page.locator('[data-status-hint]').getByRole('button', { name: 'Ahora no' }).click();
+  await wait(page, 150);
+  check('estado: «Ahora no» oculta la sugerencia sin cambiar el estado', await page.locator('[data-status-hint]').count() === 0 && (await page.evaluate((pid) => PM.store.get(PM.paths.project(pid)).then((p) => p.status), pid)) === 'En planificación');
+  await page.evaluate((pid) => PM.projectOps.update(pid, { status: 'En ejecución' }), pid);
+  await wait(page, 200);
+  /* cierre: acta de cierre en elaboración y luego aprobada con trabajo, riesgos e incidentes abiertos */
+  await page.evaluate(async (pid) => {
+    PM.registerTemplates([{ id: 'acta-cierre', name: 'Acta de cierre y aceptación final', area: 'integracion', group: 'cierre', sections: [] }]);
+    await PM.store.set(PM.paths.doc(pid, 'acta-cierre'), { template: 'acta-cierre', title: 'Acta de cierre', status: 'borrador', rev: 'A', fields: {}, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+  }, pid);
+  await wait(page, 400);
+  if (await page.locator('.dashboard-step').count() === 0) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
+  const closeNote = await page.locator('[data-step-note="acta-cierre"]').innerText().catch(() => '');
+  check('cierre: el paso del acta advierte lo que falta antes de aprobarla', closeNote.startsWith('Antes de aprobarla:') && /actividades sin terminar/.test(closeNote) && closeNote.includes('7 riesgos abiertos') && closeNote.includes('2 incidentes abiertos'), closeNote);
+  check('cierre: con el acta en elaboración sugiere «En cierre»', await page.locator('[data-status-hint="En cierre"]').count() === 1);
+  await page.evaluate(async (pid) => { const d = PM.clone(await PM.store.get(PM.paths.doc(pid, 'acta-cierre'))); d.status = 'aprobado'; d.rev = '0'; await PM.store.set(PM.paths.doc(pid, 'acta-cierre'), d); }, pid);
+  await wait(page, 400);
+  const actaStep = await page.locator('.dashboard-step[data-step="acta-cierre"]');
+  check('cierre: un acta aprobada con pendientes no completa la ruta', (await actaStep.getAttribute('data-state')) === 'partial' && (await actaStep.locator('.chip').innerText()).trim() === 'Aprobada con pendientes' && (await page.locator('[data-step-note="acta-cierre"]').innerText()).startsWith('Se aprobó con pendientes:') && !(await page.locator('[data-route-summary]').innerText()).includes('Completaste'));
+  check('cierre: con el acta aprobada sugiere «Cerrado»', await page.locator('[data-status-hint="Cerrado"]').count() === 1);
+  await page.evaluate(async (pid) => { await PM.store.delete(PM.paths.doc(pid, 'acta-cierre')); }, pid);
+  await wait(page, 300);
 
   /* ------------------------------------------------------------ 5. ficha */
   await gotoView(page, 'ficha');
@@ -352,6 +423,10 @@ try {
   await page.locator('[data-card="status-date"] input[type="date"]').blur();
   check('ficha: calendario L-S', (await kpi('[data-cal="workweek"]')) === 'Lunes a sábado');
   check('ficha: modo de almacenamiento', await page.locator('[data-storage="local"]').count() === 1);
+  const backupTitle = (await page.locator('[data-card="backup"] .h3').innerText()).trim();
+  const backupBtns = await page.locator('[data-card="backup"] button').allInnerTexts();
+  const dangerBtns = await page.locator('[data-card="danger"] button').allInnerTexts();
+  check('ficha: respaldo y eliminación separados, sin «Zona de riesgo»', backupTitle === 'Respaldo y copia' && backupBtns.map((t) => t.trim()).join('|') === 'Exportar (.json)|Duplicar proyecto' && dangerBtns.map((t) => t.trim()).join('|') === 'Eliminar proyecto' && (await page.locator('[data-card="danger"] .h3').innerText()).trim() === 'Eliminar proyecto' && !(await page.locator('.page').innerText()).includes('Zona de riesgo'), { backupTitle, backupBtns, dangerBtns });
   await shot('08-ficha');
   await wait(page, 1600);
   await page.reload();
@@ -378,7 +453,7 @@ try {
   await page.evaluate(() => PM.setState({ canWrite: false }));
   await wait(page, 200);
   check('solo lectura ficha: sin formulario', await page.locator('#pf-name').count() === 0 && await page.locator('[data-readonly-meta]').count() === 1);
-  check('solo lectura ficha: sin duplicar ni eliminar', await page.getByRole('button', { name: 'Eliminar proyecto' }).count() === 0 && await page.getByRole('button', { name: 'Duplicar proyecto' }).count() === 0);
+  check('solo lectura ficha: sin duplicar ni eliminar', await page.getByRole('button', { name: 'Eliminar proyecto' }).count() === 0 && await page.getByRole('button', { name: 'Duplicar proyecto' }).count() === 0 && await page.locator('[data-card="danger"]').count() === 0 && (await page.locator('[data-card="backup"] .h3').innerText()).trim() === 'Exportar');
   check('solo lectura ficha: fecha de corte sin control', await page.locator('[data-card="status-date"] input').count() === 0);
   await shot('09-ficha-lectura');
   await gotoView(page, 'lineas-base');
@@ -463,6 +538,57 @@ try {
   check('ficha: sin foco automático en el formulario', (await page.evaluate(() => document.activeElement && document.activeElement.id)) !== 'pf-name');
   await page.locator('#pf-name').click();
   check('ficha: el nombre se puede enfocar al hacer clic', (await page.evaluate(() => document.activeElement && document.activeElement.id)) === 'pf-name');
+
+  /* ------------------------------------------------------------ 10. lectura de SPI y CPI cerca de 1 */
+  const pid3 = await createProject(page, { name: 'Proyecto índices', code: 'PRY-TEST-003', start: '2026-09-01', end: '2026-10-30' });
+  const setIdx = (progress, ac) => page.evaluate(async ({ pid, progress, ac }) => {
+    await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: [{ id: 't1', name: 'Actividad A', duration: 40, deps: [], progress, cost: 1000000 }] });
+    await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [{ id: 'a1', date: '2026-09-15', amount: ac, taskId: 't1' }], statusUpdates: [], reserves: { contingency: 0, management: 0 } });
+    await PM.projectOps.update(pid, { statusDate: '2026-09-30' });
+  }, { pid: pid3, progress, ac });
+  const idxRead = async () => ({ spi: await kpi('[data-index="spi"] .stat-value'), spiWord: await kpi('[data-index="spi"] .stat-sub'), cpi: await kpi('[data-index="cpi"] .stat-value'), cpiWord: await kpi('[data-index="cpi"] .stat-sub'), cpiStyle: await page.locator('[data-index="cpi"] .stat-value').getAttribute('style'), spiStyle: await page.locator('[data-index="spi"] .stat-value').getAttribute('style') });
+  await setIdx(51, 512000);
+  await gotoView(page, 'tablero');
+  await wait(page, 400);
+  let ir = await idxRead();
+  check('índices: CPI 0,996 se lee «Dentro del presupuesto» en verde (no «Sobre el presupuesto»)', ir.cpi === '1,00' && ir.cpiWord === 'Dentro del presupuesto' && ir.cpiStyle.includes('var(--good)'), ir);
+  check('índices: sin la expresión ambigua «Sobre el presupuesto»', !(await page.locator('[data-kpi="indices"]').innerText()).includes('Sobre el presupuesto'));
+  await setIdx(55, 552700);
+  await wait(page, 400);
+  ir = await idxRead();
+  const spiV = parseFloat(ir.spi.replace(',', '.'));
+  check('índices: SPI entre 0,98 y 1,02 se lee «Al día»', spiV >= 0.98 && spiV <= 1.02 && ir.spiWord === 'Al día' && ir.spiStyle.includes('var(--good)'), ir);
+  await setIdx(90, 500000);
+  await wait(page, 400);
+  ir = await idxRead();
+  check('índices: por encima de 1,02 se lee «Adelantado» y «Por debajo del presupuesto»', ir.spiWord === 'Adelantado' && ir.cpiWord === 'Por debajo del presupuesto', ir);
+
+  /* ------------------------------------------------------------ 11. proyecto de ejemplo (página completa) */
+  if (await page.evaluate(() => !!(PM.exampleBuilders && PM.exampleBuilders.length))) {
+    await page.evaluate(() => PM.createExampleProject());
+    await page.waitForFunction(() => PM.getState().view === 'tablero', null, { timeout: 30000 });
+    await wait(page, 1200);
+    const exp = await page.evaluate(async () => {
+      const pid = PM.getState().projectId;
+      const d = await PM.store.get(PM.paths.doc(pid, 'registro-riesgos'));
+      const rows = (d && d.fields && d.fields.riesgos) || [];
+      const open = rows.filter((r) => r && (String(r.descripcion || '').trim() || String(r.id || '').trim()) && !/^(cerrado|materializado)$/i.test(String(r.estado || '').trim()));
+      return { open: open.length, materialized: rows.filter((r) => /^materializado$/i.test(String(r.estado || '').trim())).map((r) => r.id) };
+    });
+    const exRisks = await page.$$eval('[data-risk]', (els) => els.map((e) => e.getAttribute('data-risk')));
+    check('ejemplo: riesgos abiertos con el criterio de la matriz (sin materializados)', (await kpi('[data-card="risks"] [data-count]')) === String(exp.open) && exp.materialized.every((id) => !exRisks.includes(id)), { exp, exRisks });
+    const summary = await page.locator('[data-route-summary]').innerText();
+    check('ejemplo: con la planificación completa la ruta sigue con monitoreo y cierre', summary.includes('planificación completa') && !summary.includes('Completaste') && /de 14 pasos/.test(summary), summary);
+    await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
+    check('ejemplo: siguiente paso en la fase de monitoreo y control', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === 'informe');
+    check('ejemplo: entregables aceptados contados del registro', /^\d+ de \d+ aceptados$/.test((await page.locator('.dashboard-step[data-step="entregables"] .chip').innerText()).trim()));
+    const exIdx = await idxRead();
+    check('ejemplo: CPI 0,97 se lee «Por encima del presupuesto»', exIdx.cpi === '0,97' && exIdx.cpiWord === 'Por encima del presupuesto', exIdx);
+    check('ejemplo: sin sugerencia de estado (en ejecución, sin cierre)', await page.locator('[data-status-hint]').count() === 0);
+    await shot('14-tablero-ejemplo-ruta');
+    const ovEx = await horizontalOverflow(page);
+    check('ejemplo: sin desborde horizontal', ovEx <= 1, ovEx);
+  }
 
   const cards = await errorCards(page);
   check('sin tarjetas de error', cards.length === 0, cards);

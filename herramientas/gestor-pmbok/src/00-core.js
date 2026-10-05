@@ -32,6 +32,42 @@
   PM.escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   PM.slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
   PM.nowIso = () => new Date().toISOString();
+  /* Copia compatible con JSON que reutiliza los subárboles ya congelados (datos de los hooks): conserva la
+     identidad de lo que no cambió, de modo que las filas sin cambios no se vuelven a dibujar. */
+  PM.cloneShared = function cloneShared(v) {
+    if (v === null || v === undefined) return v;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
+    if (Object.isFrozen(v)) return v;
+    if (typeof v.toJSON === 'function') return PM.clone(v);
+    if (Array.isArray(v)) return v.map((x) => { const y = cloneShared(x); return y === undefined ? null : y; });
+    const o = {};
+    for (const k of Object.keys(v)) { const y = cloneShared(v[k]); if (y !== undefined) o[k] = y; }
+    return o;
+  };
+  /* Reutiliza las partes de prev (inmutable) que son iguales en next (datos JSON): las filas que no cambiaron
+     conservan su identidad aunque quien guarda haya clonado todo el documento. Las filas con id se emparejan por id. */
+  PM.reconcile = function reconcile(prev, next) {
+    if (prev === next) return prev;
+    if (next === null || typeof next !== 'object' || prev === null || typeof prev !== 'object' || Array.isArray(prev) !== Array.isArray(next)) return next;
+    if (Array.isArray(next)) {
+      let byId = null;
+      let same = prev.length === next.length; const out = new Array(next.length);
+      for (let i = 0; i < next.length; i++) {
+        const n = next[i]; let p = prev[i];
+        if (n && typeof n === 'object' && n.id != null && !(p && p.id === n.id)) {
+          if (!byId) { byId = new Map(); for (const x of prev) if (x && typeof x === 'object' && x.id != null) byId.set(x.id, x); }
+          p = byId.get(n.id);
+        }
+        out[i] = reconcile(p, n); if (out[i] !== prev[i]) same = false;
+      }
+      return same ? prev : out;
+    }
+    const keys = Object.keys(next);
+    let same = keys.length === Object.keys(prev).length; const out = {};
+    for (const k of keys) { out[k] = reconcile(prev[k], next[k]); if (out[k] !== prev[k]) same = false; }
+    return same ? prev : out;
+  };
   PM.deepFreeze = function deepFreeze(o) { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const k of Object.keys(o)) deepFreeze(o[k]); } return o; };
   PM.moveItem = (arr, from, to) => { const a = [...arr]; if (to < 0 || to >= a.length) return a; const [x] = a.splice(from, 1); a.splice(to, 0, x); return a; };
 
@@ -42,11 +78,13 @@
   const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const DOW = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
   PM.CURRENCIES = { COP: { symbol: '$', decimals: 0 }, USD: { symbol: 'US$', decimals: 2 }, EUR: { symbol: '€', decimals: 2 } };
+  const minus = (t) => (t.charAt(0) !== '-' ? t : /^-[0.,]*$/.test(t) ? t.slice(1) : '\u2212' + t.slice(1));
   const isNum = (v) => v !== null && v !== undefined && v !== '' && typeof v !== 'boolean' && Number.isFinite(Number(v));
   PM.isNum = isNum;
   PM.fmt = {
-    num(n, d = 0) { if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '—'; return nf(0, d).format(Number(n)); },
-    fixed(n, d = 2) { if (!isNum(n)) return '—'; return nf(d, d).format(Number(n)); },
+    /* el signo menos es U+2212 (igual que money/moneyShort) */
+    num(n, d = 0) { if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '—'; return minus(nf(0, d).format(Number(n))); },
+    fixed(n, d = 2) { if (!isNum(n)) return '—'; return minus(nf(d, d).format(Number(n))); },
     money(n, cur = 'COP') {
       if (!isNum(n)) return '—';
       const c = PM.CURRENCIES[cur] || PM.CURRENCIES.COP; const v = Number(n);
@@ -56,7 +94,7 @@
     moneyShort(n, cur = 'COP') {
       if (!isNum(n)) return '—';
       const c = PM.CURRENCIES[cur] || PM.CURRENCIES.COP; const v = Number(n), a = Math.abs(v), s = v < 0 ? '−' : '';
-      if (a >= 1e6) return s + c.symbol + ' ' + nf(0, a >= 1e8 ? 0 : 1).format(a / 1e6) + ' M';
+      if (a >= 1e6) return s + c.symbol + ' ' + nf(0, a >= 1e9 ? 0 : 1).format(a / 1e6) + ' M';
       if (a >= 1e4 && cur === 'COP') return s + c.symbol + ' ' + nf(0, 0).format(a / 1e3) + ' mil';
       return s + c.symbol + ' ' + nf(0, c.decimals).format(a);
     },
@@ -123,10 +161,11 @@
   /* Calendario laboral: workweek 5 (L-V), 6 (L-S) o 7 (todos); festivos CO opcionales; extra = ['YYYY-MM-DD'] no laborables.
      Índices de días hábiles relativos al ancla (primer día hábil >= anchorIso). */
   PM.cal = {
-    make(settings = {}, anchorIso) {
+    make(settings, anchorIso) {
+      if (!settings || typeof settings !== 'object') settings = {};
       const ww = [5, 6, 7].includes(Number(settings.workweek)) ? Number(settings.workweek) : 5;
       const useCO = settings.holidaysCO !== false;
-      const extra = new Set((settings.extraHolidays || []).filter(D.valid));
+      const extra = new Set((Array.isArray(settings.extraHolidays) ? settings.extraHolidays : [settings.extraHolidays]).filter(D.valid));
       const hol = {};
       const isHoliday = (iso) => {
         if (extra.has(iso)) return true;
@@ -177,11 +216,18 @@
 
   /* ------------------------------------------------------------------ estado de la app (observable mínimo) */
   const appListeners = new Set();
-  let appState = { projectId: null, view: 'portafolio', params: {}, navOpen: false, mode: 'loading', canWrite: true, meId: null, isOwner: false, saving: 0, lastSaved: null, storageWarning: null };
+  let appState = { projectId: null, view: 'portafolio', params: {}, navOpen: false, mode: 'loading', canWrite: true, meId: null, isOwner: false, saving: 0, lastSaved: null, storageWarning: null, syncIssues: 0 };
   PM.getState = () => appState;
   PM.setState = (patch) => { appState = { ...appState, ...(typeof patch === 'function' ? patch(appState) : patch) }; appListeners.forEach((fn) => fn(appState)); };
   PM.subscribeState = (fn) => { appListeners.add(fn); return () => appListeners.delete(fn); };
-  PM.useAppState = () => { const [, force] = useReducer((x) => x + 1, 0); useEffect(() => PM.subscribeState(force), []); return appState; };
+  /* Se suscribe antes del pintado y vuelve a renderizar si el estado cambió entre el render y la suscripción
+     (p. ej. PM.boot() resuelve el modo en una microtarea antes de que existan oyentes). */
+  PM.useAppState = () => {
+    const [, force] = useReducer((x) => x + 1, 0);
+    const seen = useRef(appState); seen.current = appState;
+    useLayoutEffect(() => { const un = PM.subscribeState(force); if (seen.current !== appState) force(); return un; }, []);
+    return appState;
+  };
 
   const UI_KEY = 'pmbok-gestor.ui';
   PM.prefs = {
@@ -238,24 +284,64 @@
     subDoc(path, next, err) { return this.db.doc(path).onSnapshot((s) => next(s.exists ? s.data() : null), err); }
     subCol(path, next, err) { return this.db.collection(path).onSnapshot((q) => next(q.docs.map((d) => ({ id: d.id, data: d.data() }))), err); }
   }
+  /* Navegador: todo el mapa en una clave de localStorage. Varias pestañas pueden escribir a la vez, así que se
+     fusiona por documento: las rutas que esta pestaña cambió desde su último guardado (dirty) se aplican sobre
+     lo que otras pestañas hayan guardado, tanto al recibir el evento 'storage' como justo antes de escribir. */
   class LocalStore {
     constructor() {
       this.kind = 'local'; this.key = 'pmbok-gestor.data.v1'; this.map = {}; this.docL = new Map(); this.colL = new Map(); this.persistOk = true;
-      try { const raw = localStorage.getItem(this.key); this.map = raw ? JSON.parse(raw) : {}; } catch (e) { this.persistOk = false; this.map = {}; }
+      this.dirty = new Set(); this.lastRaw = null;
+      try { const raw = localStorage.getItem(this.key); this.lastRaw = raw; this.map = raw ? JSON.parse(raw) : {}; if (!this.map || typeof this.map !== 'object' || Array.isArray(this.map)) this.map = {}; } catch (e) { this.persistOk = false; this.map = {}; }
       this.persist = PM.debounce(() => this.persistNow(), 250);
-      try { window.addEventListener('storage', (ev) => { if (ev.key !== this.key) return; try { this.map = JSON.parse(ev.newValue || '{}'); } catch (e) { return; } this.docL.forEach((_, p) => this.notifyDoc(p)); this.colL.forEach((_, c) => this.notifyCol(c)); }); } catch (e) { /* ignore */ }
+      try {
+        window.addEventListener('storage', (ev) => {
+          if (ev.key !== this.key || ev.newValue === null) return;
+          let incoming; try { incoming = JSON.parse(ev.newValue); } catch (e) { return; }
+          if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return;
+          this.lastRaw = ev.newValue;
+          this.adopt(incoming);
+        });
+      } catch (e) { /* ignore */ }
       window.addEventListener('pagehide', () => this.persistNow());
     }
-    persistNow() { if (!this.persistOk) return; try { localStorage.setItem(this.key, JSON.stringify(this.map)); } catch (e) { PM.setState({ storageWarning: 'El navegador no permitió guardar (espacio lleno o almacenamiento bloqueado). Exporta tus proyectos para no perder cambios.' }); } }
+    /* Toma el mapa de otra pestaña, conserva los cambios propios aún no guardados y avisa solo las rutas que cambiaron. */
+    adopt(incoming) {
+      const next = { ...incoming };
+      for (const p of this.dirty) { if (this.map[p] === undefined) delete next[p]; else next[p] = this.map[p]; }
+      const changed = [];
+      for (const k of new Set([...Object.keys(this.map), ...Object.keys(next)])) {
+        if (this.dirty.has(k)) continue;
+        const a = this.map[k], b = next[k];
+        if (a === b) continue;
+        if (a === undefined || b === undefined || JSON.stringify(a) !== JSON.stringify(b)) changed.push(k);
+      }
+      this.map = next;
+      const cols = new Set();
+      for (const p of changed) { this.notifyDoc(p); cols.add(p.slice(0, p.lastIndexOf('/'))); }
+      cols.forEach((c) => this.notifyCol(c));
+    }
+    persistNow() {
+      if (!this.persistOk) return;
+      this.persist.cancel();
+      try {
+        /* si otra pestaña guardó desde nuestra última lectura, fusiona antes de escribir para no pisar sus cambios */
+        const raw = localStorage.getItem(this.key);
+        if (raw !== this.lastRaw && raw) { try { const cur = JSON.parse(raw); if (cur && typeof cur === 'object' && !Array.isArray(cur)) this.adopt(cur); } catch (e) { /* contenido ilegible: se reemplaza */ } }
+      } catch (e) { /* lectura bloqueada */ }
+      try { const out = JSON.stringify(this.map); localStorage.setItem(this.key, out); this.lastRaw = out; this.dirty.clear(); }
+      catch (e) { PM.setState({ storageWarning: 'El navegador no permitió guardar (espacio lleno o almacenamiento bloqueado). Exporta tus proyectos para no perder cambios.' }); }
+    }
+    touchPath(path) { this.dirty.add(path); this.persist(); this.notify(path); }
     snap(path) { const v = this.map[path]; return v === undefined ? null : PM.deepFreeze(PM.clone(v)); }
     async get(path) { return this.snap(path); }
-    async set(path, data) { if (!data || typeof data !== 'object' || Array.isArray(data)) throw { code: 'invalid_argument', message: 'body must be an object' }; this.map[path] = PM.clone(data); this.persist(); this.notify(path); }
+    async set(path, data) { if (!data || typeof data !== 'object' || Array.isArray(data)) throw { code: 'invalid_argument', message: 'body must be an object' }; this.map[path] = PM.clone(data); this.touchPath(path); }
     async update(path, patch) {
       if (this.map[path] === undefined) throw { code: 'invalid_argument', message: 'document does not exist' };
       const merge = (t, s) => { for (const k of Object.keys(s)) { if (s[k] && typeof s[k] === 'object' && !Array.isArray(s[k]) && t[k] && typeof t[k] === 'object' && !Array.isArray(t[k])) merge(t[k], s[k]); else t[k] = PM.clone(s[k]); } };
-      merge(this.map[path], patch); this.persist(); this.notify(path);
+      /* copia antes de mezclar: el objeto anterior pudo compartirse con el mapa de otra pestaña (adopt) */
+      const target = PM.clone(this.map[path]); merge(target, patch); this.map[path] = target; this.touchPath(path);
     }
-    async delete(path) { delete this.map[path]; this.persist(); this.notify(path); }
+    async delete(path) { delete this.map[path]; this.touchPath(path); }
     listSync(col) { const pre = col + '/'; return Object.keys(this.map).filter((k) => k.startsWith(pre) && !k.slice(pre.length).includes('/')).sort().map((k) => ({ id: k.slice(pre.length), data: this.snap(k) })); }
     async list(col) { return this.listSync(col); }
     notify(path) { this.notifyDoc(path); const col = path.slice(0, path.lastIndexOf('/')); this.notifyCol(col); }
@@ -270,7 +356,8 @@
   PM.storeReady = new Promise((r) => (resolveReady = r));
   let backend = null;
   const writeChains = new Map();
-  const chain = (path, fn) => { const prev = writeChains.get(path) || Promise.resolve(); const p = prev.catch(() => {}).then(fn); writeChains.set(path, p); p.finally(() => { if (writeChains.get(path) === p) writeChains.delete(path); }); return p; };
+  /* La limpieza usa then(ok, error) para no dejar una promesa derivada rechazada sin manejar. */
+  const chain = (path, fn) => { const prev = writeChains.get(path) || Promise.resolve(); const p = prev.catch(() => {}).then(fn); writeChains.set(path, p); const clean = () => { if (writeChains.get(path) === p) writeChains.delete(path); }; p.then(clean, clean); return p; };
   const track = async (p) => { PM.setState((s) => ({ saving: s.saving + 1 })); try { const r = await p; PM.setState((s) => ({ saving: s.saving - 1, lastSaved: Date.now() })); return r; } catch (e) { PM.setState((s) => ({ saving: s.saving - 1 })); throw e; } };
   /* Reintenta una vez si la plataforma no está disponible y con espera creciente si se excede la cuota de llamadas. */
   const withRetry = async (fn) => {
@@ -285,15 +372,27 @@
       }
     }
   };
+  /* Suscribe cuando el almacén está listo; un fallo síncrono (ruta inválida) llega al callback de error. */
+  const subscribeWith = (method, path, next, err) => {
+    let un = null, dead = false;
+    const onErr = err || ((e) => console.warn(method, path, e));
+    PM.storeReady.then(() => {
+      if (dead) return;
+      try { un = backend[method](path, next, onErr); }
+      catch (e) { setTimeout(() => { if (!dead) onErr({ code: 'invalid_argument', message: String((e && e.message) || e) }); }, 0); }
+    });
+    return () => { dead = true; if (un) { const u = un; un = null; u(); } };
+  };
   PM.store = {
     get kind() { return backend ? backend.kind : 'loading'; },
     async get(path) { await PM.storeReady; return backend.get(path); },
     async list(col) { await PM.storeReady; return backend.list(col); },
-    set(path, data) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.set(path, data)); })).catch((e) => { PM.reportWriteError(e); throw e; }); },
-    update(path, patch) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.update(path, patch)); })).catch((e) => { PM.reportWriteError(e); throw e; }); },
-    delete(path) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.delete(path)); })).catch((e) => { PM.reportWriteError(e); throw e; }); },
-    subDoc(path, next, err) { let un = null, dead = false; PM.storeReady.then(() => { if (!dead) un = backend.subDoc(path, next, err || ((e) => console.warn('subDoc', path, e))); }); return () => { dead = true; un && un(); }; },
-    subCol(path, next, err) { let un = null, dead = false; PM.storeReady.then(() => { if (!dead) un = backend.subCol(path, next, err || ((e) => console.warn('subCol', path, e))); }); return () => { dead = true; un && un(); }; },
+    /* opts.quiet: no muestra el aviso de error (quien llama decide); la promesa igual se rechaza. */
+    set(path, data, opts) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.set(path, data)); })).catch((e) => { if (!(opts && opts.quiet)) PM.reportWriteError(e); throw e; }); },
+    update(path, patch, opts) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.update(path, patch)); })).catch((e) => { if (!(opts && opts.quiet)) PM.reportWriteError(e); throw e; }); },
+    delete(path, opts) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.delete(path)); })).catch((e) => { if (!(opts && opts.quiet)) PM.reportWriteError(e); throw e; }); },
+    subDoc(path, next, err) { return subscribeWith('subDoc', path, next, err); },
+    subCol(path, next, err) { return subscribeWith('subCol', path, next, err); },
   };
   PM.reportWriteError = (e) => {
     const code = e && e.code;
@@ -327,15 +426,106 @@
     resolveReady();
   };
 
-  /* ------------------------------------------------------------------ sincronización compartida (un solo listener por ruta) */
+  /* ------------------------------------------------------------------ sincronización compartida (un solo listener por ruta)
+     Un error de la suscripción NO significa "el documento no existe": se conserva el estado de carga (o los datos
+     ya leídos), se reintenta con espera creciente y no se escribe sobre un documento que nunca se pudo leer.
+     Las sincronizaciones sin oyentes se liberan a los 15 s, o antes si hay muchas suscripciones activas
+     (la plataforma admite 64 por vista). */
   const docSyncs = new Map();
-  class DocSync {
-    constructor(path) { this.path = path; this.value = null; this.exists = false; this.loading = true; this.listeners = new Set(); this.unsub = null; this.dirty = false; this.inflight = false; this.timer = null; this.release = null; this.again = false; }
-    attach(fn) { this.listeners.add(fn); clearTimeout(this.release); if (!this.unsub) this.start(); return () => { this.listeners.delete(fn); if (!this.listeners.size) this.release = setTimeout(() => this.stop(), 15000); }; }
-    start() { this.unsub = PM.store.subDoc(this.path, (data) => { if (this.dirty || this.inflight) return; this.value = data; this.exists = data != null; this.loading = false; this.emit(); }, (e) => { this.loading = false; this.error = e; this.emit(); }); }
-    stop() { if (this.dirty || this.inflight) { this.release = setTimeout(() => this.stop(), 3000); return; } if (this.unsub) this.unsub(); this.unsub = null; if (docSyncs.get(this.path) === this) docSyncs.delete(this.path); }
-    emit() { this.listeners.forEach((fn) => fn()); }
-    set(value, immediate) { this.value = PM.deepFreeze(PM.clone(value)); this.exists = true; this.loading = false; this.dirty = true; this.emit(); clearTimeout(this.timer); if (immediate) return this.flush(); this.timer = setTimeout(() => this.flush(), 650); return Promise.resolve(); }
+  const colSyncs = new Map();
+  const NO_RETRY = ['invalid_argument', 'transform_error', 'revoked', 'not_granted', 'capability_disabled', 'capability_removed'];
+  const ACTIVE_LIMIT = 36;
+  const syncIssues = new Set();
+  const setIssue = (s, on) => { const had = syncIssues.has(s); if (on) syncIssues.add(s); else syncIssues.delete(s); if (had !== !!on) PM.setState({ syncIssues: syncIssues.size }); };
+  let revokedShown = false;
+  /* Libera primero las sincronizaciones inactivas más antiguas cuando hay demasiadas suscripciones abiertas. */
+  const trimIdle = () => {
+    const all = [...docSyncs.values(), ...colSyncs.values()];
+    let active = all.filter((s) => s.unsub).length;
+    if (active <= ACTIVE_LIMIT) return;
+    const now = Date.now();
+    const idle = all.filter((s) => s.unsub && !s.listeners.size && s.canRelease() && now - s.idleSince > 1500).sort((a, b) => a.idleSince - b.idleSince);
+    for (const s of idle) { if (active <= ACTIVE_LIMIT) break; s.stop(); active--; }
+  };
+  class SyncBase {
+    constructor(path, registry) { this.path = path; this.registry = registry; this.loading = true; this.loaded = false; this.error = null; this.fails = 0; this.listeners = new Set(); this.unsub = null; this.release = null; this.retryT = null; this.token = 0; this.version = 0; this.idleSince = 0; }
+    attach(fn) {
+      this.listeners.add(fn); clearTimeout(this.release); this.release = null;
+      if (!this.registry.has(this.path)) this.registry.set(this.path, this);
+      if (!this.unsub && !this.retryT) this.start();
+      trimIdle();
+      return () => {
+        this.listeners.delete(fn);
+        if (!this.listeners.size) { this.idleSince = Date.now(); clearTimeout(this.release); this.release = setTimeout(() => this.stop(), 15000); setTimeout(trimIdle, 1600); }
+      };
+    }
+    start() {
+      clearTimeout(this.retryT); this.retryT = null;
+      const token = ++this.token;
+      this.unsub = this.subscribe(
+        (v) => { if (token !== this.token) return; this.fails = 0; if (this.error) { this.error = null; setIssue(this, false); } this.receive(v); },
+        (e) => { if (token === this.token) this.fail(e); });
+    }
+    fail(e) {
+      const err = e && typeof e === 'object' ? e : { code: 'unavailable', message: String(e) };
+      console.warn('Suscripción con error:', this.path, err.code || '', err.message || '');
+      this.error = err; this.token++;
+      if (this.unsub) { const u = this.unsub; this.unsub = null; try { u(); } catch (x) { /* ya cerrada */ } }
+      if (err.code === 'revoked') { PM.setState({ canWrite: false }); if (!revokedShown) { revokedShown = true; PM.toast('Se retiró el acceso a los datos. Recarga la página.', { tone: 'crit' }); } }
+      if (!NO_RETRY.includes(err.code)) {
+        this.fails++;
+        const wait = Math.min(30000, 1000 * Math.pow(2, Math.min(this.fails - 1, 5))) + Math.random() * 600;
+        this.retryT = setTimeout(() => { this.retryT = null; if (this.listeners.size) this.start(); else this.stop(); }, wait);
+      } else if (!this.loaded) this.loading = false;
+      setIssue(this, true);
+      this.onFail();
+      this.emit();
+    }
+    onFail() { /* DocSync: descarta un guardado que esperaba la primera lectura */ }
+    canRelease() { return true; }
+    stop() {
+      if (this.listeners.size) return;
+      if (!this.canRelease()) { clearTimeout(this.release); this.release = setTimeout(() => this.stop(), 3000); return; }
+      clearTimeout(this.release); clearTimeout(this.retryT); this.release = null; this.retryT = null; this.token++;
+      if (this.unsub) { const u = this.unsub; this.unsub = null; u(); }
+      setIssue(this, false);
+      if (this.registry.get(this.path) === this) this.registry.delete(this.path);
+    }
+    emit() { this.version++; this.listeners.forEach((fn) => fn()); }
+  }
+  let blockedToastAt = 0;
+  const blockedToast = () => { if (Date.now() - blockedToastAt > 4000) { blockedToastAt = Date.now(); PM.toast('No se pudo leer este registro, así que el cambio no se guardó para no sobrescribir datos. Espera a que se recupere la conexión y vuelve a intentarlo.', { tone: 'crit' }); } };
+  class DocSync extends SyncBase {
+    constructor(path) { super(path, docSyncs); this.value = null; this.exists = false; this.dirty = false; this.inflight = false; this.timer = null; this.again = false; this.early = null; }
+    subscribe(next, err) { return PM.store.subDoc(this.path, next, err); }
+    receive(data) {
+      const first = !this.loaded; this.loaded = true;
+      if (first && this.early) {
+        /* hubo un guardado antes de la primera lectura: se aplica solo si el documento no existía */
+        const early = this.early; this.early = null;
+        if (data == null) { this.set(early.value, early.immediate).then(early.resolve, early.resolve); return; }
+        early.resolve();
+        PM.toast('Se cargó la versión guardada de este registro. Vuelve a aplicar tu último cambio.');
+      }
+      if (this.dirty || this.inflight) return;
+      /* se conserva la identidad de lo que no cambió; el eco de nuestra propia escritura no vuelve a dibujar nada */
+      const next = data != null && this.value != null ? PM.deepFreeze(PM.reconcile(this.value, data)) : data;
+      if (!first && this.exists && next != null && next === this.value && !this.loading) return;
+      this.value = next; this.exists = data != null; this.loading = false; this.emit();
+    }
+    canRelease() { return !this.dirty && !this.inflight && !this.early; }
+    onFail() { if (this.early && !this.loaded) { const e = this.early; this.early = null; e.resolve(); blockedToast(); } }
+    set(value, immediate) {
+      if (!this.loaded) {
+        if (this.error) { blockedToast(); return Promise.resolve(); }
+        /* aún no llega la primera lectura: el guardado espera a saber si el documento ya existe */
+        if (!this.unsub && !this.retryT) { this.start(); if (!this.listeners.size) { clearTimeout(this.release); this.release = setTimeout(() => this.stop(), 15000); } }
+        return new Promise((resolve) => { const prev = this.early; if (prev) prev.resolve(); this.early = { value: PM.deepFreeze(PM.clone(value)), immediate: immediate || (prev && prev.immediate), resolve }; });
+      }
+      this.value = PM.deepFreeze(PM.reconcile(this.value, PM.cloneShared(value))); this.exists = true; this.loading = false; this.dirty = true; this.emit(); clearTimeout(this.timer);
+      if (immediate) return this.flush();
+      this.timer = setTimeout(() => this.flush(), 650); return Promise.resolve();
+    }
     async flush() {
       clearTimeout(this.timer);
       if (!this.dirty) return;
@@ -348,39 +538,43 @@
   const getDocSync = (path) => { let s = docSyncs.get(path); if (!s) { s = new DocSync(path); docSyncs.set(path, s); } return s; };
   PM.flushAll = () => Promise.all([...docSyncs.values()].map((s) => s.flush()));
   /* Descarta un guardado pendiente (antes de eliminar un documento). */
-  PM.discardPending = (path) => { const s = docSyncs.get(path); if (s) { clearTimeout(s.timer); s.dirty = false; s.again = false; } };
+  PM.discardPending = (path) => { const s = docSyncs.get(path); if (s) { clearTimeout(s.timer); s.dirty = false; s.again = false; if (s.early) { const e = s.early; s.early = null; e.resolve(); } } };
   /* Moneda del proyecto actual (para formatos fuera de componentes). */
   PM.currentCurrency = () => { const pid = PM.getState().projectId; const s = pid && docSyncs.get(PM.paths.project(pid)); return (s && s.value && s.value.currency) || 'COP'; };
   window.addEventListener('pagehide', () => PM.flushAll());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') PM.flushAll(); });
 
-  const colSyncs = new Map();
-  class ColSync {
-    constructor(path) { this.path = path; this.docs = []; this.loading = true; this.listeners = new Set(); this.unsub = null; this.release = null; }
-    attach(fn) { this.listeners.add(fn); clearTimeout(this.release); if (!this.unsub) this.start(); return () => { this.listeners.delete(fn); if (!this.listeners.size) this.release = setTimeout(() => this.stop(), 15000); }; }
-    start() { this.unsub = PM.store.subCol(this.path, (docs) => { this.docs = docs; this.loading = false; this.emit(); }, (e) => { this.loading = false; this.error = e; this.emit(); }); }
-    stop() { if (this.unsub) this.unsub(); this.unsub = null; if (colSyncs.get(this.path) === this) colSyncs.delete(this.path); }
-    emit() { this.listeners.forEach((fn) => fn()); }
+  class ColSync extends SyncBase {
+    constructor(path) { super(path, colSyncs); this.docs = []; }
+    subscribe(next, err) { return PM.store.subCol(this.path, next, err); }
+    receive(docs) { this.docs = docs; this.loading = false; this.loaded = true; this.emit(); }
   }
   const getColSync = (path) => { let s = colSyncs.get(path); if (!s) { s = new ColSync(path); colSyncs.set(path, s); } return s; };
+  /* Diagnóstico (pruebas): suscripciones abiertas y con error. */
+  PM.syncStats = () => ({ docs: docSyncs.size, cols: colSyncs.size, active: [...docSyncs.values(), ...colSyncs.values()].filter((s) => s.unsub).length, issues: syncIssues.size });
 
-  /* Hook de documento. data es inmutable (congelado): clonar antes de editar. save() escribe con antirrebote; saveNow() de inmediato. */
+  /* Adjunta el componente a una sincronización; si llegaron datos entre el render y la suscripción, vuelve a renderizar. */
+  const useSyncAttach = (sync) => {
+    const [, force] = useReducer((x) => x + 1, 0);
+    const ver = useRef(0); ver.current = sync ? sync.version : 0;
+    useEffect(() => { if (!sync) return undefined; const un = sync.attach(force); if (sync.version !== ver.current) force(); return un; }, [sync]);
+  };
+  /* Hook de documento. data es inmutable (congelado): clonar antes de editar. save() escribe con antirrebote; saveNow() de inmediato.
+     error: último error de la suscripción (se reintenta sola); mientras no se haya leído el documento, loading sigue en true. */
   PM.useDoc = function (path) {
     const sync = useMemo(() => (path ? getDocSync(path) : null), [path]);
-    const [, force] = useReducer((x) => x + 1, 0);
-    useEffect(() => (sync ? sync.attach(force) : undefined), [sync]);
+    useSyncAttach(sync);
     const save = useCallback((v) => (sync ? sync.set(v, false) : Promise.resolve()), [sync]);
     const saveNow = useCallback((v) => (sync ? sync.set(v, true) : Promise.resolve()), [sync]);
-    if (!sync) return { data: null, exists: false, loading: false, save, saveNow };
-    return { data: sync.value, exists: sync.exists, loading: sync.loading, save, saveNow };
+    if (!sync) return { data: null, exists: false, loading: false, error: null, save, saveNow };
+    return { data: sync.value, exists: sync.exists, loading: sync.loading, error: sync.error, save, saveNow };
   };
   /* Hook de colección: docs = [{id, data}] ordenados por id. */
   PM.useCollection = function (path) {
     const sync = useMemo(() => (path ? getColSync(path) : null), [path]);
-    const [, force] = useReducer((x) => x + 1, 0);
-    useEffect(() => (sync ? sync.attach(force) : undefined), [sync]);
-    if (!sync) return { docs: [], loading: false };
-    return { docs: sync.docs, loading: sync.loading };
+    useSyncAttach(sync);
+    if (!sync) return { docs: [], loading: false, error: null };
+    return { docs: sync.docs, loading: sync.loading, error: sync.error };
   };
   PM.useProjects = function () {
     const { docs, loading } = PM.useCollection('projects');
@@ -397,11 +591,55 @@
   PM.useToolData = function (toolId, defaultValue) {
     const st = PM.useAppState();
     const r = PM.useDoc(st.projectId ? PM.paths.tool(st.projectId, toolId) : null);
-    const data = r.exists && r.data ? r.data : defaultValue;
+    const norm = useMemo(() => (r.exists && r.data ? PM.normalizeTool(toolId, r.data) : null), [toolId, r.exists, r.data]);
+    const data = norm || defaultValue;
     const pid = st.projectId;
     const save = useCallback((v) => { PM.touchProject && PM.touchProject(pid); return r.save(v); }, [r.save, pid]);
     const saveNow = useCallback((v) => { PM.touchProject && PM.touchProject(pid); return r.saveNow(v); }, [r.saveNow, pid]);
-    return [data, save, { loading: r.loading, exists: r.exists, saveNow }];
+    return [data, save, { loading: r.loading, exists: r.exists, error: r.error, saveNow }];
+  };
+
+  /* Forma esperada de los documentos de herramientas. Los datos importados o editados a mano pueden traer un
+     objeto donde va un arreglo (o al revés); PM.normalizeTool lo corrige sin tocar lo que ya está bien
+     (devuelve el mismo objeto si no hay nada que corregir). */
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const normArr = (v, item) => {
+    if (v === undefined || v === null) return v;
+    if (!Array.isArray(v)) return [];
+    let changed = false; const out = [];
+    for (const x of v) { const y = item(x); if (y === undefined) { changed = true; continue; } if (y !== x) changed = true; out.push(y); }
+    return changed ? out : v;
+  };
+  const normObj = (v, shape, fill) => {
+    const base = isObj(v) ? v : {};
+    let out = base;
+    for (const k of Object.keys(shape)) {
+      const cur = base[k];
+      if (cur === undefined && !fill) continue;
+      const sh = shape[k];
+      let nv;
+      if (typeof sh === 'function') nv = sh(cur);
+      else if (Array.isArray(sh)) { nv = normArr(cur, (x) => (isObj(x) ? normObj(x, sh[0], false) : undefined)); if (nv == null && fill) nv = []; }
+      else nv = normObj(cur, sh, false);
+      if (nv !== cur) { if (out === base) out = { ...base }; out[k] = nv; }
+    }
+    return out;
+  };
+  const strItems = (v) => (typeof v === 'string' ? (PM.date.valid(v) ? [v] : []) : normArr(v, (x) => (typeof x === 'string' ? x : undefined)));
+  const depItems = (v) => normArr(isObj(v) ? [v] : v, (x) => (isObj(x) ? x : typeof x === 'string' && x ? { id: x, type: 'FS', lag: 0 } : undefined));
+  const resItems = (v) => normArr(typeof v === 'string' ? (v.trim() ? [v] : []) : isObj(v) ? [v] : v, (x) => (isObj(x) ? x : typeof x === 'string' && x.trim() ? { name: x.trim(), units: 1 } : undefined));
+  PM.TOOL_SHAPES = {
+    wbs: { nodes: [{}] },
+    schedule: { settings: { extraHolidays: strItems, resourceLimits: {} }, tasks: [{ deps: depItems, resources: resItems }] },
+    costs: { actuals: [{}], statusUpdates: [{ progress: {} }], reserves: {} },
+    raci: { roles: [{}], rows: [{ cells: {} }] },
+    quality: { ishikawa: [{ categories: [{ causes: [{ sub: [{}] }] }] }], pareto: [{ items: [{}] }], control: [{ points: [{}] }] },
+  };
+  PM.normalizeTool = (toolId, data) => {
+    const shape = PM.TOOL_SHAPES[toolId];
+    if (!shape) return data;
+    const out = normObj(data, shape, true);
+    return out === data ? data : PM.deepFreeze(out);
   };
   PM.useCanWrite = () => PM.useAppState().canWrite;
   /* Lectura puntual (no reactiva) de datos de herramienta, p. ej. para exportar. */
@@ -526,9 +764,26 @@
   ui.Input = function Input({ class: cls, onValue, ...rest }) {
     return html`<input class=${cx('input', cls)} onInput=${onValue ? (e) => onValue(e.currentTarget.value) : rest.onInput} ...${rest} />`;
   };
+  /* Ajuste de altura de textareas por lotes: primero se liberan todas las alturas, luego se leen todas y al final
+     se escriben (un solo cálculo de diseño por lote, no uno por textarea). */
+  const autoSizeQueue = new Map();
+  let autoSizeScheduled = false;
+  const runAutoSize = () => {
+    autoSizeScheduled = false;
+    const items = [...autoSizeQueue].filter(([el]) => el.isConnected); autoSizeQueue.clear();
+    if (!items.length) return;
+    for (const [el] of items) el.style.height = 'auto';
+    const hs = items.map(([el]) => el.scrollHeight);
+    items.forEach(([el, max], i) => { el.style.height = hs[i] ? Math.min(hs[i] + 2, max) + 'px' : ''; });
+  };
+  PM.autoSize = (el, max = 640) => {
+    if (!el) return;
+    autoSizeQueue.set(el, max);
+    if (!autoSizeScheduled) { autoSizeScheduled = true; (window.queueMicrotask || ((f) => Promise.resolve().then(f)))(runAutoSize); }
+  };
   ui.TextArea = function TextArea({ class: cls, onValue, autosize = true, value, rows = 3, ...rest }) {
     const ref = useRef();
-    useLayoutEffect(() => { const el = ref.current; if (!autosize || !el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight + 2, 640) + 'px'; }, [value, autosize]);
+    useLayoutEffect(() => { if (autosize) PM.autoSize(ref.current, 640); }, [value, autosize]);
     return html`<textarea ref=${ref} rows=${rows} class=${cx('textarea', cls)} value=${value ?? ''} onInput=${onValue ? (e) => onValue(e.currentTarget.value) : rest.onInput} ...${rest}></textarea>`;
   };
   const normOptions = (options) => (options || []).map((o) => (typeof o === 'object' && o !== null ? o : { value: o, label: String(o) }));
@@ -624,7 +879,7 @@
       if (!open) return;
       const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target) && menuRef.current && !menuRef.current.contains(e.target)) setPos(null); };
       const onKey = (e) => { if (e.key === 'Escape') { setPos(null); ref.current?.querySelector('button')?.focus(); } };
-      const onMove = (e) => { if (menuRef.current && e && e.target && menuRef.current.contains(e.target)) return; setPos(null); };
+      const onMove = (e) => { if (menuRef.current && e && e.target instanceof Node && menuRef.current.contains(e.target)) return; setPos(null); };
       document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey); window.addEventListener('resize', onMove); window.addEventListener('scroll', onMove, true);
       setTimeout(() => menuRef.current?.querySelector('.menu-item:not([disabled])')?.focus(), 0);
       return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onMove); window.removeEventListener('scroll', onMove, true); };
@@ -637,7 +892,7 @@
     };
     return html`<div class="switcher" ref=${ref} style="display:inline-block">
       <${ui.Button} variant=${variant} size=${size} icon=${icon} disabled=${disabled} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} aria-label=${label} title=${label} onClick=${() => setPos(open ? null : place())}>${buttonLabel}</${ui.Button}>
-      ${open ? html`<div class="menu" role="menu" ref=${menuRef} onKeyDown=${onMenuKey} style=${'position:fixed;left:' + pos.left + 'px;top:' + pos.top + 'px;width:' + pos.width + 'px;max-width:calc(100vw - 16px);z-index:85'}>
+      ${open ? html`<div class="menu" role="menu" ref=${menuRef} onKeyDown=${onMenuKey} style=${'position:fixed;left:' + pos.left + 'px;top:' + pos.top + 'px;width:' + pos.width + 'px;min-width:0;max-width:calc(100vw - 16px);z-index:85'}>
         ${items.filter(Boolean).map((it, i) => it === 'sep' ? html`<div class="menu-sep" key=${i}></div>` : it.heading ? html`<div class="menu-label" key=${i}>${it.heading}</div>` : html`<button key=${i} type="button" role="menuitem" class="menu-item" disabled=${it.disabled} style=${it.danger ? 'color:var(--crit)' : ''} onClick=${() => { setPos(null); it.onClick && it.onClick(); }}>${it.icon ? html`<${ui.Icon} name=${it.icon} size=${15} />` : null}${it.label}</button>`)}
       </div>` : null}
     </div>`;
@@ -645,43 +900,71 @@
 
   /* Tabla editable genérica.
      columns: [{key, label, type:'text'|'textarea'|'number'|'money'|'date'|'select'|'calc'|'check'|'pct', options, width, calc(row, rows), format(v,row), placeholder, min, max, hint}] */
-  ui.DataTable = function DataTable({ columns, rows, onChange, readOnly, addLabel = 'Agregar fila', newRow, emptyText = 'Sin registros todavía.', currency = 'COP', reorder = true, onRowClick, rowTone, footer, compact }) {
-    rows = rows || [];
-    const canEdit = !readOnly && !!onChange;
-    const setCell = (i, key, v) => { const next = rows.map((r, j) => (j === i ? { ...r, [key]: v } : r)); onChange(next); };
-    const add = () => { const base = newRow ? newRow(rows) : {}; onChange([...rows, { id: PM.uid('r'), ...base }]); };
-    const del = (i) => onChange(rows.filter((_, j) => j !== i));
-    const move = (i, d) => onChange(PM.moveItem(rows, i, i + d));
-    const renderCell = (c, r, i) => {
+  const numType = (c) => c.type === 'money' || c.type === 'number' || c.type === 'pct' || (c.type === 'calc' && c.align !== 'left');
+  /* Fila de DataTable. En edición se memoriza: una tecla en una celda vuelve a dibujar solo su fila (las columnas
+     calculadas se evalúan en la tabla y llegan ya resueltas en calcOut). En solo lectura se dibuja siempre. */
+  const sameRow = (a, b) => {
+    if (!a.canEdit || !b.canEdit) return false;
+    if (a.r !== b.r || a.i !== b.i || a.n !== b.n || a.colsSig !== b.colsSig || a.tone !== b.tone || a.clickable !== b.clickable || a.currency !== b.currency || a.reorder !== b.reorder) return false;
+    if (a.calcOut.length !== b.calcOut.length) return false;
+    for (let k = 0; k < a.calcOut.length; k++) if (a.calcOut[k] !== b.calcOut[k]) return false;
+    return true;
+  };
+  PM.uiStats = { rowRenders: 0 }; /* diagnóstico (pruebas): filas de DataTable dibujadas */
+  const DataRow = PM.memo(function DataRow({ r, i, n, canEdit, reorder, calcOut, tone, clickable, currency, api, ops }) {
+    PM.uiStats.rowRenders++;
+    const { columns, rows } = api.current;
+    let ci = 0;
+    const renderCell = (c) => {
       const v = r[c.key];
       const ctx = { currency, rows, index: i };
-      if (c.type === 'calc') { const val = c.calc ? c.calc(r, rows, ctx) : v; return html`<div class="cell-calc">${c.format ? c.format(val, r, ctx) : val ?? '—'}</div>`; }
+      if (c.type === 'calc') return html`<div class="cell-calc">${calcOut[ci++]}</div>`;
       if (!canEdit) {
         const shown = c.format ? c.format(v, r, ctx) : c.type === 'money' ? PM.fmt.money(v, currency) : c.type === 'number' ? PM.fmt.num(v, 2) : c.type === 'pct' ? (v === null || v === undefined || v === '' ? '—' : PM.fmt.pct100(v)) : c.type === 'date' ? PM.fmt.date(v) : c.type === 'check' ? (v ? 'Sí' : 'No') : c.type === 'select' ? (normOptions(c.options).find((o) => String(o.value) === String(v))?.label ?? v ?? '') : v ?? '';
         const wrap = c.type === 'text' || c.type === 'textarea' || !c.type;
         return html`<div class=${cx('cell-calc', (c.type === 'money' || c.type === 'number' || c.type === 'pct') && 'num')} style=${'color:var(--fg);white-space:' + (wrap ? 'pre-wrap' : 'nowrap')}>${shown === '' || shown === null || shown === undefined ? html`<span class="faint">—</span>` : shown}</div>`;
       }
       const label = c.label + ' — fila ' + (i + 1);
-      if (c.type === 'textarea') return html`<${CellTextArea} value=${v} label=${label} placeholder=${c.placeholder} onValue=${(x) => setCell(i, c.key, x)} />`;
-      if (c.type === 'select') return html`<select class="cell-input" aria-label=${label} value=${v ?? ''} onChange=${(e) => setCell(i, c.key, e.currentTarget.value)}><option value=""></option>${normOptions(c.options).map((o) => html`<option value=${o.value}>${o.label}</option>`)}</select>`;
-      if (c.type === 'check') return html`<input type="checkbox" aria-label=${label} checked=${!!v} onChange=${(e) => setCell(i, c.key, e.currentTarget.checked)} style="accent-color:var(--accent);width:16px;height:16px;margin:6px" />`;
-      if (c.type === 'date') return html`<input type="date" class="cell-input" aria-label=${label} value=${v || ''} onInput=${(e) => setCell(i, c.key, e.currentTarget.value || null)} />`;
-      if (c.type === 'number' || c.type === 'money' || c.type === 'pct') return html`<${ui.NumberInput} class="cell-input" aria-label=${label} value=${v} money=${c.type === 'money'} currency=${currency} min=${c.min ?? (c.type === 'pct' ? 0 : undefined)} max=${c.max ?? (c.type === 'pct' ? 100 : undefined)} onValue=${(x) => setCell(i, c.key, x)} />`;
-      return html`<input class="cell-input" aria-label=${label} value=${v ?? ''} placeholder=${c.placeholder} onInput=${(e) => setCell(i, c.key, e.currentTarget.value)} />`;
+      const setV = (x) => ops.setCell(i, c.key, x);
+      if (c.type === 'textarea') return html`<${CellTextArea} value=${v} label=${label} placeholder=${c.placeholder} onValue=${setV} />`;
+      if (c.type === 'select') return html`<select class="cell-input" aria-label=${label} value=${v ?? ''} onChange=${(e) => setV(e.currentTarget.value)}><option value=""></option>${normOptions(c.options).map((o) => html`<option value=${o.value}>${o.label}</option>`)}</select>`;
+      if (c.type === 'check') return html`<input type="checkbox" aria-label=${label} checked=${!!v} onChange=${(e) => setV(e.currentTarget.checked)} style="accent-color:var(--accent);width:16px;height:16px;margin:6px" />`;
+      if (c.type === 'date') return html`<input type="date" class="cell-input" aria-label=${label} value=${v || ''} onInput=${(e) => setV(e.currentTarget.value || null)} />`;
+      if (c.type === 'number' || c.type === 'money' || c.type === 'pct') return html`<${ui.NumberInput} class="cell-input" aria-label=${label} value=${v} money=${c.type === 'money'} currency=${currency} min=${c.min ?? (c.type === 'pct' ? 0 : undefined)} max=${c.max ?? (c.type === 'pct' ? 100 : undefined)} onValue=${setV} />`;
+      return html`<input class="cell-input" aria-label=${label} value=${v ?? ''} placeholder=${c.placeholder} onInput=${(e) => setV(e.currentTarget.value)} />`;
     };
+    return html`<tr class=${clickable ? 'clickable' : ''} style=${tone || ''} onClick=${clickable ? () => api.current.onRowClick && api.current.onRowClick(r, i) : undefined}>
+      ${columns.map((c) => html`<td key=${c.key} class=${cx(numType(c) && 'num', 'col-' + (c.type || 'text'))}>${renderCell(c)}</td>`)}
+      ${canEdit ? html`<td class="ctl"><div class="row" style="gap:0;flex-wrap:nowrap">
+        ${reorder ? html`<${ui.IconButton} size="sm" icon="chevron-up" label="Subir fila" disabled=${i === 0} onClick=${() => ops.move(i, -1)} /><${ui.IconButton} size="sm" icon="chevron-down" label="Bajar fila" disabled=${i === n - 1} onClick=${() => ops.move(i, 1)} />` : null}
+        <${ui.IconButton} size="sm" icon="trash" label="Eliminar fila" onClick=${() => ops.del(i)} />
+      </div></td>` : null}
+    </tr>`;
+  }, sameRow);
+  ui.DataTable = function DataTable({ columns, rows, onChange, readOnly, addLabel = 'Agregar fila', newRow, emptyText = 'Sin registros todavía.', currency = 'COP', reorder = true, onRowClick, rowTone, footer, compact }) {
+    /* filas nulas o que no son objetos (datos importados dañados) se omiten; al editar se guardan ya depuradas */
+    rows = Array.isArray(rows) ? (rows.every(isObj) ? rows : rows.filter(isObj)) : [];
+    const canEdit = !readOnly && !!onChange;
+    const api = useRef({}); api.current = { columns, rows, onChange, onRowClick };
+    const ops = useMemo(() => ({
+      setCell: (i, key, v) => { const { rows: rs, onChange: ch } = api.current; ch(rs.map((r, j) => (j === i ? { ...r, [key]: v } : r))); },
+      del: (i) => { const { rows: rs, onChange: ch } = api.current; ch(rs.filter((_, j) => j !== i)); },
+      move: (i, d) => { const { rows: rs, onChange: ch } = api.current; ch(PM.moveItem(rs, i, i + d)); },
+    }), []);
+    const add = () => { const base = newRow ? newRow(rows) : {}; onChange([...rows, { id: PM.uid('r'), ...base }]); };
+    const colsSig = JSON.stringify(columns.map((c) => [c.key, c.type, c.label, c.placeholder, c.min, c.max, c.align, c.options]));
+    const calcCols = columns.filter((c) => c.type === 'calc');
     return html`<div class="stack-sm">
       <div class="table-wrap">
         <table class=${cx('table', canEdit && 'table-edit', compact && 'table-tight')}>
-          <thead><tr>${columns.map((c) => html`<th key=${c.key} class=${cx((c.type === 'money' || c.type === 'number' || c.type === 'pct' || (c.type === 'calc' && c.align !== 'left')) && 'num', 'col-' + (c.type || 'text'))} style=${c.width ? 'min-width:' + c.width + (typeof c.width === 'number' ? 'px' : '') : ''} title=${c.hint}>${c.label}</th>`)}${canEdit ? html`<th class="ctl"><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
+          <thead><tr>${columns.map((c) => html`<th key=${c.key} class=${cx(numType(c) && 'num', 'col-' + (c.type || 'text'))} style=${c.width ? 'min-width:' + c.width + (typeof c.width === 'number' ? 'px' : '') : ''} title=${c.hint}>${c.label}</th>`)}${canEdit ? html`<th class="ctl"><span class="sr-only">Acciones</span></th>` : null}</tr></thead>
           <tbody>
             ${rows.length === 0 ? html`<tr><td colspan=${columns.length + (canEdit ? 1 : 0)} class="faint" style="padding:14px 12px">${emptyText}</td></tr>` : null}
-            ${rows.map((r, i) => html`<tr key=${r.id || i} class=${onRowClick ? 'clickable' : ''} style=${rowTone ? rowTone(r) : ''} onClick=${onRowClick ? () => onRowClick(r, i) : undefined}>
-              ${columns.map((c) => html`<td key=${c.key} class=${cx((c.type === 'money' || c.type === 'number' || c.type === 'pct' || (c.type === 'calc' && c.align !== 'left')) && 'num', 'col-' + (c.type || 'text'))}>${renderCell(c, r, i)}</td>`)}
-              ${canEdit ? html`<td class="ctl"><div class="row" style="gap:0;flex-wrap:nowrap">
-                ${reorder ? html`<${ui.IconButton} size="sm" icon="chevron-up" label="Subir fila" disabled=${i === 0} onClick=${() => move(i, -1)} /><${ui.IconButton} size="sm" icon="chevron-down" label="Bajar fila" disabled=${i === rows.length - 1} onClick=${() => move(i, 1)} />` : null}
-                <${ui.IconButton} size="sm" icon="trash" label="Eliminar fila" onClick=${() => del(i)} />
-              </div></td>` : null}
-            </tr>`)}
+            ${rows.map((r, i) => {
+              const ctx = { currency, rows, index: i };
+              const calcOut = calcCols.map((c) => { const val = c.calc ? c.calc(r, rows, ctx) : r[c.key]; return c.format ? c.format(val, r, ctx) : val ?? '—'; });
+              return html`<${DataRow} key=${r.id || i} r=${r} i=${i} n=${rows.length} canEdit=${canEdit} reorder=${reorder} calcOut=${calcOut} tone=${rowTone ? rowTone(r) : ''} clickable=${!!onRowClick} currency=${currency} colsSig=${colsSig} api=${api} ops=${ops} />`;
+            })}
           </tbody>
           ${footer ? html`<tfoot>${footer}</tfoot>` : null}
         </table>
@@ -691,7 +974,7 @@
   };
   function CellTextArea({ value, onValue, label, placeholder }) {
     const ref = useRef();
-    useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px'; }, [value]);
+    useLayoutEffect(() => { PM.autoSize(ref.current, 320); }, [value]);
     return html`<textarea ref=${ref} rows="1" class="cell-input" aria-label=${label} placeholder=${placeholder} value=${value ?? ''} onInput=${(e) => onValue(e.currentTarget.value)} style="min-width:180px"></textarea>`;
   }
   PM.toCSV = (columns, rows, currency) => {
@@ -759,16 +1042,32 @@
     PM.openModal((close) => html`<${PromptBody} close=${close} />`);
   });
   const modalStack = [];
+  const focusables = (root) => [...root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]')].filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
   ui.Modal = function Modal({ title, onClose, children, footer, size, subtitle }) {
     const id = useMemo(() => PM.uid('dlg'), []);
     const boxRef = useRef(); const closeRef = useRef(onClose); closeRef.current = onClose;
     useLayoutEffect(() => {
       modalStack.push(id);
       const prev = document.activeElement;
-      const k = (e) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) { e.stopPropagation(); closeRef.current && closeRef.current(); } };
-      document.addEventListener('keydown', k);
       const box = boxRef.current;
-      if (box && !box.contains(document.activeElement)) { const f = box.querySelector('[autofocus], .modal-body input:not([type=hidden]):not([disabled]), .modal-body select, .modal-body textarea, .modal-foot .btn-primary, button'); f && f.focus({ preventScroll: true }); }
+      const k = (e) => {
+        if (modalStack[modalStack.length - 1] !== id) return;
+        if (e.key === 'Escape') { e.stopPropagation(); closeRef.current && closeRef.current(); return; }
+        /* Tab y Mayús+Tab circulan solo dentro del diálogo superior */
+        if (e.key === 'Tab' && box) {
+          const list = focusables(box); if (!list.length) { e.preventDefault(); return; }
+          const first = list[0], last = list[list.length - 1], ae = document.activeElement;
+          if (!box.contains(ae)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+          else if (e.shiftKey && ae === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && ae === last) { e.preventDefault(); first.focus(); }
+        }
+      };
+      document.addEventListener('keydown', k);
+      /* foco inicial por prioridad: [autofocus] → primer campo del cuerpo → botón principal → cualquier botón */
+      if (box && !box.contains(document.activeElement)) {
+        const f = box.querySelector('[autofocus]') || box.querySelector('.modal-body input:not([type=hidden]):not([disabled]), .modal-body select:not([disabled]), .modal-body textarea:not([disabled])') || box.querySelector('.modal-foot .btn-primary:not([disabled])') || box.querySelector('.modal-body button:not([disabled]), .modal-foot button:not([disabled])') || box.querySelector('button');
+        f && f.focus({ preventScroll: true });
+      }
       return () => { const i = modalStack.indexOf(id); if (i >= 0) modalStack.splice(i, 1); document.removeEventListener('keydown', k); const ae = document.activeElement; const focusLost = !ae || ae === document.body || (box && box.contains(ae)); if (focusLost && prev && prev.focus && document.contains(prev)) prev.focus({ preventScroll: true }); };
     }, []);
     const titleId = id + '-t';
@@ -881,7 +1180,12 @@
       return id;
     },
     async update(id, patch) { await PM.store.update(PM.paths.project(id), { ...patch, updatedAt: PM.nowIso() }); },
-    touch(id) { if (id) PM.store.update(PM.paths.project(id), { updatedAt: PM.nowIso() }).catch(() => {}); },
+    /* Marca "actualizado" solo si el proyecto sigue existiendo (pudo eliminarse mientras corría el antirrebote). */
+    touch(id) {
+      if (!id) return Promise.resolve();
+      const path = PM.paths.project(id);
+      return PM.store.get(path).then((d) => (d ? PM.store.update(path, { updatedAt: PM.nowIso() }, { quiet: true }) : null)).catch(() => {});
+    },
     async exportData(id) {
       const project = await PM.store.get(PM.paths.project(id));
       const out = { format: 'gestor-pmbok', version: 1, exportedAt: PM.nowIso(), project, collections: {} };
@@ -897,15 +1201,15 @@
       return out;
     },
     async importData(obj, { rename, onProgress } = {}) {
-      if (!obj || obj.format !== 'gestor-pmbok' || !obj.project) throw new Error('El archivo no es una exportación válida del Gestor PMBOK.');
+      if (!obj || obj.format !== 'gestor-pmbok' || !obj.project || typeof obj.project !== 'object' || Array.isArray(obj.project)) throw Object.assign(new Error('El archivo no es una exportación válida del Gestor PMBOK.'), { user: true });
       const id = PM.uid('p'); const now = PM.nowIso();
       const meta = { ...obj.project, name: rename || obj.project.name, updatedAt: now, importedAt: now };
       const writes = [];
       for (const [name, items] of Object.entries(obj.collections || {})) {
         if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
-        for (const it of items || []) {
-          if (!it || !it.id || !it.data || typeof it.data !== 'object') continue;
-          writes.push([PM.paths.project(id) + '/' + name + '/' + it.id, it.data]);
+        for (const it of Array.isArray(items) ? items : []) {
+          if (!it || !it.id || !it.data || typeof it.data !== 'object' || Array.isArray(it.data)) continue;
+          writes.push([PM.paths.project(id) + '/' + name + '/' + it.id, name === 'tools' ? PM.normalizeTool(it.id, it.data) : it.data]);
           for (const [k, v] of Object.entries(it)) { if (k === 'id' || k === 'data' || !Array.isArray(v)) continue; for (const sub of v) if (sub && sub.id && sub.data && typeof sub.data === 'object') writes.push([PM.paths.project(id) + '/' + name + '/' + it.id + '/' + k + '/' + sub.id, sub.data]); }
         }
       }
@@ -921,6 +1225,7 @@
       return id;
     },
     async remove(id) {
+      if (PM.touchProject && PM.touchProject.cancel) PM.touchProject.cancel(id);
       for (const c of PM.PROJECT_COLLECTIONS) {
         const items = await PM.store.list(PM.paths.project(id) + '/' + c.name);
         for (const it of items) {

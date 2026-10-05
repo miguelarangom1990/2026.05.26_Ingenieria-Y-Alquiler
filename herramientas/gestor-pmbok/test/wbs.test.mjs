@@ -456,6 +456,71 @@ async function seedRich(page) {
   finally { await browser.close(); }
 }
 
+/* =============================================================== EDT desde los entregables del enunciado del alcance (5.3 → 5.4) */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* sin enunciado del alcance: el estado vacío no ofrece la opción */
+    await createProject(page, { name: 'Proyecto sin enunciado', code: 'PRY-TEST-010' });
+    await gotoView(page, 'edt');
+    check('alcance: sin enunciado no se ofrece crear desde él', (await page.isVisible('text=Agregar primer entregable')) && !(await page.$('[data-wbs-from-scope]')), null);
+
+    /* enunciado aprobado (Rev. 0) con 3 entregables, una fila en blanco y una fila dañada */
+    const pid = await createProject(page, { name: 'Proyecto con enunciado', code: 'PRY-TEST-011' });
+    const ENT = [
+      { id: 'r1', entregable: 'Diseño del andamio', descripcion: 'Planos de montaje, memoria de cálculo y plan de rescate.', criterioAceptacion: 'Aprobación escrita de la interventoría.' },
+      { id: 'r2', entregable: 'Andamio montado por etapas', descripcion: 'Etapas de los niveles 1–5, 6–10 y 11–15.', criterioAceptacion: 'Tarjeta verde de la persona competente.' },
+      { id: 'r3', entregable: 'Desmontaje y retiro', descripcion: 'Andamio desmontado y transportado a bodega.', criterioAceptacion: '' },
+    ];
+    await page.evaluate(async ({ pid, ENT }) => {
+      await PM.store.set(PM.paths.doc(pid, 'enunciado-alcance'), { template: 'enunciado-alcance', title: 'Enunciado del alcance del proyecto', status: 'aprobado', rev: '0', fields: { entregablesAlcance: [ENT[0], { id: 'r0', entregable: '', descripcion: '  ', criterioAceptacion: '' }, null, ENT[1], ENT[2]] }, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+    }, { pid, ENT });
+    await gotoView(page, 'edt');
+    await page.waitForSelector('[data-wbs-from-scope]', { timeout: 5000 });
+    check('alcance: el estado vacío ofrece crear desde el enunciado', await page.isVisible('[data-wbs-from-scope]'), null);
+    check('alcance: es la acción principal', await page.$eval('[data-wbs-from-scope]', (b) => b.classList.contains('btn-primary')) && !(await page.$eval('.empty button:has-text("Agregar primer entregable")', (b) => b.classList.contains('btn-primary'))), null);
+    check('alcance: el texto cuenta los entregables', (await page.textContent('.empty')).includes('registra 3 entregables'), await page.textContent('.empty'));
+    await shot(page, 'edt-vacia-con-enunciado');
+    await page.click('[data-wbs-from-scope]'); await page.waitForTimeout(900);
+    const ws = await tool(page, 'wbs');
+    const top = (ws.nodes || []).filter((n) => !n.parentId).sort((a, b) => a.order - b.order);
+    eq('alcance: primer nivel = entregables del enunciado', top.map((n) => [n.name, n.description, n.acceptance, n.kind, n.order]), ENT.map((r, i) => [r.entregable, r.descripcion, r.criterioAceptacion, 'entregable', i + 1]));
+    eq('alcance: solo el primer nivel (sin filas vacías ni dañadas)', ws.nodes.length, 3);
+    eq('alcance: árbol visible', (await rows(page)).slice(1).map((r) => r[0]), ['1.1', '1.2', '1.3']);
+    check('alcance: tipo «Entregable» (no paquete de trabajo)', (await page.textContent('tr[data-code="1.1"]')).includes('Entregable') && !(await page.textContent('tr[data-code="1.1"]')).includes('Paquete de trabajo'), await page.textContent('tr[data-code="1.1"]'));
+    check('alcance: aviso de lo que sigue', (await page.textContent('body')).includes('Descompón cada uno en paquetes de trabajo'), null);
+
+    /* también desde «Plantillas de EDT», con reemplazo confirmado */
+    await page.getByRole('button', { name: 'Plantillas de EDT' }).click(); await page.waitForSelector('[data-wbs-template="enunciado"]');
+    const card = await page.textContent('[data-wbs-template="enunciado"]');
+    await shot(page, 'plantillas-con-enunciado');
+    check('alcance: tarjeta en las plantillas con revisión y estado', card.includes('Rev. 0') && card.includes('Aprobado') && card.includes('Desmontaje y retiro') && card.includes('3 entregables de primer nivel · 2 con criterios de aceptación'), card);
+    check('alcance: la tarjeta va primero', (await page.$$eval('[data-wbs-template]', (els) => els.map((e) => e.dataset.wbsTemplate)))[0] === 'enunciado', null);
+    await page.click('[data-wbs-template="enunciado"] button'); await page.waitForTimeout(150);
+    check('alcance: reemplazo pide confirmación', (await page.textContent('.modal')).includes('3 entregables del enunciado del alcance') && await page.isVisible('.modal-foot >> text=Reemplazar EDT'), await page.textContent('.modal'));
+    await page.click('.modal-foot >> text=Reemplazar EDT'); await page.waitForTimeout(900);
+    const ws2 = await tool(page, 'wbs');
+    check('alcance: reemplazo con nodos nuevos', ws2.nodes.length === 3 && !ws2.nodes.some((n) => ws.nodes.some((o) => o.id === n.id)), ws2.nodes.map((n) => n.id));
+
+    /* solo lectura: sin la acción */
+    await page.evaluate(async (pid) => { await PM.store.set(PM.paths.tool(pid, 'wbs'), { nodes: [] }); }, pid); await page.waitForTimeout(300);
+    check('alcance: vuelve al estado vacío', await page.isVisible('[data-wbs-from-scope]'), null);
+    await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(150);
+    check('alcance: en lectura no se ofrece', !(await page.$('[data-wbs-from-scope]')), null);
+    await page.evaluate(() => PM.setState({ canWrite: true })); await page.waitForTimeout(150);
+
+    /* 400 px: los tres botones caben sin desborde */
+    await page.setViewportSize({ width: 400, height: 860 }); await page.waitForTimeout(250);
+    const o = await horizontalOverflow(page);
+    check('alcance: 400 px sin desborde horizontal', o <= 1, o);
+    await shot(page, 'edt-vacia-con-enunciado-movil');
+
+    check('alcance: sin tarjetas de error', !(await errorCards(page)).length, null);
+    check('alcance: sin errores de consola', !errors.length, errors);
+  } catch (e) { fails++; console.error('EXCEPCIÓN', e); }
+  finally { await browser.close(); }
+}
+
 /* =============================================================== capturas y rendimiento con datos de ejemplo */
 for (const mode of [{ name: 'claro', dark: false, width: 1360 }, { name: 'oscuro', dark: true, width: 1360 }, { name: 'movil', dark: false, width: 400 }]) {
   const { browser, page, errors } = await openApp({ file, width: mode.width, height: mode.width < 500 ? 860 : 900, dark: mode.dark });

@@ -3,7 +3,7 @@
    S, hitos, riesgos, incidentes, cambios, documentación y ruta sugerida),
    "lineas-base" (establecer, comparar y eliminar líneas base del alcance,
    cronograma y costos) y "ficha" (metadatos, fecha de corte, calendario,
-   almacenamiento y zona de riesgo).
+   almacenamiento, respaldo y eliminación del proyecto).
    ========================================================================== */
 (function () {
   'use strict';
@@ -80,6 +80,12 @@
 .dashboard-step-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .dashboard-step-title { font-weight: 600; font-size: var(--fs-sm); }
 .dashboard-step-desc { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.4; }
+.dashboard-step-note { font-size: var(--fs-xs); line-height: 1.4; color: var(--fg); background: var(--warn-wash); border-radius: var(--r-sm); padding: 4px 6px; }
+.dashboard-phase-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dashboard-status-hint { align-items: center; flex-wrap: wrap; }
+.dashboard-status-hint > .icon { margin-top: 0; }
+.dashboard-status-hint-main { flex: 1 1 260px; min-width: 0; color: var(--fg); }
+.dashboard-status-hint-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .dashboard-tb { grid-auto-flow: row dense; overflow: hidden; }
 .dashboard-tb > div { margin: 0 -1px -1px 0; }
 .dashboard-sd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -184,6 +190,17 @@
   const hasContent = (r) => !!(r && (String(r.descripcion || '').trim() || String(r.id || '').trim()));
   const VarText = ({ v }) => html`<span class=${!isNum(v) || v === 0 ? 'faint' : v > 0 ? 'dashboard-late' : 'dashboard-early'}>${signedNum(v)}</span>`;
   const workweekOf = (settings) => ([5, 6, 7].includes(Number(settings && settings.workweek)) ? Number(settings.workweek) : 5);
+  /* Lectura de los índices con la misma banda que la vista de valor ganado (50-evm.js): de 0,98 a 1,02 es «al día» o
+     «dentro del presupuesto»; el color lo da PM.calc.indexTone (≥ 0,98 bien), así la palabra y el tono no se contradicen. */
+  const IDX_LOW = 0.98, IDX_HIGH = 1.02;
+  const spiText = (v) => (v > IDX_HIGH ? 'Adelantado' : v >= IDX_LOW ? 'Al día' : 'Atrasado');
+  const cpiText = (v) => (v > IDX_HIGH ? 'Por debajo del presupuesto' : v >= IDX_LOW ? 'Dentro del presupuesto' : 'Por encima del presupuesto');
+  /* Riesgo abierto: el mismo criterio de la matriz de probabilidad e impacto (70-matrices.js); un riesgo «Materializado»
+     ya pasó al registro de incidentes. */
+  const isOpenRisk = (r) => !['cerrado', 'materializado'].includes(norm(r.estado));
+  const isOpenIncident = (r) => !['resuelto', 'cerrado'].includes(norm(r.estado));
+  /* Desplazamiento suave salvo que el sistema pida reducir el movimiento. */
+  const scrollBehavior = () => { try { return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'; } catch (e) { return 'auto'; } };
   const calendarText = (cal) => (WORKWEEK[cal.settings.workweek] || 'Lunes a viernes').toLowerCase() + (cal.settings.holidaysCO ? ', descontando festivos de Colombia' : ', sin descontar festivos');
 
   function useWidth(ref, fallback) {
@@ -285,6 +302,17 @@
     </div>`;
   }
 
+  /* Avance físico a la fecha de corte: EV/BAC frente a PV/BAC si las actividades tienen costo; si no, ponderado por duración. */
+  function physicalProgress(model) {
+    const { sched, evm, statusDate } = model;
+    if (evm.bac > 0) return { actual: evm.pctComplete, planned: evm.pctPlanned, weighted: false };
+    const work = sched.tasks.filter((t) => !t.milestone);
+    const wsum = PM.sum(work, (t) => t.duration);
+    const actual = wsum ? PM.sum(work, (t) => (t.duration * t.progress) / 100) / wsum : 0;
+    const planned = wsum ? PM.sum(work, (t) => t.duration * PM.calc.plannedFraction(sched.cal, t.startDate, t.finishDate, false, statusDate)) / wsum : 0;
+    return { actual, planned, weighted: true };
+  }
+
   function KpiRow({ model, project }) {
     const { sched, evm, baselines, currency, statusDate } = model;
     const cal = sched.cal;
@@ -297,18 +325,18 @@
     /* 1. avance físico */
     let av;
     if (!hasTasks) av = { value: '—', sub: 'El cronograma aún no tiene actividades.', action: ['Crear cronograma', 'cronograma'] };
-    else if (bac > 0) av = { value: fmt.pct(evm.pctComplete, 1), actual: evm.pctComplete, planned: evm.pctPlanned, tone: spiTone, sub: 'Planificado ' + fmt.pct(evm.pctPlanned, 1) + ' al ' + fmt.date(statusDate, 'dm') + ' · EV/BAC frente a PV/BAC' };
     else {
-      const wsum = PM.sum(work, (t) => t.duration);
-      const actual = wsum ? PM.sum(work, (t) => (t.duration * t.progress) / 100) / wsum : 0;
-      const planned = wsum ? PM.sum(work, (t) => t.duration * PM.calc.plannedFraction(cal, t.startDate, t.finishDate, false, statusDate)) / wsum : 0;
-      const tone = planned > 0 ? PM.calc.indexTone(actual / planned) : null;
-      av = { value: fmt.pct(actual, 1), actual, planned, tone, sub: 'Ponderado por duración (planificado ' + fmt.pct(planned, 1) + '): las actividades aún no tienen costo.', action: ['Asignar costos', 'cronograma'] };
+      const pp = physicalProgress(model);
+      if (!pp.weighted) av = { value: fmt.pct(pp.actual, 1), actual: pp.actual, planned: pp.planned, tone: spiTone, sub: 'Planificado ' + fmt.pct(pp.planned, 1) + ' al ' + fmt.date(statusDate, 'dm') + ' · EV/BAC frente a PV/BAC' };
+      else {
+        const tone = pp.planned > 0 ? PM.calc.indexTone(pp.actual / pp.planned) : null;
+        av = { value: fmt.pct(pp.actual, 1), actual: pp.actual, planned: pp.planned, tone, sub: 'Ponderado por duración (planificado ' + fmt.pct(pp.planned, 1) + '): las actividades aún no tienen costo.', action: ['Asignar costos', 'cronograma'] };
+      }
     }
 
     /* 2. índices */
-    const spiWord = evm.spi === null ? 'Sin valor planificado a la fecha' : evm.spi >= 1 ? 'Al día o adelantado' : 'Atrasado';
-    const cpiWord = evm.cpi === null ? 'Sin costos reales' : evm.cpi >= 1 ? 'Dentro del presupuesto' : 'Sobre el presupuesto';
+    const spiWord = evm.spi === null ? 'Sin valor planificado a la fecha' : spiText(evm.spi);
+    const cpiWord = evm.cpi === null ? 'Sin costos reales' : cpiText(evm.cpi);
     const idxAction = !hasTasks ? null : !(bac > 0) ? ['Asignar costos a las actividades', 'cronograma'] : !(evm.ac > 0) ? ['Registrar costos reales', 'valor-ganado'] : null;
 
     /* 3. EAC */
@@ -372,10 +400,16 @@
     const raw = max / count; const p = Math.pow(10, Math.floor(Math.log10(raw))); const f = raw / p;
     return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
   }
+  /* Mismos colores que la vista «Curva S y valor ganado» (50-evm.js): PV --s1, EV --s3, AC --s2.
+     Si ese módulo publica su asignación (PM.EVM_SERIES), se usa la suya para que no se separen. */
+  const evmColor = (key, fallback) => {
+    const s = Array.isArray(PM.EVM_SERIES) ? PM.EVM_SERIES.find((x) => x && x.key === key) : null;
+    return s && typeof s.color === 'string' && /^var\(--[\w-]+\)$/.test(s.color) ? s.color : fallback;
+  };
   const SERIES = [
-    { key: 'pv', label: 'Valor planificado (PV)', color: 'var(--fg-3)' },
-    { key: 'ev', label: 'Valor ganado (EV)', color: 'var(--accent)' },
-    { key: 'ac', label: 'Costo real (AC)', color: 'var(--s5)' },
+    { key: 'pv', label: 'Valor planificado (PV)', color: evmColor('pv', 'var(--s1)') },
+    { key: 'ev', label: 'Valor ganado (EV)', color: evmColor('ev', 'var(--s3)') },
+    { key: 'ac', label: 'Costo real (AC)', color: evmColor('ac', 'var(--s2)') },
   ];
   function MiniSCurve({ evm, currency }) {
     const tip = PM.useChartTip();
@@ -436,7 +470,7 @@
           return html`<g key=${'m' + m}><line class="axis-line" x1=${xx} x2=${xx} y1=${M.t + geo.ih} y2=${M.t + geo.ih + 4} /><text x=${end ? width - 2 : start ? 2 : xx} y=${H - 8} text-anchor=${end ? 'end' : start ? 'start' : 'middle'}>${label}</text></g>`;
         })}
         ${bacY !== null ? html`<line x1=${M.l} x2=${M.l + geo.iw} y1=${bacY} y2=${bacY} style="stroke:var(--line-strong);stroke-width:1" /><text x=${M.l + 4} y=${bacY - 4}>BAC</text>` : null}
-        ${sx !== null ? html`<line x1=${sx} x2=${sx} y1=${M.t - 4} y2=${M.t + geo.ih} style="stroke:var(--signal);stroke-width:1.5" /><text x=${sx > M.l + geo.iw - 40 ? sx - 4 : sx + 4} y=${M.t - 6} text-anchor=${sx > M.l + geo.iw - 40 ? 'end' : 'start'} style="fill:var(--signal);font-weight:600">Corte</text>` : null}
+        ${sx !== null ? html`<line x1=${sx} x2=${sx} y1=${M.t - 4} y2=${M.t + geo.ih} style="stroke:var(--signal);stroke-width:1.5" /><text x=${sx > M.l + geo.iw - 40 ? sx - 4 : sx + 4} y=${M.t - 6} text-anchor=${sx > M.l + geo.iw - 40 ? 'end' : 'start'} style="fill:var(--signal-ink);font-weight:600">Corte</text>` : null}
         ${geo.paths.map((s) => (s.d ? html`<path key=${s.key} data-series=${s.key} d=${s.d} style=${'fill:none;stroke:' + s.color + ';stroke-width:2;stroke-linejoin:round;stroke-linecap:round'} />` : null))}
         ${hp ? html`<g pointer-events="none">
           <line x1=${geo.xs[hover]} x2=${geo.xs[hover]} y1=${M.t} y2=${M.t + geo.ih} style="stroke:var(--axis);stroke-width:1" />
@@ -450,7 +484,7 @@
   function SCurveCard({ model }) {
     const { evm, currency, baselines, sched } = model;
     const has = evm.bac > 0 && (evm.series || []).length > 1;
-    const subtitle = has ? (evm.fromBaseline ? 'PV según ' + baselines.cost.label : 'PV según el cronograma actual (sin línea base de costos)') + ' · corte ' + fmt.date(evm.statusDate) : 'Valores acumulados de PV, EV y AC';
+    const subtitle = has ? (evm.fromBaseline ? 'PV según ' + baselines.cost.label : 'PV según el cronograma vigente (sin línea base de costos)') + ' · corte ' + fmt.date(evm.statusDate) : 'Valores acumulados de PV, EV y AC';
     return html`<${Panel} title="Curva S" subtitle=${subtitle} actions=${html`<${ViewBtn} label="Ver valor ganado" view="valor-ganado" />`} data-card="scurve">
       ${has ? html`<div class="card-body stack-sm">
         <div class="legend">${SERIES.map((s) => html`<span class="legend-item" key=${s.key}><span class="legend-line" style=${'background:' + s.color}></span>${s.label}<span class="dashboard-legend-v">${moneyShort(evm[s.key], currency)}</span></span>`)}</div>
@@ -487,7 +521,7 @@
                 <span class="xsmall mono">${fmt.date(t.startDate)}</span>
                 ${overdue ? html`<${ui.Chip} tone="crit">Vencido</${ui.Chip}>` : null}
                 ${t.tf <= 0 ? html`<${ui.Chip} tone="crit" title="Holgura total cero: cualquier atraso mueve el fin del proyecto">Ruta crítica</${ui.Chip}>` : html`<${ui.Chip} tone="outline" title="Holgura total en días hábiles">Holgura ${fmt.num(t.tf)} d</${ui.Chip}>`}
-                ${bl ? (b ? html`<${ui.Chip} tone=${v > 0 ? lateTone(v) : v < 0 ? 'good' : 'outline'} title=${'Fin en ' + bl.label + ': ' + fmt.date(b.finish)}>${v === 0 ? 'Sin variación' : signedNum(v) + ' d'} vs ${bl.label}</${ui.Chip}>` : html`<${ui.Chip} tone="info">Nuevo, no está en ${bl.label}</${ui.Chip}>`) : null}
+                ${bl ? (b ? html`<${ui.Chip} tone=${v > 0 ? lateTone(v) : v < 0 ? 'good' : 'outline'} title=${'Fin en ' + bl.label + ': ' + fmt.date(b.finish)}>${v === 0 ? 'Sin variación' : signedNum(v) + ' d'} frente a ${bl.label}</${ui.Chip}>` : html`<${ui.Chip} tone="info">Nuevo, no está en ${bl.label}</${ui.Chip}>`) : null}
               </div>
             </div>
           </li>`;
@@ -501,12 +535,12 @@
     return html`<div class="dashboard-blank"><div>${exists ? text : emptyText}</div>${!exists && canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${() => openDoc(templateId)}>${buttonLabel}</${ui.Button}>` : null}</div>`;
   }
   function RisksCard({ rows, exists, canWrite }) {
-    const active = rows.filter((r) => hasContent(r) && norm(r.estado) !== 'cerrado');
+    const active = rows.filter((r) => hasContent(r) && isOpenRisk(r));
     const top = PM.sortBy(active, (r) => riskScoreOf(r), -1).slice(0, 5);
     const high = active.filter((r) => riskScoreOf(r) >= 10).length;
     const actions = html`<${ui.Button} size="sm" variant="ghost" onClick=${() => openDoc('registro-riesgos')}>Abrir registro</${ui.Button}><${ViewBtn} label="Ver matriz" view="riesgos-matriz" />`;
-    return html`<${Panel} title="Riesgos principales" count=${active.length || null} countTone=${high ? 'signal' : undefined} subtitle=${active.length ? active.length + ' activos · ' + high + ' de nivel alto o muy alto · ordenados por P × I' : 'Registro de riesgos (11.2 Identificar los riesgos)'} actions=${actions} data-card="risks">
-      ${!active.length ? html`<${RegisterBlank} exists=${exists && rows.some(hasContent)} canWrite=${canWrite} templateId="registro-riesgos" buttonLabel="Registrar riesgos" text="No hay riesgos activos: todos los registrados están cerrados." emptyText="Aún no hay riesgos registrados. Identifica amenazas y oportunidades con su probabilidad e impacto (escala 1 a 5)." />`
+    return html`<${Panel} title="Riesgos principales" count=${active.length || null} countTone=${high ? 'signal' : undefined} subtitle=${active.length ? active.length + (active.length === 1 ? ' abierto · ' : ' abiertos · ') + high + ' de nivel alto o muy alto · ordenados por P × I' : 'Registro de riesgos (11.2 Identificar los riesgos)'} actions=${actions} data-card="risks">
+      ${!active.length ? html`<${RegisterBlank} exists=${exists && rows.some(hasContent)} canWrite=${canWrite} templateId="registro-riesgos" buttonLabel="Registrar riesgos" text="No hay riesgos abiertos: todos los registrados están cerrados o materializados (los materializados se siguen en el registro de incidentes)." emptyText="Aún no hay riesgos registrados. Identifica amenazas y oportunidades con su probabilidad e impacto (escala 1 a 5)." />`
         : html`<ul class="dashboard-list">${top.map((r, i) => {
           const score = riskScoreOf(r); const lvl = PM.calc.riskLevel(score);
           return html`<li class="dashboard-li" key=${(r.id || '') + i} data-risk=${r.id}>
@@ -518,12 +552,12 @@
             <${ui.Chip} tone=${lvl.tone} title=${'Probabilidad ' + (r.probabilidad || '—') + ' × impacto ' + (r.impacto || '—')}>${lvl.label} · ${score || '—'}</${ui.Chip}>
           </li>`;
         })}</ul>
-        ${active.length > top.length ? html`<div class="dashboard-more"><${LinkBtn} label=${'Ver los ' + (active.length - top.length) + ' riesgos activos restantes'} onClick=${() => openDoc('registro-riesgos')} /></div>` : null}`}
+        ${active.length > top.length ? html`<div class="dashboard-more"><${LinkBtn} label=${active.length - top.length === 1 ? 'Ver el otro riesgo abierto' : 'Ver los ' + (active.length - top.length) + ' riesgos abiertos restantes'} onClick=${() => openDoc('registro-riesgos')} /></div>` : null}`}
     </${Panel}>`;
   }
   const PRIORITY_TONE = { alta: 'crit', media: 'warn', baja: 'outline' };
   function IncidentsCard({ rows, exists, canWrite, statusDate }) {
-    const open = PM.sortBy(rows.filter((r) => hasContent(r) && !['resuelto', 'cerrado'].includes(norm(r.estado))), (r) => (PRIORITY[norm(r.prioridad)] ?? 3) + '|' + (r.fechaObjetivo || '9999'));
+    const open = PM.sortBy(rows.filter((r) => hasContent(r) && isOpenIncident(r)), (r) => (PRIORITY[norm(r.prioridad)] ?? 3) + '|' + (r.fechaObjetivo || '9999'));
     const shown = open.slice(0, 4);
     return html`<${Panel} title="Incidentes abiertos" count=${exists ? open.length : null} countTone=${open.length ? 'warn' : 'good'} subtitle="Registro de incidentes (4.3)" actions=${html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => openDoc('registro-incidentes')}>Abrir registro</${ui.Button}>`} data-card="incidents">
       ${!open.length ? html`<${RegisterBlank} exists=${exists} canWrite=${canWrite} templateId="registro-incidentes" buttonLabel="Crear registro de incidentes" text="No hay incidentes abiertos." emptyText="Aún no se ha creado el registro de incidentes." />`
@@ -570,7 +604,7 @@
     return html`<span class="dashboard-bar">${segs.map(([k, col]) => html`<span key=${k} style=${'flex-grow:' + c[k] + ';background:' + col}></span>`)}</span>`;
   }
   function DocRow({ label, code, swatch, c, onClick, id }) {
-    const aria = label + ': ' + c.ok + ' aprobados, ' + c.wip + ' en elaboración y ' + c.none + ' sin iniciar, de ' + c.total;
+    const aria = label + ': ' + c.ok + (c.ok === 1 ? ' aprobado, ' : ' aprobados, ') + c.wip + ' en elaboración y ' + c.none + ' sin iniciar, de ' + c.total + (c.total === 1 ? ' documento' : ' documentos');
     return html`<button type="button" class="dashboard-docrow" data-docrow=${id} onClick=${onClick} aria-label=${aria} title=${aria}>
       <span class="dashboard-docrow-label">${code ? html`<span class="code-tag">${code}</span>` : null}${swatch ? html`<span class="swatch" style=${'background:' + swatch}></span>` : null}<span class="truncate">${label}</span></span>
       <${StackBar} c=${c} />
@@ -624,7 +658,36 @@
     </${Panel}>`;
   }
 
-  function buildRoute({ model, docs, riesgos, canWrite }) {
+  const isApproved = (d) => !!d && d.status === 'aprobado';
+  const docStateLabel = (d, approvedLabel) => (!d ? 'Pendiente' : isApproved(d) ? approvedLabel : PM.docStatus(d.status).label);
+  const hasNumImpact = (v) => isNum(num(v, NaN)) && num(v) !== 0;
+  /* filas del registro de entregables (4.3 / 5.5) con nombre */
+  function deliverablesOf(docs) {
+    const doc = docs.get('entregables');
+    const rows = doc && doc.fields && Array.isArray(doc.fields.entregables) ? doc.fields.entregables.filter((r) => r && typeof r === 'object' && String(r.entregable || '').trim()) : [];
+    return { doc, rows, accepted: rows.filter((r) => norm(r.estado) === 'aceptado').length };
+  }
+  /* Lo que falta para cerrar el proyecto (4.7): trabajo sin terminar, riesgos e incidentes abiertos y entregables sin aceptar. */
+  function closureBlockers({ model, docs, riesgos, incidentes }) {
+    const out = [];
+    const work = model.sched.tasks.filter((t) => !t.milestone);
+    const unfinished = work.filter((t) => num(t.progress) < 100).length;
+    if (unfinished) out.push('avance físico ' + fmt.pct(physicalProgress(model).actual, 1) + ' (' + unfinished + (unfinished === 1 ? ' actividad sin terminar)' : ' actividades sin terminar)'));
+    const openR = riesgos.filter((r) => hasContent(r) && isOpenRisk(r)).length;
+    if (openR) out.push(openR + (openR === 1 ? ' riesgo abierto' : ' riesgos abiertos'));
+    const openI = incidentes.filter((r) => hasContent(r) && isOpenIncident(r)).length;
+    if (openI) out.push(openI + (openI === 1 ? ' incidente abierto' : ' incidentes abiertos'));
+    const ent = deliverablesOf(docs);
+    const notAcc = ent.rows.length - ent.accepted;
+    if (notAcc) out.push(notAcc + (notAcc === 1 ? ' entregable sin aceptar' : ' entregables sin aceptar'));
+    return out;
+  }
+  const PHASES = [
+    { id: 'plan', label: 'Inicio y planificación' },
+    { id: 'control', label: 'Ejecución, monitoreo y cierre' },
+  ];
+
+  function buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite }) {
     const acta = docs.get('acta-constitucion');
     const inter = docs.get('registro-interesados');
     const nInter = inter && inter.fields && Array.isArray(inter.fields.interesados) ? inter.fields.interesados.filter((r) => r && String(r.nombre || r.cargo || r.organizacion || '').trim()).length : 0;
@@ -636,46 +699,129 @@
     const costs = model.costs || {};
     const nRisks = riesgos.filter(hasContent).length;
     const progressed = tasks.some((t) => t.progress > 0) || (costs.statusUpdates || []).length > 0 || (costs.actuals || []).length > 0;
+    /* 4.5 informe de desempeño: el último emitido (aprobado) debe cubrir el periodo de la fecha de corte (≈ un mes) */
+    const reports = docs.byTemplate['informe-desempeno'] || [];
+    const repDate = (d) => (d.fields && D.valid(d.fields.fechaCorte) ? d.fields.fechaCorte : String(d.updatedAt || d.createdAt || '').slice(0, 10));
+    const lastRep = PM.sortBy(reports, repDate, -1)[0] || null;
+    const lastIssued = PM.sortBy(reports.filter(isApproved), repDate, -1)[0] || null;
+    const issuedAt = lastIssued ? repDate(lastIssued) : null;
+    const repCurrent = !!lastIssued && (!D.valid(issuedAt) || D.diff(issuedAt, model.statusDate) <= 35);
+    const repDraft = lastRep && !isApproved(lastRep) ? lastRep : null;
+    /* 4.6 control integrado de cambios: nada pendiente de decisión y cada cambio aprobado con impacto llevado a una línea base */
+    const changesDoc = docs.get('registro-cambios');
+    const validCh = cambios.filter(hasContent);
+    const pendingCh = validCh.filter((r) => ['registrada', 'en analisis'].includes(norm(r.estado)));
+    const latestBl = model.baselines.latest;
+    const refs = new Set(model.baselines.list.map((b) => b.changeRef).filter(Boolean));
+    const unbaselined = latestBl ? validCh.filter((r) => norm(r.estado) === 'aprobada' && (hasNumImpact(r.impactoCronograma) || hasNumImpact(r.impactoCosto)) && !refs.has(r.id) && (!D.valid(r.fechaDecision) || r.fechaDecision > latestBl.date)) : [];
+    /* 5.5 entregables aceptados */
+    const ent = deliverablesOf(docs);
+    const actasOk = (docs.byTemplate['acta-aceptacion-entregable'] || []).filter(isApproved).length;
+    const nActas = (docs.byTemplate['acta-aceptacion-entregable'] || []).length;
+    /* 4.7 cierre */
+    const ifin = docs.get('informe-final');
+    const acie = docs.get('acta-cierre');
+    const blockers = closureBlockers({ model, docs, riesgos, incidentes });
     const steps = [
-      { id: 'acta', label: 'Acta de constitución aprobada', desc: '4.1 · Autoriza formalmente el proyecto y al director.', done: !!acta && acta.status === 'aprobado', partial: !!acta, stateLabel: acta ? (acta.status === 'aprobado' ? 'Aprobada' : PM.docStatus(acta.status).label) : 'Pendiente', action: () => openDoc('acta-constitucion') },
-      { id: 'interesados', label: 'Registro de interesados', desc: '13.1 · Identifica a quienes influyen o se ven afectados por el proyecto.', done: nInter > 0, partial: !!inter, stateLabel: nInter ? nInter + (nInter === 1 ? ' interesado' : ' interesados') : inter ? 'Sin interesados registrados' : 'Pendiente', action: () => openDoc('registro-interesados') },
-      { id: 'alcance', label: 'Enunciado del alcance', desc: '5.3 · Entregables, exclusiones y criterios de aceptación.', done: !!enunciado, stateLabel: enunciado ? PM.docStatus(enunciado.status).label : 'Pendiente', action: () => openDoc('enunciado-alcance') },
-      { id: 'edt', label: 'EDT', desc: '5.4 · Desglosa el alcance en paquetes de trabajo.', done: nodes.length > 0, stateLabel: nodes.length ? nodes.length + ' elementos' : 'Pendiente', action: () => go('edt') },
-      { id: 'cronograma', label: 'Cronograma', desc: '6.2–6.5 · Actividades, dependencias, duraciones y ruta crítica.', done: work.length > 0, stateLabel: work.length ? work.length + (work.length === 1 ? ' actividad' : ' actividades') : 'Pendiente', action: () => go('cronograma') },
-      { id: 'presupuesto', label: 'Presupuesto (costos en actividades)', desc: '7.2–7.3 · Costo de cada actividad; su suma es el BAC.', done: bacNow > 0, stateLabel: bacNow > 0 ? 'BAC ' + moneyShort(bacNow, model.currency) : 'Pendiente', action: () => go('cronograma') },
-      { id: 'riesgos', label: 'Registro de riesgos', desc: '11.2 · Amenazas y oportunidades con probabilidad e impacto.', done: nRisks > 0, partial: riesgos.length > 0, stateLabel: nRisks ? nRisks + (nRisks === 1 ? ' riesgo' : ' riesgos') : 'Pendiente', action: () => openDoc('registro-riesgos') },
-      { id: 'lineabase', label: 'Línea base', desc: '4.2 · Aprueba alcance, cronograma y costos como referencia del desempeño.', done: model.baselines.list.length > 0, stateLabel: model.baselines.latest ? model.baselines.latest.label + ' establecida' : 'Pendiente', action: () => (canWrite ? openEstablish() : go('lineas-base')) },
-      { id: 'avance', label: 'Registrar avance', desc: '4.3 / 4.5 · % de avance y costos reales a la fecha de corte.', done: progressed, stateLabel: progressed ? 'Con avance registrado' : 'Pendiente', action: () => go('cronograma') },
+      { phase: 'plan', id: 'acta', label: 'Acta de constitución aprobada', desc: '4.1 · Autoriza formalmente el proyecto y al director.', done: isApproved(acta), partial: !!acta, stateLabel: docStateLabel(acta, 'Aprobada'), action: () => openDoc('acta-constitucion') },
+      { phase: 'plan', id: 'interesados', label: 'Registro de interesados', desc: '13.1 · Identifica a quienes influyen o se ven afectados por el proyecto.', done: nInter > 0, partial: !!inter, stateLabel: nInter ? nInter + (nInter === 1 ? ' interesado' : ' interesados') : inter ? 'Sin interesados registrados' : 'Pendiente', action: () => openDoc('registro-interesados') },
+      { phase: 'plan', id: 'alcance', label: 'Enunciado del alcance', desc: '5.3 · Entregables, exclusiones y criterios de aceptación.', done: !!enunciado, stateLabel: enunciado ? PM.docStatus(enunciado.status).label : 'Pendiente', action: () => openDoc('enunciado-alcance') },
+      { phase: 'plan', id: 'edt', label: 'EDT', desc: '5.4 · Desglosa el alcance en paquetes de trabajo.', done: nodes.length > 0, stateLabel: nodes.length ? nodes.length + ' elementos' : 'Pendiente', action: () => go('edt') },
+      { phase: 'plan', id: 'cronograma', label: 'Cronograma', desc: '6.2–6.5 · Actividades, dependencias, duraciones y ruta crítica.', done: work.length > 0, stateLabel: work.length ? work.length + (work.length === 1 ? ' actividad' : ' actividades') : 'Pendiente', action: () => go('cronograma') },
+      { phase: 'plan', id: 'presupuesto', label: 'Presupuesto (costos en actividades)', desc: '7.2–7.3 · Costo de cada actividad; su suma es el BAC.', done: bacNow > 0, stateLabel: bacNow > 0 ? 'BAC ' + moneyShort(bacNow, model.currency) : 'Pendiente', action: () => go('cronograma') },
+      { phase: 'plan', id: 'riesgos', label: 'Registro de riesgos', desc: '11.2 · Amenazas y oportunidades con probabilidad e impacto.', done: nRisks > 0, partial: riesgos.length > 0, stateLabel: nRisks ? nRisks + (nRisks === 1 ? ' riesgo' : ' riesgos') : 'Pendiente', action: () => openDoc('registro-riesgos') },
+      { phase: 'plan', id: 'lineabase', label: 'Línea base', desc: '4.2 · Aprueba alcance, cronograma y costos como referencia del desempeño.', done: model.baselines.list.length > 0, stateLabel: latestBl ? latestBl.label + ' establecida' : 'Pendiente', action: () => (canWrite ? openEstablish() : go('lineas-base')) },
+      { phase: 'control', id: 'avance', label: 'Registrar avance', desc: '4.3 / 4.5 · % de avance y costos reales a la fecha de corte.', done: progressed, stateLabel: progressed ? 'Con avance registrado' : 'Pendiente', action: () => go('cronograma') },
+      { phase: 'control', id: 'informe', label: 'Informe de desempeño', desc: '4.5 · Comunica el avance, el valor ganado y los pronósticos de cada periodo.', done: repCurrent, partial: reports.length > 0,
+        stateLabel: repCurrent ? 'Emitido · corte ' + fmt.date(issuedAt, 'dm') : repDraft ? PM.docStatus(repDraft.status).label : lastIssued ? 'Desactualizado · corte ' + fmt.date(issuedAt, 'dm') : 'Pendiente',
+        action: () => openDoc(repDraft ? repDraft.id : repCurrent ? lastIssued.id : 'informe-desempeno') },
+      { phase: 'control', id: 'cambios', label: 'Control de cambios', desc: '4.6 · Decide las solicitudes de cambio y lleva las aprobadas a una nueva línea base.', done: !!changesDoc && !pendingCh.length && !unbaselined.length, partial: !!changesDoc,
+        stateLabel: !changesDoc ? 'Pendiente' : pendingCh.length ? pendingCh.length + (pendingCh.length === 1 ? ' pendiente de decisión' : ' pendientes de decisión') : unbaselined.length === 1 ? unbaselined[0].id + ' aprobada sin nueva línea base' : unbaselined.length ? unbaselined.length + ' aprobadas sin nueva línea base' : validCh.length ? 'Sin solicitudes pendientes' : 'Sin solicitudes',
+        action: () => (!pendingCh.length && unbaselined.length && canWrite ? openEstablish() : openDoc('registro-cambios')) },
+      { phase: 'control', id: 'entregables', label: 'Entregables aceptados', desc: '5.5 · El cliente acepta formalmente los entregables verificados.', done: ent.rows.length > 0 && ent.accepted === ent.rows.length, partial: !!ent.doc || nActas > 0,
+        stateLabel: ent.rows.length ? ent.accepted + ' de ' + ent.rows.length + (ent.rows.length === 1 ? ' aceptado' : ' aceptados') : actasOk ? actasOk + (actasOk === 1 ? ' acta aprobada' : ' actas aprobadas') : ent.doc ? 'Sin entregables registrados' : 'Pendiente',
+        action: () => openDoc('entregables') },
+      { phase: 'control', id: 'informe-final', label: 'Informe final', desc: '4.7 · Resume el desempeño del alcance, el cronograma, los costos y la calidad.', done: isApproved(ifin), partial: !!ifin, stateLabel: docStateLabel(ifin, 'Aprobado'), action: () => openDoc('informe-final') },
+      { phase: 'control', id: 'acta-cierre', label: 'Acta de cierre', desc: '4.7 · Formaliza la aceptación final y el cierre del proyecto.', done: isApproved(acie) && !blockers.length, partial: !!acie,
+        stateLabel: isApproved(acie) && blockers.length ? 'Aprobada con pendientes' : docStateLabel(acie, 'Aprobada'),
+        note: blockers.length ? (isApproved(acie) ? 'Se aprobó con pendientes: ' : 'Antes de aprobarla: ') + blockers.join(', ') + '.' : null, showNote: !!(acie || ifin),
+        action: () => openDoc('acta-cierre') },
     ];
     return steps.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
+  }
+  function RouteStep({ s, i, next }) {
+    return html`<li><button type="button" class="dashboard-step" data-step=${s.id} data-state=${s.state} data-next=${next ? 'true' : undefined} onClick=${s.action}>
+      <span class="dashboard-step-num" aria-hidden="true">${s.done ? html`<${ui.Icon} name="check" size=${14} stroke=${2.5} />` : i + 1}</span>
+      <span class="dashboard-step-body">
+        <span class="dashboard-step-title">${s.label}</span>
+        <span class="dashboard-step-desc">${s.desc}</span>
+        <span class="row" style="gap:6px"><${ui.Chip} tone=${s.done ? 'good' : s.state === 'partial' ? 'warn' : 'outline'}>${s.stateLabel}</${ui.Chip}>${next ? html`<span class="xsmall" style="color:var(--accent);font-weight:600">Siguiente paso</span>` : null}</span>
+        ${s.note && (s.showNote || next) ? html`<span class="dashboard-step-note" data-step-note=${s.id}>${s.note}</span>` : null}
+      </span>
+    </button></li>`;
   }
   function RouteCard({ route, prominent }) {
     const [open, setOpen] = useState(!!prominent);
     const done = route.filter((r) => r.done).length;
     const nextIdx = route.findIndex((r) => !r.done);
     const complete = done === route.length;
+    const planDone = route.filter((r) => r.phase === 'plan').every((r) => r.done);
+    const summary = complete ? 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®, del acta de constitución al acta de cierre.'
+      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: sigue monitorear, controlar y cerrar.'
+      : done + ' de ' + route.length + ' pasos completados · iniciar, planificar, establecer la línea base, controlar y cerrar.';
     return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'}>
       <div class="dashboard-panel-head">
         <div class="stack-sm" style="gap:2px;min-width:0">
           <h3 class="h3">${prominent ? 'Ruta sugerida para arrancar el proyecto' : 'Ruta sugerida'}</h3>
-          <div class="xsmall faint">${complete ? 'Completaste los ' + route.length + ' pasos del flujo de la Guía del PMBOK®.' : done + ' de ' + route.length + ' pasos completados · iniciar, planificar, establecer la línea base y controlar.'}</div>
+          <div class="xsmall faint" data-route-summary>${summary}</div>
         </div>
         <div class="row">
           <div class="dashboard-route-meter"><${ui.Meter} value=${done / route.length} tone=${complete ? 'good' : undefined} label="Pasos completados" /></div>
           ${!prominent ? html`<${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ocultar pasos' : 'Mostrar pasos'}</${ui.Button}>` : null}
         </div>
       </div>
-      ${open ? html`<div class="card-body"><ol class="dashboard-steps">
-        ${route.map((s, i) => html`<li key=${s.id}><button type="button" class="dashboard-step" data-step=${s.id} data-state=${s.state} data-next=${i === nextIdx ? 'true' : undefined} onClick=${s.action}>
-          <span class="dashboard-step-num" aria-hidden="true">${s.done ? html`<${ui.Icon} name="check" size=${14} stroke=${2.5} />` : i + 1}</span>
-          <span class="dashboard-step-body">
-            <span class="dashboard-step-title">${s.label}</span>
-            <span class="dashboard-step-desc">${s.desc}</span>
-            <span class="row" style="gap:6px"><${ui.Chip} tone=${s.done ? 'good' : s.state === 'partial' ? 'warn' : 'outline'}>${s.stateLabel}</${ui.Chip}>${i === nextIdx ? html`<span class="xsmall" style="color:var(--accent);font-weight:600">Siguiente paso</span>` : null}</span>
-          </span>
-        </button></li>`)}
-      </ol></div>` : null}
+      ${open ? html`<div class="card-body stack">
+        ${PHASES.map((ph) => {
+          const items = route.map((s, i) => ({ s, i })).filter((x) => x.s.phase === ph.id);
+          if (!items.length) return null;
+          const n = items.filter((x) => x.s.done).length;
+          return html`<div class="stack-sm" key=${ph.id} data-phase=${ph.id}>
+            <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${items.length}</span></div>
+            <ol class="dashboard-steps" start=${items[0].i + 1}>${items.map(({ s, i }) => html`<${RouteStep} key=${s.id} s=${s} i=${i} next=${i === nextIdx} />`)}</ol>
+          </div>`;
+        })}
+      </div>` : null}
     </section>`;
+  }
+
+  /* Sugerencia de estado del proyecto en los hitos del flujo (línea base → En ejecución; informe final o acta de cierre →
+     En cierre; acta de cierre aprobada → Cerrado). El cambio lo hace el usuario; «Ahora no» la oculta en este navegador. */
+  function statusSuggestion({ project, model, docs }) {
+    const st = project.status || '';
+    const acie = docs.get('acta-cierre');
+    const ifin = docs.get('informe-final');
+    if (isApproved(acie)) return st === 'Cerrado' ? null : { to: 'Cerrado', text: 'El acta de cierre está aprobada' };
+    if ((acie || ifin) && ['Propuesta', 'En planificación', 'En ejecución'].includes(st)) return { to: 'En cierre', text: acie ? 'El acta de cierre está en elaboración' : 'El informe final está en elaboración' };
+    const bl = model.baselines.latest;
+    if (bl && ['Propuesta', 'En planificación'].includes(st)) return { to: 'En ejecución', text: 'La línea base ' + bl.label + ' ya está establecida' };
+    return null;
+  }
+  function StatusHint({ project, model, docs }) {
+    const sug = statusSuggestion({ project, model, docs });
+    const key = 'dashboard.statusHint.' + project.id;
+    const [dismissed, setDismissed] = useState(() => PM.prefs.get(key, null));
+    const [busy, setBusy] = useState(false);
+    if (!sug || dismissed === sug.to + '|' + (project.status || '')) return null;
+    const apply = () => { setBusy(true); PM.projectOps.update(project.id, { status: sug.to }).then(() => PM.toast('Estado del proyecto: ' + sug.to + '.'), () => {}).then(() => setBusy(false)); };
+    const later = () => { const v = sug.to + '|' + (project.status || ''); PM.prefs.set(key, v); setDismissed(v); };
+    return html`<div class="dashboard-note dashboard-status-hint" role="status" data-status-hint=${sug.to}>
+      <${ui.Icon} name="info" size=${16} />
+      <div class="dashboard-status-hint-main">${sug.text}, pero el estado del proyecto sigue en «${project.status || 'Sin estado'}». ¿Lo cambias a «${sug.to}»?</div>
+      <div class="dashboard-status-hint-actions">
+        <${ui.Button} size="sm" variant="primary" disabled=${busy} onClick=${apply}>Cambiar a «${sug.to}»</${ui.Button}>
+        <${ui.Button} size="sm" variant="ghost" onClick=${later}>Ahora no</${ui.Button}>
+      </div>
+    </div>`;
   }
 
   /* ---------------------------------------------------------------- vista: tablero */
@@ -688,13 +834,14 @@
     const canWrite = PM.useCanWrite();
     const p = model.project || project;
     if (model.loading || docs.loading || rMeta.loading || iMeta.loading || cMeta.loading || !p) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
-    const route = buildRoute({ model, docs, riesgos, canWrite });
+    const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite });
     const prominent = route.filter((r) => r.done).length < 5;
     return html`<div class="page dashboard-page">
       <${ui.PageHeader} eyebrow="Tablero del proyecto · 4.5 Monitorear y controlar el trabajo del proyecto" title=${p.name}
         description=${p.description ? trunc(p.description, 260) : null}
         actions=${html`<${ui.Button} size="sm" icon=${canWrite ? 'edit' : 'eye'} onClick=${() => go('ficha')}>${canWrite ? 'Editar ficha' : 'Ver ficha'}</${ui.Button}>`} />
       <${TitleBlock} project=${p} />
+      ${canWrite ? html`<${StatusHint} project=${p} model=${model} docs=${docs} />` : null}
       ${prominent ? html`<${RouteCard} route=${route} prominent />` : null}
       <${KpiRow} model=${model} project=${p} />
       <div class="dashboard-two">
@@ -825,19 +972,19 @@
     const shown = onlyVar ? rows.filter((r) => r.kind !== 'same' || r.vStart || r.vFinish) : rows;
     return html`<div class="stack" data-compare="schedule">
       <div class="dashboard-summary">
-        <${SummaryCell} attr="finish" k="Fin del proyecto" v=${signedNum(finVar)} tone=${lateTone(finVar)} s=${fmt.date(snap.finish) + ' en ' + bl.label + ' → ' + (sched.tasks.length ? fmt.date(sched.finish) : '—') + ' actual'} />
+        <${SummaryCell} attr="finish" k="Fin del proyecto" v=${signedNum(finVar)} tone=${lateTone(finVar)} s=${fmt.date(snap.finish) + ' en ' + bl.label + ' → ' + (sched.tasks.length ? fmt.date(sched.finish) : '—') + ' vigente'} />
         <${SummaryCell} attr="start" k="Inicio del proyecto" v=${signedNum(startVar)} tone=${lateTone(startVar)} s=${fmt.date(snap.start) + ' → ' + (sched.tasks.length ? fmt.date(sched.start) : '—')} />
         <${SummaryCell} attr="late" k="Terminan después" v=${late} tone=${late ? 'warn' : null} s=${early + ' terminan antes'} />
         <${SummaryCell} attr="changes" k="Nuevas / eliminadas" v=${nNew + ' / ' + nRem} s=${'frente a ' + blTasks.length + ' actividades en ' + bl.label} />
       </div>
       <div class="row-between">
-        <p class="xsmall muted" style="max-width:70ch">Variaciones en días hábiles según el calendario del proyecto (${calendarText(cal)}). Positivo: la fecha actual es posterior a la de la línea base.</p>
+        <p class="xsmall muted" style="max-width:70ch">Variaciones en días hábiles según el calendario del proyecto (${calendarText(cal)}). Positivo: la fecha del cronograma vigente es posterior a la de la línea base.</p>
         <${ui.Check} checked=${onlyVar} onValue=${setOnlyVar} label="Solo actividades con variación o cambios" />
       </div>
       <div class="table-wrap"><table class="table table-tight dashboard-compare-table">
-        <thead><tr><th>Actividad</th><th>Inicio ${bl.label}</th><th>Inicio actual</th><th class="num">Var. inicio</th><th>Fin ${bl.label}</th><th>Fin actual</th><th class="num">Var. fin</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Actividad</th><th>Inicio ${bl.label}</th><th>Inicio vigente</th><th class="num">Var. inicio</th><th>Fin ${bl.label}</th><th>Fin vigente</th><th class="num">Var. fin</th><th>Estado</th></tr></thead>
         <tbody>
-          ${shown.length === 0 ? html`<tr><td colspan="8" class="faint" style="padding:12px">${rows.length ? 'Ninguna actividad tiene variación frente a ' + bl.label + '.' : 'Ni la línea base ni el cronograma actual tienen actividades.'}</td></tr>` : null}
+          ${shown.length === 0 ? html`<tr><td colspan="8" class="faint" style="padding:12px">${rows.length ? 'Ninguna actividad tiene variación frente a ' + bl.label + '.' : 'Ni la línea base ni el cronograma vigente tienen actividades.'}</td></tr>` : null}
           ${shown.map((r) => html`<tr key=${r.kind + r.id} data-task=${r.id} data-kind=${r.kind} class=${r.kind === 'removed' ? 'dashboard-row-removed' : ''}>
             <td>${r.milestone ? html`<${ui.Icon} name="milestone" size=${12} style="margin-right:4px;color:var(--fg-3)" />` : null}${r.name || 'Sin nombre'}</td>
             <td class="mono nowrap">${fmt.date(r.bStart, 'short')}</td>
@@ -875,18 +1022,18 @@
     return html`<div class="stack" data-compare="cost">
       <div class="dashboard-summary">
         <${SummaryCell} attr="bac" k=${'BAC en ' + bl.label} v=${moneyShort(bacBl, currency)} s=${money(bacBl, currency)} />
-        <${SummaryCell} attr="bac-now" k="BAC actual (suma de actividades)" v=${moneyShort(bacNow, currency)} s=${money(bacNow, currency)} />
+        <${SummaryCell} attr="bac-now" k="BAC vigente (suma de actividades)" v=${moneyShort(bacNow, currency)} s=${money(bacNow, currency)} />
         <${SummaryCell} attr="bac-var" k="Variación del BAC" v=${Math.abs(dBac) < 0.5 ? '0' : signedMoney(dBac, currency)} tone=${Math.abs(dBac) < 0.5 ? null : dBac > 0 ? 'warn' : 'good'} s=${bacBl > 0 ? fmt.pct(dBac / bacBl, 1) + ' frente a ' + bl.label : ''} />
         <${SummaryCell} attr="reserves" k="Reservas (contingencia + gestión)" v=${moneyShort(resNow, currency)} s=${'En ' + bl.label + ': ' + moneyShort(resBl, currency)} />
       </div>
       <div class="row-between">
-        <p class="xsmall muted" style="max-width:70ch">Presupuesto por actividad frente a la línea base de costos. Positivo: la actividad cuesta más que en la línea base. Los costos reales y el valor ganado están en <button type="button" class="dashboard-link" onClick=${() => go('valor-ganado')}>Curva S y valor ganado</button>.</p>
+        <p class="xsmall muted" style="max-width:70ch">Presupuesto vigente de cada actividad frente a la línea base de costos. Positivo: el presupuesto vigente es mayor que el de la línea base. Los costos reales y el valor ganado están en <button type="button" class="dashboard-link" onClick=${() => go('valor-ganado')}>Curva S y valor ganado</button>.</p>
         <${ui.Check} checked=${onlyVar} onValue=${setOnlyVar} label="Solo actividades con variación" />
       </div>
       <div class="table-wrap"><table class="table table-tight dashboard-compare-table">
-        <thead><tr><th>Actividad</th><th class="num">Costo ${bl.label}</th><th class="num">Costo actual</th><th class="num">Variación</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Actividad</th><th class="num">Presupuesto ${bl.label}</th><th class="num">Presupuesto vigente</th><th class="num">Variación</th><th>Estado</th></tr></thead>
         <tbody>
-          ${shown.length === 0 ? html`<tr><td colspan="5" class="faint" style="padding:12px">${rows.length ? 'Ninguna actividad cambió de costo frente a ' + bl.label + '.' : 'No hay actividades con costo.'}</td></tr>` : null}
+          ${shown.length === 0 ? html`<tr><td colspan="5" class="faint" style="padding:12px">${rows.length ? 'Ninguna actividad cambió de presupuesto frente a ' + bl.label + '.' : 'No hay actividades con costo.'}</td></tr>` : null}
           ${shown.map((r) => html`<tr key=${r.kind + r.id} data-task=${r.id} data-kind=${r.kind} class=${r.kind === 'removed' ? 'dashboard-row-removed' : ''}>
             <td>${r.name || 'Sin nombre'}</td>
             <td class="num mono nowrap">${r.kind === 'new' ? '—' : money(r.bCost, currency)}</td>
@@ -973,7 +1120,7 @@
     const list = model.baselines.list;
     const sel = list.find((b) => b.id === selId) || list[0] || null;
     const establish = () => openEstablish((bid) => setSelId(bid));
-    const select = (id) => { setSelId(id); setTimeout(() => { try { detailRef.current && detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* sin desplazamiento */ } }, 30); };
+    const select = (id) => { setSelId(id); setTimeout(() => { try { detailRef.current && detailRef.current.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }); } catch (e) { /* sin desplazamiento */ } }, 30); };
     const remove = async (b) => {
       const others = list.filter((x) => x.id !== b.id);
       const effects = PARTS.filter((p) => model.baselines[p.id] && model.baselines[p.id].id === b.id).map((p) => { const prev = others.find((x) => (x.includes || []).includes(p.id)); return p.long + ': ' + (prev ? 'pasará a regir ' + prev.label + '.' : 'el proyecto quedará sin línea base.'); });
@@ -1144,11 +1291,13 @@
             <div class="card-body"><div class="row" style="align-items:flex-start;flex-wrap:nowrap"><${ui.Icon} name=${st.mode === 'db' ? 'cloud' : 'device'} size=${18} style="color:var(--fg-2);margin-top:2px" />
               <p class="small" data-storage=${st.mode}>${st.mode === 'db' ? 'Los datos de este proyecto se guardan en el artefacto y los ven todas las personas con acceso. Cada cambio se guarda automáticamente.' : st.mode === 'local' ? 'Los datos se guardan solo en este navegador. Exporta el proyecto con regularidad para respaldarlo o llevarlo a otro equipo.' : 'Conectando con el almacenamiento…'}</p></div></div>
           </${Panel}>
-          <${Panel} title=${canWrite ? 'Zona de riesgo' : 'Exportar'} class=${canWrite ? 'dashboard-danger' : ''} data-card="danger">
+          <${Panel} title=${canWrite ? 'Respaldo y copia' : 'Exportar'} data-card="backup">
             <div class="dashboard-danger-row"><div><div class="h4">Exportar proyecto (.json)</div><div class="xsmall muted">Copia completa con documentos, revisiones, herramientas y líneas base. Sirve de respaldo o para importarlo en otro navegador.</div></div><${ui.Button} size="sm" icon="download" disabled=${busy === 'exp'} onClick=${exportFile}>Exportar (.json)</${ui.Button}></div>
-            ${canWrite ? html`<div class="dashboard-danger-row"><div><div class="h4">Duplicar proyecto</div><div class="xsmall muted">Crea una copia independiente con todos sus datos, útil como punto de partida para un proyecto similar.</div></div><${ui.Button} size="sm" icon="copy" disabled=${busy === 'dup'} onClick=${duplicate}>${busy === 'dup' ? 'Duplicando…' : 'Duplicar proyecto'}</${ui.Button}></div>
-            <div class="dashboard-danger-row"><div><div class="h4">Eliminar proyecto</div><div class="xsmall muted">Elimina de forma permanente el proyecto y todos sus documentos, herramientas y líneas base.</div></div><${ui.Button} size="sm" variant="danger" icon="trash" onClick=${() => PM.deleteProjectFlow(project)}>Eliminar proyecto</${ui.Button}></div>` : null}
+            ${canWrite ? html`<div class="dashboard-danger-row"><div><div class="h4">Duplicar proyecto</div><div class="xsmall muted">Crea una copia independiente con todos sus datos, útil como punto de partida para un proyecto similar.</div></div><${ui.Button} size="sm" icon="copy" disabled=${busy === 'dup'} onClick=${duplicate}>${busy === 'dup' ? 'Duplicando…' : 'Duplicar proyecto'}</${ui.Button}></div>` : null}
           </${Panel}>
+          ${canWrite ? html`<${Panel} title="Eliminar proyecto" class="dashboard-danger" data-card="danger">
+            <div class="dashboard-danger-row"><div class="xsmall muted">Elimina de forma permanente el proyecto y todos sus documentos, herramientas y líneas base. Esta acción no se puede deshacer: exporta antes una copia si la necesitas.</div><${ui.Button} size="sm" variant="danger" icon="trash" onClick=${() => PM.deleteProjectFlow(project)}>Eliminar proyecto</${ui.Button}></div>
+          </${Panel}>` : null}
         </div>
       </div>
     </div>`;

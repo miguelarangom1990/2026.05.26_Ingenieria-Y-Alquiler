@@ -36,6 +36,10 @@
   const cSelect = (key, label, options, extra) => col(key, label, 'select', Object.assign({ options, width: 140 }, extra));
   const cCalc = (key, label, calc, format, extra) => col(key, label, 'calc', Object.assign({ calc, format }, extra));
   const cScale = (key, label, extra) => cNum(key, label, Object.assign({ min: 1, max: 5, width: 74, hint: 'Escala de 1 (muy bajo) a 5 (muy alto).' }, extra));
+  /* Pistas de escala que concuerdan con la columna: «probabilidad muy baja», «influencia muy alta»;
+     las calificaciones de desempeño usan la escala de lo esperado. */
+  const ESCALA_FEM = { hint: 'Escala de 1 (muy baja) a 5 (muy alta).' };
+  const ESCALA_DESEMPENO = { hint: 'Escala de 1 (muy por debajo de lo esperado) a 5 (supera lo esperado); 3 = cumple.' };
 
   /* ================================================================== cálculos de columnas (puros, toleran vacíos) */
   const val = (v) => {
@@ -66,12 +70,16 @@
   };
   const calcWeighted = (scoreKey) => (row) => { const w = val(get(row, 'peso')), s = val(get(row, scoreKey)); return w === null || s === null ? null : round((w * s) / 100); };
   const calcRiskScore = (row) => PM.calc.riskScore(get(row, 'probabilidad'), get(row, 'impacto'));
-  /* VME = probabilidad (%) × impacto; positivo para oportunidades y negativo para amenazas. */
+  const isOpportunity = (row) => /^oportunidad/i.test(String(get(row, 'tipo') || '').trim());
+  /* VME = probabilidad (%) × impacto; positivo para oportunidades y negativo para amenazas (y filas sin tipo). */
   const calcEmv = (row) => {
     const p = val(get(row, 'probabilidad')), imp = val(get(row, 'impacto'));
     if (p === null || imp === null) return null;
-    return round(((get(row, 'tipo') === 'Oportunidad' ? 1 : -1) * Math.abs(imp) * p) / 100);
+    return round(((isOpportunity(row) ? 1 : -1) * Math.abs(imp) * p) / 100);
   };
+  /* VME acumulado por tipo: en la última fila da el total de amenazas y el de oportunidades. */
+  const cumThreatEmv = calcCumulative((row) => (isOpportunity(row) ? null : calcEmv(row)));
+  const cumOpportunityEmv = calcCumulative((row) => (isOpportunity(row) ? calcEmv(row) : null));
   const calcMakeBuyDiff = (row) => { const h = val(get(row, 'costoHacer')), c = val(get(row, 'costoComprar')); return h === null || c === null ? null : round(h - c); };
   const costTotal = calcProduct('cantidad', 'costoUnitario');
   const costWithContingency = (row) => { const t = costTotal(row); if (t === null) return null; const c = val(get(row, 'contingencia')) || 0; return round(t * (1 + c / 100)); };
@@ -98,6 +106,7 @@
   const fmtScore = (v) => (isNum(v) ? PM.fmt.fixed(v, 1) : '—');
   const fmtPoints = (v) => (isNum(v) ? PM.fmt.num(v, 2) : '—');
   const fmtRisk = (v) => { const s = PM.num(v, 0); return s > 0 ? s + ' · ' + PM.calc.riskLevel(s).label : '—'; };
+  const fmtText = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
   const fmtMakeBuy = (v) => (isNum(v) ? fmtMoney(v) + (v > 0 ? ' · la opción externa cuesta menos' : v < 0 ? ' · hacer cuesta menos' : ' · sin diferencia') : '—');
 
   /* ================================================================== opciones compartidas */
@@ -133,6 +142,19 @@
   const RIESGO_CATEGORIAS = ['Técnico', 'Externo', 'De la organización', 'Dirección de proyectos'];
   const RIESGO_TIPOS = ['Amenaza', 'Oportunidad'];
   const RIESGO_ESTRATEGIAS = ['Escalar', 'Evitar', 'Transferir', 'Mitigar', 'Aceptar', 'Explotar', 'Compartir', 'Mejorar'];
+  /* Guía del PMBOK 6.ª ed., 11.5.2.4 (amenazas) y 11.5.2.5 (oportunidades). */
+  const ESTRATEGIAS_AMENAZA = ['Escalar', 'Evitar', 'Transferir', 'Mitigar', 'Aceptar'];
+  const ESTRATEGIAS_OPORTUNIDAD = ['Escalar', 'Explotar', 'Compartir', 'Mejorar', 'Aceptar'];
+  /* Coherencia entre el tipo de riesgo y la estrategia elegida (null si falta alguno de los dos o la estrategia no es del catálogo). */
+  const calcStrategyFit = (row) => {
+    const tipo = String(get(row, 'tipo') || '').trim().toLowerCase();
+    const est = String(get(row, 'estrategia') || '').trim().toLowerCase();
+    if (!est || (tipo !== 'amenaza' && tipo !== 'oportunidad')) return null;
+    const has = (list) => list.some((x) => x.toLowerCase() === est);
+    if (!has(RIESGO_ESTRATEGIAS)) return null;
+    if (tipo === 'oportunidad') return has(ESTRATEGIAS_OPORTUNIDAD) ? 'Coherente' : 'No aplica a oportunidades';
+    return has(ESTRATEGIAS_AMENAZA) ? 'Coherente' : 'No aplica a amenazas';
+  };
   const RIESGO_ESTADOS = ['Abierto', 'En seguimiento', 'Cerrado', 'Materializado'];
   const RIESGO_NIVELES = ['Bajo', 'Medio', 'Alto', 'Muy alto'];
   const EDR_RIESGOS_NIVEL1 = ['Técnico', 'De gestión', 'Comercial', 'Externo'];
@@ -1068,11 +1090,11 @@
         table('evaluaciones', 'Evaluaciones de desempeño', [
           cDate('fecha', 'Fecha'),
           cText('equipo', 'Equipo o cuadrilla', { width: 190 }),
-          cScale('tecnica', 'Competencia técnica'),
-          cScale('seguridad', 'Cumplimiento SST'),
-          cScale('productividad', 'Productividad'),
-          cScale('colaboracion', 'Colaboración'),
-          cScale('comunicacion', 'Comunicación'),
+          cScale('tecnica', 'Competencia técnica', ESCALA_DESEMPENO),
+          cScale('seguridad', 'Cumplimiento SST', ESCALA_DESEMPENO),
+          cScale('productividad', 'Productividad', ESCALA_DESEMPENO),
+          cScale('colaboracion', 'Colaboración', ESCALA_DESEMPENO),
+          cScale('comunicacion', 'Comunicación', ESCALA_DESEMPENO),
           cCalc('promedio', 'Promedio', calcAverage(['tecnica', 'seguridad', 'productividad', 'colaboracion', 'comunicacion']), fmtScore, { hint: 'Promedio de las calificaciones registradas.' }),
           cArea('fortalezas', 'Fortalezas'),
           cArea('mejoras', 'Oportunidades de mejora'),
@@ -1519,7 +1541,7 @@
       'Redacta cada riesgo como causa, evento y efecto: «Debido a…, puede ocurrir…, lo que causaría…».',
       'Asigna un solo propietario por riesgo y un disparador observable.',
       'La suma de las reservas de las amenazas debe ser coherente con la reserva para contingencias del presupuesto.',
-      'Registra también las oportunidades, con estrategias de explotar, compartir, mejorar o aceptar.',
+      'Registra también las oportunidades, con estrategias de escalar, explotar, compartir, mejorar o aceptar; la columna «Coherencia de la estrategia» avisa cuando la estrategia no corresponde al tipo.',
     ],
     sections: [
       section('riesgos', 'Riesgos identificados', [
@@ -1530,11 +1552,12 @@
           cArea('efecto', 'Efecto'),
           cSelect('categoria', 'Categoría', RIESGO_CATEGORIAS, { width: 200 }),
           cSelect('tipo', 'Tipo', RIESGO_TIPOS, { width: 120 }),
-          cScale('probabilidad', 'Probabilidad (1–5)'),
+          cScale('probabilidad', 'Probabilidad (1–5)', ESCALA_FEM),
           cScale('impacto', 'Impacto (1–5)'),
           cCalc('puntuacion', 'Puntuación', calcRiskScore, fmtRisk, { hint: 'Probabilidad × impacto. Bajo 1–4, Medio 5–9, Alto 10–19, Muy alto 20–25.' }),
           cText('propietario', 'Propietario', { width: 170 }),
-          cSelect('estrategia', 'Estrategia', RIESGO_ESTRATEGIAS, { width: 130 }),
+          cSelect('estrategia', 'Estrategia', RIESGO_ESTRATEGIAS, { width: 130, hint: 'Amenazas: escalar, evitar, transferir, mitigar o aceptar. Oportunidades: escalar, explotar, compartir, mejorar o aceptar.' }),
+          cCalc('coherenciaEstrategia', 'Coherencia de la estrategia', calcStrategyFit, fmtText, { width: 190, align: 'left', hint: 'Compara la estrategia con el tipo de riesgo según la Guía del PMBOK: evitar, transferir y mitigar son solo para amenazas; explotar, compartir y mejorar, solo para oportunidades.' }),
           cArea('respuesta', 'Respuesta acordada', { width: 260 }),
           cArea('disparador', 'Disparador'),
           cMoney('reserva', 'Reserva', { hint: 'Reserva para contingencias asignada a la amenaza.' }),
@@ -1650,7 +1673,7 @@
     purpose: 'Analiza numéricamente el efecto combinado de los riesgos individuales sobre los objetivos del proyecto: valor monetario esperado (VME) de amenazas y oportunidades, reserva para contingencias recomendada y probabilidad de cumplir costo y fecha.',
     tips: [
       'Usa probabilidades coherentes con la escala del plan de gestión de los riesgos (p. ej., nivel 3 = 40 %).',
-      'El VME de las amenazas es negativo y el de las oportunidades positivo; la reserva para contingencias se calcula con las amenazas.',
+      'El VME de las amenazas es negativo y el de las oportunidades positivo; la última fila de las columnas acumuladas da ambos totales, y la reserva para contingencias se calcula con el de las amenazas.',
       'Para la fecha de terminación, complementa con una simulación de Monte Carlo sobre las estimaciones por tres valores.',
     ],
     sections: [
@@ -1661,11 +1684,13 @@
           cPct('probabilidad', 'Probabilidad (%)'),
           cMoney('impacto', 'Impacto', { hint: 'Efecto en costo si el riesgo ocurre (valor positivo).' }),
           cCalc('vme', 'VME', calcEmv, fmtMoney, { hint: 'Probabilidad × impacto: negativo para amenazas, positivo para oportunidades.' }),
+          cCalc('vmeAmenazas', 'VME acumulado de amenazas', cumThreatEmv, fmtMoney, { width: 150, hint: 'Suma del VME de las amenazas hasta esta fila. En la última fila es el VME total de las amenazas, base de la reserva para contingencias.' }),
+          cCalc('vmeOportunidades', 'VME acumulado de oportunidades', cumOpportunityEmv, fmtMoney, { width: 150, hint: 'Suma del VME de las oportunidades hasta esta fila. En la última fila, VME neto = total de amenazas + total de oportunidades.' }),
           cArea('base', 'Base del impacto'),
         ]),
       ]),
       section('resultados', 'Resultados', [
-        money('reservaRecomendada', 'Reserva para contingencias recomendada'),
+        money('reservaRecomendada', 'Reserva para contingencias recomendada', { hint: 'Toma como base el VME total de las amenazas (última fila de «VME acumulado de amenazas», en valor absoluto); las oportunidades no la reducen.' }),
         area('resultadosCronograma', 'Análisis del cronograma (Monte Carlo)', { rows: 3 }),
         area('sensibilidad', 'Análisis de sensibilidad', { rows: 2 }),
         area('conclusiones', 'Conclusiones', { rows: 3 }),
@@ -2099,9 +2124,9 @@
           cMoney('valorEjecutado', 'Valor ejecutado'),
           cMoney('valorPagado', 'Valor pagado'),
           cMoney('retencion', 'Retención en garantía'),
-          cScale('plazo', 'Plazo (1–5)'),
-          cScale('calidad', 'Calidad (1–5)'),
-          cScale('sst', 'SST (1–5)'),
+          cScale('plazo', 'Plazo (1–5)', ESCALA_DESEMPENO),
+          cScale('calidad', 'Calidad (1–5)', ESCALA_DESEMPENO),
+          cScale('sst', 'SST (1–5)', ESCALA_DESEMPENO),
           cCalc('calificacion', 'Calificación', calcAverage(['plazo', 'calidad', 'sst']), fmtScore, { hint: 'Promedio de plazo, calidad y SST.' }),
           cArea('observaciones', 'Observaciones'),
         ]),
@@ -2160,7 +2185,7 @@
           cArea('expectativas', 'Expectativas'),
           cScale('poder', 'Poder (1–5)'),
           cScale('interes', 'Interés (1–5)'),
-          cScale('influencia', 'Influencia (1–5)'),
+          cScale('influencia', 'Influencia (1–5)', ESCALA_FEM),
           cSelect('clasificacion', 'Clasificación', CLASIFICACION_INTERESADO, { width: 110 }),
           cSelect('actitud', 'Actitud', ACTITUDES, { width: 120 }),
           cSelect('nivelActual', 'Nivel actual', NIVELES_INVOLUCRAMIENTO, { width: 130 }),

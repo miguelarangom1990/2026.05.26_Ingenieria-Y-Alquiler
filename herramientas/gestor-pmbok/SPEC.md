@@ -20,10 +20,12 @@ Colombia**, tono profesional y directo.
   paralelo; no construyas `gestor-pmbok.html` ni dependas de sus archivos a medio hacer).
 - Pruebas (Chromium vía Playwright, ya instalado):
   - `node test/calc.test.mjs` — cálculos compartidos.
+  - `node test/core.test.mjs --file <ruta.html>` — regresiones del núcleo (arranque, sincronización y errores de
+    suscripción, dos pestañas en modo local, modal/menú/tabla, riel móvil, portafolio, importación, contraste).
   - `node test/smoke.mjs --file <ruta.html> [--only vista1,vista2] [--shots dir] [--dark] [--mobile]` —
     abre la página, crea un proyecto (o el de ejemplo si existe), recorre las vistas y reporta errores
     de consola, tarjetas de error y desbordes horizontales. Código de salida ≠ 0 si algo falla.
-  - `test/harness.mjs` exporta `openApp({file, width, height, dark})`, `createProject(page, meta)`,
+  - `test/harness.mjs` exporta `openApp({file, width, height, dark})` (espera a que la pantalla salga de «Conectando…»), `createProject(page, meta)`,
     `gotoView(page, id)`, etc. Escribe tus propias pruebas de interacción en `test/<modulo>.test.mjs`.
   - Para mirar el resultado: `page.screenshot(...)` y lee la imagen. Revisa tema claro y oscuro y 400 px.
 
@@ -88,6 +90,11 @@ progress:0–100, cost (presupuesto de la actividad), resources:[{name, units}],
 El orden del arreglo es el orden de presentación.
 
 Reglas:
+- Un error de suscripción no significa «no existe»: mientras el documento no se haya leído, `loading` sigue en `true`
+  (o `error` queda expuesto si no se puede reintentar), el núcleo reintenta solo y `save()` no escribe sobre un documento
+  que nunca se leyó. Un guardado anterior a la primera lectura se aplica solo si el documento no existía.
+- Al guardar, el núcleo conserva la identidad de las partes que no cambiaron (`PM.reconcile`): las filas sin cambios
+  de una tabla siguen siendo el mismo objeto (útil para `PM.memo`).
 - Los datos que entregan los hooks están **congelados**: clona (`PM.clone`) o construye objetos nuevos antes de guardar.
 - Una sola escritura a la vez por documento (el núcleo lo garantiza si usas los hooks/`PM.store`).
 - No escribas desde render ni al cargar; solo ante una acción del usuario.
@@ -100,17 +107,20 @@ Reglas:
 PM.useAppState()                // {projectId, view, params, canWrite, mode:'db'|'local'|'loading', meId, saving}
 PM.useCurrentProject()          // {project:{id,...meta}|null, loading}
 PM.useProjects()                // {projects:[...], loading}
-PM.useToolData(toolId, PM.EMPTY.<tool>)  // [data, save(next) (antirrebote 650 ms), {loading, exists, saveNow}]
-PM.useDoc(path)                 // {data, exists, loading, save, saveNow}
-PM.useCollection(path)          // {docs:[{id,data}], loading}
-PM.useProjectModel()            // {project, pid, schedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, baselines, baselineDocs, evm, rollup, statusDate, currency, loading}
+PM.useToolData(toolId, PM.EMPTY.<tool>)  // [data (normalizada con PM.normalizeTool), save(next) (antirrebote 650 ms), {loading, exists, error, saveNow}]
+PM.useDoc(path)                 // {data, exists, loading, error, save, saveNow}
+PM.useCollection(path)          // {docs:[{id,data}], loading, error}
+PM.useProjectModel()            // {project, pid, schedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency, loading}
+                                // sched: red según lo programado (lo atrasado conserva sus fechas → «vencido»);
+                                // forecast: la misma red actualizada a la fecha de corte (fin, ruta crítica e hitos pronosticados, 6.6)
 PM.useProjectDocs()             // {list, byTemplate, get(templateId), loading}
 PM.useDocTable(templateId, fieldKey) // [rows, saveRows, {doc, exists, loading}] — lee/escribe una tabla de un documento singleton
 PM.newDocBody(template, project, extra) // cuerpo inicial de documento
-PM.store.get/set/update/delete/list(path)  // acceso directo (promesas)
+PM.store.get/set/update/delete/list(path)  // acceso directo (promesas); set/update/delete aceptan {quiet:true} (sin aviso de error)
+PM.normalizeTool(toolId, data)  // corrige tipos (arreglo/objeto) de datos importados; devuelve el mismo objeto si ya es válido
 PM.projectOps.update(pid, patch) // metadatos del proyecto
 PM.statusDateOf(project)        // fecha de corte (project.statusDate o hoy)
-PM.touchProject(pid)            // marca "actualizado" (ya lo hacen los save de useProjectModel/useDocTable)
+PM.touchProject(pid)            // marca "actualizado" (ya lo hacen los save de useProjectModel/useDocTable); .cancel(pid)
 PM.navigate(viewId, params)     // navegación; params llega a la vista como prop `params`
 PM.selectProject(pid, viewId)
 ```
@@ -118,7 +128,10 @@ PM.selectProject(pid, viewId)
 ### Cálculos (`PM.calc`, en 05-calc.js — léelo)
 
 - `wbsTree(nodes)` → `{byId, codes (Map id→'1.2.3'), depth, flat:[{node,code,depth,isLeaf}], leaves, childrenOf(id|null), descendants(id), ancestors(id), parentOf}`. Raíz implícita = proyecto (código `1`).
-- `computeSchedule(schedule, projectStart)` → `{cal, tasks:[Task + {es, ef, ls, lf, tf, ff, critical, startDate, finishDate, lateStart, lateFinish, duration, milestone, preds, succs}], byId, start, finish, criticalIds, errors}`. `cal` = calendario laboral (`dateOf(i)`, `indexOf(iso)`, `isWork(iso)`, `countWork(a,b)`, `addWork(iso,n)`, `holidayName(iso)`).
+- `computeSchedule(schedule, projectStart, statusDate?)` → `{cal, tasks:[Task + {es, ef, ls, lf, tf, ff, critical, startDate, finishDate, lateStart, lateFinish, duration, milestone, preds, succs, rescheduled, remaining}], byId, start, finish, criticalIds, errors, statusDate, rescheduledIds}`.
+  Con `statusDate` (actualización a la fecha de corte): una actividad no iniciada empieza, como pronto, el día hábil siguiente
+  al corte; una iniciada y sin terminar programa su duración restante (`remaining` = duración × (1 − avance)) desde ese día
+  (`duration` sigue siendo la planificada); un hito no alcanzado queda después del corte. Sin `statusDate`, nada cambia. `cal` = calendario laboral (`dateOf(i)`, `indexOf(iso)`, `isWork(iso)`, `countWork(a,b)`, `addWork(iso,n)`, `holidayName(iso)`).
   Convención: actividad ocupa [es, ef) en índices de días hábiles; un hito se dibuja al **cierre** de `startDate`.
 - `rollupWbs(tree, sched)` → `Map(wbsId → {start, finish, cost, progress, count, critical, tasks})`.
 - `evm({sched, costBaseline, costs, statusDate})` → `{bac, pv, ev, ac, sv, cv, spi, cpi, eac, eacAtypical, eacComposite, etc, vac, tcpi, tcpiEac, pctPlanned, pctComplete, pctSpent, series:[{date,pv,ev|null,ac|null}], pvAt(d), evAt(d), acAt(d), planStart, planFinish, esWd, atWd, pdWd, spiT, forecastFinish, costBaseline, totalBudget, reserves, fromBaseline}`.
@@ -272,6 +285,8 @@ colores literales (salvo dentro de `head.html`). Ambos temas (claro/oscuro) debe
 
 - Superficies: `--bg`, `--surface`, `--surface-2`, `--surface-3`; líneas `--line`, `--line-strong`; texto `--fg`, `--fg-2`, `--fg-3`.
 - Acento `--accent` (azul plano) y `--accent-wash`; señal `--signal` (línea de hoy/corte, línea base). Semánticos: `--good`, `--warn`, `--crit`, `--info` y sus `*-wash`.
+  Texto en tono señal (festivos, marcas, chips): `--signal-ink` (≥ 4,5:1 sobre `--surface` y `--signal-wash`); `--signal` queda para líneas y rellenos.
+  Texto sobre un relleno `--crit` (botón «Eliminar», aviso de error): `--crit-fg`.
 - Series categóricas en orden fijo `--s1`…`--s8`; grupos de procesos `--g-inicio`, `--g-planificacion`, `--g-ejecucion`, `--g-monitoreo`, `--g-cierre`.
 - Gráficos (SVG a mano): `.chart` contenedor; texto con `fill: var(--fg-2)` (11 px); retícula `var(--grid)` 1 px sólida; ejes `var(--axis)`;
   líneas de datos 2 px; marcadores ≥ 8 px con anillo de 2 px color superficie; barras ≤ 24 px; áreas ~10 % de opacidad;
@@ -293,7 +308,10 @@ colores literales (salvo dentro de `head.html`). Ambos temas (claro/oscuro) debe
   `PM.discardPending(path)` (descarta un guardado pendiente antes de eliminar), `PM.currentCurrency()`, `PM.isNum(v)`.
   `PM.useChartTip()` → `{ref, setHost, show(e, contenido), hide, node}` (se voltea arriba/izquierda cerca de los bordes).
   `ui.Dropdown` se posiciona `fixed` (no lo recortan contenedores con desplazamiento); `ui.Segmented` acepta `disabled`;
-  `ui.NumberInput` encadena `onFocus`/`onBlur` externos; `ui.Modal` gestiona foco y Escape solo para el modal superior;
+  `ui.NumberInput` encadena `onFocus`/`onBlur` externos; `ui.Modal` gestiona foco y Escape solo para el modal superior
+  (foco inicial: `[autofocus]` → primer campo del cuerpo → botón principal; Tab/Mayús+Tab no salen del diálogo);
+  `ui.DataTable` omite filas que no son objetos y, en edición, vuelve a dibujar solo la fila editada (las columnas `calc`
+  se evalúan en la tabla); `PM.autoSize(textarea, max)` ajusta alturas por lotes;
   `PM.ProjectForm` acepta `autoFocus={false}`. En columnas de tabla, `calc(row, rows, ctx)` y `format(v, row, ctx)` reciben
   `ctx = {currency, rows, index}`; las celdas llevan la clase `col-<tipo>`. Los campos `table` aceptan `addLabel` y las columnas `default`.
   Preact (paquete htm/standalone) no traduce `onFocusOut`: usa `onfocusout` en minúsculas o `onBlur`.

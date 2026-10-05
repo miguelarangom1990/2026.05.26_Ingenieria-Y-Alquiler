@@ -36,6 +36,7 @@
 .docs-gbtn { display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-top: 3px solid var(--gc); border-radius: var(--r-md); background: var(--surface); color: var(--fg); cursor: pointer; box-shadow: var(--shadow-card); }
 .docs-gbtn:hover { border-color: var(--line-strong); border-top-color: var(--gc); }
 .docs-gbtn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); border-top-color: var(--gc); }
+.docs-gbtn:focus-visible, .docs-proc:focus-visible, .docs-proc.is-hit:focus-visible { box-shadow: var(--focus); }
 .docs-gbtn-name { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 600; }
 .docs-gbtn-num { font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; line-height: 1.1; font-stretch: 105%; }
 .docs-gbtn-sub { font-size: var(--fs-xs); color: var(--fg-3); }
@@ -112,7 +113,7 @@
   .docs-m-only { display: inline; }
 }
 
-.docs-title-input { width: 100%; min-width: 0; font: inherit; color: inherit; letter-spacing: inherit; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: transparent; padding: 0 6px; margin-left: -7px; }
+.docs-title-input { display: block; width: 100%; min-width: 0; font: inherit; line-height: inherit; color: inherit; letter-spacing: inherit; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: transparent; padding: 0 6px; margin-left: -7px; resize: none; overflow: hidden; overflow-wrap: break-word; }
 .docs-title-input:hover { border-color: var(--fg-3); }
 .docs-title-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-wash); }
 .docs-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
@@ -163,7 +164,6 @@
 .docs-more { margin-top: 6px; border-top: 1px solid var(--line); }
 .docs-more > summary { cursor: pointer; padding: 8px 6px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--fg-2); list-style-position: inside; }
 .docs-more > summary:hover { color: var(--fg); }
-.docs-ai-stream { margin: 0; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; color: var(--fg-2); }
 .docs-ai-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; }
 .docs-ai-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .docs-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -186,7 +186,18 @@
 .docs-tbl .table td.num .cell-calc { white-space: nowrap !important; }
 .docs-cmp.is-stack { grid-template-columns: minmax(0, 1fr); }
 .docs-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
-@media (max-width: 1100px) { .docs-split { grid-template-columns: minmax(0, 1fr); } }
+.docs-split.is-below { grid-template-columns: minmax(0, 1fr); }
+.docs-split.is-below > aside { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+.docs-split.is-below > aside > .docs-panel-bar, .docs-split.is-below > aside > .docs-callout { grid-column: 1 / -1; }
+.docs-panel-bar { display: flex; justify-content: flex-end; }
+@media (max-width: 1100px) { .docs-split { grid-template-columns: minmax(0, 1fr); } .docs-panel-bar { display: none; } }
+.docs-ai-prog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
+.docs-ai-prog li { display: flex; align-items: center; gap: 8px; color: var(--fg-3); }
+.docs-ai-prog li.is-done { color: var(--fg); }
+.docs-ai-prog li.is-done > .icon { color: var(--good); }
+.docs-ai-prog li.is-now { color: var(--fg); font-weight: 600; }
+.docs-ai-prog li.is-now > .icon { color: var(--accent); }
+.docs-ai-why { font-size: var(--fs-xs); color: var(--fg-3); }
 .docs-snap { display: flex; flex-direction: column; gap: 14px; }
 @media (max-width: 680px) {
   .docs-cmp, .docs-io { grid-template-columns: minmax(0, 1fr); }
@@ -233,6 +244,7 @@
   /* ------------------------------------------------------------------ utilidades */
   const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const uniq = (arr) => [...new Set(arr)];
+  const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const codeKey = (c) => String(c || '').split('.').map((n) => String(parseInt(n, 10) || 0).padStart(3, '0')).join('.');
   const cmpCode = (a, b) => { const x = codeKey(a), y = codeKey(b); return x < y ? -1 : x > y ? 1 : 0; };
   const isEmptyVal = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
@@ -243,6 +255,8 @@
   const localDate = (ts) => { const d = new Date(ts); if (!ts || isNaN(d)) return null; return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
   const fileSafe = (s) => String(s || 'documento').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'documento';
   const groupColor = (gid) => 'var(--g-' + gid + ', var(--fg-3))';
+  /* Marca de tiempo para CSV: dd/mm/aaaa hh:mm (hora local), mismo estilo de fecha que dd/mm/aaaa. */
+  const csvStamp = (ts) => { const iso = localDate(ts); if (!iso) return ''; const d = new Date(ts); return PM.fmt.date(iso, 'short') + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
 
   /* ------------------------------------------------------------------ base de conocimiento (tolerante a ausencias) */
   const kbReady = () => (PM.KB && Array.isArray(PM.KB.processes) && PM.KB.processes.length ? PM.KB : null);
@@ -421,6 +435,13 @@
     for (const d of docIds) { const s = aggStatus(idx.byTemplate[d]); if (s === 'aprobado') done++; else if (s === 'borrador' || s === 'revision') prog++; }
     return { total: docIds.length, done, prog };
   }
+  /* Avance de un conjunto de plantillas (misma base que el tablero y la lista maestra: una plantilla cuenta
+     como aprobada si alguno de sus documentos lo está). */
+  function templateProgress(tpls, idx) {
+    const r = progressOf((tpls || []).map((t) => t.id), idx);
+    let none = 0; for (const t of tpls || []) if (!(idx.byTemplate[t.id] || []).length) none++;
+    return { ...r, none };
+  }
   function SegMeter({ done, prog, total, label }) {
     const pd = total ? (done / total) * 100 : 0, pp = total ? (prog / total) * 100 : 0;
     return html`<span class="docs-seg" role="meter" aria-valuemin="0" aria-valuemax=${total} aria-valuenow=${done} aria-label=${label}><span class="docs-seg-done" style=${'width:' + pd + '%'}></span><span class="docs-seg-prog" style=${'width:' + pp + '%'}></span></span>`;
@@ -481,7 +502,9 @@
     const hostRef = useRef();
     const width = useWidth(hostRef);
     const [q, setQ] = useState('');
-    const [hl, setHl] = useState('');
+    const groupParam = params && params.group && groupOf(params.group) ? params.group : '';
+    const [hl, setHl] = useState(groupParam);
+    useEffect(() => { if (groupParam) setHl(groupParam); }, [groupParam]);
     const [mode, setModeRaw] = useState(() => { const m = PM.prefs.get('docs.mapMode', null); return m === 'lista' || m === 'matriz' ? m : null; });
     const setMode = (m) => { setModeRaw(m); PM.prefs.set('docs.mapMode', m); };
     const [openAreas, setOpenAreas] = useState(() => new Set());
@@ -492,9 +515,10 @@
       const procs = K.processes.filter((p) => p && p.code).slice().sort((a, b) => cmpCode(a.code, b.code));
       const cell = {};
       for (const p of procs) (cell[p.area + '|' + p.group] = cell[p.area + '|' + p.group] || []).push(p);
-      const groupStats = G.map((g) => { const ps = procs.filter((p) => p.group === g.id); return { g, count: ps.length, ...progressOf(uniq(ps.flatMap(trackedDocs)), idx) }; });
-      const total = progressOf(uniq(procs.flatMap(trackedDocs)), idx);
-      return { A, G, procs, cell, groupStats, total };
+      const tpls = PM.templateList || [];
+      const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(tpls.filter((t) => t.group === g.id), idx) }));
+      const total = templateProgress(tpls, idx);
+      return { A, G, procs, cell, groupStats, total, tpls };
     }, [K, idx]);
 
     const ql = norm(q.trim());
@@ -510,7 +534,7 @@
         </${ui.Empty}>
       </div>`;
     }
-    const { A, G, procs, cell, groupStats, total } = data;
+    const { A, G, procs, cell, groupStats, total, tpls } = data;
     const open = (code) => openProcess(code);
     const toggleArea = (id) => setOpenAreas((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
     const anyMatch = !ql || procs.some(matches);
@@ -531,7 +555,7 @@
         const ps = procs.filter((p) => p.area === a.id && (!hl || p.group === hl) && matches(p));
         if (!ps.length && (hl || ql)) return null;
         const isOpen = !!ql || openAreas.has(a.id);
-        const pr = progressOf(uniq(ps.flatMap(trackedDocs)), idx);
+        const pr = templateProgress(tpls.filter((t) => t.area === a.id && (!hl || t.group === hl)), idx);
         return html`<section class="docs-acc" key=${a.id} role="listitem" data-area=${a.id}>
           <button type="button" class="docs-acc-head" aria-expanded=${isOpen ? 'true' : 'false'} onClick=${() => toggleArea(a.id)}>
             <span class="docs-num">${a.num}</span>
@@ -561,7 +585,7 @@
             <span class="docs-gbtn-sub">${s.count} ${s.count === 1 ? 'proceso' : 'procesos'} · ${s.total ? s.done + '/' + s.total + ' documentos aprobados' : 'sin documentos propios'}</span>
           </button>`)}
         </div>
-        <div class="row-between"><${Legend} /><span class="xsmall faint">Total: ${total.done} de ${total.total} documentos aprobados · ${total.prog} en elaboración</span></div>
+        <div class="row-between"><${Legend} /><span class="xsmall faint" data-total title="Cuenta todas las plantillas del proyecto, igual que el tablero y la lista de documentos. Los medidores de cada proceso cuentan solo los documentos que ese proceso crea.">Total: ${total.done} de ${total.total} documentos aprobados · ${total.prog} en elaboración · ${total.none} sin iniciar</span></div>
       </div>
       <div class="toolbar">
         <div style="flex:1 1 220px;min-width:0;max-width:380px"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar proceso, código o documento…" aria-label="Buscar procesos" /></div>
@@ -598,7 +622,22 @@
         <section><h3 class="h4 docs-io-h">Entradas</h3>
           ${inputs.length ? html`<ul>${inputs.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : html`<p class="small faint">Sin entradas registradas.</p>`}
           ${inputDocs.length ? html`<div class="stack-sm" style="margin-top:10px"><div class="label-caps">Documentos del proyecto que usa</div>
-            ${inputDocs.map((d) => { const t = PM.templates[d]; const insts = idx.byTemplate[d] || []; return html`<div class="docs-out-inst" key=${d}>
+            ${inputDocs.map((d) => { const t = PM.templates[d]; const insts = sortedInstances(idx.byTemplate[d]);
+              /* Plantillas múltiples: se listan sus documentos (el enlace a la plantilla abriría uno nuevo en blanco). */
+              if (t && t.multiple) {
+                return html`<div class="stack-sm" style="gap:4px" key=${d} data-input-doc=${d}>
+                  <div class="docs-out-inst">
+                    <span class="docs-out-iname">${t.name} <span class="xsmall faint">· ${insts.length ? insts.length + (insts.length === 1 ? ' documento' : ' documentos') : 'ninguno todavía'}</span></span>
+                    ${insts.length ? null : html`<${StatusChip} status="sin" />`}
+                    ${!insts.length && canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${go(() => PM.openDocument(d))} aria-label=${'Nuevo: ' + t.name}>Nuevo</${ui.Button}>` : null}
+                  </div>
+                  ${insts.length ? html`<div class="stack-sm" style="gap:4px;padding-left:16px">${insts.slice(-3).map((x) => html`<div class="docs-out-inst" key=${x.id}>
+                    <span class="docs-out-iname"><button type="button" class="docs-link" data-open-doc=${x.id} onClick=${go(() => PM.openDocument(x.id))}>${x.title || t.name}</button></span>
+                    <${StatusChip} status=${statusOf(x)} />${x.rev ? html`<span class="code-tag">Rev. ${x.rev}</span>` : null}
+                  </div>`)}${insts.length > 3 ? html`<span class="xsmall faint">Y ${insts.length - 3} más en la lista de documentos.</span>` : null}</div>` : null}
+                </div>`;
+              }
+              return html`<div class="docs-out-inst" key=${d} data-input-doc=${d}>
               <span class="docs-out-iname">${t ? html`<button type="button" class="docs-link" onClick=${go(() => PM.openDocument(d))}>${t.name}</button>` : docName(d)}</span>
               <${StatusChip} status=${aggStatus(insts)} />
             </div>`; })}
@@ -768,8 +807,8 @@
         const d = e.doc; const a = areaOf(e.area); const g = groupOf(e.group); const tb = (d && d.titleBlock) || {};
         return {
           code: e.type === 'parent' ? e.code + '-NN' : e.code, name: e.name, template: e.t ? e.t.name : '', area: a ? a.num + '. ' + a.name : '', group: g ? g.name : '',
-          process: e.process, kind: kindLabel(e.kind), status: PM.docStatus(e.status).label, rev: (d && d.rev) || '', updated: d ? PM.fmt.datetime(d.updatedAt) : '',
-          approved: tb.fechaAprobacion || '', elaboro: tb.elaboro || '', reviso: tb.reviso || '', aprobo: tb.aprobo || '',
+          process: e.process, kind: kindLabel(e.kind), status: PM.docStatus(e.status).label, rev: (d && d.rev) || '', updated: d ? csvStamp(d.updatedAt) : '',
+          approved: PM.date.valid(tb.fechaAprobacion) ? PM.fmt.date(tb.fechaAprobacion, 'short') : '', elaboro: tb.elaboro || '', reviso: tb.reviso || '', aprobo: tb.aprobo || '',
         };
       });
       const cols = [
@@ -880,7 +919,7 @@
       case 'date': control = html`<${ui.DateInput} id=${id} value=${value} onValue=${set} />`; break;
       case 'select': control = html`<${ui.Select} id=${id} value=${value} options=${f.options || []} placeholder="Selecciona una opción" onValue=${set} />`; break;
       case 'list': labelFor = undefined; control = html`<${ListEditor} id=${id} value=${value} onChange=${set} label=${f.label} placeholder=${f.placeholder} />`; break;
-      case 'table': labelFor = undefined; control = html`<div class="docs-tbl" role="group" aria-label=${f.label}><${ui.DataTable} columns=${f.columns || []} rows=${Array.isArray(value) ? value : []} onChange=${set} currency=${currency} newRow=${makeNewRow(f, t)} addLabel=${f.addLabel || 'Agregar fila'} emptyText="Sin filas todavía. Usa «Agregar fila» para empezar." /></div>`; break;
+      case 'table': labelFor = undefined; control = html`<div class="docs-tbl" role="group" aria-label=${f.label}><${ui.DataTable} columns=${f.columns || []} rows=${Array.isArray(value) ? value : []} onChange=${set} currency=${currency} newRow=${makeNewRow(f, t)} addLabel=${f.addLabel || 'Agregar fila'} emptyText=${'Sin filas todavía. Usa «' + (f.addLabel || 'Agregar fila') + '» para empezar.'} /></div>`; break;
       case 'check': break;
       default: control = html`<${ui.Input} id=${id} value=${value ?? ''} placeholder=${f.placeholder} onValue=${set} />`;
     }
@@ -949,20 +988,24 @@
   function TitleInput({ value, fallback, onValue }) {
     const [draft, setDraft] = useState(null);
     const typed = useRef(false);
+    const ref = useRef(null);
+    const width = useWidth(ref);
     const shown = draft !== null ? draft : value || fallback;
-    return html`<input class="docs-title-input" aria-label="Título del documento" value=${shown} placeholder=${fallback}
+    /* Área de texto de una línea que crece con el contenido: los títulos largos se parten como en lectura. */
+    useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; }, [shown, width]);
+    return html`<textarea ref=${ref} rows="1" class="docs-title-input" aria-label="Título del documento" value=${shown} placeholder=${fallback}
       onFocus=${() => { typed.current = false; setDraft(value || fallback); }}
-      onInput=${(e) => { const v = e.currentTarget.value; typed.current = true; setDraft(v); if (v.trim()) onValue(v); }}
-      onKeyDown=${(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      onInput=${(e) => { const v = e.currentTarget.value.replace(/\r?\n/g, ' '); typed.current = true; setDraft(v); if (v.trim()) onValue(v); }}
+      onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
       onBlur=${() => {
         const v = String(draft ?? '').trim(); setDraft(null);
         if (!typed.current) return;
         if (!v) { if (value !== fallback) onValue(fallback); } else if (v !== value) onValue(v);
-      }} />`;
+      }}></textarea>`;
   }
 
   /* Diálogo de emisión con nota opcional (y aprobador cuando se aprueba). Resuelve {note, aprobo} o null. */
-  function issueDialog({ title, intro, confirmText, approver, aprobo, danger, missing }) {
+  function issueDialog({ title, intro, confirmText, approver, aprobo, danger, missing, info }) {
     return new Promise((resolve) => {
       let done = false;
       const finish = (v, close) => { if (done) return; done = true; close(); resolve(v); };
@@ -972,6 +1015,7 @@
         useEffect(() => { const el = document.getElementById(approver ? 'docs-issue-ap' : 'docs-issue-note'); if (el) el.focus(); }, []);
         return html`<${ui.Modal} title=${title} onClose=${() => finish(null, close)} footer=${html`<${ui.Button} onClick=${() => finish(null, close)}>Cancelar</${ui.Button}><${ui.Button} variant=${danger ? 'danger-solid' : 'primary'} onClick=${() => finish({ note: note.trim(), aprobo: ap.trim() }, close)}>${confirmText}</${ui.Button}>`}>
           <p class="small">${intro}</p>
+          ${info ? html`<div class="docs-callout is-info" data-callout="emision-info"><${ui.Icon} name="info" size=${16} /><span>${info}</span></div>` : null}
           ${missing && missing.length ? html`<div class="docs-callout is-warn" data-callout="faltantes"><${ui.Icon} name="alert" size=${16} /><span>Hay campos obligatorios sin diligenciar: ${missing.map((f) => f.label).join(', ')}. Quien revise los verá vacíos; deberás completarlos antes de aprobar.</span></div>` : null}
           ${approver ? html`<${ui.Field} label="Aprobó" for="docs-issue-ap" hint="Nombre o cargo de quien aprueba. Se registra en el cajetín."><${ui.Input} id="docs-issue-ap" value=${ap} onValue=${setAp} placeholder="Ej.: Gerencia General" /></${ui.Field}>` : null}
           <${ui.Field} label="Nota (opcional)" for="docs-issue-note" hint="Motivo o resumen de los cambios. Queda en el historial de revisiones."><${ui.TextArea} id="docs-issue-note" value=${note} onValue=${setNote} rows=${2} /></${ui.Field}>
@@ -1333,8 +1377,15 @@
     const currency = project.currency || 'COP';
     let body, footer;
     if (phase === 'running') {
+      /* Progreso legible: la respuesta llega como JSON, así que no se muestra en bruto; se indica qué campos ya llegaron. */
+      const keys = flds.filter((f) => sel.has(f.key)).map((f) => f.key);
+      const order = keys.map((k) => [k, stream.search(new RegExp('"' + reEsc(k) + '"\\s*:'))]).filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]).map(([k]) => k);
+      const now = order[order.length - 1] || null;
       body = html`<div class="stack" aria-live="polite">
-        ${stream ? html`<div class="small muted">Claude está redactando la propuesta…</div><pre class="docs-ai-stream">${stream.length > 2000 ? '…' + stream.slice(-2000) : stream}</pre>`
+        ${stream ? html`<div class="small muted">Claude está redactando la propuesta: ${order.length} de ${keys.length} ${keys.length === 1 ? 'campo' : 'campos'} · ${PM.fmt.num(stream.length)} caracteres recibidos.</div>
+          <ul class="docs-ai-prog" data-ai-progress>${keys.map((k) => { const st = k === now ? 'now' : order.includes(k) ? 'done' : 'wait'; return html`<li key=${k} class=${st === 'done' ? 'is-done' : st === 'now' ? 'is-now' : ''} data-ai-state=${st}>
+            <${ui.Icon} name=${st === 'done' ? 'check' : st === 'now' ? 'edit' : 'clock'} size=${14} /><span>${fmap[k].label}${st === 'now' ? ' — redactando…' : st === 'wait' ? ' — pendiente' : ''}</span>
+          </li>`; })}</ul>`
           : html`<${ui.Spinner} label="Pensando…" /><p class="small muted">Claude analiza la plantilla y el contexto del proyecto. La primera respuesta puede tardar hasta un minuto.</p>`}
       </div>`;
       footer = html`<${ui.Button} icon="stop" onClick=${stop}>Detener</${ui.Button}>`;
@@ -1384,7 +1435,7 @@
     if (!p) return html`<div class="docs-rel-item" style="cursor:default"><span class="docs-rel-name"><span class="docs-code">${code}</span> Proceso ${code}</span></div>`;
     return html`<button type="button" class="docs-rel-item" data-process=${code} onClick=${() => PM.navigate('procesos', { process: code })}><span class="docs-sw" aria-hidden="true" style=${'background:' + groupColor(p.group)}></span><span class="docs-rel-name"><span class="docs-code">${code}</span> ${p.name}</span><${ui.Icon} name="chevron-right" size=${14} /></button>`;
   }
-  function SidePanel({ t, tid, idx, doc, exists, status }) {
+  function SidePanel({ t, tid, idx, doc, exists, status, canWrite, panel, onTogglePanel }) {
     const roles = useMemo(() => (t.missing ? { create: [], update: [] } : templateProcessRoles(t)), [t, kbReady()]);
     const codes = [...roles.create, ...roles.update];
     const related = useMemo(() => {
@@ -1403,6 +1454,7 @@
     const tips = Array.isArray(t.tips) ? t.tips : [];
     const showChange = BASELINE_DOCS.has(tid) && status !== 'aprobado';
     return html`<aside class="stack" aria-label="Información del documento">
+      ${onTogglePanel ? html`<div class="docs-panel-bar"><${ui.Button} size="sm" variant="ghost" icon=${panel === 'abajo' ? 'compare' : 'expand'} data-panel-toggle=${panel} onClick=${onTogglePanel}>${panel === 'abajo' ? 'Mostrar el panel al lado' : 'Pasar el panel abajo'}</${ui.Button}></div>` : null}
       <${ui.Card} title="Acerca de este documento">
         <div class="stack-sm">
           ${t.purpose ? html`<p class="small">${t.purpose}</p>` : null}
@@ -1424,15 +1476,306 @@
         </details>` : null}
       </${ui.Card}>` : null}
       ${related.length ? html`<${ui.Card} title="Documentos relacionados">
-        <div class="docs-rel">${related.map((id) => { const rt = PM.templates[id]; const insts = idx.byTemplate[id] || []; return html`<button type="button" key=${id} class="docs-rel-item" data-related=${id} onClick=${() => PM.openDocument(id)}>
-          <span class="docs-rel-name">${rt.name}</span><${StatusChip} status=${aggStatus(insts)} />
-        </button>`; })}</div>
+        <div class="docs-rel">${related.map((id) => {
+          const rt = PM.templates[id]; const insts = sortedInstances(idx.byTemplate[id]);
+          /* Plantillas múltiples: abre el documento más reciente; si no hay ninguno, crea uno nuevo. */
+          if (rt.multiple) {
+            const last = insts[insts.length - 1] || null;
+            return last
+              ? html`<button type="button" key=${id} class="docs-rel-item" data-related=${id} data-open-doc=${last.id} onClick=${() => PM.openDocument(last.id)}>
+                  <span class="docs-rel-name stack-sm" style="gap:0"><span>${last.title || rt.name}</span>${(() => { const sub = [insts.length > 1 ? 'El más reciente de ' + insts.length : '', norm(last.title || rt.name).includes(norm(rt.name)) ? '' : rt.name].filter(Boolean).join(' · '); return sub ? html`<span class="xsmall faint">${sub}</span>` : null; })()}</span><${StatusChip} status=${statusOf(last)} />
+                </button>`
+              : html`<button type="button" key=${id} class="docs-rel-item" data-related=${id} onClick=${() => PM.openDocument(id)} aria-label=${(canWrite ? 'Crear: ' : 'Ver plantilla: ') + rt.name}>
+                  <span class="docs-rel-name stack-sm" style="gap:0"><span>${rt.name}</span><span class="xsmall faint">${canWrite ? 'Ninguno todavía · crear el primero' : 'Ninguno todavía'}</span></span><${StatusChip} status="sin" />
+                </button>`;
+          }
+          return html`<button type="button" key=${id} class="docs-rel-item" data-related=${id} onClick=${() => PM.openDocument(id)}>
+            <span class="docs-rel-name">${rt.name}</span><${StatusChip} status=${aggStatus(insts)} />
+          </button>`;
+        })}</div>
       </${ui.Card}>` : null}
       ${showChange ? html`<div class="docs-callout is-info"><${ui.Icon} name="layers" size=${16} /><div class="docs-callout-body">
         <strong>Documento de línea base</strong>
         <span>Una vez aprobado, cualquier cambio debe pasar por 4.6 Realizar el control integrado de cambios: registra una solicitud de cambio y, cuando se apruebe, crea una nueva revisión.</span>
       </div></div>` : null}
     </aside>`;
+  }
+
+  /* ==================================================================== 4.6: SOLICITUD DE CAMBIO → REGISTRO DE CAMBIOS
+     El tablero y el diálogo de líneas base leen las decisiones desde la tabla `cambios` del registro de cambios
+     (SPEC §5). Cada solicitud se vincula con su fila por el código del cambio (CC-###). */
+  const CR_TID = 'solicitud-cambio', CL_TID = 'registro-cambios';
+  /* [columna del registro, campo de la solicitud]. Los datos de control se copian siempre; los textos solo
+     llenan celdas vacías (en el registro suelen ser un resumen de la solicitud). */
+  const CR_KEY_MAP = [['fecha', 'fechaSolicitud'], ['solicitante', 'solicitante'], ['tipo', 'tipoCambio'], ['impactoCronograma', 'diasCronograma'], ['impactoCosto', 'valorCosto'], ['estado', 'decision'], ['fechaDecision', 'fechaDecision'], ['decisor', 'decisor']];
+  const CR_TEXT_MAP = [['descripcion', 'descripcionCambio'], ['impactoAlcance', 'impactoAlcance']];
+  const isRow = (r) => r && typeof r === 'object' && !Array.isArray(r);
+  const sameCode = (a, b) => norm(String(a ?? '').trim()) === norm(String(b ?? '').trim());
+  const sameCell = (a, b) => (typeof a === 'number' || typeof b === 'number' ? !isEmptyVal(a) && Number(a) === Number(b) : String(a ?? '').trim() === String(b ?? '').trim());
+  const changeLogField = () => allFields(PM.templates[CL_TID]).find((f) => f.key === 'cambios') || null;
+  const changeLogRows = (regDoc) => { const v = regDoc && regDoc.exists && regDoc.data && regDoc.data.fields && regDoc.data.fields.cambios; return Array.isArray(v) ? v.filter(isRow) : []; };
+  function changeRowFrom(fields) {
+    const id = String((fields && fields.codigoCambio) || '').trim();
+    if (!id) return null;
+    const row = { id };
+    for (const [k, s] of [...CR_KEY_MAP, ...CR_TEXT_MAP]) { const v = fields[s]; if (!isEmptyVal(v) && !(typeof v === 'string' && !v.trim())) row[k] = v; }
+    return row;
+  }
+  function changeLinkState(fields, regDoc, insts, docId) {
+    const row = changeRowFrom(fields);
+    if (!row) return { kind: 'nocode' };
+    const other = (insts || []).find((d) => d.id !== docId && sameCode(d.fields && d.fields.codigoCambio, row.id));
+    if (other) return { kind: 'dup', row, other };
+    const ex = changeLogRows(regDoc).find((r) => sameCode(r.id, row.id));
+    if (!ex) return { kind: 'missing', row };
+    const diffs = [];
+    for (const [k] of CR_KEY_MAP) if (row[k] !== undefined && !sameCell(ex[k], row[k])) diffs.push(k);
+    for (const [k] of CR_TEXT_MAP) if (row[k] !== undefined && isEmptyVal(ex[k])) diffs.push(k);
+    return { kind: diffs.length ? 'differs' : 'ok', row, ex, diffs };
+  }
+  function changeDiffText(st, currency) {
+    const f = changeLogField();
+    const col = (k) => ((f && f.columns) || []).find((c) => c.key === k) || { key: k, label: humanize(k), type: 'text' };
+    return st.diffs.map((k) => {
+      const c = col(k);
+      if (CR_TEXT_MAP.some(([x]) => x === k)) return c.label + ' (vacío en el registro)';
+      const a = cellStr(c, st.ex, [st.ex], currency), b = cellStr(c, st.row, [st.row], currency);
+      return c.label + ' (registro: ' + (a ? '«' + a + '»' : 'vacío') + '; solicitud: «' + b + '»)';
+    }).join('; ');
+  }
+  /* Siguiente código libre (CC-###) considerando el registro y las demás solicitudes. */
+  function nextChangeCode(regDoc, insts) {
+    const f = changeLogField();
+    if (!f) return '';
+    const rows = [...changeLogRows(regDoc), ...(insts || []).map((d) => ({ id: d.fields && d.fields.codigoCambio })).filter((r) => r.id)];
+    return nextRowCode(rows, f, PM.templates[CL_TID]);
+  }
+
+  function ChangeLogCallout({ st, canWrite, editable, busy, regStatus, nextCode, currency, project, onSync, onSetCode }) {
+    const view = PM.templates[CL_TID] ? html`<${ui.Button} size="sm" variant="ghost" icon="checklist" onClick=${() => PM.openDocument(CL_TID)}>Ver registro de cambios</${ui.Button}>` : null;
+    const body = (tone, icon, text, actions) => html`<div class=${cx('docs-callout', tone && 'is-' + tone)} data-callout="registro-cambios" data-link=${st.kind}><${ui.Icon} name=${icon} size=${16} /><div class="docs-callout-body">
+      <strong>Registro de cambios</strong><span>${text}</span>${actions ? html`<div class="row">${actions}</div>` : null}
+    </div></div>`;
+    if (st.kind === 'nocode') {
+      return body('info', 'link', 'Asigna el código del cambio para vincular esta solicitud con el registro de cambios: el tablero y el diálogo de líneas base leen las decisiones desde ese registro.',
+        editable && nextCode ? html`<${ui.Button} size="sm" icon="plus" onClick=${() => onSetCode(nextCode)}>Usar el código ${nextCode}</${ui.Button}>` : null);
+    }
+    const id = st.row.id;
+    if (st.kind === 'dup') {
+      const o = st.other;
+      return body('warn', 'alert', 'El código ' + id + ' también lo usa «' + (o.title || 'otra solicitud de cambio') + '». Cada solicitud necesita un código propio; cambia uno de los dos para vincularla con el registro de cambios.', view);
+    }
+    const lockNote = regStatus === 'aprobado' ? ' El registro de cambios está aprobado: después de actualizarlo, crea una nueva revisión para emitir el cambio.' : '';
+    if (st.kind === 'missing') {
+      return body('warn', 'alert', id + ' aún no figura en el registro de cambios, así que el tablero y el diálogo de líneas base no ven esta solicitud.' + (editable ? ' Se registrará al emitirla; también puedes registrarla ahora.' : '') + lockNote,
+        html`${canWrite ? html`<${ui.Button} size="sm" variant="primary" icon="plus" disabled=${busy} onClick=${onSync}>Registrar en el registro de cambios</${ui.Button}>` : null}${view}`);
+    }
+    if (st.kind === 'differs') {
+      return body('warn', 'alert', 'El registro de cambios tiene otros datos para ' + id + ': ' + changeDiffText(st, currency) + '.' + lockNote,
+        html`${canWrite ? html`<${ui.Button} size="sm" variant="primary" icon="refresh" disabled=${busy} onClick=${onSync}>Actualizar el registro de cambios</${ui.Button}>` : null}${view}`);
+    }
+    return body('good', 'check-circle', id + ' figura en el registro de cambios' + (st.ex.estado ? ' con estado «' + st.ex.estado + '»' : '') + '.', view);
+  }
+
+  /* ==================================================================== 4.5 / 4.7: DATOS CALCULADOS PARA LOS INFORMES
+     El informe de desempeño y el informe final toman del gestor lo que ya está calculado (valor ganado,
+     cronograma, registros) para que el documento cuadre con las herramientas. */
+  const LOADABLE = { 'informe-desempeno': 'perf', 'informe-final': 'final' };
+  const round1 = (x) => Math.round(Number(x) * 10) / 10;
+  const docTable = (idx, tid, key) => { const list = idx.byTemplate[tid] || []; const d = list.find((x) => x.id === tid) || list[0]; const v = d && d.fields && d.fields[key]; return Array.isArray(v) ? v.filter(isRow) : []; };
+  const wdDelta = (cal, base, fc) => (!cal || !PM.date.valid(base) || !PM.date.valid(fc) || base === fc ? 0 : fc > base ? cal.countWork(PM.date.add(base, 1), fc) : -cal.countWork(PM.date.add(fc, 1), base));
+  const wdText = (n) => PM.fmt.num(Math.abs(n)) + (Math.abs(n) === 1 ? ' día hábil' : ' días hábiles');
+  const signedMoney = (v, cur) => (Number(v) > 0 ? '+' : '') + PM.fmt.money(v, cur);
+  const lc = (s) => String(s || '').toLowerCase();
+  /* Texto breve para resúmenes: recortado y sin puntuación final (se agrega la del renglón). */
+  const brief = (s, n) => clip(String(s ?? '').trim().replace(/[\s.;:,]+$/, ''), n);
+  const endDot = (s) => (/[.!?…]$/.test(s) ? s : s + '.');
+  const fieldMap = (t) => Object.fromEntries(allFields(t).map((f) => [f.key, f]));
+  const optOk = (c, v) => !c || !Array.isArray(c.options) || !c.options.length || c.options.map(normOpt).some((o) => String(o.value) === String(v));
+  const pickCols = (f, row) => { const keys = new Set(((f && f.columns) || []).map((c) => c.key)); const out = { id: row.id }; for (const k of Object.keys(row)) if (keys.has(k)) out[k] = row[k]; return out; };
+  /* Hitos del cronograma: fecha de la línea base del cronograma frente a la real o pronosticada. */
+  function milestoneRows(m, f) {
+    if (!f) return [];
+    const est = ((f.columns || []).find((c) => c.key === 'estado')) || null;
+    const bl = m.baselines && m.baselines.schedule && m.baselines.schedule.schedule;
+    const blTasks = new Map(((bl && bl.tasks) || []).filter(isRow).map((x) => [x.id, x]));
+    const at = m.statusDate, cal = m.sched.cal;
+    const rows = [];
+    for (const task of m.sched.tasks) {
+      if (!task.milestone) continue;
+      const b = blTasks.get(task.id);
+      const base = b ? (PM.date.valid(b.start) ? b.start : PM.date.valid(b.finish) ? b.finish : null) : null;
+      const done = Number(task.progress) >= 100 || PM.date.valid(task.actualFinish);
+      const fc = PM.date.valid(task.actualFinish) ? task.actualFinish : PM.date.valid(task.startDate) ? task.startDate : task.finishDate;
+      const delta = base && PM.date.valid(fc) ? wdDelta(cal, base, fc) : 0;
+      const estado = done ? 'Cumplido' : base && delta > 0 ? (base < at ? 'Atrasado' : 'En riesgo') : PM.date.valid(fc) && fc < at ? 'Atrasado' : 'Pendiente';
+      const comentario = !base ? '' : delta === 0 ? (done ? 'Cumplido en la fecha de la línea base.' : 'Según la línea base.') : delta > 0 ? wdText(delta) + ' después de la línea base' + (done ? '.' : ' (pronóstico).') : wdText(delta) + ' antes de la línea base.';
+      const row = { id: PM.uid('r'), hito: task.name || 'Hito', fechaBase: base || '', fechaPronostico: PM.date.valid(fc) ? fc : '', comentario };
+      if (optOk(est, estado)) row.estado = estado;
+      rows.push(pickCols(f, row));
+      if (rows.length >= 15) break;
+    }
+    return rows;
+  }
+  function riskLines(idx, n) {
+    const rows = docTable(idx, 'registro-riesgos', 'riesgos').filter((r) => r.estado !== 'Cerrado');
+    return rows.map((r) => ({ r, s: PM.calc.riskScore(r.probabilidad, r.impacto) })).sort((a, b) => b.s - a.s).slice(0, n).map(({ r, s }) => [r.id, brief(r.descripcion, 110)].filter(Boolean).join(' ') + ': ' + [s ? lc(PM.calc.riskLevel(s).label) + ' (' + s + ')' : 'sin evaluar', lc(r.estado), r.estrategia ? 'estrategia: ' + lc(r.estrategia) : ''].filter(Boolean).join(', ') + '.');
+  }
+  function incidentText(idx) {
+    const rows = docTable(idx, 'registro-incidentes', 'incidentes');
+    if (!rows.length) return '';
+    const open = rows.filter((r) => r.estado !== 'Resuelto' && r.estado !== 'Cerrado');
+    const closed = rows.filter((r) => r.estado === 'Resuelto' || r.estado === 'Cerrado');
+    const L = [];
+    if (open.length) {
+      L.push('Abiertos:');
+      for (const r of open.slice(0, 8)) L.push([r.id, brief(r.descripcion, 110)].filter(Boolean).join(' ') + ': ' + [lc(r.estado || 'Abierto'), r.prioridad ? 'prioridad ' + lc(r.prioridad) : '', r.responsable ? 'responsable: ' + r.responsable : '', PM.date.valid(r.fechaObjetivo) ? 'fecha objetivo ' + PM.fmt.date(r.fechaObjetivo) : ''].filter(Boolean).join(', ') + '.');
+    } else L.push('No hay incidentes abiertos.');
+    if (closed.length) L.push('Resueltos o cerrados: ' + closed.map((r) => r.id || brief(r.descripcion, 40)).join(', ') + '.');
+    return L.join('\n');
+  }
+  function changesText(idx, from, at, currency) {
+    const rows = docTable(idx, CL_TID, 'cambios');
+    if (!rows.length) return '';
+    const inP = (d) => PM.date.valid(d) && (!from || d >= from) && d <= at;
+    const rel = rows.filter((r) => inP(r.fecha) || inP(r.fechaDecision) || r.estado === 'Registrada' || r.estado === 'En análisis');
+    if (!rel.length) return 'Sin solicitudes de cambio registradas o decididas en el periodo.';
+    return rel.map((r) => {
+      const decided = r.estado === 'Aprobada' || r.estado === 'Rechazada' || r.estado === 'Diferida';
+      const parts = [PM.isNum(r.impactoCronograma) && r.impactoCronograma !== '' ? (Number(r.impactoCronograma) > 0 ? '+' : Number(r.impactoCronograma) < 0 ? '−' : '') + wdText(Number(r.impactoCronograma)) : '', PM.isNum(r.impactoCosto) && r.impactoCosto !== '' ? signedMoney(r.impactoCosto, currency) : ''].filter(Boolean);
+      return [r.id, brief(r.descripcion, 100)].filter(Boolean).join(' ') + ': ' + lc(r.estado || 'Registrada') + (decided && PM.date.valid(r.fechaDecision) ? ' el ' + PM.fmt.date(r.fechaDecision) : '') + (parts.length ? ' (' + parts.join('; ') + ')' : '') + '.';
+    }).join('\n');
+  }
+  function perfProposals(m, idx, cur, t, docId, currency) {
+    const fm = fieldMap(t); const values = {}, why = {}, notes = [];
+    const set = (k, v, w) => { if (fm[k] && v !== undefined && v !== null && v !== '') { values[k] = v; if (w) why[k] = w; } };
+    const { evm, sched, statusDate: at } = m;
+    set('fechaCorte', at, 'Fecha de corte del proyecto (ficha del proyecto).');
+    const prev = (idx.byTemplate['informe-desempeno'] || []).filter((d) => d.id !== docId).map((d) => d.fields && d.fields.fechaCorte).filter((x) => PM.date.valid(x) && x < at).sort().pop();
+    const from = prev ? PM.date.add(prev, 1) : (PM.date.valid(cur.periodoInicio) ? cur.periodoInicio : null);
+    if (prev) set('periodoInicio', from, 'Día siguiente al corte del informe anterior (' + PM.fmt.date(prev) + ').');
+    if (evm && evm.bac > 0) {
+      set('avancePlanificado', round1(evm.pctPlanned * 100), 'PV ÷ BAC al corte.');
+      set('avanceReal', round1(evm.pctComplete * 100), 'EV ÷ BAC al corte.');
+      if (fm.valorGanado) {
+        const row = { corte: at, bac: Math.round(evm.bac), pv: Math.round(evm.pv), ev: Math.round(evm.ev), ac: Math.round(evm.ac) };
+        const ex = Array.isArray(cur.valorGanado) ? cur.valorGanado.filter(isRow) : [];
+        const i = ex.findIndex((r) => r.corte === at);
+        const next = i >= 0 ? ex.map((r, j) => (j === i ? { ...r, ...row } : r)) : [...ex, { id: PM.uid('r'), ...row }];
+        next.sort((a, b) => String(a.corte || '').localeCompare(String(b.corte || '')));
+        set('valorGanado', next, i >= 0 ? 'Actualiza la fila del corte del ' + PM.fmt.date(at) + '; las demás filas no cambian.' : 'Agrega la fila del corte del ' + PM.fmt.date(at) + ' a las existentes.');
+      }
+      if (PM.isNum(evm.eac)) set('eacAdoptado', Math.round(evm.eac), 'EAC típico = BAC ÷ CPI. Ajústalo si adoptas otro pronóstico.');
+    } else notes.push('Las actividades del cronograma no tienen presupuesto (BAC = 0), así que no hay avance ni valor ganado para cargar.');
+    const ff = evm && PM.date.valid(evm.forecastFinish) ? evm.forecastFinish : sched && PM.date.valid(sched.finish) ? sched.finish : null;
+    set('fechaFinPronosticada', ff, evm && PM.date.valid(evm.forecastFinish) ? 'Pronóstico por cronograma ganado (SPI(t)).' : 'Fin del cronograma actualizado al corte.');
+    const hitos = milestoneRows(m, fm.hitos);
+    if (hitos.length) set('hitos', hitos, m.baselines && m.baselines.schedule ? 'Hitos del cronograma frente a la línea base ' + (m.baselines.schedule.label || '') + '.' : 'Hitos del cronograma. Sin línea base del cronograma, la fecha de línea base queda vacía.');
+    const rk = riskLines(idx, 5);
+    if (rk.length) set('riesgosPrincipales', rk.join('\n'), 'Riesgos abiertos de mayor puntuación (registro de riesgos).');
+    set('incidentesRelevantes', incidentText(idx), 'Registro de incidentes.');
+    set('cambiosPeriodo', changesText(idx, from, at, currency), from ? 'Cambios registrados o decididos entre el ' + PM.fmt.date(from) + ' y el corte, y los pendientes de decisión.' : 'Registro de cambios (sin inicio del periodo se incluyen todos).');
+    return { values, why, notes };
+  }
+  function finalProposals(m, idx, cur, t, currency) {
+    const fm = fieldMap(t); const values = {}, why = {}, notes = [];
+    const set = (k, v, w) => { if (fm[k] && v !== undefined && v !== null && v !== '') { values[k] = v; if (w) why[k] = w; } };
+    const { evm, sched, baselines, costs, statusDate: at } = m;
+    const tasks = (sched && sched.tasks) || [];
+    const starts = tasks.map((x) => x.actualStart).filter(PM.date.valid).sort();
+    if (starts.length) set('fechaInicioReal', starts[0], 'Primera fecha de inicio real registrada en el cronograma.');
+    else if (PM.date.valid(sched.start) && tasks.some((x) => Number(x.progress) > 0)) set('fechaInicioReal', sched.start, 'Inicio del cronograma: no hay fechas de inicio real registradas.');
+    const bl = baselines && baselines.schedule;
+    const blFinish = bl && bl.schedule && PM.date.valid(bl.schedule.finish) ? bl.schedule.finish : null;
+    if (blFinish) set('fechaFinPlan', blFinish, 'Fin de la línea base del cronograma ' + (bl.label || '') + '.');
+    const allDone = tasks.length > 0 && tasks.every((x) => Number(x.progress) >= 100);
+    const fins = tasks.map((x) => (PM.date.valid(x.actualFinish) ? x.actualFinish : x.finishDate)).filter(PM.date.valid).sort();
+    const realEnd = allDone ? fins[fins.length - 1] : null;
+    if (realEnd) set('fechaFinReal', realEnd, 'Última fecha de terminación del cronograma. Si el acta de cierre se firmó después, usa esa fecha.');
+    else if (tasks.length) notes.push('Hay actividades sin terminar: la fecha de fin real se carga cuando todas estén al 100 %.');
+    const actuals = ((costs && costs.actuals) || []).filter((a) => isRow(a) && PM.isNum(a.amount));
+    if (actuals.length) set('costoFinal', Math.round(PM.sum(actuals, (a) => Number(a.amount) || 0)), 'Suma de los ' + actuals.length + ' costos reales registrados' + (allDone ? '.' : '; el proyecto aún no termina.'));
+    if (tasks.length) {
+      const fin = realEnd || (evm && PM.date.valid(evm.forecastFinish) ? evm.forecastFinish : sched.finish);
+      const L = [];
+      if (blFinish) L.push('Fin de la línea base del cronograma (' + (bl.label || 'vigente') + '): ' + PM.fmt.date(blFinish, 'long') + '.');
+      if (PM.date.valid(fin)) { const d = blFinish ? wdDelta(sched.cal, blFinish, fin) : 0; L.push('Fin ' + (realEnd ? 'real' : 'pronosticado') + ': ' + PM.fmt.date(fin, 'long') + (blFinish ? (d ? ' (' + wdText(d) + (d > 0 ? ' de atraso' : ' de adelanto') + ').' : ' (sin variación).') : '.')); }
+      if (evm && PM.isNum(evm.spi)) L.push('SPI ' + PM.fmt.idx(evm.spi) + (PM.isNum(evm.spiT) ? ' · SPI(t) ' + PM.fmt.idx(evm.spiT) : '') + ' al corte del ' + PM.fmt.date(at, 'long') + '.');
+      const ms = milestoneRows(m, { columns: [{ key: 'hito' }, { key: 'fechaBase' }, { key: 'fechaPronostico' }, { key: 'comentario' }] }).filter((r) => r.fechaBase && r.fechaPronostico && r.fechaBase !== r.fechaPronostico).slice(0, 6);
+      for (const r of ms) L.push(r.hito + ': ' + PM.fmt.date(r.fechaBase) + ' en la línea base → ' + PM.fmt.date(r.fechaPronostico) + '. ' + r.comentario);
+      set('cronogramaFinal', L.join('\n'), 'Resumen del cronograma frente a la línea base.');
+    }
+    if (evm && evm.bac > 0) {
+      const L = ['Presupuesto de las actividades (BAC): ' + PM.fmt.money(evm.bac, currency) + (evm.reserves && (evm.reserves.contingency || evm.reserves.management) ? '; reserva para contingencias ' + PM.fmt.money(evm.reserves.contingency, currency) + ' y reserva de gestión ' + PM.fmt.money(evm.reserves.management, currency) : '') + '.',
+        'Costo real (AC) al ' + PM.fmt.date(at, 'long') + ': ' + PM.fmt.money(evm.ac, currency) + '; valor ganado (EV): ' + PM.fmt.money(evm.ev, currency) + '.'];
+      if (PM.isNum(evm.cpi)) L.push('CPI ' + PM.fmt.idx(evm.cpi) + (PM.isNum(evm.eac) ? '; EAC ' + PM.fmt.money(evm.eac, currency) : '') + (PM.isNum(evm.vac) ? '; VAC ' + PM.fmt.money(evm.vac, currency) : '') + '.');
+      set('costoFinalAnalisis', L.join('\n'), 'Indicadores de valor ganado al corte.');
+    }
+    const risks = docTable(idx, 'registro-riesgos', 'riesgos');
+    if (risks.length) {
+      const mat = risks.filter((r) => r.estado === 'Materializado');
+      const n = (e) => risks.filter((r) => r.estado === e).length;
+      const L = [risks.length + ' riesgos registrados: ' + n('Cerrado') + ' cerrados, ' + (n('Abierto') + n('En seguimiento')) + ' abiertos o en seguimiento y ' + mat.length + ' materializados.'];
+      for (const r of mat.slice(0, 6)) L.push(endDot([r.id, brief(r.descripcion, 110)].filter(Boolean).join(' ') + (r.respuesta ? ': ' + brief(r.respuesta, 160) : '')));
+      set('resumenRiesgos', L.join('\n'), 'Registro de riesgos.');
+    }
+    set('resumenIncidentes', incidentText(idx), 'Registro de incidentes.');
+    return { values, why, notes };
+  }
+  const cmpVal = (v) => JSON.stringify(Array.isArray(v) ? v.map((r) => (isRow(r) ? (({ id, ...rest }) => rest)(r) : r)) : v ?? null);
+
+  function LoadDataModal({ close, t, res, cur, currency, onApply, title }) {
+    const fm = useMemo(() => fieldMap(t), [t]);
+    const keys = useMemo(() => allFields(t).map((f) => f.key).filter((k) => k in res.values && cmpVal(cur[k]) !== cmpVal(res.values[k])), [t, res]);
+    const [pick, setPick] = useState(() => new Set(keys.filter((k) => isEmptyVal(cur[k]) || k === 'valorGanado')));
+    const toggle = (k) => setPick((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+    const apply = () => {
+      const vals = {};
+      for (const k of keys) if (pick.has(k)) vals[k] = PM.clone(res.values[k]);
+      const n = Object.keys(vals).length;
+      if (!n) return;
+      onApply(vals);
+      close();
+      PM.toast(n === 1 ? 'Se cargó 1 campo con los datos del gestor.' : 'Se cargaron ' + n + ' campos con los datos del gestor.');
+    };
+    return html`<${ui.Modal} size="wide" title=${title} subtitle=${t.name} onClose=${close} footer=${keys.length
+      ? html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="check" disabled=${!pick.size} onClick=${apply}>Aplicar selección (${pick.size})</${ui.Button}>`
+      : html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}>
+      <div class="stack" data-load-modal>
+        ${keys.length ? html`<p class="small muted">Marca los campos que quieres cargar. Vienen marcados los que están vacíos; los demás reemplazarían lo que ya escribiste. Nada cambia hasta que pulses «Aplicar selección».</p>`
+          : html`<p class="small">El documento ya tiene los mismos datos que calcula el gestor; no hay nada nuevo para cargar.</p>`}
+        ${res.notes.map((n, i) => html`<div class="docs-callout is-info" key=${'n' + i}><${ui.Icon} name="info" size=${16} /><span>${n}</span></div>`)}
+        ${keys.map((k) => { const f = fm[k]; return html`<div class="docs-ai-item" key=${k} data-load-field=${k}>
+          <${ui.Check} checked=${pick.has(k)} onValue=${() => toggle(k)} label=${html`<strong>${f.label}</strong>`} />
+          ${res.why[k] ? html`<span class="docs-ai-why">${res.why[k]}</span>` : null}
+          <div class=${cx('docs-cmp', f.type === 'table' && 'is-stack')}>
+            <div><span class="label-caps">Actual</span><${FieldView} f=${f} value=${cur[k]} currency=${currency} /></div>
+            <div class="is-new"><span class="label-caps">Datos del gestor</span><${FieldView} f=${f} value=${res.values[k]} currency=${currency} /></div>
+          </div>
+        </div>`; })}
+      </div>
+    </${ui.Modal}>`;
+  }
+
+  /* Aviso con la acción de carga; usa el modelo del proyecto (solo se monta en los informes que lo necesitan). */
+  function ReportDataCallout({ tid, t, idx, docId, project, getFields, onApply }) {
+    const m = PM.useProjectModel();
+    const kind = LOADABLE[tid];
+    const currency = project.currency || 'COP';
+    const label = kind === 'perf' ? 'Cargar datos al corte' : 'Cargar datos del proyecto';
+    const open = () => {
+      const cur = getFields();
+      const res = kind === 'perf' ? perfProposals(m, idx, cur, t, docId, currency) : finalProposals(m, idx, cur, t, currency);
+      if (!Object.keys(res.values).length) { PM.toast('Todavía no hay datos calculados para cargar: crea el cronograma con el presupuesto de las actividades y registra el avance y los costos reales.'); return; }
+      PM.openModal((close) => html`<${LoadDataModal} close=${close} t=${t} res=${res} cur=${cur} currency=${currency} onApply=${onApply} title=${label} />`);
+    };
+    const text = kind === 'perf'
+      ? 'El gestor ya calcula el avance, el valor ganado y los pronósticos al corte del ' + PM.fmt.date(m.statusDate, 'long') + '. Cárgalos junto con los hitos, los riesgos, los incidentes y los cambios para que el informe cuadre con las herramientas.'
+      : 'El gestor ya tiene las fechas del cronograma, los costos reales y los registros del proyecto. Cárgalos para que el informe final cuadre con las herramientas.';
+    return html`<div class="docs-callout is-info" data-callout="datos-gestor"><${ui.Icon} name="scurve" size=${16} /><div class="docs-callout-body">
+      <span>${text}</span>
+      <div class="row"><${ui.Button} size="sm" icon="refresh" disabled=${m.loading} onClick=${open}>${label}</${ui.Button}>${kind === 'perf' && PM.getView('valor-ganado') ? html`<${ui.Button} size="sm" variant="ghost" icon="scurve" onClick=${() => PM.navigate('valor-ganado')}>Ver curva S y valor ganado</${ui.Button}>` : null}</div>
+    </div></div>`;
   }
 
   /* ------------------------------------------------------------------ editor de documento */
@@ -1479,6 +1822,16 @@
     }, []);
     useEffect(() => { if (exists) PM.prefs.set('docs.last', { pid, docId }); }, [exists, pid, docId]);
     const { docs: revDocs } = PM.useCollection(exists ? PM.paths.revs(pid, docId) : null);
+    /* 4.6: la solicitud de cambio se vincula con su fila del registro de cambios. */
+    const isCR = tid === CR_TID && !!PM.templates[CL_TID];
+    const clDoc = PM.useDoc(isCR ? PM.paths.doc(pid, CL_TID) : null);
+    const [clBusy, setClBusy] = useState(false);
+    /* Panel lateral: en documentos con tablas va debajo del contenido para que las tablas usen todo el ancho. */
+    const hasTables = useMemo(() => allFields(t).some((f) => f.type === 'table'), [t]);
+    const panelKey = 'docs.panel.' + (hasTables ? 'tablas' : 'texto');
+    const [, setPanelTick] = useState(0);
+    const panelPref = PM.prefs.get(panelKey, null);
+    const panel = panelPref === 'lado' || panelPref === 'abajo' ? panelPref : hasTables ? 'abajo' : 'lado';
 
     if (r.loading) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
     if (!t) {
@@ -1532,7 +1885,57 @@
         snap = { rev: nr, status: ns, date: now, byId: me, note: note || '', fields: PM.clone(b.fields), titleBlock: PM.clone(b.titleBlock), title: b.title || '' };
       }, { now: true, silent: true });
       if (!snap) return;
-      try { await PM.store.set(PM.paths.rev(pid, docId, PM.uid('rev')), snap); PM.toast(toast); } catch (e) { /* el núcleo ya avisó del error */ }
+      try { await PM.store.set(PM.paths.rev(pid, docId, PM.uid('rev')), snap); } catch (e) { return; /* el núcleo ya avisó del error */ }
+      let extra = null;
+      if (isCR) { try { extra = await syncChangeLog(snap.fields); } catch (e) { extra = null; } }
+      PM.toast(extra ? toast + ' ' + extra : toast);
+    };
+    /* Crea o actualiza la fila de la solicitud en el registro de cambios. Devuelve el mensaje para el usuario o null. */
+    const syncChangeLog = async (flds) => {
+      if (!isCR || !canWrite || clDoc.loading) return null;
+      const stNow = changeLinkState(flds, clDoc, idx.byTemplate[CR_TID], docId);
+      if (stNow.kind !== 'missing' && stNow.kind !== 'differs') return null;
+      const regT = PM.templates[CL_TID];
+      const base = clDoc.exists && clDoc.data ? PM.clone(clDoc.data) : PM.newDocBody(regT, project, { template: CL_TID });
+      base.fields = { ...(base.fields || {}) };
+      const rows = Array.isArray(base.fields.cambios) ? base.fields.cambios.filter(isRow) : [];
+      const row = stNow.row;
+      const i = rows.findIndex((x) => sameCode(x.id, row.id));
+      let estado;
+      if (i >= 0) {
+        const next = { ...rows[i] };
+        for (const [k] of CR_KEY_MAP) if (row[k] !== undefined) next[k] = row[k];
+        for (const [k] of CR_TEXT_MAP) if (row[k] !== undefined && isEmptyVal(next[k])) next[k] = row[k];
+        rows[i] = next; estado = next.estado;
+      } else {
+        const f = changeLogField();
+        const init = f ? makeNewRow(f, regT)(rows) : {};
+        const next = { ...init, ...row };
+        rows.push(next); estado = next.estado;
+      }
+      base.fields.cambios = rows;
+      base.titleBlock = { codigo: '', elaboro: '', reviso: '', aprobo: '', fechaAprobacion: null, ...(base.titleBlock || {}) };
+      if (!base.titleBlock.codigo) base.titleBlock.codigo = baseCode(project, CL_TID);
+      base.updatedAt = PM.nowIso(); base.updatedBy = PM.getState().meId || null;
+      await clDoc.saveNow(base);
+      PM.touchProject(pid);
+      const lock = clDoc.exists && statusOf(base) === 'aprobado' ? ' El registro de cambios está aprobado: crea una nueva revisión para emitir la actualización.' : '';
+      return (i >= 0 ? 'Se actualizó ' + row.id + ' en el registro de cambios.' : row.id + ' quedó en el registro de cambios' + (estado ? ' con estado «' + estado + '».' : '.')) + lock;
+    };
+    const curFields = () => resolveFields(t, (bodyRef.current || virtual || {}).fields, project);
+    /* Aviso del diálogo de emisión sobre lo que pasará con el registro de cambios. */
+    const changeIssueInfo = () => {
+      if (!isCR || !canWrite) return null;
+      const s2 = changeLinkState(curFields(), clDoc, idx.byTemplate[CR_TID], docId);
+      if (s2.kind === 'missing') return 'Al emitir, ' + s2.row.id + ' se registrará en el registro de cambios' + (s2.row.estado ? ' con estado «' + s2.row.estado + '»' : '') + '.';
+      if (s2.kind === 'differs') return 'Al emitir, se actualizará ' + s2.row.id + ' en el registro de cambios: ' + changeDiffText(s2, project.currency || 'COP') + '.';
+      if (s2.kind === 'nocode') return 'La solicitud no tiene código del cambio, así que no se registrará en el registro de cambios.';
+      if (s2.kind === 'dup') return 'Otra solicitud usa el código ' + s2.row.id + ', así que el registro de cambios no se actualizará.';
+      return null;
+    };
+    const doSyncChange = async () => {
+      setClBusy(true);
+      try { const msg = await syncChangeLog(curFields()); if (msg) PM.toast(msg); } catch (e) { /* el núcleo ya avisó del error */ } finally { setClBusy(false); }
     };
     const nextDraft = PM.calc.nextDraftRev(rev);
     /* Campos obligatorios de la plantilla que siguen vacíos en el contenido actual. */
@@ -1551,12 +1954,12 @@
     };
     const tbNow = (doc && doc.titleBlock) || {};
     const doEmitDraft = async () => {
-      const res = await issueDialog({ title: 'Emitir borrador ' + nextDraft, intro: 'Se registrará la revisión ' + nextDraft + ' en el historial con el contenido actual. El documento sigue en borrador y puedes seguir editándolo.', confirmText: 'Emitir borrador ' + nextDraft });
+      const res = await issueDialog({ title: 'Emitir borrador ' + nextDraft, intro: 'Se registrará la revisión ' + nextDraft + ' en el historial con el contenido actual. El documento sigue en borrador y puedes seguir editándolo.', confirmText: 'Emitir borrador ' + nextDraft, info: changeIssueInfo() });
       if (res) await issue({ status: 'borrador', rev: nextDraft, note: res.note, toast: 'Borrador ' + nextDraft + ' emitido.' });
     };
     const doSendReview = async () => {
       const rv = rev || nextDraft;
-      const res = await issueDialog({ title: 'Enviar a revisión', intro: 'La revisión ' + rv + ' quedará «En revisión» y se registrará en el historial. Puedes seguir ajustándola mientras se revisa.', confirmText: 'Enviar a revisión', missing: missingRequired() });
+      const res = await issueDialog({ title: 'Enviar a revisión', intro: 'La revisión ' + rv + ' quedará «En revisión» y se registrará en el historial. Puedes seguir ajustándola mientras se revisa.', confirmText: 'Enviar a revisión', missing: missingRequired(), info: changeIssueInfo() });
       if (res) await issue({ status: 'revision', rev: rv, note: res.note, toast: 'Documento enviado a revisión (revisión ' + rv + ').' });
     };
     const doApprove = async () => {
@@ -1569,7 +1972,7 @@
         return;
       }
       const nr = PM.calc.approvedRev(rev);
-      const res = await issueDialog({ title: 'Aprobar y emitir revisión ' + nr, intro: 'Se emitirá la revisión ' + nr + ' como aprobada, con fecha de aprobación de hoy (' + PM.fmt.date(PM.date.today()) + '). El documento quedará bloqueado; para modificarlo después tendrás que crear una nueva revisión.', confirmText: 'Aprobar y emitir', approver: true, aprobo: tbNow.aprobo });
+      const res = await issueDialog({ title: 'Aprobar y emitir revisión ' + nr, intro: 'Se emitirá la revisión ' + nr + ' como aprobada, con fecha de aprobación de hoy (' + PM.fmt.date(PM.date.today()) + '). El documento quedará bloqueado; para modificarlo después tendrás que crear una nueva revisión.', confirmText: 'Aprobar y emitir', approver: true, aprobo: tbNow.aprobo, info: changeIssueInfo() });
       if (res) await issue({ status: 'aprobado', rev: nr, note: res.note, tbPatch: { fechaAprobacion: PM.date.today(), aprobo: res.aprobo || tbNow.aprobo || '' }, toast: 'Revisión ' + nr + ' aprobada y emitida.' });
     };
     const doNewRevision = async () => {
@@ -1612,7 +2015,7 @@
       PM.download(name, kind === 'md' ? buildMarkdown(ctx) : buildHtml(ctx));
     };
     const openHistory = () => PM.openModal((close) => html`<${HistoryModal} close=${close} pid=${pid} docId=${docId} t=${t} project=${project} code=${code} title=${title} canRestore=${() => editableRef.current} onRestore=${(s) => commit((b) => { b.fields = PM.clone(s.fields || {}); }, { now: true })} />`);
-    const openAi = () => PM.openModal((close) => html`<${AiModal} close=${close} t=${t} project=${project} idx=${idx} tid=${tid} getFields=${() => resolveFields(t, (bodyRef.current || virtual || {}).fields, project)} onApply=${(vals) => commit((b) => { Object.assign(b.fields, vals); })} onDenied=${() => setAiOk(false)} />`);
+    const openAi = () => PM.openModal((close) => html`<${AiModal} close=${close} t=${t} project=${project} idx=${idx} tid=${tid} getFields=${curFields} onApply=${(vals) => commit((b) => { Object.assign(b.fields, vals); })} onDenied=${() => setAiOk(false)} />`);
 
     const a = areaOf(t.area);
     const proc = t.process ? processOf(t.process) : null;
@@ -1672,13 +2075,17 @@
           <div class="row">${PM.templates['solicitud-cambio'] && canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${() => PM.openDocument('solicitud-cambio')}>Nueva solicitud de cambio</${ui.Button}>` : null}${PM.templates['registro-cambios'] ? html`<${ui.Button} size="sm" variant="ghost" icon="checklist" onClick=${() => PM.openDocument('registro-cambios')}>Ver registro de cambios</${ui.Button}>` : null}</div>` : null}
       </div></div>` : null}
       ${exists && status === 'obsoleto' ? html`<div class="docs-callout is-warn"><${ui.Icon} name="alert" size=${16} /><span>Documento obsoleto: ya no está vigente y se conserva solo como consulta.${canWrite && realT ? ' Para reactivarlo, crea una nueva revisión (' + nextDraft + ').' : ''}</span></div>` : null}
+      ${isCR ? html`<${ChangeLogCallout} st=${changeLinkState(fields, clDoc, idx.byTemplate[CR_TID], docId)} canWrite=${canWrite} editable=${editable} busy=${clBusy || clDoc.loading}
+        regStatus=${clDoc.exists && clDoc.data ? statusOf(clDoc.data) : null} nextCode=${editable ? nextChangeCode(clDoc, idx.byTemplate[CR_TID]) : ''} currency=${currency} project=${project}
+        onSync=${doSyncChange} onSetCode=${(c) => setField('codigoCambio', c)} />` : null}
+      ${editable && LOADABLE[tid] ? html`<${ReportDataCallout} tid=${tid} t=${t} idx=${idx} docId=${docId} project=${project} getFields=${curFields} onApply=${(vals) => commit((b) => { Object.assign(b.fields, vals); })} />` : null}
       <${TitleBlock} project=${project} doc=${doc} code=${code} status=${exists ? status : 'sin'} exists=${exists} editable=${editable} onTb=${setTb} />
-      <div class="docs-split">
+      <div class=${cx('docs-split', panel === 'abajo' && 'is-below')} data-panel=${panel}>
         <div class="stack-lg" style="gap:16px">
           ${(t.sections || []).map((s, i) => html`<${SectionBlock} key=${s.id || i} s=${s} i=${i} fields=${fields} editable=${editable} onField=${setField} currency=${currency} project=${project} t=${t} />`)}
           ${!(t.sections || []).length ? html`<${ui.Empty} icon="file" title="La plantilla no tiene secciones">No hay campos para diligenciar en este documento.</${ui.Empty}>` : null}
         </div>
-        <${SidePanel} t=${t} tid=${tid} idx=${idx} doc=${doc} exists=${exists} status=${status} />
+        <${SidePanel} t=${t} tid=${tid} idx=${idx} doc=${doc} exists=${exists} status=${status} canWrite=${canWrite} panel=${panel} onTogglePanel=${() => { PM.prefs.set(panelKey, panel === 'lado' ? 'abajo' : 'lado'); setPanelTick((x) => x + 1); }} />
       </div>
     </div>`;
   }

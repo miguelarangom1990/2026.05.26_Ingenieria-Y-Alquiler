@@ -3,7 +3,7 @@
 // Uso: node test/docs.test.mjs --file <ruta.html> [--shots dir]
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openApp, createProject, gotoView, errorCards, horizontalOverflow } from './harness.mjs';
+import { openApp, createProject, createExample, gotoView, errorCards, horizontalOverflow } from './harness.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
@@ -128,7 +128,6 @@ const overflowOk = async (page, where) => { const ov = await horizontalOverflow(
 const noErrorCards = async (page, where) => { const c = await errorCards(page); check(!c.length, 'sin tarjetas de error en ' + where + (c.length ? ': ' + c[0].slice(0, 300) : '')); };
 const barBtn = (page, text) => page.locator('.docs-bar button', { hasText: text });
 const footBtn = (page, text) => page.locator('.modal-foot button', { hasText: text }).last();
-const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 async function ready(page) { await page.waitForFunction(() => window.PM && PM.getState().mode !== 'loading', null, { timeout: 15000 }); }
 
 const PROPOSITO = 'Suministrar y montar el andamio multidireccional de la Torre 2 con certificación de trabajo en alturas.';
@@ -154,6 +153,25 @@ try {
   check(await page.locator('.docs-matrix .docs-proc.is-dim').count() === 47, 'resaltar Inicio atenúa los otros 47 procesos');
   await page.click('.docs-gbtn[data-group="inicio"]');
   check(await page.locator('.docs-matrix .docs-proc.is-dim').count() === 0, 'quitar resaltado');
+  const totalTxt = await page.locator('[data-total]').innerText();
+  const nTpl = await page.evaluate(() => PM.templateList.length);
+  check(totalTxt.includes('0 de ' + nTpl + ' documentos aprobados') && totalTxt.includes(nTpl + ' sin iniciar'), 'el total del mapa cuenta todas las plantillas, como el tablero y la lista (' + totalTxt + ')');
+  const nInicio = await page.evaluate(() => PM.templateList.filter((t) => t.group === 'inicio').length);
+  check((await page.locator('.docs-gbtn[data-group="inicio"] .docs-gbtn-sub').innerText()).includes('0/' + nInicio + ' documentos'), 'el grupo Inicio cuenta las plantillas del grupo (' + nInicio + ')');
+  await page.evaluate(() => PM.navigate('procesos', { group: 'monitoreo' }));
+  await page.waitForTimeout(300);
+  check(await page.locator('.docs-gbtn[aria-pressed="true"]').getAttribute('data-group') === 'monitoreo' && await page.locator('.docs-matrix .docs-proc.is-dim').count() === 37, 'el parámetro group (enlace del tablero) resalta el grupo');
+  await page.click('.docs-gbtn[data-group="monitoreo"]');
+  await page.focus('input[aria-label="Buscar procesos"]');
+  await page.keyboard.press('Shift+Tab');
+  const focusRing = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || !el.classList.contains('docs-gbtn')) return 'el foco quedó en ' + (el && el.className);
+    const probe = document.createElement('div'); probe.style.boxShadow = 'var(--focus)'; document.body.appendChild(probe);
+    const want = getComputedStyle(probe).boxShadow; probe.remove();
+    return getComputedStyle(el).boxShadow === want ? true : getComputedStyle(el).boxShadow + ' ≠ ' + want;
+  });
+  check(focusRing === true, 'los botones de grupo muestran el anillo de foco del teclado (' + focusRing + ')');
   await page.fill('input[aria-label="Buscar procesos"]', 'acta de reunion');
   check(await page.locator('.docs-matrix .docs-proc.is-hit').count() === 1, 'buscar por documento de salida (sin tildes) encuentra 10.2');
   await page.fill('input[aria-label="Buscar procesos"]', 'zzz-sin-resultado');
@@ -284,6 +302,19 @@ try {
   await overflowOk(page, 'editor');
   await noErrorCards(page, 'editor');
   await shot(page, 'documento');
+  check(await page.locator('.docs-split[data-panel="abajo"]').count() === 1, 'documento con tablas: el panel lateral va debajo del contenido');
+  const tblW = await page.evaluate(() => { const w = document.querySelector('[data-field="hitos"] .table-wrap'); return w ? w.clientWidth : 0; });
+  check(tblW > 900, 'las tablas usan todo el ancho del contenido (' + tblW + ' px)');
+  await page.locator('[data-panel-toggle]').click();
+  check(await page.locator('.docs-split[data-panel="lado"]').count() === 1 && (await page.locator('[data-panel-toggle]').innerText()).includes('Pasar el panel abajo'), 'el panel se puede mostrar al lado');
+  await page.evaluate(() => PM.openDocument('enunciado-alcance'));
+  await page.waitForTimeout(300);
+  check(await page.locator('.docs-split[data-panel="lado"]').count() === 1, 'documento sin tablas: panel al lado');
+  await page.evaluate(() => PM.openDocument('acta-constitucion'));
+  await page.waitForTimeout(300);
+  check(await page.locator('.docs-split[data-panel="lado"]').count() === 1, 'la preferencia del panel se recuerda');
+  await page.locator('[data-panel-toggle]').click();
+  check(await page.locator('.docs-split[data-panel="abajo"]').count() === 1, 'volver a pasar el panel abajo');
 
   step('Persistencia tras recargar');
   await page.reload();
@@ -316,7 +347,8 @@ try {
   await footBtn(page, 'Aprobar y emitir').click();
   await page.waitForTimeout(500);
   d = await getDoc(page, 'acta-constitucion');
-  check(d.rev === '0' && d.status === 'aprobado' && d.titleBlock.fechaAprobacion === today() && d.titleBlock.aprobo === 'Gerencia General', 'revisión 0 aprobada con fecha y aprobador');
+  const todayPage = await page.evaluate(() => PM.date.today());
+  check(d.rev === '0' && d.status === 'aprobado' && d.titleBlock.fechaAprobacion === todayPage && d.titleBlock.aprobo === 'Gerencia General', 'revisión 0 aprobada con fecha y aprobador');
   check(await page.locator('#docs-f-proposito').count() === 0 && await page.locator('[data-callout="aprobado"]').count() === 1, 'documento aprobado en solo lectura');
   check(await page.locator('#docs-tb-elaboro').count() === 0, 'cajetín bloqueado');
   check(!(await page.locator('.docs-bar').innerText()).includes('Guardado automático'), 'un documento bloqueado no anuncia guardado automático');
@@ -376,8 +408,8 @@ try {
     PM.ai.available = async () => true;
     PM.ai.json = async (prompt, opts) => {
       window.__prompt = prompt;
-      if (opts && opts.onText) opts.onText({ text: '{"requisitos": "Requisitos', delta: '' });
-      await new Promise((r) => setTimeout(r, 250));
+      if (opts && opts.onText) opts.onText({ text: '{"nivelRiesgo": "Medio", "requisitos": "Requisitos', delta: '' });
+      await new Promise((r) => setTimeout(r, 900));
       return { requisitos: 'Requisitos propuestos por Claude.', objetivos: ['Objetivo IA 1', 'Objetivo IA 2'], hitos: [{ hito: 'Hito IA', fecha: '2026-10-15', costo: '2.500.000', dias: '5', total: 99 }], nivelRiesgo: 'medio', desconocido: 42 };
     };
   });
@@ -391,6 +423,10 @@ try {
   for (const k of ['requisitos', 'objetivos', 'hitos', 'nivelRiesgo']) await page.check('input[data-ai-pick="' + k + '"]');
   await shot(page, 'ai-seleccion');
   await footBtn(page, 'Redactar propuesta').click();
+  await page.waitForSelector('[data-ai-progress]', { timeout: 3000 });
+  const progTxt = await page.locator('.modal').innerText();
+  check(!progTxt.includes('{"') && !progTxt.includes('nivelRiesgo') && await page.locator('.modal pre').count() === 0, 'mientras redacta no se muestra el JSON en bruto');
+  check((await page.locator('[data-ai-progress] [data-ai-state="now"]').innerText()).includes('Requisitos de alto nivel') && (await page.locator('[data-ai-progress] [data-ai-state="done"]').innerText()).includes('Nivel de riesgo') && await page.locator('[data-ai-progress] [data-ai-state="wait"]').count() === 2, 'progreso por campo: listo, redactando y pendientes');
   await page.waitForSelector('.docs-ai-item', { timeout: 5000 });
   check(await page.locator('.docs-ai-item').count() === 4, 'vista previa de 4 campos (clave desconocida ignorada)');
   const prompt = await page.evaluate(() => window.__prompt);
@@ -444,6 +480,10 @@ try {
   await page.waitForTimeout(900);
   inst = (await listDocs(page)).filter((x) => x.id.startsWith('acta-reunion--'));
   check(await page.inputValue('.docs-title-input') === 'Acta de reunión 01' && inst[0].data.title === 'Acta de reunión 01', 'un título vacío vuelve al título por defecto');
+  await page.fill('.docs-title-input', 'Acta de reunión de seguimiento semanal con la interventoría y la dirección de obra del cliente');
+  await page.waitForTimeout(100);
+  const tsz = await page.evaluate(() => { const el = document.querySelector('.docs-title-input'); return { tag: el.tagName, ch: el.clientHeight, sh: el.scrollHeight, cw: el.clientWidth, sw: el.scrollWidth, lh: parseFloat(getComputedStyle(el).lineHeight) }; });
+  check(tsz.tag === 'TEXTAREA' && tsz.sh <= tsz.ch + 1 && tsz.sw <= tsz.cw + 1 && tsz.ch > tsz.lh * 1.5, 'un título largo se parte en varias líneas sin recortarse (' + JSON.stringify(tsz) + ')');
   await page.fill('.docs-title-input', 'Reunión de arranque con el cliente');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(900);
@@ -495,6 +535,8 @@ try {
   const csv = (await page.evaluate(() => window.__dl))[0];
   check(csv && csv.n === 'PRY-TEST-001_lista-maestra.csv', 'nombre del archivo CSV (' + (csv && csv.n) + ')');
   check(csv && csv.data.includes('PRY-TEST-001-ACT;') && csv.data.includes('PRY-TEST-001-AR-01;Reunión de arranque con el cliente') && csv.data.includes('Código;Documento'), 'contenido del CSV');
+  const actaLine = csv ? csv.data.split(/\r?\n/).find((l) => l.startsWith('PRY-TEST-001-ACT;')) : '';
+  check(actaLine && /;\d{2}\/\d{2}\/\d{4} \d{2}:\d{2};/.test(actaLine) && !/\d{2} [a-z]{3} \d{4}/.test(actaLine), 'CSV: la fecha de actualización va en dd/mm/aaaa hh:mm (' + actaLine + ')');
   await page.selectOption('select[aria-label="Filtrar por estado"]', 'borrador');
   const visibleRows = await page.locator('tbody tr').count();
   check(visibleRows >= 3 && (await page.locator('tr[data-doc="acta-constitucion"]').count()) === 1, 'filtro por estado borrador');
@@ -570,6 +612,157 @@ try {
   failures++; console.log('EXCEPCIÓN', e);
 } finally {
   await app.browser.close();
+}
+
+/* ================================================================ integración con las plantillas reales (proyecto de ejemplo) */
+{
+  const ex = await openApp({ file, width: 1360, height: 900 });
+  const p = ex.page;
+  try {
+    const full = await p.evaluate(() => !!(PM.KB && PM.templates['solicitud-cambio'] && PM.templates['registro-cambios'] && PM.templates['informe-desempeno'] && PM.templates['informe-final'] && PM.exampleBuilders && PM.exampleBuilders.length));
+    if (!full) console.log('\n# Integración con las plantillas reales: omitida (la página no incluye las plantillas, la base de conocimiento o el proyecto de ejemplo)');
+    else {
+      await createExample(p);
+      await p.waitForTimeout(900);
+      const pdoc = (id) => p.evaluate((id) => PM.store.get(PM.paths.doc(PM.getState().projectId, id)), id);
+      const plist = () => p.evaluate(() => PM.store.list(PM.paths.docs(PM.getState().projectId)));
+
+      step('Integración: el mapa cuenta los documentos como el tablero');
+      const expect = await p.evaluate(async () => {
+        const docs = await PM.store.list(PM.paths.docs(PM.getState().projectId));
+        const by = {}; for (const d of docs) { const t = (d.data && d.data.template) || d.id.split('--')[0]; (by[t] = by[t] || []).push(d.data); }
+        const st = (t) => { const ds = by[t.id] || []; return !ds.length ? 'none' : ds.some((x) => x.status === 'aprobado') ? 'ok' : 'wip'; };
+        const count = (list) => { const c = { ok: 0, wip: 0, none: 0, total: list.length }; for (const t of list) c[st(t)]++; return c; };
+        return { total: count(PM.templateList), groups: Object.fromEntries(['inicio', 'planificacion', 'ejecucion', 'monitoreo', 'cierre'].map((g) => [g, count(PM.templateList.filter((t) => t.group === g))])) };
+      });
+      await gotoView(p, 'procesos');
+      const mapTot = await p.locator('[data-total]').innerText();
+      check(mapTot.includes(expect.total.ok + ' de ' + expect.total.total + ' documentos aprobados') && mapTot.includes(expect.total.none + ' sin iniciar'), 'total del mapa = criterio del tablero (' + mapTot + ')');
+      let groupsOk = true;
+      for (const [g, c] of Object.entries(expect.groups)) if (!(await p.locator('.docs-gbtn[data-group="' + g + '"] .docs-gbtn-sub').innerText()).includes(c.ok + '/' + c.total + ' documentos')) groupsOk = false;
+      check(groupsOk, 'cada grupo del mapa cuenta como la fila del tablero');
+
+      step('Integración: enlaces a documentos de plantilla múltiple');
+      await p.evaluate(() => PM.openDocument('enunciado-alcance'));
+      await p.waitForTimeout(500);
+      const relSc = p.locator('aside [data-related="solicitud-cambio"]');
+      const relId = await relSc.getAttribute('data-open-doc');
+      check(!!relId && relId.startsWith('solicitud-cambio--') && !!(await pdoc(relId)), 'el relacionado de plantilla múltiple apunta a una solicitud existente (' + relId + ')');
+      await relSc.click();
+      await p.waitForTimeout(500);
+      check((await stateOf(p)).params.docId === relId && !(await p.locator('.docs-bar').innerText()).includes('Aún no creado'), 'el clic abre la solicitud existente, no una nueva en blanco');
+      await p.evaluate(() => PM.navigate('procesos', { process: '4.6' }));
+      await p.waitForSelector('.modal');
+      const inp = p.locator('.modal [data-input-doc="informe-desempeno"] [data-open-doc]');
+      check(await inp.count() >= 1, 'el detalle del proceso lista las instancias de una entrada múltiple');
+      const inpId = await inp.first().getAttribute('data-open-doc');
+      await inp.first().click();
+      await p.waitForTimeout(500);
+      check((await stateOf(p)).params.docId === inpId && await p.locator('.modal').count() === 0, 'la entrada abre el informe existente');
+
+      step('Integración: solicitud de cambio → registro de cambios (4.6)');
+      await p.evaluate((id) => PM.openDocument(id), relId);
+      await p.waitForTimeout(400);
+      check(await p.locator('[data-callout="registro-cambios"]').getAttribute('data-link') === 'ok', 'la solicitud del ejemplo figura en el registro de cambios');
+      await p.evaluate(() => PM.openDocument('solicitud-cambio'));
+      await p.waitForTimeout(500);
+      const cl = p.locator('[data-callout="registro-cambios"]');
+      check(await cl.getAttribute('data-link') === 'nocode', 'una solicitud nueva pide el código del cambio');
+      const altField = p.locator('[data-field="alternativas"]');
+      const emptyTxt = await altField.innerText();
+      const named = (/«([^»]+)»/.exec(emptyTxt) || [])[1];
+      check(!!named && await altField.locator('button', { hasText: named }).count() === 1, 'la tabla vacía nombra el botón que existe («' + named + '»)');
+      await cl.locator('button', { hasText: 'Usar el código' }).click();
+      await p.waitForTimeout(300);
+      const code = await p.inputValue('#docs-f-codigoCambio');
+      const regBefore = await pdoc('registro-cambios');
+      check(/^CC-\d{3}$/.test(code) && !regBefore.fields.cambios.some((r) => r.id === code), 'propone el siguiente código libre (' + code + ')');
+      await p.fill('#docs-f-fechaSolicitud', '2026-10-01');
+      await p.fill('#docs-f-solicitante', 'Director de obra del cliente');
+      await p.fill('#docs-f-descripcionCambio', 'Plataforma adicional de acopio en el piso 12.');
+      await p.fill('#docs-f-justificacion', 'El cliente necesita acopiar material de fachada.');
+      await p.fill('#docs-f-diasCronograma', '5');
+      await p.locator('#docs-f-diasCronograma').blur();
+      await p.fill('#docs-f-valorCosto', '8000000');
+      await p.locator('#docs-f-valorCosto').blur();
+      await p.selectOption('#docs-f-decision', 'Aprobada');
+      await p.fill('#docs-f-fechaDecision', '2026-10-02');
+      await p.fill('#docs-f-decisor', 'Comité de control de cambios');
+      await p.waitForTimeout(900);
+      check(await cl.getAttribute('data-link') === 'missing' && (await cl.innerText()).includes(code), 'avisa que la solicitud aún no está en el registro');
+      await barBtn(p, 'Aprobar y emitir').click();
+      await p.waitForSelector('.modal [data-callout="emision-info"]');
+      check((await p.locator('.modal [data-callout="emision-info"]').innerText()).includes(code + ' se registrará en el registro de cambios con estado «Aprobada»'), 'el diálogo de emisión anuncia el registro');
+      await footBtn(p, 'Aprobar y emitir').click();
+      await p.waitForTimeout(1200);
+      let reg = await pdoc('registro-cambios');
+      let row = reg.fields.cambios.find((r) => r.id === code);
+      check(row && row.estado === 'Aprobada' && row.impactoCronograma === 5 && row.impactoCosto === 8000000 && row.fecha === '2026-10-01' && row.fechaDecision === '2026-10-02' && row.decisor === 'Comité de control de cambios' && row.descripcion === 'Plataforma adicional de acopio en el piso 12.' && row.solicitante === 'Director de obra del cliente', 'al aprobar, la fila queda en el registro de cambios con el mapeo de SPEC §5 (' + JSON.stringify(row) + ')');
+      check(reg.fields.cambios.length === regBefore.fields.cambios.length + 1 && reg.status === regBefore.status, 'las demás filas y el estado del registro no cambian');
+      check(await cl.getAttribute('data-link') === 'ok', 'la solicitud aprobada queda vinculada');
+      const scId = (await stateOf(p)).params.docId;
+      /* el registro se desincroniza (p. ej. alguien lo edita a mano): la solicitud lo detecta y lo corrige */
+      await p.evaluate((code) => { const pid = PM.getState().projectId; return PM.store.get(PM.paths.doc(pid, 'registro-cambios')).then((d0) => { const d = JSON.parse(JSON.stringify(d0)); d.fields.cambios = d.fields.cambios.map((r) => (r.id === code ? { ...r, estado: 'En análisis', descripcion: 'Resumen propio del registro' } : r)); return PM.store.set(PM.paths.doc(pid, 'registro-cambios'), d); }); }, code);
+      await p.waitForTimeout(500);
+      check(await cl.getAttribute('data-link') === 'differs' && (await cl.innerText()).includes('Estado (registro: «En análisis»; solicitud: «Aprobada»)'), 'detecta datos distintos en el registro');
+      await cl.locator('button', { hasText: 'Actualizar el registro de cambios' }).click();
+      await p.waitForTimeout(800);
+      row = (await pdoc('registro-cambios')).fields.cambios.find((r) => r.id === code);
+      check(row.estado === 'Aprobada' && row.descripcion === 'Resumen propio del registro' && await cl.getAttribute('data-link') === 'ok', 'actualizar corrige los datos de control y conserva el resumen del registro');
+      await p.evaluate(() => PM.openDocument('solicitud-cambio'));
+      await p.waitForTimeout(500);
+      await p.fill('#docs-f-codigoCambio', code);
+      await p.waitForTimeout(700);
+      check(await p.locator('[data-callout="registro-cambios"]').getAttribute('data-link') === 'dup', 'un código repetido entre solicitudes se advierte');
+      await p.evaluate((id) => PM.openDocument(id), scId);
+      await p.waitForTimeout(300);
+      await noErrorCards(p, 'solicitud de cambio');
+
+      step('Integración: informe de desempeño con los datos al corte (4.5)');
+      await p.evaluate(() => PM.openDocument('informe-desempeno'));
+      await p.waitForTimeout(700);
+      check(await p.locator('[data-callout="datos-gestor"]').count() === 1, 'el informe nuevo ofrece cargar los datos del corte');
+      await p.locator('[data-callout="datos-gestor"] button', { hasText: 'Cargar datos al corte' }).click();
+      await p.waitForSelector('[data-load-modal]');
+      const lf = await p.locator('[data-load-field]').evaluateAll((els) => els.map((e) => e.dataset.loadField));
+      check(['fechaCorte', 'avancePlanificado', 'avanceReal', 'valorGanado', 'eacAdoptado', 'fechaFinPronosticada', 'hitos', 'riesgosPrincipales', 'cambiosPeriodo'].every((k) => lf.includes(k)), 'propone corte, avance, valor ganado, pronósticos, hitos, riesgos y cambios (' + lf.join(',') + ')');
+      await overflowOk(p, 'diálogo de carga de datos');
+      await shot(p, 'informe-carga');
+      await footBtn(p, 'Aplicar selección').click();
+      await p.waitForTimeout(1200);
+      const idt = (await plist()).filter((x) => x.id.startsWith('informe-desempeno--')).map((x) => x.data).sort((a, b) => (b.seq || 0) - (a.seq || 0))[0];
+      const f = idt.fields; const vg = (f.valorGanado || [])[0] || {};
+      const statusDate = await p.evaluate(async () => PM.statusDateOf(await PM.store.get(PM.paths.project(PM.getState().projectId))));
+      check(f.fechaCorte === statusDate && vg.corte === statusDate, 'fecha de corte y fila de valor ganado al corte (' + f.fechaCorte + ')');
+      check(vg.bac > 0 && vg.pv > 0 && vg.ev > 0 && vg.ac > 0 && Math.abs(f.avanceReal - Math.round(vg.ev / vg.bac * 1000) / 10) < 0.11 && Math.abs(f.avancePlanificado - Math.round(vg.pv / vg.bac * 1000) / 10) < 0.11, 'avance planificado y real coherentes con PV, EV y BAC (' + f.avancePlanificado + ' / ' + f.avanceReal + ')');
+      check(Math.abs(f.eacAdoptado - vg.bac * vg.ac / vg.ev) < 2 && /^\d{4}-\d{2}-\d{2}$/.test(f.fechaFinPronosticada), 'EAC = BAC ÷ CPI y fecha de fin pronosticada');
+      check(Array.isArray(f.hitos) && f.hitos.length > 0 && f.hitos.every((h) => h.hito && h.fechaPronostico) && typeof f.riesgosPrincipales === 'string' && f.riesgosPrincipales.includes('R-') && f.cambiosPeriodo.includes(code), 'hitos, riesgos y cambios del periodo cargados');
+      check(await p.locator('[data-field="valorGanado"]').innerText().then((t) => /0,9\d|1,0\d/.test(t)), 'la tabla calcula los índices con los datos cargados');
+      await noErrorCards(p, 'informe de desempeño');
+
+      step('Integración: informe final (4.7)');
+      await p.evaluate(() => PM.openDocument('informe-final'));
+      await p.waitForTimeout(700);
+      if (await p.locator('[data-callout="datos-gestor"]').count()) {
+        await p.locator('[data-callout="datos-gestor"] button', { hasText: 'Cargar datos del proyecto' }).click();
+        await p.waitForSelector('[data-load-modal]');
+        const ff = await p.locator('[data-load-field]').evaluateAll((els) => els.map((e) => e.dataset.loadField));
+        check(['fechaInicioReal', 'costoFinal', 'cronogramaFinal', 'costoFinalAnalisis'].every((k) => ff.includes(k)) && !ff.includes('fechaFinReal') && (await p.locator('[data-load-modal]').innerText()).includes('actividades sin terminar'), 'propone fechas reales, costo y resúmenes; sin fin real mientras haya trabajo pendiente (' + ff.join(',') + ')');
+        await footBtn(p, 'Cancelar').click();
+      } else console.log('  (el informe final del ejemplo no es editable; se omite la carga)');
+
+      step('Integración: lista maestra en CSV con un solo formato de fecha');
+      await gotoView(p, 'documentos');
+      await p.evaluate(() => { window.__dl = []; PM.download = async (n, data) => { window.__dl.push({ n, data }); return true; }; });
+      await p.locator('.page-actions button', { hasText: 'Exportar lista (CSV)' }).click();
+      await p.waitForTimeout(200);
+      const csv2 = (await p.evaluate(() => window.__dl))[0];
+      const lines = csv2 ? csv2.data.split(/\r?\n/) : [];
+      check(lines.some((l) => /;\d{2}\/\d{2}\/\d{4} \d{2}:\d{2};\d{2}\/\d{2}\/\d{4};/.test(l)) && !lines.some((l) => /;\d{4}-\d{2}-\d{2};/.test(l) || /\d{2} [a-z]{3} \d{4}, \d{2}:\d{2}/.test(l)), 'CSV: actualizado dd/mm/aaaa hh:mm y aprobación dd/mm/aaaa, sin ISO ni nombres de mes');
+      await noErrorCards(p, 'integración');
+      check(!ex.errors.length, 'sin errores de consola (integración)' + (ex.errors.length ? ': ' + ex.errors.join(' | ').slice(0, 600) : ''));
+    }
+  } catch (e) { failures++; console.log('EXCEPCIÓN', e); } finally { await ex.browser.close(); }
 }
 
 /* ================================================================ tema oscuro */

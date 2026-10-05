@@ -157,6 +157,8 @@ try {
     await gotoView(page, 'raci');
     await page.getByText('La matriz RACI está vacía').waitFor();
     assert(await page.getByRole('button', { name: 'Importar de la EDT' }).count() > 0, 'falta botón Importar de la EDT');
+    // el proceso 9.1 se nombra igual que en PM.KB y el mapa de procesos
+    eq(await page.locator('.page .eyebrow').first().textContent(), '9.1 Planificar la gestión de recursos · Matriz de asignación de responsabilidades', 'eyebrow de la matriz RACI');
   });
   await step('RACI: agregar roles de la lista de ejemplo (selección parcial)', async () => {
     await page.getByRole('button', { name: 'Agregar roles de ejemplo' }).click();
@@ -408,6 +410,57 @@ try {
     assert(txt.includes('superan la reserva para contingencias en $ 450.000'), 'mensaje de exceso: ' + txt.slice(0, 400));
   });
 
+  await step('Riesgos: etiquetas iguales a las del plan y el registro (impacto 3 «Medio», «Respuesta acordada»)', async () => {
+    const axis = await page.locator('.matrices-axis-i').allInnerTexts();
+    assert(axis.some((t) => t.replace(/\s+/g, ' ').trim() === '3 Medio'), 'eje de impacto: ' + JSON.stringify(axis));
+    assert(!axis.some((t) => /Moderado/.test(t)), 'sin «Moderado» en el eje');
+    assert((await page.locator('[data-heat="a23"]').getAttribute('aria-label')).includes('impacto 3 (Medio)'), 'etiqueta accesible con «Medio»');
+    eq(await page.getByLabel('Impacto de R-001').locator('option[value="3"]').textContent(), '3 · Medio', 'opción 3 del impacto en la tabla');
+    await page.getByRole('button', { name: 'Agregar riesgo' }).first().click();
+    const m = modal(page);
+    eq(await m.locator('#mx-r-i option[value="3"]').textContent(), '3 · Medio', 'opción 3 del impacto en el formulario');
+    eq(await m.getByLabel('Respuesta acordada').count(), 1, 'campo «Respuesta acordada»');
+    eq(await m.getByText('Respuesta planificada').count(), 0, 'sin «Respuesta planificada»');
+    await m.getByRole('button', { name: 'Cancelar' }).click();
+  });
+  await step('Riesgos: un registro aprobado no se modifica desde la matriz hasta crear una nueva revisión', async () => {
+    const path = PM_PATH('docs/registro-riesgos');
+    await flush(page);
+    // el formulario abierto mientras otra pestaña aprueba el registro no guarda
+    await page.getByRole('button', { name: 'Agregar riesgo' }).first().click();
+    await modal(page).locator('#mx-r-desc').fill('Riesgo que no debe guardarse');
+    await page.evaluate(async (p) => { const d = await PM.store.get(p); await PM.store.set(p, { ...d, status: 'aprobado', rev: '1', titleBlock: { ...d.titleBlock, fechaAprobacion: '2026-09-15', aprobo: 'Director de proyecto' } }); }, path);
+    await page.locator('[data-mx-lock="aprobado"]').waitFor();
+    const before = await getStore(page, path);
+    await modal(page).getByRole('button', { name: 'Agregar riesgo' }).click();
+    await page.locator('.toast', { hasText: 'No se guardó: el registro de riesgos quedó bloqueado' }).waitFor();
+    eq(await page.locator('.modal').count(), 1, 'el formulario sigue abierto');
+    await modal(page).getByRole('button', { name: 'Cancelar' }).click();
+    // modo de consulta: sin selects ni «Agregar riesgo»; la vista sigue filtrando
+    const note = await page.locator('[data-mx-lock]').innerText();
+    assert(note.includes('aprobado (revisión 1)') && note.includes('Crear nueva revisión (2A)'), 'aviso de registro aprobado: ' + note);
+    eq(await page.locator('.matrices-risk-table select').count(), 0, 'sin selects de P, I y estado');
+    eq(await page.getByRole('button', { name: 'Agregar riesgo' }).count(), 0, 'sin «Agregar riesgo»');
+    await page.locator('[data-heat="a54"]').click();
+    await page.getByText('Celda seleccionada').waitFor();
+    await page.getByRole('button', { name: 'Quitar filtro' }).click();
+    await flush(page);
+    eq(await getStore(page, path), before, 'el registro aprobado no cambia');
+    // cancelar la confirmación no cambia nada
+    await page.getByRole('button', { name: 'Crear nueva revisión (2A)' }).click();
+    await modal(page).getByRole('button', { name: 'Cancelar' }).click();
+    eq((await getStore(page, path)).status, 'aprobado', 'sigue aprobado al cancelar');
+    // nueva revisión: vuelve a borrador 2A, sin fecha de aprobación, y la matriz se puede editar
+    await page.getByRole('button', { name: 'Crear nueva revisión (2A)' }).click();
+    assert((await modal(page).innerText()).includes('borrador 2A a partir del contenido de la revisión 1'), 'texto de la confirmación');
+    await modal(page).getByRole('button', { name: 'Crear revisión 2A' }).click();
+    await page.getByLabel('Probabilidad de R-001').waitFor();
+    eq(await page.locator('[data-mx-lock]').count(), 0, 'sin aviso de bloqueo');
+    const d = await getStore(page, path);
+    eq([d.status, d.rev, d.titleBlock.fechaAprobacion, d.titleBlock.aprobo, d.fields.riesgos.length], ['borrador', '2A', null, 'Director de proyecto', before.fields.riesgos.length], 'registro reabierto como borrador 2A');
+    eq(await page.getByRole('button', { name: 'Agregar riesgo' }).count(), 1, '«Agregar riesgo» disponible otra vez');
+  });
+
   /* =========================== INTERESADOS */
   await step('Interesados: ubicación por cuadrante', async () => {
     await gotoView(page, 'interesados-matriz');
@@ -514,6 +567,31 @@ try {
     eq([last.nombre, last.poder, last.interes, last.clasificacion], ['Junta de acción comunal', 2, 3, 'Externo'], 'interesado agregado');
   });
 
+  await step('Interesados: un registro obsoleto no se modifica desde las matrices hasta crear una nueva revisión', async () => {
+    const path = PM_PATH('docs/registro-interesados');
+    await flush(page);
+    await page.getByRole('tab', { name: 'Poder e interés' }).click();
+    await page.evaluate(async (p) => { const d = await PM.store.get(p); await PM.store.set(p, { ...d, status: 'obsoleto', rev: '0' }); }, path);
+    await page.locator('[data-mx-lock="obsoleto"]').waitFor();
+    const before = await getStore(page, path);
+    assert((await page.locator('[data-mx-lock]').innerText()).includes('obsoleto (revisión 0)'), 'aviso de registro obsoleto');
+    eq(await page.locator('[data-pi-chart] g.matrices-dot.is-ro').count(), await page.locator('[data-pi-chart] g.matrices-dot').count(), 'puntos de solo lectura');
+    await page.locator('[data-stake="0"]').focus();
+    await page.keyboard.press('ArrowDown');
+    eq(await page.getByRole('button', { name: 'Agregar interesado' }).count(), 0, 'sin «Agregar interesado»');
+    eq(await page.locator('[data-stake-pending] select').count(), 0, 'sin selects de poder e interés');
+    await page.getByRole('tab', { name: /Evaluación del involucramiento/ }).click();
+    eq(await page.locator('button.matrices-eng-cell').count(), 0, 'involucramiento no editable');
+    await flush(page);
+    eq(await getStore(page, path), before, 'el registro obsoleto no cambia');
+    await page.getByRole('button', { name: 'Crear nueva revisión (1A)' }).click();
+    await modal(page).getByRole('button', { name: 'Crear revisión 1A' }).click();
+    await page.locator('button.matrices-eng-cell').first().waitFor();
+    const d = await getStore(page, path);
+    eq([d.status, d.rev, d.fields.interesados.length], ['borrador', '1A', before.fields.interesados.length], 'registro reabierto como borrador 1A');
+    await page.getByRole('tab', { name: 'Poder e interés' }).click();
+  });
+
   /* =========================== CALIDAD */
   await step('Calidad: crear diagrama de Ishikawa con causas y subcausas', async () => {
     await gotoView(page, 'calidad');
@@ -613,6 +691,7 @@ try {
     await modal(page).getByText('Hoy hay 11 no conformidades').waitFor();
     await modal(page).getByRole('button', { name: 'Crear análisis' }).click();
     await page.getByText('Se calcula en vivo con 11 mediciones no conformes').waitFor();
+    assert((await page.locator('.matrices-note', { hasText: 'Se calcula en vivo' }).innerText()).includes('agrupadas por la columna «Causa del defecto»'), 'nota del Pareto con el nombre de la columna del registro');
     const rows = await page.locator('[data-pareto-table] tbody tr').allInnerTexts();
     eq(rows.map((t) => t.split('\t')[0]), ['Abrazadera floja', 'Pieza deformada', 'Falta de pasador', 'Sin causa registrada'], 'causas agrupadas');
     assert(rows[2].includes('\t2\t'), 'agrupa sin distinguir mayúsculas: ' + rows[2]);

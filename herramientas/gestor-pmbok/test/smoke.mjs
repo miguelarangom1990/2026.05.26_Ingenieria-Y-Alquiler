@@ -16,6 +16,11 @@ const file = opt('--file') || 'gestor-pmbok.html';
 const { browser, page, errors } = await openApp({ width: mobile ? 400 : 1360, height: mobile ? 860 : 900, dark, file });
 let failed = false;
 try {
+  /* arranque: la primera pantalla (portafolio) aparece sin interacción */
+  const boot = await page.evaluate(() => ({ host: document.querySelector('.view-host').innerText, foot: document.querySelector('.rail-foot').innerText, lang: document.documentElement.lang }));
+  const bootOk = /Proyectos/.test(boot.host) && !/Conectando/.test(boot.host + boot.foot) && boot.lang === 'es-CO';
+  if (!bootOk) failed = true;
+  console.log(`${bootOk ? 'OK  ' : 'FAIL'} ${'arranque'.padEnd(18)} Portafolio visible al abrir${bootOk ? '' : '  ' + JSON.stringify(boot).slice(0, 200)}`);
   let pid = blank ? null : await createExample(page);
   if (!pid) pid = await createProject(page);
   await page.waitForTimeout(500);

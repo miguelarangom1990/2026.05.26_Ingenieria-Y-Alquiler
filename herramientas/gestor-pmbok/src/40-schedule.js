@@ -69,7 +69,7 @@
 .sched-svg text { font-family: var(--font-body); font-size: 11px; fill: var(--fg-2); }
 .sched-svg .sched-lbl { pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .sched-svg .sched-lbl-sum { fill: var(--fg); font-weight: 600; }
-.sched-svg .sched-mark { font-size: 10.5px; font-weight: 600; fill: var(--signal); }
+.sched-svg .sched-mark { font-size: 10.5px; font-weight: 600; fill: var(--signal-ink); }
 .sched-svg .sched-faint { fill: var(--fg-3); }
 .sched-bar { cursor: grab; touch-action: pan-y; }
 .sched-bar.ro { cursor: pointer; }
@@ -101,7 +101,7 @@
 button.sched-day { cursor: pointer; }
 button.sched-day:hover { border-color: var(--line-strong); }
 .sched-day.is-off { background: var(--surface-3); color: var(--fg-3); }
-.sched-day.is-hol { background: var(--signal-wash); color: var(--signal); font-weight: 600; }
+.sched-day.is-hol { background: var(--signal-wash); color: var(--signal-ink); font-weight: 600; }
 .sched-day.is-extra { background: var(--warn-wash); color: var(--warn); font-weight: 600; }
 .sched-day.out-proj { opacity: 0.45; }
 .sched-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -144,7 +144,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const HEAD_H = 58;           // encabezado: nivel superior [0,20), inferior [20,40), marcas [40,58)
   const T1 = 20, T2 = 40;
   const ZOOMS = { dia: { label: 'Día', ppd: 30 }, semana: { label: 'Semana', ppd: 6.4 }, mes: { label: 'Mes', ppd: 1.8 } };
-  const DOW1 = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+  /* Iniciales de los días en es-CO (CLDR): martes y miércoles comparten la «M» (la «X» es convención de España). */
+  const DOW1 = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+  const DOW_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const WORKWEEKS = [{ value: 5, label: 'Lunes a viernes' }, { value: 6, label: 'Lunes a sábado' }, { value: 7, label: 'Todos los días' }];
   const DEP_CODE = { FS: 'FC', SS: 'CC', FF: 'FF', SF: 'CF' };
   const CODE_TYPE = { FS: 'FS', SS: 'SS', FF: 'FF', SF: 'SF', FC: 'FS', CC: 'SS', CF: 'SF' };
@@ -184,6 +186,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const firstThu = jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86400000 + 3 * 86400000;
     return 1 + Math.round((d.getTime() - firstThu) / (7 * 86400000));
   };
+  /* Regla de 05-calc: crítica = holgura total ≤ 0 y sin terminar (avance < 100 %). Las terminadas no cuentan. */
+  const CRIT_RULE = 'Actividades sin terminar con holgura total ≤ 0. Las terminadas no se marcan como críticas aunque su holgura sea 0.';
+  const critCell = (t) => (t.critical ? html`<span class="sched-yes">Sí</span>`
+    : t.progress >= 100 ? html`<span class="faint" title="Actividad terminada: ya no forma parte de la ruta crítica pendiente">No (terminada)</span>`
+    : html`<span class="faint">No</span>`);
   const taskName = (t) => (t && String(t.name || '').trim()) || 'Actividad sin nombre';
   const resText = (rs) => (rs || []).filter((r) => r && String(r.name || '').trim()).map((r) => String(r.name).trim() + ' ×' + fmt.num(num(r.units), 2)).join('; ');
   const newTask = (p = {}) => ({ id: PM.uid('t'), name: 'Nueva actividad', wbsId: null, duration: 5, milestone: false, start: null, deps: [], progress: 0, cost: 0, resources: [], responsible: '', actualStart: null, actualFinish: null, notes: '', ...p });
@@ -289,30 +296,36 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [draft, setDraft] = useState('');
     const [err, setErr] = useState(null);
     const inputRef = useRef();
+    const btnRef = useRef();
     /* active: hay una edición abierta. Evita que el blur que dispara el navegador al desmontar el campo
        (tras Enter o Esc) vuelva a confirmar o guarde un cambio cancelado. */
     const active = useRef(false);
+    /* refocus: la edición terminó con el teclado (Enter o Esc); el foco vuelve a la celda (no a <body>). */
+    const refocus = useRef(false);
     const initial = value === null || value === undefined ? '' : String(value);
     const start = () => { if (readOnly) return; active.current = true; setDraft(initial); setErr(null); setEditing(true); };
-    const stop = () => { active.current = false; setEditing(false); setErr(null); };
+    const stop = (byKey) => { active.current = false; refocus.current = !!byKey; setEditing(false); setErr(null); };
     /* auto = marca de tiempo de la actividad recién creada; solo abre la edición si es reciente (no al volver a montarse la fila). */
     useEffect(() => { if (auto && !readOnly && Date.now() - auto < 2000) start(); }, [auto]);
-    useLayoutEffect(() => { const el = inputRef.current; if (editing && el) { el.focus(); if (kind !== 'date' && el.select) el.select(); } }, [editing]);
-    const commit = (raw) => {
+    useLayoutEffect(() => {
+      if (editing) { const el = inputRef.current; if (el) { el.focus(); if (kind !== 'date' && el.select) el.select(); } return; }
+      if (refocus.current) { refocus.current = false; const b = btnRef.current; if (b && b.focus) b.focus({ preventScroll: true }); }
+    }, [editing]);
+    const commit = (raw, byKey) => {
       if (!active.current) return;
-      if (raw === initial) { stop(); return; }
+      if (raw === initial) { stop(byKey); return; }
       const r = validate ? validate(raw) : { value: raw };
       if (r.error) { setErr(r.error); return; }
-      stop();
+      stop(byKey);
       onCommit(r.value);
     };
     const shown = display === undefined ? initial : display;
     if (readOnly) return html`<div class=${cx('sched-cell ro', align === 'right' && 'num', cls)} title=${title}>${icon}<span class="sched-txt">${shown}</span></div>`;
-    if (!editing) return html`<button type="button" class=${cx('sched-cell', align === 'right' && 'num', cls)} title=${title || 'Clic para editar'} aria-label=${label + ': ' + (shown || 'vacío') + '. Editar'} onClick=${start}>${icon}<span class="sched-txt">${shown}</span></button>`;
+    if (!editing) return html`<button ref=${btnRef} type="button" class=${cx('sched-cell', align === 'right' && 'num', cls)} title=${title || 'Clic para editar'} aria-label=${label + ': ' + (shown || 'vacío') + '. Editar'} onClick=${start}>${icon}<span class="sched-txt">${shown}</span></button>`;
     return html`<div class="sched-edit">
       <input ref=${inputRef} class=${cx('sched-input', align === 'right' && 'num')} type=${kind} inputmode=${inputMode} value=${draft} aria-label=${label} aria-invalid=${err ? 'true' : undefined}
         onInput=${(e) => { setDraft(e.currentTarget.value); if (err) setErr(null); }}
-        onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stop(); } }}
+        onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value, true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stop(true); } }}
         onBlur=${(e) => commit(e.currentTarget.value)} />
       ${err ? html`<div class="sched-err" role="alert">${err} <span class="faint">Esc para cancelar.</span></div>` : null}
     </div>`;
@@ -482,7 +495,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           ${kv('Inicio temprano', fmt.date(comp.startDate))}${kv('Fin temprano', fmt.date(comp.finishDate))}
           ${kv('Inicio tardío', fmt.date(comp.lateStart))}${kv('Fin tardío', fmt.date(comp.lateFinish))}
           ${kv('Holgura total', daysTxt(comp.tf), comp.tf < 0 ? 'crit' : null)}${kv('Holgura libre', daysTxt(comp.ff))}
-          ${kv('Crítica', comp.critical ? 'Sí' : 'No', comp.critical ? 'crit' : null)}
+          ${kv('Crítica', comp.critical ? 'Sí' : comp.progress >= 100 ? 'No (terminada)' : 'No', comp.critical ? 'crit' : null)}
         </div>
       </div>` : null}
     </${ui.Modal}>`;
@@ -594,6 +607,15 @@ button.sched-day:hover { border-color: var(--line-strong); }
     lines.forEach((l, i) => { const w2 = tw(l.label, 10.5); if (lines.length === 2 && i === 0) l.anchor = 'end'; else l.anchor = l.x + 4 + w2 > width ? 'end' : 'start'; l.tx = l.anchor === 'end' ? l.x - 4 : l.x + 4; });
     return { lo, hi, ppd, width, x, nonwork, bars, arrows, lines, tiers: headerTiers(lo, hi, zoom, ppd), bodyH: rows.length * ROW_H };
   }
+  /* Desplazamiento inicial del Gantt: la línea de corte a un tercio del área visible (lo ejecutado a la izquierda,
+     lo pendiente a la derecha), sin pasar del inicio del cronograma ni dejar espacio vacío después de su fin. */
+  function initialScrollX(L, sched, visW) {
+    const lo = Math.max(0, L.x(sched.start) - 16);
+    const st = L.lines.find((l) => l.kind === 'status');
+    if (!st || !(visW > 0)) return lo;
+    const hi = Math.max(lo, L.x(sched.finish) + L.ppd + 40 - visW);
+    return PM.clamp(st.x - visW / 3, lo, hi);
+  }
   function TaskTip({ t, code, bl, cal, currency }) {
     const v = bl ? wdVar(cal, t.finishDate, bl.finish || bl.start) : null;
     return html`<div>
@@ -631,7 +653,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const fileBase = (project) => (project && project.code ? project.code + '_' : '') + PM.slug((project && project.name) || 'proyecto');
 
   /* ---------------------------------------------------------------- pestaña Gantt */
-  function GanttTab({ m, w, canWrite, sel, setSel, edit }) {
+  function GanttTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused }) {
     const { sched, tree, rollup, baselines, statusDate, project, currency } = m;
     const [zoom, setZoom] = usePref('sched.zoom', 'semana');
     const [group, setGroup] = usePref('sched.group', true);
@@ -660,15 +682,34 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const today = D.today();
     const L = useMemo(() => ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange: blSched, showBase, showDeps, showCrit, labelMode, projectStart: project.start, statusDate, today }),
       [sched, rows, zoom, frameW, gridW, blById, blSched, showBase, showDeps, showCrit, labelMode, project.start, statusDate, today]);
-    /* al abrir o cambiar la escala, desplaza la línea de tiempo hasta el inicio del cronograma */
+    /* al abrir o cambiar la escala, desplaza la línea de tiempo hasta la fecha de corte (a un tercio del área visible) */
     const scrolledKey = useRef('');
     useLayoutEffect(() => {
       const f = frameRef.current; if (!f || !sched.tasks.length || !frameW) return;
       const key = zoom;
       if (scrolledKey.current === key) return;
       scrolledKey.current = key;
-      f.scrollLeft = Math.max(0, L.x(sched.start) - 16);
+      f.scrollLeft = initialScrollX(L, sched, f.clientWidth - gridW);
     });
+    /* «Ver en el cronograma» (p. ej. desde la EDT): expande su grupo, desplaza la fila y la barra a la vista. */
+    useLayoutEffect(() => {
+      const f = frameRef.current; if (!focus || !f || !frameW) return;
+      const i = rows.findIndex((r) => r.kind === 'task' && r.id === focus.id);
+      if (i < 0) {
+        const t = sched.byId.get(focus.id);
+        if (!t || !group) { onFocused(); return; }
+        const gid = t.wbsId && tree.byId.has(t.wbsId) ? t.wbsId : '__none';
+        const shut = [gid, ...(gid === '__none' ? [] : tree.ancestors(gid))].filter((id) => collapsed.has(id));
+        if (!shut.length) { onFocused(); return; }
+        setCollapsed((c) => { const n = new Set(c); for (const id of shut) n.delete(id); return n; });
+        return; /* vuelve a ejecutarse con el grupo abierto */
+      }
+      const g = L.bars[i]; const visW = Math.max(0, f.clientWidth - gridW);
+      f.scrollTop = Math.max(0, i * ROW_H - (f.clientHeight - HEAD_H) / 3);
+      f.scrollLeft = Math.max(0, (g.ms ? g.xm : g.x0) - visW / 4);
+      try { f.scrollIntoView({ block: 'nearest' }); } catch (e) { /* sin soporte */ }
+      onFocused();
+    }, [focus, rows, frameW]);
     const selTask = sel ? sched.byId.get(sel) : null;
     const taskRows = rows.filter((r) => r.kind === 'task');
     const selPos = taskRows.findIndex((r) => r.id === sel);
@@ -995,7 +1036,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       <${ui.Stat} label="Fin" value=${fmt.date(sched.finish)} />
       <${ui.Stat} label="Duración" value=${fmt.num(sched.workdays) + ' d'} sub="días hábiles" />
       <${ui.Stat} label="Actividades" value=${fmt.num(s.acts)} sub=${s.ms === 1 ? '1 hito' : fmt.num(s.ms) + ' hitos'} />
-      <${ui.Stat} label="Críticas" value=${fmt.num(s.crit)} tone=${s.crit ? 'crit' : null} sub="holgura ≤ 0" />
+      <${ui.Stat} label="Críticas" value=${fmt.num(s.crit)} tone=${s.crit ? 'crit' : null} sub="sin terminar" title=${CRIT_RULE} />
       <${ui.Stat} label="Avance" value=${fmt.num(s.pct) + ' %'} sub="ponderado" title="Avance ponderado por costo (o por duración si no hay costos)" />
       <${ui.Stat} label=${'Fin ' + (s.blLabel || 'línea base')} value=${s.blFinish ? fmt.date(s.blFinish) : '—'} sub=${s.blFinish ? 'línea base' : 'sin línea base'} />
       <${ui.Stat} label="Variación" value=${varTxt(s.varWd)} tone=${varTone(s.varWd)} sub=${s.varWd === null ? 'sin línea base' : s.varWd > 0 ? 'atraso' : s.varWd < 0 ? 'adelanto' : 'sin variación'} title="Variación del fin frente a la línea base, en días hábiles" />
@@ -1003,9 +1044,16 @@ button.sched-day:hover { border-color: var(--line-strong); }
   }
 
   /* ---------------------------------------------------------------- pestaña Actividades (tabla completa) */
-  function ActivitiesTab({ m, w, canWrite, sel, setSel, edit }) {
+  function ActivitiesTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused }) {
     const { sched, tree, currency, project } = m;
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
+    const tblRef = useRef();
+    useLayoutEffect(() => {
+      if (!focus) return;
+      const tr = tblRef.current && tblRef.current.querySelector('tr[data-id="' + (window.CSS && window.CSS.escape ? window.CSS.escape(focus.id) : focus.id) + '"]');
+      if (tr) { try { tr.scrollIntoView({ block: 'center' }); } catch (e) { /* sin soporte */ } }
+      onFocused();
+    }, [focus]);
     const ro = !canWrite;
     const validatePred = (id) => (s) => {
       const r = parseDeps(s, sched.tasks, id); if (r.error) return r;
@@ -1027,7 +1075,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}>
       </div>
       <div class="table-wrap">
-        <table class="table table-tight sched-tbl">
+        <table class="table table-tight sched-tbl" ref=${tblRef}>
           <thead><tr>
             <th class="num">#</th><th>EDT</th><th>Actividad</th><th class="num">Dur. (d)</th><th>Inicio</th><th>Fin</th><th>Inicio tardío</th><th>Fin tardío</th>
             <th class="num" title="Holgura total (días hábiles)">Holg. total</th><th class="num" title="Holgura libre (días hábiles)">Holg. libre</th><th>Crítica</th>
@@ -1045,7 +1093,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
               <td class="mono xsmall">${fmt.date(t.lateFinish, 'short')}</td>
               <td class="num" style=${t.tf < 0 ? 'color:var(--crit)' : ''}>${fmt.num(t.tf)}</td>
               <td class="num">${fmt.num(t.ff)}</td>
-              <td>${t.critical ? html`<span class="sched-yes">Sí</span>` : html`<span class="faint">No</span>`}</td>
+              <td>${critCell(t)}</td>
               <td class="edit" style="min-width:110px"><${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + (i + 1)} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} /></td>
               <td class="edit" style="min-width:120px"><${EditCell} kind="date" cls="sched-mono" value=${t.start || ''} display=${t.start ? fmt.date(t.start, 'short') : '—'} validate=${V.date} label=${'No comenzar antes de, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} /></td>
               <td class="edit" style="min-width:70px"><${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} /></td>
@@ -1156,7 +1204,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
             const dim = +D.endOfMonth(mth).slice(8, 10); const lead = (D.dow(mth) + 6) % 7;
             return html`<div key=${mth}>
               <div class="sched-month-h">${PM.MONTHS_LONG[+mth.slice(5, 7) - 1]} ${mth.slice(0, 4)}</div>
-              <div class="sched-mgrid">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((x) => html`<div class="dh" key=${x}>${x}</div>`)}
+              <div class="sched-mgrid">${[1, 2, 3, 4, 5, 6, 0].map((k) => html`<div class="dh" key=${'dh' + k}><abbr title=${DOW_LONG[k]} style="text-decoration:none">${DOW1[k]}</abbr></div>`)}
                 ${Array.from({ length: lead }, (_, i) => html`<div key=${'e' + i}></div>`)}
                 ${Array.from({ length: dim }, (_, i) => {
                   const d = mth.slice(0, 8) + String(i + 1).padStart(2, '0');
@@ -1184,14 +1232,26 @@ button.sched-day:hover { border-color: var(--line-strong); }
   }
 
   /* ---------------------------------------------------------------- vista Cronograma */
-  function CronogramaView({ project }) {
+  function CronogramaView({ params }) {
     const m = PM.useProjectModel();
     const canWrite = PM.useCanWrite();
     const w = useScheduleWriter(m);
     const [tab, setTab] = usePref('sched.tab', 'gantt');
     const [sel, setSel] = useState(null);
+    const [focus, setFocus] = useState(null);
     const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite);
     const edit = useCallback((id) => openTaskEditor(ctxRef.current, id), []);
+    const onFocused = useCallback(() => setFocus(null), []);
+    /* params.taskId (enlace «Ver en el cronograma»): selecciona la actividad y la lleva a la vista. */
+    const wanted = params && params.taskId ? String(params.taskId) : null;
+    const handled = useRef(null);
+    useEffect(() => {
+      if (!wanted || m.loading || handled.current === wanted) return;
+      handled.current = wanted;
+      if (!m.sched.byId.has(wanted)) { PM.toast('La actividad ya no está en el cronograma; puede que la hayan eliminado.', { tone: 'crit' }); return; }
+      if (tab !== 'gantt' && tab !== 'actividades') setTab('gantt');
+      setSel(wanted); setFocus({ id: wanted, n: Date.now() });
+    }, [wanted, m.loading]);
     if (m.loading) return html`<div class="page"><${ui.Loading} rows=${5} /></div>`;
     const { sched } = m;
     const addMilestone = () => {
@@ -1214,8 +1274,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
       ${cyc.map((e, i) => html`<div class="sched-banner" role="alert" key=${'c' + i}><${ui.Icon} name="alert" size=${16} /><div><strong>Dependencias circulares.</strong> ${e.message} Revisa las predecesoras de las filas ${e.ids.map((id) => idx.get(id)).filter(Boolean).sort((a, b) => a - b).join(', ')}.</div></div>`)}
       ${sched.tasks.length ? html`<${SummaryStrip} m=${m} />` : null}
       <${ui.Tabs} tabs=${tabs} value=${cur} onChange=${setTab} />
-      ${cur === 'gantt' ? html`<${GanttTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} />`
-        : cur === 'actividades' ? html`<${ActivitiesTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} />`
+      ${cur === 'gantt' ? html`<${GanttTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} />`
+        : cur === 'actividades' ? html`<${ActivitiesTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} />`
         : cur === 'hitos' ? html`<${MilestonesTab} m=${m} canWrite=${canWrite} edit=${edit} addMilestone=${addMilestone} />`
         : html`<${CalendarTab} m=${m} w=${w} canWrite=${canWrite} />`}
     </div>`;
@@ -1314,6 +1374,15 @@ button.sched-day:hover { border-color: var(--line-strong); }
     edges.sort((p, q) => (p.crit === q.crit ? 0 : p.crit ? 1 : -1));
     return { nodes: [...nodes.values()].filter((n) => n.kind !== 'dummy'), edges, width, height };
   }
+  const NET_ZOOMS = [0.25, 0.5, 0.75, 1, 1.25, 1.5];
+  const NET_FIT_MIN = 0.15;
+  /* Nodo con el que abre el diagrama: la actividad crítica pendiente más a la izquierda (la primera de la ruta
+     crítica que falta por ejecutar); si no hay críticas, el nodo Inicio. */
+  function netFocusNode(net) {
+    let best = null;
+    for (const n of net.nodes) if (n.kind === 'task' && n.t.critical && (!best || n.x < best.x || (n.x === best.x && n.y < best.y))) best = n;
+    return best || net.nodes.find((n) => n.kind === 'start') || null;
+  }
   /* Secuencias de la ruta crítica (vínculos determinantes entre actividades críticas). */
   function criticalPaths(sched, limit = 6) {
     const crit = sched.tasks.filter((t) => t.critical);
@@ -1342,23 +1411,29 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [mode, setMode] = usePref('red.mode', 'dias');
     const [zoom, setZoom] = usePref('red.zoom', 1);
     const svgRef = useRef(); const hostRef = useRef(); const tipApi = useRef(null);
+    const [measureHost, hostW] = useWidth();
+    const setHost = useCallback((el) => { hostRef.current = el; measureHost(el); }, [measureHost]);
     const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite);
     const { sched, project } = m;
     const hasDeps = sched.tasks.some((t) => t.preds.length);
     const net = useMemo(() => (hasDeps ? networkLayout(sched) : null), [sched, hasDeps]);
     const paths = useMemo(() => criticalPaths(sched), [sched]);
     const idx = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i + 1])), [sched]);
-    const scale = PM.clamp(num(zoom, 1), 0.5, 1.5);
-    /* Al abrir, lleva la vista al nodo Inicio (en redes grandes queda centrado verticalmente y fuera de la vista);
-       al cambiar el zoom, conserva el punto central visible. */
+    /* «Ajustar»: todo el diagrama en el ancho (y el alto máximo) del recuadro, para ver la estructura y la ruta crítica. */
+    const fitScale = net && hostW > 0 ? PM.clamp(Math.min((hostW - 2) / net.width, (Math.min(window.innerHeight * 0.76, 1100) - 2) / net.height), NET_FIT_MIN, 1) : 1;
+    const isFit = zoom === 'fit';
+    const scale = isFit ? fitScale : PM.clamp(num(zoom, 1), NET_ZOOMS[0], NET_ZOOMS[NET_ZOOMS.length - 1]);
+    const stepZoom = (dir) => { const nx = dir > 0 ? NET_ZOOMS.find((z) => z > scale + 0.01) : [...NET_ZOOMS].reverse().find((z) => z < scale - 0.01); if (nx) setZoom(nx); };
+    /* Al abrir, lleva la vista a la primera actividad crítica pendiente (la ruta crítica en rojo queda a la vista;
+       sin críticas, al nodo Inicio); al cambiar el zoom, conserva el punto central visible. */
     const viewRef = useRef({ placed: false, scale });
     useLayoutEffect(() => {
       const host = hostRef.current; const v = viewRef.current;
       if (!host || !net) { v.placed = false; return; }
       if (!v.placed) {
-        const st = net.nodes.find((n) => n.kind === 'start');
-        host.scrollLeft = 0;
-        if (st) host.scrollTop = Math.max(0, (st.y + st.h / 2) * scale - host.clientHeight / 2);
+        const target = isFit ? null : netFocusNode(net);
+        host.scrollLeft = target && target.kind === 'task' ? Math.max(0, target.x * scale - host.clientWidth * 0.2) : 0;
+        host.scrollTop = target ? Math.max(0, (target.y + target.h / 2) * scale - host.clientHeight / 2) : 0;
         v.placed = true; v.scale = scale; return;
       }
       if (v.scale !== scale) {
@@ -1374,7 +1449,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       ? { es: fmt.date(t.startDate, 'dm'), ef: fmt.date(t.finishDate, 'dm'), ls: fmt.date(t.lateStart, 'dm'), lf: fmt.date(t.lateFinish, 'dm') }
       : { es: dv(t.es), ef: dv(t.ef), ls: dv(t.ls), lf: dv(t.lf) });
     const header = html`<${ui.PageHeader} eyebrow="6.3 Secuenciar las actividades" title="Diagrama de red del cronograma"
-      description="Método de diagramación por precedencia (PDM): cada actividad es un nodo y cada flecha una dependencia. La ruta crítica (holgura total ≤ 0) se resalta en rojo." />`;
+      description="Método de diagramación por precedencia (PDM): cada actividad es un nodo y cada flecha una dependencia. La ruta crítica (actividades pendientes con holgura total ≤ 0) se resalta en rojo; las terminadas no se marcan como críticas." />`;
     if (!sched.tasks.length || !hasDeps) {
       return html`<div class="page">${header}
         <${ui.Empty} icon="network" title=${sched.tasks.length ? 'Aún no hay dependencias' : 'Aún no hay actividades'} actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => PM.navigate('cronograma')}>Ir al cronograma</${ui.Button}>`}>
@@ -1421,26 +1496,27 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <div class="stack-sm">
           <div class="label-caps">Clave del nodo</div>
           <div class="sched-key" aria-label="Clave de lectura del nodo">
-            <div>${mode === 'fechas' ? 'Inicio temprano' : 'IT'}</div><div>Duración</div><div>${mode === 'fechas' ? 'Fin temprano' : 'TT'}</div>
+            <div>Inicio temprano</div><div>Duración</div><div>Fin temprano</div>
             <div class="mid"># · Nombre de la actividad</div>
-            <div class="bot">${mode === 'fechas' ? 'Inicio tardío' : 'IL'}</div><div class="bot">Holgura total</div><div class="bot">${mode === 'fechas' ? 'Fin tardío' : 'TL'}</div>
+            <div class="bot">Inicio tardío</div><div class="bot">Holgura total</div><div class="bot">Fin tardío</div>
           </div>
         </div>
         <div class="row">
           <${ui.Segmented} label="Valores del nodo" value=${mode} onChange=${setMode} options=${[{ value: 'dias', label: 'Días' }, { value: 'fechas', label: 'Fechas' }]} />
           <div class="btn-group">
-            <${ui.Button} size="sm" icon="zoom-out" aria-label="Alejar" title="Alejar" disabled=${scale <= 0.5} onClick=${() => setZoom(Math.max(0.5, +(scale - 0.25).toFixed(2)))} />
-            <${ui.Button} size="sm" aria-label="Restablecer zoom" title="Restablecer zoom" onClick=${() => setZoom(1)}>${Math.round(scale * 100)} %</${ui.Button}>
-            <${ui.Button} size="sm" icon="zoom-in" aria-label="Acercar" title="Acercar" disabled=${scale >= 1.5} onClick=${() => setZoom(Math.min(1.5, +(scale + 0.25).toFixed(2)))} />
+            <${ui.Button} size="sm" icon="zoom-out" aria-label="Alejar" title="Alejar" disabled=${scale <= NET_ZOOMS[0] + 0.001} onClick=${() => stepZoom(-1)} />
+            <${ui.Button} size="sm" aria-label="Restablecer zoom" title="Restablecer zoom (100 %)" onClick=${() => setZoom(1)}>${Math.round(scale * 100)} %</${ui.Button}>
+            <${ui.Button} size="sm" icon="zoom-in" aria-label="Acercar" title="Acercar" disabled=${scale >= NET_ZOOMS[NET_ZOOMS.length - 1] - 0.001} onClick=${() => stepZoom(1)} />
+            <${ui.Button} size="sm" icon="expand" aria-pressed=${isFit ? 'true' : 'false'} title="Ver todo el diagrama en el recuadro" onClick=${() => setZoom('fit')}>Ajustar a la vista</${ui.Button}>
           </div>
           <${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project) + '_diagrama-red.svg'} />
         </div>
       </div>
       <p class="xsmall faint">${mode === 'fechas'
         ? 'Fechas calendario: el inicio es el primer día de trabajo y el fin, el último día de trabajo de la actividad.'
-        : 'Días hábiles contados desde 0 (día 0 = inicio del proyecto, ' + fmt.date(sched.cal.dateOf(base)) + '). IT/TT e IL/TL son los límites de la actividad: TT = IT + duración. Holgura en días hábiles.'}
+        : 'Días hábiles contados desde 0 (día 0 = inicio del proyecto, ' + fmt.date(sched.cal.dateOf(base)) + '). En cada nodo, fin temprano = inicio temprano + duración y holgura total = inicio tardío − inicio temprano, en días hábiles.'}
         ${canWrite ? ' Doble clic en un nodo para editar la actividad.' : ''}</p>
-      <div class="chart sched-net" ref=${hostRef}>
+      <div class="chart sched-net" ref=${setHost}>
         <svg ref=${svgRef} class="sched-svg" width=${Math.ceil(net.width * scale)} height=${Math.ceil(net.height * scale)} viewBox=${'0 0 ' + net.width + ' ' + net.height} role="img" aria-label=${'Diagrama de red con ' + sched.tasks.length + ' actividades'}>
           <defs>
             <marker id="sched-net-a" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0.5 L8,4 L0,7.5 z" fill="var(--fg-3)" /></marker>
@@ -1468,12 +1544,12 @@ button.sched-day:hover { border-color: var(--line-strong); }
       </${ui.Card}>
       <${ui.Card} title="Cálculo de la ruta crítica" subtitle=${mode === 'fechas' ? 'Fechas calendario' : 'Días hábiles desde el inicio del proyecto (día 0)'} pad=${false}>
         <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table table-tight sched-tbl">
-          <thead><tr><th class="num">#</th><th>Actividad</th><th class="num">Duración</th><th class="num" title="Inicio temprano">IT</th><th class="num" title="Terminación temprana">TT</th><th class="num" title="Inicio tardío">IL</th><th class="num" title="Terminación tardía">TL</th><th class="num">Holgura total</th><th class="num">Holgura libre</th><th>Crítica</th></tr></thead>
+          <thead><tr><th class="num">#</th><th>Actividad</th><th class="num">Duración</th><th class="num">Inicio temprano</th><th class="num">Fin temprano</th><th class="num">Inicio tardío</th><th class="num">Fin tardío</th><th class="num">Holgura total</th><th class="num">Holgura libre</th><th>Crítica</th></tr></thead>
           <tbody>${sched.tasks.map((t) => { const v = val(t); return html`<tr key=${t.id} data-id=${t.id}>
             <td class="num faint">${idx.get(t.id)}</td><td class="wrap">${taskName(t)}</td><td class="num">${t.milestone ? 'Hito' : fmt.num(t.duration)}</td>
             <td class="num mono">${v.es}</td><td class="num mono">${v.ef}</td><td class="num mono">${v.ls}</td><td class="num mono">${v.lf}</td>
             <td class="num" style=${t.tf < 0 ? 'color:var(--crit)' : ''}>${fmt.num(t.tf)}</td><td class="num">${fmt.num(t.ff)}</td>
-            <td>${t.critical ? html`<span class="sched-yes">Sí</span>` : html`<span class="faint">No</span>`}</td>
+            <td>${critCell(t)}</td>
           </tr>`; })}</tbody>
         </table></div>
       </${ui.Card}>

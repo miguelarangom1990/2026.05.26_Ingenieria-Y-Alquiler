@@ -61,8 +61,11 @@
       const file = input.files && input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async () => {
-        try { const obj = JSON.parse(String(reader.result)); const id = await PM.runWithProgress('Importando el proyecto', (onProgress) => PM.projectOps.importData(obj, { onProgress })); if (!id) return; PM.toast('Proyecto importado.'); PM.selectProject(id, 'tablero'); }
-        catch (e) { PM.toast(e && e.message && !e.code ? e.message : 'No se pudo importar el archivo. Verifica que sea una exportación del Gestor PMBOK.', { tone: 'crit' }); }
+        let obj;
+        try { obj = JSON.parse(String(reader.result)); }
+        catch (e) { PM.toast('El archivo no es un JSON válido. Usa un archivo exportado con «Exportar (.json)» del Gestor PMBOK.', { tone: 'crit' }); return; }
+        try { const id = await PM.runWithProgress('Importando el proyecto', (onProgress) => PM.projectOps.importData(obj, { onProgress })); if (!id) return; PM.toast('Proyecto importado.'); PM.selectProject(id, 'tablero'); }
+        catch (e) { PM.toast(e && e.user && e.message ? e.message : 'No se pudo importar el archivo. Verifica que sea una exportación del Gestor PMBOK.', { tone: 'crit' }); }
       };
       reader.readAsText(file);
     };
@@ -108,7 +111,7 @@
         <${ui.Empty} icon="portfolio" title="Aún no hay proyectos" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => PM.openNewProject(projects)}>Nuevo proyecto</${ui.Button}>${PM.exampleBuilders.length ? html`<${ui.Button} icon="sparkles" onClick=${PM.createExampleProject}>Crear proyecto de ejemplo</${ui.Button}>` : null}` : null}>
           Cada proyecto guarda su acta de constitución, planes, registros, EDT, cronograma, costos y líneas base. El proyecto de ejemplo muestra todas las herramientas con datos de muestra marcados como ejemplo.
         </${ui.Empty}>` : html`
-        <div class="card"><div class="grid cols-4" style="gap:0">
+        <div class="card"><div class="grid cols-4 port-stats" style="gap:0">
           <${ui.Stat} label="Proyectos" value=${projects.length} sub=${(counts['En ejecución'] || []).length + ' en ejecución'} />
           <${ui.Stat} label="En planificación" value=${(counts['En planificación'] || []).length} sub=${(counts['Propuesta'] || []).length + ' propuestas'} />
           <${ui.Stat} label="Cerrados" value=${(counts['Cerrado'] || []).length} sub=${(counts['Suspendido'] || []).length + ' suspendidos'} />
@@ -120,20 +123,20 @@
           <div class="spacer"></div>
           ${PM.exampleBuilders.length && canWrite ? html`<${ui.Button} variant="ghost" icon="sparkles" onClick=${PM.createExampleProject}>Crear proyecto de ejemplo</${ui.Button}>` : null}
         </div>
-        <div class="table-wrap"><table class="table">
+        <div class="table-wrap port-wrap"><table class="table port-table">
           <thead><tr><th>Código</th><th>Proyecto</th><th>Director</th><th>Estado</th><th>Inicio</th><th>Fin previsto</th><th class="num">Presupuesto</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>
-            ${shown.length === 0 ? html`<tr><td colspan="9" class="faint">Ningún proyecto coincide con el filtro.</td></tr>` : null}
+            ${shown.length === 0 ? html`<tr class="port-none"><td colspan="9" class="faint">Ningún proyecto coincide con el filtro.</td></tr>` : null}
             ${shown.map((p) => html`<tr key=${p.id} class="clickable" onClick=${(e) => { if (e.target.closest('.no-row-click')) return; PM.selectProject(p.id, 'tablero'); }}>
-              <td class="mono nowrap">${p.code || '—'}</td>
-              <td style="min-width:220px"><div style="font-weight:600">${p.name}</div>${p.client ? html`<div class="xsmall faint">${p.client}</div>` : null}</td>
-              <td>${p.manager || html`<span class="faint">—</span>`}</td>
-              <td><${ui.Chip} tone=${PM.statusTone(p.status)}>${p.status || 'Sin estado'}</${ui.Chip}></td>
-              <td class="nowrap num">${PM.fmt.date(p.start)}</td>
-              <td class="nowrap num">${PM.fmt.date(p.end)}</td>
-              <td class="num nowrap">${PM.fmt.money(p.budget, p.currency)}</td>
-              <td class="nowrap xsmall faint">${PM.fmt.datetime(p.updatedAt)}</td>
-              <td class="no-row-click"><${ui.Dropdown} label=${'Acciones de ' + p.name} items=${[
+              <td class="mono nowrap port-c-code">${p.code || '—'}</td>
+              <td class="port-c-name"><div style="font-weight:600">${p.name}</div>${p.client ? html`<div class="xsmall faint">${p.client}</div>` : null}</td>
+              <td class="port-c-mgr" data-label="Director">${p.manager || html`<span class="faint">—</span>`}</td>
+              <td class="port-c-status"><${ui.Chip} tone=${PM.statusTone(p.status)}>${p.status || 'Sin estado'}</${ui.Chip}></td>
+              <td class="nowrap num port-c-start" data-label="Inicio">${PM.fmt.date(p.start)}</td>
+              <td class="nowrap num port-c-end" data-label="Fin">${PM.fmt.date(p.end)}</td>
+              <td class="num nowrap port-c-budget">${PM.fmt.money(p.budget, p.currency)}</td>
+              <td class="nowrap xsmall faint port-c-upd" data-label="Actualizado">${PM.fmt.datetime(p.updatedAt)}</td>
+              <td class="no-row-click port-c-act"><${ui.Dropdown} label=${'Acciones de ' + p.name} items=${[
                 { label: 'Abrir tablero', icon: 'dashboard', onClick: () => PM.selectProject(p.id, 'tablero') },
                 canWrite && { label: 'Duplicar', icon: 'copy', onClick: async () => { try { const id = await PM.runWithProgress('Duplicando el proyecto', (onProgress) => PM.projectOps.duplicate(p.id, p.name + ' (copia)', { onProgress })); if (!id) return; PM.toast('Proyecto duplicado.'); PM.selectProject(id, 'tablero'); } catch (e) { PM.toast('No se pudo duplicar el proyecto.', { tone: 'crit' }); } } },
                 { label: 'Exportar (.json)', icon: 'download', onClick: () => PM.exportProjectFile(p.id, p) },
@@ -147,42 +150,92 @@
   }
   PM.registerView({ id: 'portafolio', label: 'Portafolio', group: 'portafolio', icon: 'portfolio', order: 0, needsProject: false, component: PortfolioView });
 
-  /* ---------------------------------------------------------------- selector de proyecto */
+  /* ---------------------------------------------------------------- selector de proyecto
+     Menú con teclado: Flecha abajo/arriba abre y recorre, Inicio/Fin, Escape cierra y devuelve el foco al botón. */
   function ProjectSwitcher() {
     const st = PM.useAppState();
     const { projects } = PM.useProjects();
     const { project } = PM.useCurrentProject();
     const [open, setOpen] = useState(false);
-    const ref = useRef();
-    useEffect(() => { if (!open) return; const f = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; const k = (e) => { if (e.key === 'Escape') setOpen(false); }; document.addEventListener('mousedown', f); document.addEventListener('keydown', k); return () => { document.removeEventListener('mousedown', f); document.removeEventListener('keydown', k); }; }, [open]);
+    const ref = useRef(); const btnRef = useRef(); const menuRef = useRef();
+    const items = () => (menuRef.current ? [...menuRef.current.querySelectorAll('.menu-item')] : []);
+    const close = (refocus) => { setOpen(false); if (refocus && btnRef.current) btnRef.current.focus(); };
+    useEffect(() => {
+      if (!open) return undefined;
+      const f = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      const k = (e) => { if (e.key === 'Escape') setOpen(false); };
+      document.addEventListener('mousedown', f); document.addEventListener('keydown', k);
+      const t = setTimeout(() => { const list = items(); const cur = list.find((x) => x.getAttribute('aria-checked') === 'true') || list[0]; cur && cur.focus(); }, 0);
+      return () => { clearTimeout(t); document.removeEventListener('mousedown', f); document.removeEventListener('keydown', k); };
+    }, [open]);
+    const onBtnKey = (e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOpen(true); } };
+    const onMenuKey = (e) => {
+      const list = items(); if (!list.length) return;
+      const i = list.indexOf(document.activeElement);
+      let n = null;
+      if (e.key === 'ArrowDown') n = list[(i + 1) % list.length];
+      else if (e.key === 'ArrowUp') n = list[(i - 1 + list.length) % list.length];
+      else if (e.key === 'Home') n = list[0];
+      else if (e.key === 'End') n = list[list.length - 1];
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); return; }
+      else if (e.key === 'Tab') { setOpen(false); return; }
+      if (n) { e.preventDefault(); n.focus(); }
+    };
     return html`<div class="switcher" ref=${ref}>
-      <button type="button" class="switcher-btn" aria-haspopup="listbox" aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>
-        <div style="flex:1;min-width:0">
+      <button type="button" ref=${btnRef} class="switcher-btn" aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} aria-label=${'Proyecto actual: ' + (project ? (project.code ? project.code + ' · ' : '') + project.name : 'ninguno') + '. Cambiar de proyecto'} onClick=${() => setOpen(!open)} onKeyDown=${onBtnKey}>
+        <div style="flex:1;min-width:0" aria-hidden="true">
           <div class="switcher-code">${project ? project.code || 'Proyecto' : 'Sin proyecto'}</div>
           <div class="switcher-name">${project ? project.name : 'Selecciona un proyecto'}</div>
         </div>
         <${ui.Icon} name="chevron-down" size=${16} />
       </button>
-      ${open ? html`<div class="menu" role="listbox" style="top:calc(100% + 4px);left:0;right:0">
-        <div class="menu-label">Proyectos</div>
+      ${open ? html`<div class="menu" role="menu" aria-label="Proyectos" ref=${menuRef} onKeyDown=${onMenuKey} style="top:calc(100% + 4px);left:0;right:0">
+        <div class="menu-label" aria-hidden="true">Proyectos</div>
         ${projects.length === 0 ? html`<div class="small faint" style="padding:6px 9px">No hay proyectos.</div>` : null}
-        ${projects.map((p) => html`<button type="button" role="option" key=${p.id} class="menu-item" aria-selected=${p.id === st.projectId ? 'true' : 'false'} onClick=${() => { setOpen(false); PM.selectProject(p.id, st.view && st.view !== 'portafolio' ? st.view : 'tablero'); }}>
+        ${projects.map((p) => html`<button type="button" role="menuitemradio" key=${p.id} class="menu-item" aria-checked=${p.id === st.projectId ? 'true' : 'false'} onClick=${() => { setOpen(false); PM.selectProject(p.id, st.view && st.view !== 'portafolio' ? st.view : 'tablero'); }}>
           <div style="min-width:0;flex:1"><div class="switcher-code">${p.code || ''}</div><div class="truncate" style="font-weight:500">${p.name}</div></div>
           ${p.id === st.projectId ? html`<${ui.Icon} name="check" size=${15} />` : null}
         </button>`)}
-        <div class="menu-sep"></div>
-        <button type="button" class="menu-item" onClick=${() => { setOpen(false); PM.navigate('portafolio'); }}><${ui.Icon} name="portfolio" size=${15} />Ver portafolio</button>
-        ${st.canWrite ? html`<button type="button" class="menu-item" onClick=${() => { setOpen(false); PM.openNewProject(projects); }}><${ui.Icon} name="plus" size=${15} />Nuevo proyecto</button>` : null}
+        <div class="menu-sep" role="separator"></div>
+        <button type="button" role="menuitem" class="menu-item" onClick=${() => { setOpen(false); PM.navigate('portafolio'); }}><${ui.Icon} name="portfolio" size=${15} />Ver portafolio</button>
+        ${st.canWrite ? html`<button type="button" role="menuitem" class="menu-item" onClick=${() => { setOpen(false); PM.openNewProject(projects); }}><${ui.Icon} name="plus" size=${15} />Nuevo proyecto</button>` : null}
       </div>` : null}
     </div>`;
   }
 
-  /* ---------------------------------------------------------------- riel */
+  /* ---------------------------------------------------------------- riel
+     En pantallas angostas es un panel lateral: cerrado queda fuera del orden de tabulación (visibility, ver head.html);
+     al abrirlo recibe el foco, Escape lo cierra y el foco vuelve al botón «Abrir menú». */
+  const NARROW = '(max-width: 900px)';
+  const isNarrow = () => { try { return window.matchMedia(NARROW).matches; } catch (e) { return false; } };
+  const focusMenuButton = () => { const b = document.querySelector('.topbar .topbar-menu'); if (b) b.focus(); };
   function Rail() {
     const st = PM.useAppState();
+    const ref = useRef();
     const groups = PM.GROUPS.map((g) => ({ ...g, items: PM.views.filter((v) => v.group === g.id && !v.hidden) })).filter((g) => g.items.length);
     const savingLabel = st.saving > 0 ? 'Guardando…' : st.lastSaved ? 'Cambios guardados' : '';
-    return html`<aside class="rail" aria-label="Navegación">
+    const wasOpen = useRef(st.navOpen);
+    useEffect(() => {
+      const el = ref.current;
+      if (st.navOpen && !wasOpen.current && el && isNarrow()) {
+        const t = setTimeout(() => { const f = el.querySelector('.switcher-btn, .nav-item:not([disabled])'); f && f.focus(); }, 0);
+        wasOpen.current = true;
+        return () => clearTimeout(t);
+      }
+      if (!st.navOpen && wasOpen.current) {
+        wasOpen.current = false;
+        const ae = document.activeElement;
+        if (isNarrow() && (!ae || ae === document.body || (el && el.contains(ae)))) focusMenuButton();
+      }
+      return undefined;
+    }, [st.navOpen]);
+    useEffect(() => {
+      if (!st.navOpen) return undefined;
+      const k = (e) => { if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('.modal-backdrop, .rail .switcher .menu, .main .menu')) return; PM.setState({ navOpen: false }); };
+      document.addEventListener('keydown', k);
+      return () => document.removeEventListener('keydown', k);
+    }, [st.navOpen]);
+    return html`<aside class="rail" id="pm-rail" ref=${ref} aria-label="Navegación">
       <div class="rail-inner">
         <div class="brand"><${BrandMark} /><div><div class="brand-name">Gestor PMBOK</div><div class="brand-sub">Ingeniería y Alquiler</div></div></div>
         <${ProjectSwitcher} />
@@ -212,6 +265,7 @@
       ${st.mode === 'local' ? html`<div class="banner"><${ui.Icon} name="device" size=${15} /><div>Modo local: los proyectos se guardan solo en este navegador. Abre la página en claude.ai con tu sesión iniciada para guardarlos en el artefacto, o usa <strong>Exportar</strong> para respaldarlos.</div></div>` : null}
       ${st.mode === 'db' && !st.canWrite ? html`<div class="banner warn"><${ui.Icon} name="lock" size=${15} /><div>Solo lectura: puedes consultar los proyectos, pero tu nivel de acceso no permite modificarlos.</div></div>` : null}
       ${st.storageWarning ? html`<div class="banner warn"><${ui.Icon} name="alert" size=${15} /><div>${st.storageWarning}</div></div>` : null}
+      ${st.syncIssues > 0 ? html`<div class="banner warn" role="status"><${ui.Icon} name="refresh" size=${15} /><div>No se pudo leer parte de los datos de esta vista. Se reintenta automáticamente; mientras tanto, los registros que no cargaron no se pueden modificar.</div></div>` : null}
     </div>`;
   }
 
@@ -244,7 +298,7 @@
     const { project } = PM.useCurrentProject();
     const view = PM.getView(st.view);
     return html`<div class="topbar">
-      <${ui.IconButton} icon="menu" label="Abrir menú" onClick=${() => PM.setState({ navOpen: true })} />
+      <${ui.IconButton} icon="menu" label="Abrir menú" class="topbar-menu" aria-expanded=${st.navOpen ? 'true' : 'false'} aria-controls="pm-rail" onClick=${() => PM.setState({ navOpen: !st.navOpen })} />
       <div style="min-width:0;flex:1"><div class="topbar-title">${view ? view.label : ''}</div>${project ? html`<div class="xsmall faint truncate">${project.code ? project.code + ' · ' : ''}${project.name}</div>` : null}</div>
     </div>`;
   }

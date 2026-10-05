@@ -4,6 +4,8 @@
 (function () {
   'use strict';
   const PM = window.PM;
+  /* idioma de la página (lectores de pantalla, traducción automática y separación silábica) */
+  try { document.documentElement.lang = 'es-CO'; } catch (e) { /* ignore */ }
   if (!PM || PM.failed || !PM.lib) return;
   const hashView = location.hash.slice(1);
   const savedView = PM.prefs.get('view', 'portafolio');

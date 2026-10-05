@@ -478,6 +478,105 @@ try {
   check('Gantt vacío en solo lectura: sin botones y con texto adecuado', (await page.locator('.empty button').count()) === 0 && (await page.locator('.empty').innerText()).includes('permiso de edición'));
   await page.evaluate(() => PM.setState({ canWrite: true }));
 
+  /* ================= Bloque C (regresiones de la auditoría) ================= */
+  await page.evaluate(() => { PM.prefs.set('sched.group', false); PM.prefs.set('sched.tab', 'calendario'); PM.prefs.set('sched.zoom', 'semana'); PM.prefs.set('sched.cols', 'auto'); PM.prefs.set('red.zoom', 1); PM.prefs.set('red.mode', 'dias'); });
+  const pidC = await createProject(page, { name: 'Proyecto C', code: 'PRY-C', start: '2026-08-03', statusDate: '2026-10-02' });
+  await page.evaluate(async (pid) => {
+    const T = (id, name, duration, deps, extra = {}) => ({ id, name, wbsId: null, duration, milestone: duration === 0, start: null, deps, progress: 0, cost: 1000000, resources: [], responsible: '', actualStart: null, actualFinish: null, notes: '', ...extra });
+    const tasks = [];
+    for (let i = 1; i <= 15; i++) tasks.push(T('x' + i, 'Paralela ' + i, 2, [], { progress: 100 }));
+    for (let i = 1; i <= 12; i++) tasks.push(T('a' + i, 'Terminada ' + i, 3, i > 1 ? [{ id: 'a' + (i - 1), type: 'FS', lag: 0 }] : [], { progress: 100 }));
+    for (let i = 1; i <= 6; i++) tasks.push(T('p' + i, 'Pendiente ' + i, 5, [{ id: i > 1 ? 'p' + (i - 1) : 'a12', type: 'FS', lag: 0 }]));
+    await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks });
+  }, pidC);
+  await page.waitForTimeout(300);
+
+  /* «Ver en el cronograma» (params.taskId): abre el Gantt aunque la última pestaña fuera Calendario, selecciona la actividad y la muestra */
+  await page.evaluate(() => PM.navigate('cronograma', { taskId: 'p6' }));
+  await page.waitForSelector('.sched-row[data-id="p6"]');
+  await page.waitForTimeout(250);
+  const focusInfo = await page.evaluate(() => {
+    const f = document.querySelector('.sched-frame'); const fr = f.getBoundingClientRect(); const gw = document.querySelector('.sched-grid').getBoundingClientRect().width;
+    const row = document.querySelector('.sched-row[data-id="p6"]').getBoundingClientRect();
+    const bar = document.querySelector('g.sched-bar[data-id="p6"] .sched-bar-main').getBoundingClientRect();
+    return { tab: document.querySelector('.tabs [aria-selected="true"]')?.textContent.trim(), sel: document.querySelector('.sched-row[data-id="p6"]').classList.contains('is-sel'),
+      rowVisible: row.top >= fr.top + 57 && row.bottom <= fr.bottom + 1 && row.top >= 0 && row.bottom <= innerHeight, scrolledDown: f.scrollTop > 0,
+      barVisible: bar.left >= fr.left + gw - 1 && bar.left < fr.right - 10 };
+  });
+  check('«Ver en el cronograma»: pestaña Gantt, actividad seleccionada y a la vista (fila y barra)', focusInfo.tab && focusInfo.tab.startsWith('Gantt') && focusInfo.sel && focusInfo.rowVisible && focusInfo.scrolledDown && focusInfo.barVisible, focusInfo);
+  await page.evaluate(() => { PM.prefs.set('sched.tab', 'actividades'); PM.navigate('tablero'); });
+  await page.waitForTimeout(200);
+  await page.evaluate(() => PM.navigate('cronograma', { taskId: 'p6' }));
+  await page.waitForSelector('.sched-tbl tr[data-id="p6"]');
+  await page.waitForTimeout(250);
+  const focusAct = await page.evaluate(() => { const tr = document.querySelector('.sched-tbl tr[data-id="p6"]'); const b = tr.getBoundingClientRect(); return { sel: tr.classList.contains('is-sel'), vis: b.top >= 0 && b.bottom <= innerHeight, tab: document.querySelector('.tabs [aria-selected="true"]')?.textContent.trim() }; });
+  check('«Ver en el cronograma» desde Actividades: la fila queda seleccionada y a la vista', focusAct.tab.startsWith('Actividades') && focusAct.sel && focusAct.vis, focusAct);
+  await page.evaluate(() => PM.navigate('cronograma', { taskId: 'no-existe' }));
+  await page.waitForTimeout(250);
+  check('«Ver en el cronograma» con una actividad eliminada: aviso', (await page.locator('.toast').allInnerTexts()).some((x) => x.includes('ya no está en el cronograma')));
+  await page.evaluate(() => { PM.prefs.set('sched.tab', 'gantt'); PM.navigate('tablero'); });
+  await page.waitForTimeout(200);
+
+  /* Gantt: abre con la fecha de corte a la vista (no en el inicio del proyecto) y su rótulo completo */
+  await gotoView(page, 'cronograma');
+  await page.waitForSelector('.sched-row[data-id="p1"]');
+  await page.waitForTimeout(200);
+  const corte = await page.evaluate(() => {
+    const f = document.querySelector('.sched-frame'); const fr = f.getBoundingClientRect(); const gr = document.querySelector('.sched-grid').getBoundingClientRect();
+    const lbl = [...document.querySelectorAll('.sched-headrow text.sched-mark')].find((t) => t.textContent.startsWith('Corte')); const lb = lbl.getBoundingClientRect();
+    return { left: gr.right, right: fr.right, lblL: lb.left, lblR: lb.right, scrollLeft: f.scrollLeft };
+  });
+  check('Gantt abre con la línea de corte y su rótulo dentro del área visible', corte.lblL >= corte.left && corte.lblR <= corte.right && corte.scrollLeft > 0, corte);
+
+  /* edición en la tabla: Enter y Esc devuelven el foco a la celda (no a <body>) */
+  await page.locator('.sched-row[data-id="p2"] [data-col="dur"] button.sched-cell').click();
+  await page.keyboard.press('Control+a'); await page.keyboard.type('6'); await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  const aeEnter = await page.evaluate(() => document.activeElement && (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName));
+  await page.keyboard.press('Enter'); await page.waitForTimeout(50);
+  const reopened = await page.evaluate(() => document.activeElement && document.activeElement.tagName);
+  await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+  const aeEsc = await page.evaluate(() => document.activeElement && (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName));
+  check('Enter y Esc en una celda devuelven el foco al botón de la celda', /^Duración en días hábiles, fila 29: 6 d/.test(aeEnter) && reopened === 'INPUT' && /^Duración en días hábiles, fila 29/.test(aeEsc), { aeEnter, reopened, aeEsc });
+
+  /* iniciales de los días en es-CO (sin «X») y criterio de criticidad explicado */
+  await page.click('.btn-group button:has-text("Día")'); await page.waitForTimeout(150);
+  const dayHead = await page.$$eval('.sched-headrow svg text', (els) => els.map((e) => e.textContent));
+  check('escala diaria: sin la inicial «X» de España', !dayHead.some((x) => /^X\b/.test(x)), dayHead.filter((x) => /^[A-Z]\b/.test(x)).slice(0, 8));
+  await page.click('.btn-group button:has-text("Semana")'); await page.waitForTimeout(150);
+  const critStat = await page.locator('.sched-strip .stat', { hasText: 'Críticas' }).innerText();
+  check('resumen: «Críticas» aclara que son las sin terminar', critStat.includes('sin terminar') && !critStat.includes('holgura ≤ 0'), critStat);
+  await page.click('.tabs .tab:has-text("Calendario")');
+  const dh = await page.$$eval('.sched-mgrid', (g) => [...g[0].querySelectorAll('.dh')].map((e) => e.textContent).join(' '));
+  check('calendario mensual: encabezados L M M J V S D', dh === 'L M M J V S D', dh);
+  await page.click('.tabs .tab:has-text("Gantt")');
+
+  /* diagrama de red: abre con la ruta crítica pendiente a la vista; «Ajustar a la vista» y zoom mínimo 25 % */
+  await gotoView(page, 'red');
+  await page.waitForSelector('g.sched-net-node');
+  await page.waitForTimeout(200);
+  const netOpen = await page.evaluate(() => {
+    const host = document.querySelector('.sched-net'); const a = host.getBoundingClientRect();
+    const full = [...host.querySelectorAll('g.sched-net-node.is-crit')].filter((n) => { const b = n.getBoundingClientRect(); return b.left >= a.left - 1 && b.right <= a.right + 1 && b.top >= a.top - 1 && b.bottom <= a.bottom + 1; }).map((n) => n.getAttribute('data-id'));
+    return { full, scrollLeft: host.scrollLeft, scrollTop: host.scrollTop, svgW: +host.querySelector('svg').getAttribute('width'), hostW: host.clientWidth };
+  });
+  check('diagrama de red abre con la primera actividad crítica pendiente a la vista', netOpen.full.includes('p1') && netOpen.scrollLeft > 0 && netOpen.svgW > netOpen.hostW, netOpen);
+  await page.click('button:has-text("Ajustar a la vista")'); await page.waitForTimeout(150);
+  const netFit = await page.evaluate(() => { const host = document.querySelector('.sched-net'); return { svgW: +host.querySelector('svg').getAttribute('width'), hostW: host.clientWidth, pressed: [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Ajustar a la vista')).getAttribute('aria-pressed'), ov: document.documentElement.scrollWidth - document.documentElement.clientWidth }; });
+  check('«Ajustar a la vista»: todo el diagrama cabe en el ancho del recuadro', netFit.svgW <= netFit.hostW + 1 && netFit.pressed === 'true' && netFit.ov <= 1, netFit);
+  await page.click('button[aria-label="Restablecer zoom"]');
+  for (let i = 0; i < 4; i++) { const al = page.locator('button[aria-label="Alejar"]'); if (await al.isEnabled()) await al.click(); }
+  check('zoom mínimo del diagrama de red: 25 %', (await page.locator('button[aria-label="Restablecer zoom"]').innerText()).trim() === '25 %' && await page.locator('button[aria-label="Alejar"]').isDisabled(), await page.locator('button[aria-label="Restablecer zoom"]').innerText());
+  await page.click('button[aria-label="Restablecer zoom"]');
+  const keyTxt = await page.locator('.sched-key').innerText();
+  const redHeads = await page.$$eval('.sched-tbl thead th', (ths) => ths.map((t) => t.textContent.trim() + '|' + (t.title || '')).join(' '));
+  check('clave del nodo y tabla con nombres completos (sin IL/TL ni «Terminación»)', ['Inicio temprano', 'Fin temprano', 'Inicio tardío', 'Fin tardío'].every((k) => keyTxt.includes(k) && redHeads.includes(k)) && !/\b(IT|TT|IL|TL)\b/.test(keyTxt + redHeads) && !redHeads.includes('Terminación'), { keyTxt, redHeads });
+  const hdrTxt = await page.locator('.page').first().innerText();
+  const doneRow = await page.locator('.sched-tbl tbody tr[data-id="a12"] td').last().innerText();
+  check('ruta crítica: el texto aclara que las terminadas no se marcan y la tabla lo indica', hdrTxt.includes('actividades pendientes con holgura total ≤ 0') && doneRow.trim() === 'No (terminada)', doneRow);
+  await page.evaluate(() => PM.prefs.set('red.zoom', 1));
+  void pidC;
+
   /* 300 actividades: respuesta y números de fila legibles */
   const pidBig = await page.evaluate(async () => {
     const id = await PM.projectOps.create({ name: 'Proyecto grande', code: 'PRY-G', start: '2026-01-05' });

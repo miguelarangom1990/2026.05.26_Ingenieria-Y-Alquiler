@@ -2,7 +2,7 @@
 // Uso: node test/flow.test.mjs --file <ruta.html> [--shots dir]
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openApp, createProject, gotoView, errorCards, horizontalOverflow } from './harness.mjs';
+import { openApp, createProject, createExample, gotoView, errorCards, horizontalOverflow } from './harness.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
@@ -46,11 +46,11 @@ async function main() {
     await page.getByRole('button', { name: 'Crear diagrama' }).click();
     await page.waitForSelector('.flow-node');
     const tpl = await page.evaluate(() => { const t = PM.flowTools.templates.find((x) => x.id === 'cambios'); return { n: t.nodes.length, e: t.edges.length, l: t.lanes.length }; });
-    check(tpl.n === 9 && tpl.e === 9 && tpl.l === 3, 'plantilla 4.6 define 9 elementos, 9 conectores y 3 carriles', tpl);
+    check(tpl.n === 9 && tpl.e === 9 && tpl.l === 3, 'plantilla 4.6 define 9 elementos, 9 flechas y 3 carriles', tpl);
     let f = await poll(page, getFlow, (x) => x && x.nodes);
     check(f.nodes.length === 9 && f.edges.length === 9 && f.lanes.length === 3, 'documento guardado con 9/9/3', { n: f.nodes.length, e: f.edges.length, l: f.lanes.length });
     check(await page.locator('.flow-node').count() === 9, 'lienzo dibuja 9 elementos');
-    check(await page.locator('.flow-edge').count() === 9, 'lienzo dibuja 9 conectores');
+    check(await page.locator('.flow-edge').count() === 9, 'lienzo dibuja 9 flechas');
     check(await page.locator('rect.flow-lane').count() === 3, 'lienzo dibuja 3 carriles');
     check(await page.locator('.flow-elabel', { hasText: 'Sí' }).count() === 1 && await page.locator('.flow-elabel', { hasText: 'No' }).count() === 1, 'etiquetas Sí / No visibles');
     if (shots) await page.screenshot({ path: join(shots, 't-template.png'), fullPage: true });
@@ -105,9 +105,9 @@ async function main() {
     const decC2 = await center(page.locator(`[data-node="${dec.id}"] .flow-shape`));
     await drag(page, port, decC2, 15);
     f = await poll(page, getFlow, (x) => x && x.edges.length === 1);
-    check(f.edges.length === 1 && f.edges[0].from === proc.id && f.edges[0].to === dec.id, 'arrastrar desde un puerto crea el conector', f.edges);
+    check(f.edges.length === 1 && f.edges[0].from === proc.id && f.edges[0].to === dec.id, 'arrastrar desde un puerto crea la flecha', f.edges);
     const edgeId = f.edges[0].id;
-    check(await page.locator(`[data-edge="${edgeId}"] .flow-edge-line`).count() === 1, 'conector dibujado');
+    check(await page.locator(`[data-edge="${edgeId}"] .flow-edge-line`).count() === 1, 'flecha dibujada');
     const d = await page.locator(`[data-edge="${edgeId}"] .flow-edge-line`).getAttribute('d');
     check(/^M[\d.,-]+( L[\d.,-]+| Q[\d.,-]+ [\d.,-]+)+$/.test(d), 'ruta ortogonal con codos', d);
 
@@ -124,7 +124,7 @@ async function main() {
     await page.locator('.flow-editbox.is-input').fill('No');
     await page.keyboard.press('Enter');
     f = await poll(page, getFlow, (x) => x && x.edges[0].label === 'No');
-    check(f.edges[0].label === 'No', 'doble clic en el conector edita la etiqueta');
+    check(f.edges[0].label === 'No', 'doble clic en la flecha edita la etiqueta');
 
     /* ---- texto con doble clic ---- */
     await page.locator(`[data-node="${dec.id}"]`).dblclick();
@@ -170,16 +170,16 @@ async function main() {
     check(await page.locator('.flow-node.is-sel').count() === 2, 'Mayús+clic selecciona varios');
     await page.keyboard.press('Control+d');
     f = await poll(page, getFlow, (x) => x && x.nodes.length === 5);
-    check(f.nodes.length === 5 && f.edges.length === 2, 'Ctrl+D duplica la selección y sus conectores internos', { n: f.nodes.length, e: f.edges.length });
+    check(f.nodes.length === 5 && f.edges.length === 2, 'Ctrl+D duplica la selección y sus flechas internas', { n: f.nodes.length, e: f.edges.length });
 
     /* ---- eliminar con Supr ---- */
     await page.keyboard.press('Delete');
     f = await poll(page, getFlow, (x) => x && x.nodes.length === 3);
-    check(f.nodes.length === 3 && f.edges.length === 1, 'Supr elimina la selección y sus conectores', { n: f.nodes.length, e: f.edges.length });
+    check(f.nodes.length === 3 && f.edges.length === 1, 'Supr elimina la selección y sus flechas', { n: f.nodes.length, e: f.edges.length });
     await page.locator(`[data-node="${dec.id}"]`).click();
     await page.keyboard.press('Delete');
     f = await poll(page, getFlow, (x) => x && x.nodes.length === 2);
-    check(f.nodes.length === 2 && f.edges.length === 0, 'eliminar un elemento quita sus conectores', { n: f.nodes.length, e: f.edges.length });
+    check(f.nodes.length === 2 && f.edges.length === 0, 'eliminar un elemento quita sus flechas', { n: f.nodes.length, e: f.edges.length });
 
     /* ---- ruta solo con teclado (panel de propiedades) ---- */
     await canvas.focus();
@@ -203,13 +203,13 @@ async function main() {
     check(dataNode && dataNode.y > docNode.y + docNode.h, 'el nuevo elemento se ubica debajo del origen');
     await canvas.focus();
     await page.keyboard.press('Escape');
-    const edgeForm = page.locator('form[aria-label="Agregar conector"]');
+    const edgeForm = page.locator('form[aria-label="Agregar flecha"]');
     await edgeForm.getByLabel('Desde').selectOption(term.id);
     await edgeForm.getByLabel('Hacia').selectOption(proc.id);
     await edgeForm.getByLabel('Etiqueta (opcional)').fill('Inicio');
     await edgeForm.getByLabel('Etiqueta (opcional)').press('Enter');
     f = await poll(page, getFlow, (x) => x && x.edges.length === 2);
-    check(f.edges.some((e) => e.from === term.id && e.to === proc.id && e.label === 'Inicio'), 'agregar conector con los selectores Desde / Hacia', f.edges);
+    check(f.edges.some((e) => e.from === term.id && e.to === proc.id && e.label === 'Inicio'), 'agregar flecha con los selectores Desde / Hacia', f.edges);
     await page.getByRole('tab', { name: /Elementos/ }).click();
     await page.locator('.flow-item[title$="Inventario en obra"]').click();
     check(await page.locator(`[data-node="${dataNode.id}"].is-sel`).count() === 1, 'seleccionar desde la lista de elementos');
@@ -381,15 +381,31 @@ async function main() {
         });
         check(geo.bad === 0 && geo.labels > 0, `plantilla ${t}: etiquetas sin superponerse a elementos ni entre sí`, geo);
         check(geo.outside === 0, `plantilla ${t}: textos dentro de sus símbolos`, geo);
-        check(geo.fits, `plantilla ${t}: la vista inicial muestra todo el diagrama`, geo);
+        /* vista inicial legible (≥ 75 %) con el inicio a la vista; «Ajustar a la vista» muestra todo el diagrama */
+        const iv = await page.evaluate(() => {
+          const c = document.querySelector('.flow-canvas').getBoundingClientRect();
+          const k = parseFloat(/scale\(([\d.]+)\)/.exec(document.querySelector('.flow-svg > g').getAttribute('transform'))[1]);
+          const fid = document.querySelector('.flow-editor').dataset.fid;
+          return { k, c: { l: c.left, r: c.right, t: c.top, b: c.bottom }, fid };
+        });
+        const tf = await getF('f_' + t);
+        const st = await page.evaluate((f) => PM.flowTools.startNode(f.nodes, f.edges), tf);
+        const sb = await page.locator(`[data-node="${st.id}"] .flow-shape`).boundingBox();
+        check(iv.k >= 0.75, `plantilla ${t}: la vista inicial abre con zoom legible (≥ 75 %)`, iv.k);
+        check(sb && sb.x >= iv.c.l && sb.x + sb.width <= iv.c.r && sb.y >= iv.c.t && sb.y + sb.height <= iv.c.b, `plantilla ${t}: la vista inicial muestra el inicio («${st.text}»)`, { sb, c: iv.c });
+        await page.getByRole('button', { name: 'Ajustar a la vista' }).click();
+        await page.waitForTimeout(100);
+        const fitsAll = await page.evaluate(() => { const c = document.querySelector('.flow-canvas').getBoundingClientRect(); return [...document.querySelectorAll('.flow-node .flow-shape')].every((e) => { const n = e.getBoundingClientRect(); return n.left >= c.left && n.right <= c.right && n.top >= c.top && n.bottom <= c.bottom; }); });
+        check(fitsAll, `plantilla ${t}: «Ajustar a la vista» muestra todo el diagrama`);
       }
       check(await page.locator('.flow-editor').getAttribute('data-fid') === 'f_entregables', 'params.fid abre el diagrama indicado');
 
-      /* mover: el almacenamiento no cambia durante el arrastre, solo al soltar; los conectores siguen al elemento */
+      /* mover: el almacenamiento no cambia durante el arrastre, solo al soltar; las flechas siguen al elemento */
       const fid = 'f_recepcion';
       await page.evaluate((fid) => PM.navigate('flujogramas', { fid }), fid);
       await poll(page, () => page.evaluate(() => document.querySelector('.flow-editor')?.dataset.fid), (v) => v === fid);
       await page.waitForTimeout(250);
+      await page.getByRole('button', { name: 'Ajustar a la vista' }).click();
       let f0 = await getF(fid);
       const nov = f0.nodes.find((n) => /Reportar novedad/.test(n.text));
       const novEdge = f0.edges.find((e) => e.to === nov.id);
@@ -401,7 +417,7 @@ async function main() {
       const mid = await getF(fid);
       const dDuring = await page.locator(`[data-edge="${novEdge.id}"] .flow-edge-line`).getAttribute('d');
       check(JSON.stringify(mid.nodes) === JSON.stringify(f0.nodes), 'durante el arrastre no se escribe en el almacenamiento');
-      check(dDuring !== dBefore, 'durante el arrastre el conector sigue al elemento');
+      check(dDuring !== dBefore, 'durante el arrastre la flecha sigue al elemento');
       await page.mouse.up();
       const after = await poll(page, () => getF(fid), (x) => x.nodes.find((n) => n.id === nov.id).x !== nov.x);
       check(after.nodes.find((n) => n.id === nov.id).x !== nov.x, 'al soltar se guarda la nueva posición');
@@ -419,7 +435,7 @@ async function main() {
       await page.keyboard.press('Escape');
       check(await page.locator('.flow-node.is-sel').count() === 0, 'Esc limpia la selección');
 
-      /* soltar un conector en un espacio vacío crea un proceso conectado */
+      /* soltar una flecha en un espacio vacío crea un proceso conectado */
       await page.getByRole('button', { name: 'Ajustar a la vista' }).click();
       const fin = after.nodes.find((n) => /Equipo disponible/.test(n.text));
       await page.evaluate(() => document.querySelector('.flow-canvas').scrollIntoView({ block: 'end' }));
@@ -430,21 +446,21 @@ async function main() {
       await drag(page, portR, { x: portR.x + 190, y: portR.y + 10 });
       const withNew = await poll(page, () => getF(fid), (x) => x.nodes.length === f0.nodes.length + 1);
       const created = withNew.nodes.find((n) => !after.nodes.some((m) => m.id === n.id));
-      check(created && created.type === 'process' && withNew.edges.some((e) => e.from === fin.id && e.to === created.id), 'soltar el conector en vacío crea un proceso conectado', created);
+      check(created && created.type === 'process' && withNew.edges.some((e) => e.from === fin.id && e.to === created.id), 'soltar la flecha en vacío crea un proceso conectado', created);
 
-      /* conector: Desde/Hacia no permite duplicar un conector existente */
+      /* flecha: Desde/Hacia no permite duplicar una flecha existente */
       const e1 = withNew.edges.find((e) => e.to === created.id);
       const dup = withNew.edges.find((e) => e.id !== e1.id && e.from !== created.id && e.to !== created.id);
-      await page.getByRole('button', { name: 'Seleccionar este conector' }).first().click();
+      await page.getByRole('button', { name: 'Seleccionar esta flecha' }).first().click();
       await page.locator('[id$="-efrom"]').waitFor();
       await page.locator('[id$="-efrom"]').selectOption(dup.from);
       await poll(page, () => getF(fid), (x) => x.edges.find((e) => e.id === e1.id).from === dup.from);
       await page.locator('[id$="-eto"]').selectOption(dup.to);
       await page.waitForSelector('.toast');
-      check((await page.locator('.toast').last().textContent()).includes('Ya existe un conector'), 'cambiar extremos a un par existente avisa del duplicado');
+      check((await page.locator('.toast').last().textContent()).includes('Ya existe una flecha'), 'cambiar extremos a un par existente avisa del duplicado');
       await page.waitForTimeout(800);
       const nd = await getF(fid);
-      check(nd.edges.filter((e) => e.from === dup.from && e.to === dup.to).length === 1 && nd.edges.find((e) => e.id === e1.id).to === created.id, 'cambiar extremos no crea conectores duplicados');
+      check(nd.edges.filter((e) => e.from === dup.from && e.to === dup.to).length === 1 && nd.edges.find((e) => e.id === e1.id).to === created.id, 'cambiar extremos no crea flechas duplicadas');
 
       /* foco: elegir en la lista «Elementos» lleva el foco a la sección de la selección */
       await page.getByRole('tab', { name: /Elementos/ }).click();
@@ -458,7 +474,7 @@ async function main() {
       check(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('flow-canvas')), 'tras eliminar desde el panel, el foco vuelve al lienzo');
       await page.keyboard.press('Control+z');
       const restored = await poll(page, () => getF(fid), (x) => x.nodes.length === nd.nodes.length);
-      check(restored.nodes.length === nd.nodes.length && restored.edges.length === nd.edges.length, 'deshacer restaura el elemento y sus conectores', { n: restored.nodes.length, e: restored.edges.length });
+      check(restored.nodes.length === nd.nodes.length && restored.edges.length === nd.edges.length, 'deshacer restaura el elemento y sus flechas', { n: restored.nodes.length, e: restored.edges.length });
 
       /* carriles: alto, orden y eliminación */
       await page.getByRole('button', { name: 'Carriles' }).click();
@@ -506,6 +522,110 @@ async function main() {
     } finally { await browser.close(); }
   }
 
+  /* ================================================================ regresiones de la auditoría (proyecto de ejemplo)
+     - el diagrama abría al 50 % (texto de ~6 px) y por debajo del pliegue: ahora abre legible, anclado en el inicio,
+       con el lienzo más arriba (paleta en una fila, título fundido con el selector, descripción recortada);
+     - «Conector» nombraba a la vez el símbolo ISO 5807 y las líneas de flujo: las líneas ahora son «flechas». */
+  for (const variant of [{ width: 1360, height: 900, name: 'ejemplo escritorio', maxTop: 520 }, { width: 400, height: 860, name: 'ejemplo 400 px', maxTop: 860 - 120 }]) {
+    const app = await openApp({ file, width: variant.width, height: variant.height });
+    const feX = await freshErrors(app);
+    const { page } = app;
+    try {
+      const pid = await createExample(page);
+      if (!pid) { console.log('     (esta compilación no incluye el proyecto de ejemplo: se omiten las regresiones de ' + variant.name + ')'); continue; }
+      await page.waitForTimeout(400);
+      await gotoView(page, 'flujogramas');
+      await page.waitForSelector('.flow-node');
+      await page.waitForTimeout(300);
+      await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
+      const fid = await page.evaluate(() => document.querySelector('.flow-editor').dataset.fid);
+      const fx = await page.evaluate(async ([pid, fid]) => PM.store.get(PM.paths.flow(pid, fid)), [pid, fid]);
+      const st = await page.evaluate((f) => PM.flowTools.startNode(f.nodes, f.edges), fx);
+      const view = () => page.evaluate(() => {
+        const c = document.querySelector('.flow-canvas').getBoundingClientRect();
+        const k = parseFloat(/scale\(([\d.]+)\)/.exec(document.querySelector('.flow-svg > g').getAttribute('transform'))[1]);
+        const inC = (e) => { const b = e.getBoundingClientRect(); return b.left >= c.left - 0.5 && b.right <= c.right + 0.5 && b.top >= c.top - 0.5 && b.bottom <= c.bottom + 0.5; };
+        const lane = document.querySelector('.flow-lane-label');
+        const pal = [...document.querySelectorAll('.flow-pal-btn')].map((b) => Math.round(b.getBoundingClientRect().top));
+        const nodes = [...document.querySelectorAll('.flow-node .flow-shape')];
+        return { k, top: Math.round(c.top), laneVisible: !lane || inC(lane), palRows: new Set(pal).size, palCount: pal.length, allFit: nodes.every(inC), font: 13 * k };
+      });
+      const v0 = await view();
+      const sb = await page.locator(`[data-node="${st.id}"] .flow-shape`).boundingBox();
+      const cb = await page.locator('.flow-canvas').boundingBox();
+      check(st.type === 'terminal' && /necesidad|inicio/i.test(st.text), `${variant.name}: el punto de partida es el terminal de inicio`, st);
+      check(v0.k >= 0.75, `${variant.name}: el diagrama abre con zoom legible (texto ≥ 10 px)`, v0);
+      check(sb && sb.x >= cb.x && sb.x + sb.width <= cb.x + cb.width && sb.y >= cb.y && sb.y + sb.height <= cb.y + cb.height, `${variant.name}: la vista inicial muestra el terminal de inicio completo`, { sb, cb });
+      check(v0.laneVisible, `${variant.name}: la vista inicial muestra la columna del primer carril`);
+      check(v0.top <= variant.maxTop, `${variant.name}: el lienzo empieza en la primera pantalla (≤ ${variant.maxTop} px)`, v0.top);
+      check(v0.palCount === 8 && v0.palRows === 1, `${variant.name}: la paleta ocupa una sola fila`, v0);
+      await page.getByRole('button', { name: 'Ajustar a la vista' }).click();
+      await page.waitForTimeout(100);
+      const v1 = await view();
+      check(v1.allFit && v1.k < v0.k, `${variant.name}: «Ajustar a la vista» sigue dando el panorama completo`, { v0: v0.k, v1: v1.k, allFit: v1.allFit });
+
+      /* nombres: «flecha» para las líneas, «Conector» solo para el símbolo */
+      check(await page.getByRole('button', { name: 'Agregar conector', exact: true }).count() === 0 && await page.locator('form[aria-label="Agregar conector"]').count() === 0, `${variant.name}: ya no existe «Agregar conector» para las líneas`);
+      check(await page.locator('form[aria-label="Agregar flecha"]').count() === 1 && await page.getByRole('button', { name: 'Agregar flecha', exact: true }).count() === 1, `${variant.name}: el formulario de líneas se llama «Agregar flecha»`);
+      check(await page.getByRole('button', { name: 'Agregar símbolo de conector', exact: true }).count() === 1, `${variant.name}: la paleta nombra el símbolo en minúscula («Agregar símbolo de conector»)`);
+      const meta = await page.locator('.flow-head-text .xsmall').first().textContent();
+      check(/\d+ flechas/.test(meta) && !/conector/i.test(meta), `${variant.name}: el resumen cuenta flechas, no conectores`, meta);
+      await page.getByRole('tab', { name: /Elementos/ }).click();
+      check(await page.locator('.flow-panel .label-caps', { hasText: /^Flechas \(\d+\)$/ }).count() === 1, `${variant.name}: la lista del panel se titula «Flechas (n)»`);
+      const ttl = await page.locator('.flow-pal-btn[data-type="connector"]').getAttribute('title');
+      check(/no es una flecha/.test(ttl), `${variant.name}: la ayuda del símbolo Conector lo distingue de las flechas`, ttl);
+
+      /* encabezado compacto: el título sigue en el DOM; la descripción se recorta y «Ver más» la despliega */
+      check((await page.locator('h2.flow-head-title').textContent()) === fx.name, `${variant.name}: el título del diagrama sigue disponible para lectores de pantalla`);
+      const titleBox = await page.locator('h2.flow-head-title').boundingBox();
+      check(titleBox && titleBox.width <= 1, `${variant.name}: con el selector a la vista, el título no se repite en pantalla`, titleBox);
+      const desc = page.locator('.flow-desc');
+      const h0 = (await desc.boundingBox()).height;
+      check(await desc.evaluate((e) => e.classList.contains('is-clamped')) && await page.getByRole('button', { name: 'Ver más' }).isVisible(), `${variant.name}: la descripción larga se recorta con «Ver más»`);
+      await page.getByRole('button', { name: 'Ver más' }).click();
+      const h1 = (await desc.boundingBox()).height;
+      check(h1 > h0 && await page.getByRole('button', { name: 'Ver menos' }).getAttribute('aria-expanded') === 'true', `${variant.name}: «Ver más» despliega la descripción completa`, { h0, h1 });
+      await page.getByRole('button', { name: 'Ver menos' }).click();
+      check(Math.abs((await desc.boundingBox()).height - h0) < 1, `${variant.name}: «Ver menos» la vuelve a recortar`);
+
+      /* descargas desde «Acciones» (en 400 px los botones de exportar de la barra se ocultan) */
+      await page.evaluate(() => { window.__dl = []; PM.download = async (name, data) => { window.__dl.push({ name, data }); return true; }; });
+      if (variant.width === 400) check(!(await page.locator('.flow-tb-export').isVisible()), `${variant.name}: la barra no repite las descargas`);
+      await page.getByRole('button', { name: 'Acciones del diagrama' }).click();
+      await page.getByRole('menuitem', { name: 'Descargar SVG' }).click();
+      const dl = await page.evaluate(() => window.__dl[0]);
+      check(dl && /\.svg$/.test(dl.name) && dl.data.includes('<svg'), `${variant.name}: «Acciones › Descargar SVG» entrega el SVG`, dl && dl.name);
+      const ov = await horizontalOverflow(page);
+      check(ov <= 1, `${variant.name}: sin desplazamiento horizontal de la página`, ov);
+      check(feX.list().length === 0, `${variant.name}: sin errores de consola`, feX.list());
+    } finally { await app.browser.close(); }
+  }
+
+  /* vista inicial (función pura): ajusta si el diagrama cabe legible; si no, abre a 85 % con el inicio a la vista */
+  {
+    const app = await openApp({ file, width: 1360, height: 900 });
+    try {
+      const r = await app.page.evaluate(() => {
+        const T = PM.flowTools;
+        const small = T.initialView({ x: 0, y: 0, w: 400, h: 300 }, { w: 712, h: 610 }, [{ id: 'a', type: 'terminal', x: 0, y: 0, w: 144, h: 48 }], []);
+        const nodes = [
+          { id: 'n', type: 'note', x: 0, y: 0, w: 176, h: 72 },
+          { id: 'p', type: 'process', x: 200, y: 200, w: 160, h: 64 },
+          { id: 's', type: 'terminal', x: 1800, y: 40, w: 144, h: 48 },
+          { id: 'f', type: 'terminal', x: 200, y: 400, w: 144, h: 48 },
+        ];
+        const edges = [{ id: 'e1', from: 's', to: 'p' }, { id: 'e2', from: 'p', to: 'f' }, { id: 'e3', from: 'n', to: 's' }];
+        const big = T.initialView({ x: 0, y: 0, w: 2000, h: 500 }, { w: 712, h: 610 }, nodes, edges);
+        const start = T.startNode(nodes, edges);
+        const sx = big.x + 1800 * big.k, sw = 144 * big.k;
+        return { small, big, start: start && start.id, startVisible: sx >= 0 && sx + sw <= 712 };
+      });
+      check(r.small.k === 1, 'vista inicial: un diagrama pequeño se ajusta sin ampliar más del 100 %', r.small);
+      check(r.start === 's', 'vista inicial: el inicio es el terminal sin flechas de entrada (las notas no cuentan)', r.start);
+      check(r.big.k === 0.85 && r.startVisible, 'vista inicial: un diagrama grande abre a 85 % con el inicio a la vista aunque esté lejos del borde', r);
+    } finally { await app.browser.close(); }
+  }
+
   /* ================================================================ 400 px y tema oscuro */
   for (const variant of [{ width: 400, height: 860, dark: false, name: 'm' }, { width: 400, height: 860, dark: true, name: 'm-dark' }, { width: 1360, height: 900, dark: true, name: 'dark' }]) {
     const app = await openApp({ file, width: variant.width, height: variant.height, dark: variant.dark });
@@ -535,6 +655,7 @@ async function main() {
       } else {
         await app.page.locator('#flow-picker-select').selectOption('f_b');
         await app.page.waitForTimeout(300);
+        await app.page.getByRole('button', { name: 'Ajustar a la vista' }).click();
         await app.page.locator('.flow-node').nth(4).click();
       }
       if (shots) await app.page.screenshot({ path: join(shots, `t-${variant.name}.png`), fullPage: true });

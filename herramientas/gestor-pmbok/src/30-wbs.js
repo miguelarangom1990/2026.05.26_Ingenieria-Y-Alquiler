@@ -75,7 +75,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
 .wbs-kind:hover { border-color: var(--line-strong); }
 .wbs-kind:focus { outline: none; box-shadow: var(--focus); }
 .wbs-kind.k-paquete { background-color: var(--accent-wash); color: var(--accent); }
-.wbs-kind.k-fase { background-color: var(--signal-wash); color: var(--signal); }
+.wbs-kind.k-fase { background-color: var(--signal-wash); color: var(--signal-ink); }
 .wbs-kind.k-cuenta-control { background-color: transparent; border-color: var(--line-strong); }
 .wbs-kind option { color: var(--fg); background: var(--surface); }
 .wbs-rowmenu { position: fixed; z-index: 70; min-width: 230px; }
@@ -450,10 +450,35 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
   }
   const templateStats = (tpl) => { let wp = 0; const walk = (items) => items.forEach((it) => { if (it.c && it.c.length) walk(it.c); else wp++; }); walk(tpl.items); return { l1: tpl.items.length, wp }; };
 
-  function TemplatePicker({ close, count, onPick }) {
+  /* Primer nivel a partir de los entregables del enunciado del alcance (5.3 es la entrada principal de 5.4):
+     nombre = entregable, descripción = descripción, criterios de aceptación = criterio de aceptación. */
+  const SCOPE_DOC = 'enunciado-alcance';
+  const SCOPE_FIELD = 'entregablesAlcance';
+  function scopeTemplate(rows, doc) {
+    const items = (Array.isArray(rows) ? rows : [])
+      .filter((r) => r && typeof r === 'object' && (txt(r.entregable) || txt(r.descripcion) || txt(r.criterioAceptacion)))
+      .map((r) => T(txt(r.entregable), txt(r.descripcion), '', txt(r.criterioAceptacion), '', null, 'entregable'));
+    if (!items.length) return null;
+    return {
+      id: 'enunciado', fromScope: true, name: 'Entregables del enunciado del alcance', items,
+      description: 'Crea el primer nivel con los entregables del enunciado del alcance del proyecto, con su descripción y sus criterios de aceptación. Después descompón cada uno en paquetes de trabajo.',
+      status: doc ? PM.docStatus(doc.status) : null, rev: doc && doc.rev != null && doc.rev !== '' ? String(doc.rev) : null,
+    };
+  }
+  const ScopeSource = ({ t }) => html`<span class="row" style="gap:6px"><span class="xsmall muted">Enunciado del alcance</span>${t.rev ? html`<span class="code-tag">Rev. ${t.rev}</span>` : null}${t.status ? html`<${ui.Chip} tone=${t.status.tone}>${t.status.label}</${ui.Chip}>` : null}</span>`;
+
+  function TemplatePicker({ close, count, onPick, scope }) {
     return html`<${ui.Modal} title="Plantillas de EDT" subtitle="Punto de partida con entregables y paquetes de trabajo típicos, con su diccionario. Después puedes ajustar nombres, niveles y responsables." size="wide" onClose=${close}>
       ${count ? html`<div class="wbs-notice" role="note"><${ui.Icon} name="alert" size=${15} /><div>La EDT actual tiene ${plural(count, 'elemento', 'elementos')}. Al usar una plantilla se reemplaza por completo y las actividades del cronograma quedan sin vínculo con la EDT.</div></div>` : null}
       <div class="wbs-tpls">
+        ${scope ? html`<div class="wbs-tpl" key="enunciado" data-wbs-template="enunciado">
+          <div class="row-between" style="align-items:flex-start">
+            <div class="stack-sm" style="gap:2px;min-width:0;flex:1 1 260px"><h3 class="h3">${scope.name}</h3><${ScopeSource} t=${scope} /><div class="small muted">${scope.description}</div></div>
+            <${ui.Button} size="sm" variant=${count ? undefined : 'primary'} onClick=${() => onPick(scope)}>${count ? 'Reemplazar con estos entregables' : 'Usar estos entregables'}</${ui.Button}>
+          </div>
+          <div class="wbs-tpl-l1">${scope.items.map((it, i) => html`<span class="chip chip-outline" key=${i}><span class="mono">1.${i + 1}</span>${it.n || 'Sin nombre'}</span>`)}</div>
+          <div class="xsmall faint">${plural(scope.items.length, 'entregable de primer nivel', 'entregables de primer nivel')} · ${scope.items.filter((it) => it.a).length} con criterios de aceptación</div>
+        </div>` : null}
         ${TEMPLATES.map((t) => { const s = templateStats(t); return html`<div class="wbs-tpl" key=${t.id} data-wbs-template=${t.id}>
           <div class="row-between" style="align-items:flex-start">
             <div class="stack-sm" style="gap:2px;min-width:0;flex:1 1 260px"><h3 class="h3">${t.name}</h3><div class="small muted">${t.description}</div></div>
@@ -929,6 +954,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const model = PM.useProjectModel();
     const canWrite = PM.useCanWrite();
     const [raci, saveRaci, raciMeta] = PM.useToolData('raci', PM.EMPTY.raci);
+    const [scopeRows, , scopeMeta] = PM.useDocTable(SCOPE_DOC, SCOPE_FIELD);
     const pid = project ? project.id : null;
     const wide = useMedia('(min-width: 1200px)');
     const TABS = ['arbol', 'diagrama', 'diccionario'];
@@ -987,11 +1013,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       return out;
     }, [tree, unlinked, project && project.name]);
 
+    const scopeTpl = useMemo(() => scopeTemplate(scopeRows, scopeMeta.doc), [scopeRows, scopeMeta.doc && scopeMeta.doc.status, scopeMeta.doc && scopeMeta.doc.rev]);
     const sel = selectedId === ROOT || (selectedId && tree.byId.has(selectedId)) ? selectedId : null;
 
     /* estado vivo para las acciones (identidad estable) */
     const live = useRef({});
-    live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci };
+    live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci, scope: scopeTpl };
 
     const actions = useMemo(() => {
       const L = () => live.current;
@@ -1165,7 +1192,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         openTemplates() {
           if (!L().canWrite) return;
           const count = L().wbs.nodes.length;
-          PM.openModal((close) => html`<${TemplatePicker} close=${close} count=${count} onPick=${(t) => { close(); A.applyTemplate(t); }} />`);
+          PM.openModal((close) => html`<${TemplatePicker} close=${close} count=${count} scope=${L().scope} onPick=${(t) => { close(); A.applyTemplate(t); }} />`);
         },
         async applyTemplate(t) {
           const cur = L(); if (!cur.canWrite) return;
@@ -1175,7 +1202,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
             const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((x) => x.wbsId && ids.has(x.wbsId)).length;
             const ok = await PM.confirm({
               title: 'Reemplazar la EDT',
-              body: html`<div class="stack-sm"><p>La EDT actual (${plural(old.length, 'elemento', 'elementos')}) se reemplazará por la plantilla <strong>${t.name}</strong>.</p>
+              body: html`<div class="stack-sm"><p>La EDT actual (${plural(old.length, 'elemento', 'elementos')}) se reemplazará por ${t.fromScope ? html`los <strong>${plural(t.items.length, 'entregable', 'entregables')} del enunciado del alcance</strong>` : html`la plantilla <strong>${t.name}</strong>`}.</p>
                 ${nTasks ? html`<p class="small muted">${plural(nTasks, 'actividad del cronograma quedará', 'actividades del cronograma quedarán')} sin vínculo con la EDT.</p>` : null}
                 <p class="small muted">Esta acción no se puede deshacer.</p></div>`,
               confirmText: 'Reemplazar EDT', tone: 'danger',
@@ -1186,8 +1213,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           commitNodes(buildTemplate(t));
           if (prevIds.size) clearRefs(prevIds);
           setColl(new Set()); setSelectedId(null); setEditing(null); setDictId(null); setTabRaw('arbol'); PM.prefs.set('wbs.tab', 'arbol');
-          PM.toast('Se aplicó la plantilla «' + t.name + '». Ajusta nombres, responsables y costos en el diccionario.');
+          PM.toast(t.fromScope
+            ? (t.items.length === 1 ? 'Se creó 1 entregable' : 'Se crearon ' + t.items.length + ' entregables') + ' de primer nivel desde el enunciado del alcance. Descompón cada uno en paquetes de trabajo y asigna responsables.'
+            : 'Se aplicó la plantilla «' + t.name + '». Ajusta nombres, responsables y costos en el diccionario.');
         },
+        /* primer nivel desde el enunciado del alcance (estado vacío) */
+        fromScope() { const t = L().scope; if (!L().canWrite || !t) return; A.applyTemplate(t); },
         addFirst() { if (!L().canWrite) return; setTabRaw('arbol'); PM.prefs.set('wbs.tab', 'arbol'); commit(treeOps.addChild(L().wbs.nodes, null)); },
       };
       return A;
@@ -1229,8 +1260,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         ${header}
         ${blInfo ? html`<div class="card wbs-kpis"><div class="wbs-bl" style="margin-left:0">${baselineLine}</div></div>` : null}
         <${ui.Empty} icon="wbs" title=${canWrite ? 'Crea la estructura de desglose del trabajo' : 'Este proyecto aún no tiene EDT'}
-          actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${actions.addFirst}>Agregar primer entregable</${ui.Button}><${ui.Button} icon="layers" onClick=${actions.openTemplates}>Usar una plantilla</${ui.Button}>` : null}>
-          La EDT descompone el alcance total del proyecto en entregables y, en el nivel más bajo, en paquetes de trabajo, donde se estiman costos y duraciones. Cumple la regla del 100 %: los elementos hijos suman exactamente el trabajo de su elemento padre, ni más ni menos.${canWrite ? '' : ' Quien tenga permiso de edición puede crearla.'}
+          actions=${canWrite ? html`${scopeTpl ? html`<${ui.Button} variant="primary" icon="file" onClick=${actions.fromScope} data-wbs-from-scope>Crear desde el enunciado del alcance</${ui.Button}>` : null}<${ui.Button} variant=${scopeTpl ? undefined : 'primary'} icon="plus" onClick=${actions.addFirst}>Agregar primer entregable</${ui.Button}><${ui.Button} icon="layers" onClick=${actions.openTemplates}>Usar una plantilla</${ui.Button}>` : null}>
+          La EDT descompone el alcance total del proyecto en entregables y, en el nivel más bajo, en paquetes de trabajo, donde se estiman costos y duraciones. Cumple la regla del 100 %: los elementos hijos suman exactamente el trabajo de su elemento padre, ni más ni menos.${canWrite ? (scopeTpl ? ' El enunciado del alcance registra ' + plural(scopeTpl.items.length, 'entregable', 'entregables') + ': úsalos como primer nivel, con su descripción y sus criterios de aceptación.' : '') : ' Quien tenga permiso de edición puede crearla.'}
         </${ui.Empty}>
       </div>`;
     }

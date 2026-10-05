@@ -3,7 +3,12 @@
 // Uso: node test/evm.test.mjs [--file ruta.html] [--shots dir]
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openApp, createProject, gotoView, horizontalOverflow, errorCards } from './harness.mjs';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { openApp, createProject, gotoView, horizontalOverflow, errorCards, root } from './harness.mjs';
+import { installClaudeMock } from './dbmock.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
@@ -150,7 +155,7 @@ try {
   await page.click('button:has-text("Ver tabla")');
   check('Ver tabla: una fila por fecha de la serie', (await page.locator('[data-role="series-table"] tbody tr').count()) === exp.seriesLen, exp.seriesLen);
   check('Ver tabla: la tabla cabe sin desplazamiento lateral a 1360 px', await page.$eval('[data-role="series-table"] .table-wrap', (el) => el.scrollWidth <= el.clientWidth + 1));
-  await page.click('[data-role="series-table"] button:has-text("Descargar CSV")');
+  await page.click('[data-role="series-table"] button:has-text("Exportar CSV")');
   let dl = await lastDownload(page);
   check('Ver tabla: CSV de la serie', dl && dl.name === 'curva-s_pry-test-001.csv' && dl.data.includes('Fecha;PV (COP);EV (COP);AC (COP)'), dl && dl.name);
   await page.click('[data-role="curve-card"] button:has-text("Descargar SVG")');
@@ -170,6 +175,7 @@ try {
   check('indicadores: EAC típica', (await full('eac')) === exp.eac, [await full('eac'), exp.eac]);
   check('indicadores: tono del SPI según indexTone', (await page.getAttribute('[data-metric="spi"]', 'data-tone')) === (await page.evaluate((v) => PM.calc.indexTone(v), exp.raw.spi)));
   check('indicadores: fórmulas visibles', (await text(page, '[data-metric="tcpi"] .evm-formula')) === 'TCPI = (BAC − EV) / (BAC − AC)');
+  check('indicadores: fórmula del cronograma ganado sin redundancia', (await text(page, '[data-metric="es"] .evm-formula')) === 'ES = momento en que el PV igualaba el EV actual');
   check('indicadores: cronograma ganado y fin pronosticado', (await val('spiT')) !== '—' && /\d{4}/.test(await val('forecastFinish')));
   await shot('evm-indicadores');
 
@@ -207,7 +213,7 @@ try {
   const rowsOrder = await page.$$eval('[data-actual]', (els) => els.map((e) => e.dataset.actual));
   check('costos reales: el registro nuevo queda en su lugar por fecha', rowsOrder.indexOf(newId) === rowsOrder.indexOf('a6') - 1, rowsOrder);
   check('costos reales: totales por categoría', (await text(page, '[data-role="by-category"]')).includes('Equipos'));
-  await page.click('[data-role="actuals"] .card-head button:has-text("Descargar CSV")');
+  await page.click('[data-role="actuals"] .card-head button:has-text("Exportar CSV")');
   dl = await lastDownload(page);
   check('costos reales: CSV', dl && dl.name === 'costos-reales_pry-test-001.csv' && dl.data.includes('Fecha;Actividad;Código EDT;Categoría;Descripción;Documento soporte;Valor (COP)') && dl.data.includes('Alquiler de malacate adicional'), dl && dl.data.slice(0, 120));
   await page.fill('[data-role="actuals"] input[type="search"]', 'malacate');
@@ -248,6 +254,7 @@ try {
   await page.click('.modal button:has-text("Reemplazar corte")');
   await page.waitForTimeout(200);
   check('avance: el reemplazo no duplica cortes', (await page.locator('[data-cut]').count()) === 3);
+  const su2Ev = await text(page, '[data-cut="su2"] [data-role="cut-ev"]');
   await page.click('[data-cut="su1"] button[aria-label^="Eliminar corte"]');
   await page.waitForSelector('.modal');
   await page.click('.modal button:has-text("Eliminar corte")');
@@ -255,7 +262,13 @@ try {
   costs = await stored(page, pid, 'costs');
   const sch = await stored(page, pid, 'schedule');
   const last = costs.statusUpdates.find((u) => u.date === '2026-10-02');
-  check('avance: cortes guardados (registrar, reemplazar, eliminar)', costs.statusUpdates.length === 2 && !costs.statusUpdates.find((u) => u.id === 'su1') && last && last.progress.t4 === 70 && last.note === '' && Object.keys(last.progress).length === 7, costs.statusUpdates.map((u) => u.date));
+  const su2 = costs.statusUpdates.find((u) => u.id === 'su2');
+  /* cada corte guarda solo las actividades cuyo % cambió respecto al corte anterior (regresión: tools/costs > 256 KiB) */
+  check('avance: cortes guardados (registrar, reemplazar, eliminar)', costs.statusUpdates.length === 2 && !costs.statusUpdates.find((u) => u.id === 'su1') && last && last.note === '' && costs.statusUpdates[1] === last, costs.statusUpdates.map((u) => u.date));
+  check('avance: el corte nuevo guarda solo los cambios respecto al anterior', last && Object.keys(last.progress).length === 2 && last.progress.t4 === 70 && last.progress.t7 === 40, last && last.progress);
+  check('avance: al eliminar un corte, el siguiente conserva el avance que registró', su2 && su2.progress.t1 === 100 && su2.progress.t2 === 100 && su2.progress.t3 === 100 && su2.progress.t7 === 25 && su2Ev === '$ 90.500.000' && (await text(page, '[data-cut="su2"] [data-role="cut-ev"]')) === su2Ev, [su2 && su2.progress, su2Ev]);
+  check('avance: columna «Cambios» con las actividades que cambiaron', (await text(page, `[data-cut="${last && last.id}"] [data-role="cut-changes"]`)) === '2');
+  check('avance: la explicación usa «fecha de corte» (sin «fecha de corte de control»)', !(await text(page, '[data-role="cuts"]')).includes('corte de control'));
   check('avance: % de avance guardado en el cronograma', sch.tasks.find((t) => t.id === 't4').progress === 70 && sch.tasks.find((t) => t.id === 't1').progress === 100);
   exp = await expected(page, pid);
   await tab(page, 'Indicadores');
@@ -274,6 +287,10 @@ try {
   check('presupuesto: y el presupuesto del proyecto', (await text(page, '[data-row="total"] [data-col="cur"]')) === '$ 174.500.000');
   check('presupuesto: comparación con el presupuesto aprobado', (await text(page, '[data-role="budget-compare"]')).includes('del presupuesto aprobado sin asignar'));
   check('presupuesto: cuentas de control nivel 1', (await page.locator('[data-account]').count()) === 3, await page.locator('[data-account]').count());
+  const accRow = await text(page, '[data-row="accounts"]');
+  check('presupuesto: la agregación no cuenta las actividades sin EDT como cuenta de control', accRow.includes('2 cuentas (EDT nivel 1)') && accRow.includes('1 actividad sin cuenta de control ($ 10.000.000)'), accRow);
+  check('presupuesto: cita el gráfico 7-8 de la Guía del PMBOK®', (await text(page, '[data-role="ledger"] .card-head')).includes('gráfico 7-8'));
+  check('terminología: «Exportar CSV» en todas las pestañas', (await page.locator('[data-view="valor-ganado"] button:has-text("Descargar CSV")').count()) === 0 && (await page.locator('[data-role="accounts"] button:has-text("Exportar CSV")').count()) === 1);
   await page.click('[data-role="accounts"] button:has-text("Nivel 2")');
   check('presupuesto: cuentas de control nivel 2', (await page.locator('[data-account]').count()) === 5, await page.locator('[data-account]').count());
   const fundRows = await page.locator('[data-role="funding-table"] tbody tr').count();
@@ -325,7 +342,7 @@ try {
   await page.click('[data-role="activity-table"] th button:has-text("CV")');
   const firstSorted = await page.$eval('[data-role="activity-table"] tbody tr', (r) => r.dataset.activity);
   check('por actividad: ordenar por CV (peor primero)', firstSorted === 't1', firstSorted);
-  await page.click('[data-role="activities"] .card-head button:has-text("Descargar CSV")');
+  await page.click('[data-role="activities"] .card-head button:has-text("Exportar CSV")');
   dl = await lastDownload(page);
   check('por actividad: CSV', dl && dl.name === 'desempeno-por-actividad_pry-test-001.csv' && dl.data.includes('Total del proyecto') && dl.data.includes('Costos reales sin actividad asignada'), dl && dl.name);
   await page.click('[data-role="activities"] button:has-text("En millones")');
@@ -432,6 +449,111 @@ await browser.close();
     check('casos límite: excepción', false, String(e && e.stack || e).slice(0, 800));
   }
   await app.browser.close();
+}
+
+/* ---------- registro de costos grande (db simulada, límite de 256 KiB por documento)
+   Regresión: con 300 actividades, cada corte guardaba el % de todas (≈ 5 KiB por corte); con unos 30 cortes y 500 costos
+   reales tools/costs pasaba de 256 KiB y desde ahí ningún corte ni costo real se guardaba, aunque la vista los mostrara. */
+{
+  const require = createRequire(import.meta.url);
+  let playwright; try { playwright = require('playwright'); } catch { playwright = require('/opt/node22/lib/node_modules/playwright'); }
+  const LIB = readFileSync(resolve(root, 'vendor/htm-preact-standalone.umd.js'), 'utf8');
+  const browser = await playwright.chromium.launch();
+  const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, locale: 'es-CO', timezoneId: 'America/Bogota' });
+  await installClaudeMock(context, { canWrite: true, owner: true });
+  const p = await context.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push('pageerror: ' + (e.stack || e.message)));
+  p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text())) errs.push('console: ' + m.text()); });
+  await p.route('**/*', (route) => { const u = route.request().url(); if (u.includes('htm@3.1.1') || u.includes('htm-preact')) return route.fulfill({ status: 200, contentType: 'application/javascript', body: LIB }); if (u.startsWith('file:')) return route.continue(); return route.abort(); });
+  try {
+    await p.goto(pathToFileURL(resolve(root, file)).href);
+    await p.waitForFunction(() => window.PM && PM.getState && PM.getState().mode === 'db', null, { timeout: 15000 });
+    await p.evaluate(() => { window.__toasts = []; const t = PM.toast; PM.toast = (m, o) => { window.__toasts.push(String(m)); return t(m, o); }; });
+    const pid = await p.evaluate(async () => {
+      const id = await PM.projectOps.create({ name: 'Registro de costos grande', code: 'PRY-CAP', start: '2026-01-05', statusDate: '2026-10-02', currency: 'COP' });
+      const tasks = []; for (let i = 0; i < 300; i++) tasks.push({ id: PM.uid('t'), name: 'Actividad ' + i, wbsId: null, duration: 10 + (i % 20), deps: [], start: PM.date.add('2026-01-05', Math.floor(i * 0.9)), cost: 1000000 + i * 1000, progress: 0 });
+      const schedule = { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks };
+      const sched = PM.calc.computeSchedule(schedule, '2026-01-05');
+      /* 31 cortes semanales guardados a la manera anterior: el % de todas las actividades en cada corte */
+      const cuts = []; let d = '2026-01-09';
+      for (let k = 0; k < 31; k++) { const progress = {}; for (const t of sched.tasks) progress[t.id] = Math.round(PM.calc.plannedFraction(sched.cal, t.startDate, t.finishDate, false, d) * 1000) / 10; cuts.push({ id: PM.uid('su'), date: d, progress, note: '' }); d = PM.date.add(d, 7); }
+      for (const t of tasks) t.progress = Math.min(100, cuts[30].progress[t.id] + 5);
+      const actuals = []; for (let i = 0; i < 500; i++) actuals.push({ id: PM.uid('ac'), date: PM.date.add('2026-01-05', Math.floor(i / 2)), amount: 250000 + i, taskId: tasks[i % 300].id, wbsId: null, category: 'Mano de obra', description: 'Nómina de la cuadrilla de montaje, semana ' + i + ' (soporte)', document: 'NOM-' + String(i).padStart(5, '0') });
+      let costs = { actuals, statusUpdates: cuts, reserves: { contingency: 0, management: 0 } };
+      const size = (o) => new TextEncoder().encode(JSON.stringify(o)).length;
+      while (size(costs) > 251.5 * 1024) costs = { ...costs, actuals: costs.actuals.slice(0, -1) };
+      await PM.store.set(PM.paths.tool(id, 'schedule'), schedule);
+      await PM.store.set(PM.paths.tool(id, 'costs'), costs);
+      PM.selectProject(id, 'valor-ganado');
+      return id;
+    });
+    const info = (pid) => p.evaluate((pid) => {
+      const c = window.__mock.store.get('projects/' + pid + '/tools/costs'); const s = window.__mock.store.get('projects/' + pid + '/tools/schedule');
+      const sched = PM.calc.computeSchedule(s, '2026-01-05');
+      const e = PM.calc.evm({ sched, costBaseline: null, costs: c, statusDate: '2026-10-02' });
+      return { bytes: new TextEncoder().encode(JSON.stringify(c)).length, cuts: c.statusUpdates.length, actuals: c.actuals.length, evPts: e.evPoints.map((x) => [x.date, Math.round(x.ev)]), keys: c.statusUpdates.reduce((n, u) => n + Object.keys(u.progress || {}).length, 0) };
+    }, pid);
+    const tabCount = async (label) => norm(await p.locator(`[data-view="valor-ganado"] .tab:has-text("${label}")`).innerText()).replace(label, '').trim();
+    const before = await info(pid);
+    await p.waitForSelector('[data-view="valor-ganado"] .tab');
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Avance")');
+    await p.waitForSelector('#evm-cut-date');
+    await p.click('button:has-text("Registrar corte de avance")');
+    await p.waitForTimeout(1800);
+    let after = await info(pid);
+    let toasts = await p.evaluate(() => window.__toasts);
+    check('costos grandes: el corte nuevo se guarda (antes se perdía con el documento a 251 KiB)', after.cuts === 32 && (await tabCount('Avance')) === '32' && !toasts.some((t) => /No se pudo guardar|No se guardó/.test(t)), { before: before.cuts, after: after.cuts, toasts });
+    check('costos grandes: los cortes se guardan compactos (solo los cambios)', after.bytes < before.bytes * 0.75 && after.keys < before.keys / 2, { antes: Math.round(before.bytes / 1024) + ' KiB', despues: Math.round(after.bytes / 1024) + ' KiB', claves: [before.keys, after.keys] });
+    check('costos grandes: el EV de cada corte anterior no cambia al compactar', JSON.stringify(after.evPts.slice(0, before.evPts.length - 1)) === JSON.stringify(before.evPts.slice(0, -1)), [before.evPts.length, after.evPts.length]);
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Costos reales")');
+    await p.waitForTimeout(300);
+    await p.click('[data-role="actuals"] .card-head button:has-text("Agregar costo real")');
+    await p.waitForTimeout(1800);
+    after = await info(pid);
+    check('costos grandes: el costo real nuevo se guarda', after.actuals === before.actuals + 1 && (await tabCount('Costos reales')) === String(before.actuals + 1), [before.actuals, after.actuals]);
+    check('costos grandes: sin aviso de capacidad mientras sobra espacio', (await p.locator('[data-role="costs-capacity"]').count()) === 0);
+
+    /* cerca del límite: aviso; en el límite: la escritura no se aplica (sin filas fantasma) y se explica por qué */
+    const fill = (target) => p.evaluate(async ({ pid, target }) => {
+      const path = PM.paths.tool(pid, 'costs'); const c = await PM.store.get(path);
+      const size = (o) => new TextEncoder().encode(JSON.stringify(o)).length;
+      const actuals = [...c.actuals]; let i = 0;
+      while (size({ ...c, actuals }) < target - 400) actuals.push({ id: 'fill' + i, date: '2026-09-' + String(1 + (i % 28)).padStart(2, '0'), amount: 1000, taskId: null, wbsId: null, category: 'Otros', description: 'Registro de relleno ' + i++, document: 'R-' + i });
+      await PM.store.set(path, { ...c, actuals });
+      return actuals.length;
+    }, { pid, target });
+    await fill(220 * 1024);
+    await p.waitForTimeout(500);
+    const warn = await p.locator('[data-role="costs-capacity"]');
+    check('costos grandes: aviso al pasar de 200 KiB', (await warn.count()) === 1 && (await warn.getAttribute('data-tone')) === 'warn' && norm(await warn.innerText()).includes('de 256 KiB') && norm(await warn.innerText()).includes('cortes de avance. Exporta'), (await warn.count()) ? norm(await warn.innerText()) : null);
+    const nFull = await fill(255.4 * 1024);
+    await p.waitForTimeout(500);
+    const rowsBefore = await tabCount('Costos reales');
+    await p.evaluate(() => { window.__toasts = []; });
+    await p.click('[data-role="actuals"] .card-head button:has-text("Agregar costo real")');
+    await p.waitForTimeout(1500);
+    after = await info(pid);
+    toasts = await p.evaluate(() => window.__toasts);
+    check('costos grandes: en el límite, «Agregar costo real» no deja una fila sin guardar', after.actuals === nFull && (await tabCount('Costos reales')) === rowsBefore, { stored: after.actuals, nFull, tab: await tabCount('Costos reales'), rowsBefore });
+    check('costos grandes: en el límite, aviso claro (sin el error genérico de la plataforma)', toasts.length === 1 && toasts[0].includes('No se guardó el cambio') && toasts[0].includes('256 KiB'), toasts);
+    check('costos grandes: aviso de registro lleno', (await p.getAttribute('[data-role="costs-capacity"]', 'data-tone')) === 'crit');
+    await p.click('[data-view="valor-ganado"] .tab:has-text("Avance")');
+    await p.waitForSelector('#evm-cut-date');
+    await p.fill('#evm-cut-note', 'Corte que no cabe');
+    await p.evaluate(() => { window.__toasts = []; });
+    await p.click('button:has-text("Registrar corte de avance")');
+    await p.waitForSelector('.modal');
+    await p.click('.modal button:has-text("Reemplazar corte")');
+    await p.waitForTimeout(1500);
+    toasts = await p.evaluate(() => window.__toasts);
+    const cutsNow = await info(pid);
+    check('costos grandes: en el límite, el corte no se registra ni se anuncia como registrado', !toasts.some((t) => t.startsWith('Corte de avance registrado')) && toasts.some((t) => t.includes('No se guardó el cambio')) && (await p.inputValue('#evm-cut-note')) === 'Corte que no cabe' && cutsNow.cuts === 32, { toasts, cuts: cutsNow.cuts });
+    check('costos grandes: sin errores', errs.length === 0 && (await errorCards(p)).length === 0 && !(await p.evaluate(() => window.__mock.errors)).length, errs.slice(0, 3));
+  } catch (e) {
+    check('costos grandes: excepción', false, String(e && e.stack || e).slice(0, 800));
+  }
+  await browser.close();
 }
 
 /* ---------- 400 px y tema oscuro */

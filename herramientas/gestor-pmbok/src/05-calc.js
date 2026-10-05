@@ -9,11 +9,14 @@
   const D = PM.date;
   const num = PM.num;
   const calc = (PM.calc = {});
+  /* Datos importados o editados a mano pueden traer un objeto donde va un arreglo: nunca iterar sin comprobar. */
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 
   /* ---------------------------------------------------------------- EDT */
   /* nodes: [{id, parentId|null, name, order, ...}]. Raíz implícita = el proyecto (código "1"). */
   calc.wbsTree = function (nodes) {
-    const list = (nodes || []).filter((n) => n && n.id);
+    const list = arr(nodes).filter((n) => isObj(n) && n.id);
     const byId = new Map(list.map((n) => [n.id, n]));
     const keyOf = (pid) => (pid && byId.has(pid) ? pid : 'root');
     const effParent = new Map(list.map((n) => [n.id, keyOf(n.parentId)]));
@@ -64,17 +67,17 @@
      schedule = { settings:{workweek, holidaysCO, extraHolidays}, tasks:[{id,name,wbsId,duration,milestone,start,deps:[{id,type,lag}],progress,cost,resources,actualStart,actualFinish,...}] }
      Tiempo en "puntos" de días hábiles: la actividad ocupa [es, ef); ef = es + duración.
      Hito: duración 0; su fecha es el cierre del día hábil anterior a es (o el primer día si es = 0). */
-  calc.computeSchedule = function (schedule, projectStart) {
-    const settings = (schedule && schedule.settings) || {};
-    const raw = ((schedule && schedule.tasks) || []).filter((t) => t && t.id);
+  calc.computeSchedule = function (schedule, projectStart, statusDate) {
+    const settings = schedule && isObj(schedule.settings) ? schedule.settings : {};
+    const raw = arr(schedule && schedule.tasks).filter((t) => isObj(t) && t.id);
     const anchor = D.valid(projectStart) ? projectStart : D.min(...raw.map((t) => t.start).filter(D.valid)) || D.today();
     const cal = PM.cal.make(settings, anchor);
     const byIdRaw = new Map(raw.map((t) => [t.id, t]));
     const preds = new Map(), succs = new Map(), errors = [];
     for (const t of raw) { preds.set(t.id, []); succs.set(t.id, []); }
     for (const t of raw) {
-      for (const dep of t.deps || []) {
-        if (!dep || !byIdRaw.has(dep.id) || dep.id === t.id) continue;
+      for (const dep of isObj(t.deps) ? [t.deps] : arr(t.deps)) {
+        if (!isObj(dep) || !byIdRaw.has(dep.id) || dep.id === t.id) continue;
         if (preds.get(t.id).some((p) => p.id === dep.id)) continue;
         const type = ['FS', 'SS', 'FF', 'SF'].includes(dep.type) ? dep.type : 'FS';
         const lag = Math.round(num(dep.lag));
@@ -89,6 +92,10 @@
     const cyclic = raw.filter((t) => !done.has(t.id)).map((t) => t.id);
     if (cyclic.length) { errors.push({ type: 'cycle', ids: cyclic, message: 'Hay dependencias circulares entre ' + cyclic.length + ' actividades; se ignoraron esos vínculos.' }); order.push(...cyclic); }
     const cycSet = new Set(cyclic);
+    /* Actualización a la fecha de corte (6.6 Controlar el cronograma): el trabajo pendiente no puede quedar en el
+       pasado. Una actividad no iniciada empieza, como pronto, el día hábil siguiente al corte; una iniciada y sin
+       terminar programa su duración restante desde ese día; un hito no alcanzado queda después del corte. */
+    const sIdx = D.valid(statusDate) ? cal.indexOf(D.add(statusDate, 1)) : null;
     const R = new Map();
     for (const id of order) {
       const t = byIdRaw.get(id);
@@ -108,7 +115,19 @@
       if (D.valid(t.actualStart)) { es = cal.indexOf(t.actualStart) + (ms ? 1 : 0); actual = true; }
       let ef = es + d;
       if (D.valid(t.actualFinish) && num(t.progress) >= 100) { const f = cal.indexOf(t.actualFinish) + 1; if (ms) { es = f; ef = f; } else { ef = Math.max(es + 1, f); d = ef - es; } actual = true; }
-      R.set(id, { es, ef, d, ms, actual });
+      let updated = false, remaining = null;
+      const prog = PM.clamp(num(t.progress), 0, 100);
+      if (sIdx !== null && prog < 100) {
+        if (ms) {
+          if (!D.valid(t.actualStart) && !D.valid(t.actualFinish) && es < sIdx + 1) { es = sIdx + 1; ef = es; updated = true; }
+        } else if (prog <= 0 && !D.valid(t.actualStart)) {
+          if (es < sIdx) { es = sIdx; ef = es + d; updated = true; }
+        } else {
+          remaining = Math.max(1, Math.round(d * (1 - prog / 100)));
+          if (ef < sIdx + remaining) { ef = sIdx + remaining; updated = true; }
+        }
+      }
+      R.set(id, { es, ef, d, span: ef - es, ms, actual, updated, remaining });
     }
     let minES = Infinity, maxEF = -Infinity;
     for (const r of R.values()) { minES = Math.min(minES, r.es); maxEF = Math.max(maxEF, r.ef); }
@@ -120,11 +139,11 @@
         if (cycSet.has(id) && cycSet.has(s.id)) continue;
         const q = R.get(s.id); if (!q || q.ls === undefined) continue;
         if (s.type === 'FS') lf = Math.min(lf, q.ls - s.lag);
-        else if (s.type === 'SS') lf = Math.min(lf, q.ls - s.lag + r.d);
+        else if (s.type === 'SS') lf = Math.min(lf, q.ls - s.lag + r.span);
         else if (s.type === 'FF') lf = Math.min(lf, q.lf - s.lag);
-        else lf = Math.min(lf, q.lf - s.lag + r.d);
+        else lf = Math.min(lf, q.lf - s.lag + r.span);
       }
-      r.lf = lf; r.ls = lf - r.d; r.tf = r.ls - r.es;
+      r.lf = lf; r.ls = lf - r.span; r.tf = r.ls - r.es;
       let ff = Infinity, hasSucc = false;
       for (const s of succs.get(id)) {
         const q = R.get(s.id); if (!q) continue; hasSucc = true;
@@ -143,19 +162,19 @@
       const lateStart = r.ms ? msDate(r.ls) : cal.dateOf(r.ls);
       const lateFinish = r.ms ? lateStart : cal.dateOf(r.lf - 1);
       const progress = PM.clamp(num(t.progress), 0, 100);
-      return { ...t, milestone: r.ms, duration: r.d, es: r.es, ef: r.ef, ls: r.ls, lf: r.lf, tf: r.tf, ff: r.ff, critical: r.tf <= 0 && progress < 100, actual: r.actual, startDate, finishDate, lateStart, lateFinish, progress, preds: preds.get(t.id), succs: succs.get(t.id) };
+      return { ...t, milestone: r.ms, duration: r.d, es: r.es, ef: r.ef, ls: r.ls, lf: r.lf, tf: r.tf, ff: r.ff, critical: r.tf <= 0 && progress < 100, actual: r.actual, startDate, finishDate, lateStart, lateFinish, progress, preds: arr(preds.get(t.id)), succs: arr(succs.get(t.id)), rescheduled: r.updated, remaining: r.remaining };
     });
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const start = tasks.length ? D.min(...tasks.map((t) => t.startDate)) : cal.anchor;
     const finish = tasks.length ? D.max(...tasks.map((t) => t.finishDate)) : cal.anchor;
-    return { cal, tasks, byId, order, start, finish, startIdx: minES, finishIdx: maxEF, workdays: Math.max(0, maxEF - minES), criticalIds: new Set(tasks.filter((t) => t.critical).map((t) => t.id)), errors, settings: cal.settings };
+    return { cal, tasks, byId, order, start, finish, startIdx: minES, finishIdx: maxEF, workdays: Math.max(0, maxEF - minES), criticalIds: new Set(tasks.filter((t) => t.critical).map((t) => t.id)), errors, settings: cal.settings, statusDate: sIdx !== null ? statusDate : null, rescheduledIds: new Set(tasks.filter((t) => t.rescheduled).map((t) => t.id)) };
   };
 
   /* Consolidado por nodo de la EDT: fechas, costo y avance (ponderado por costo; si no hay costo, por duración). */
   calc.rollupWbs = function (tree, sched) {
     const out = new Map();
     const direct = new Map();
-    for (const t of (sched && sched.tasks) || []) { if (!t.wbsId) continue; if (!direct.has(t.wbsId)) direct.set(t.wbsId, []); direct.get(t.wbsId).push(t); }
+    for (const t of arr(sched && sched.tasks)) { if (!t || !t.wbsId) continue; if (!direct.has(t.wbsId)) direct.set(t.wbsId, []); direct.get(t.wbsId).push(t); }
     const visiting = new Set();
     const agg = (id) => {
       if (out.has(id)) return out.get(id);
@@ -177,8 +196,8 @@
   /* ---------------------------------------------------------------- líneas base
      docs = [{id, data}] de projects/{pid}/baselines. data: {number, label, date, includes:['scope','schedule','cost'], note, changeRef, byId, scope, schedule, cost} */
   calc.activeBaselines = function (docs) {
-    const list = (docs || []).filter((d) => d && d.data).map((d) => ({ id: d.id, ...d.data })).sort((a, b) => num(b.number) - num(a.number) || String(b.date).localeCompare(String(a.date)));
-    const pick = (k) => list.find((b) => (b.includes || []).includes(k)) || null;
+    const list = arr(docs).filter((d) => d && isObj(d.data)).map((d) => ({ id: d.id, ...d.data })).sort((a, b) => num(b.number) - num(a.number) || String(b.date).localeCompare(String(a.date)));
+    const pick = (k) => list.find((b) => arr(b.includes).includes(k)) || null;
     return { list, scope: pick('scope'), schedule: pick('schedule'), cost: pick('cost'), latest: list[0] || null };
   };
   calc.nextBaselineNumber = (docs) => (docs || []).reduce((m, d) => Math.max(m, num(d.data && d.data.number, -1)), -1) + 1;
@@ -204,7 +223,7 @@
     const at = D.valid(statusDate) ? statusDate : D.today();
     const fromBaseline = !!(costBaseline && costBaseline.cost && Array.isArray(costBaseline.cost.tasks));
     const plan = fromBaseline
-      ? costBaseline.cost.tasks.map((b) => ({ id: b.id, name: b.name, start: b.start, finish: b.finish, milestone: !!b.milestone, cost: num(b.cost) }))
+      ? costBaseline.cost.tasks.filter(isObj).map((b) => ({ id: b.id, name: b.name, start: b.start, finish: b.finish, milestone: !!b.milestone, cost: num(b.cost) }))
       : sched.tasks.map((t) => ({ id: t.id, name: t.name, start: t.startDate, finish: t.finishDate, milestone: t.milestone, cost: num(t.cost) }));
     const budget = new Map(plan.map((p) => [p.id, p.cost]));
     const bac = PM.sum(plan, (p) => p.cost);
@@ -227,16 +246,16 @@
     const planStart = plan.length ? D.min(...plan.map((p) => p.start)) : sched.start;
     const planFinish = plan.length ? D.max(...plan.map((p) => p.finish)) : sched.finish;
     /* historial de avance */
-    const updates = ((costs && costs.statusUpdates) || []).filter((u) => u && D.valid(u.date) && u.date <= at).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const updates = arr(costs && costs.statusUpdates).filter((u) => isObj(u) && D.valid(u.date) && u.date <= at).sort((a, b) => (a.date < b.date ? -1 : 1));
     let carry = {}; const evPts = [];
     if (D.valid(planStart)) evPts.push({ date: D.add(planStart, -1), ev: 0 });
-    for (const u of updates) { carry = { ...carry, ...(u.progress || {}) }; evPts.push({ date: u.date, ev: evFrom(carry) }); }
+    for (const u of updates) { carry = { ...carry, ...(isObj(u.progress) ? u.progress : {}) }; evPts.push({ date: u.date, ev: evFrom(carry) }); }
     const ev = evFrom(curProg);
     while (evPts.length && evPts[evPts.length - 1].date >= at) evPts.pop();
     evPts.push({ date: at, ev });
     const evAt = (date) => { if (date >= at) return ev; let prev = evPts[0]; if (!prev || date <= prev.date) return 0; for (const p of evPts) { if (p.date === date) return p.ev; if (p.date > date) { const span = D.diff(prev.date, p.date) || 1; return prev.ev + (p.ev - prev.ev) * (D.diff(prev.date, date) / span); } prev = p; } return prev.ev; };
     /* costos reales */
-    const actuals = ((costs && costs.actuals) || []).filter((a) => a && D.valid(a.date)).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const actuals = arr(costs && costs.actuals).filter((a) => isObj(a) && D.valid(a.date)).sort((a, b) => (a.date < b.date ? -1 : 1));
     const acAt = (date) => PM.sum(actuals.filter((a) => a.date <= date), (a) => num(a.amount));
     const ac = acAt(at);
     const pv = pvAt(at);

@@ -18,6 +18,8 @@
 .matrices-note.is-crit .icon { color: var(--crit); }
 .matrices-note.is-good { border-color: var(--good); background: var(--good-wash); color: var(--fg); }
 .matrices-note.is-good .icon { color: var(--good); }
+.matrices-note.is-warn { border-color: var(--warn); background: var(--warn-wash); color: var(--fg); }
+.matrices-note.is-warn .icon { color: var(--warn); }
 .matrices-legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 18px; }
 @media (max-width: 1100px) { .matrices-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .matrices-legend { grid-template-columns: minmax(0, 1fr); } }
@@ -313,6 +315,62 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 
   const Note = ({ tone, icon = 'info', children }) => html`<div class=${cx('matrices-note', tone && 'is-' + tone)}><${ui.Icon} name=${icon} size=${16} /><div style="min-width:0;flex:1">${children}</div></div>`;
 
+  /* ---------------------------------------------------------------- registros emitidos (control de revisiones)
+     Igual que en el editor de documentos (20-docs), un registro aprobado u obsoleto está bloqueado: solo se edita en
+     borrador o en revisión. Las matrices que escriben en un registro (riesgos, interesados) quedan en modo de consulta
+     y ofrecen crear la nueva revisión, que reabre el registro como borrador sin tocar la revisión emitida. */
+  const EDITABLE_STATUS = ['borrador', 'revision'];
+  const docStatus = (doc) => (doc && doc.status) || 'borrador';
+  const useRegisterLock = (templateId, meta) => {
+    const canWrite = PM.useCanWrite();
+    const { project } = PM.useCurrentProject();
+    const pid = project ? project.id : null;
+    const r = PM.useDoc(pid ? PM.paths.doc(pid, templateId) : null);
+    const ref = useRef(null);
+    const doc = meta.exists && meta.doc ? meta.doc : null;
+    const status = docStatus(doc);
+    const locked = !!doc && !EDITABLE_STATUS.includes(status);
+    const rev = doc && doc.rev ? String(doc.rev) : null;
+    const nextDraft = PM.calc.nextDraftRev(rev);
+    ref.current = { r, locked, pid };
+    const newRevision = async () => {
+      const t = PM.templates[templateId];
+      const name = t ? t.name.charAt(0).toLowerCase() + t.name.slice(1) : 'registro';
+      const ok = await PM.confirm({
+        title: 'Crear nueva revisión (' + nextDraft + ')',
+        body: html`<div class="stack-sm"><p>El ${name} se desbloqueará como borrador ${nextDraft} a partir del contenido de la revisión ${rev || 'vigente'}. La revisión ${status === 'obsoleto' ? 'obsoleta' : 'aprobada'} queda guardada en el historial.</p><p class="small muted">Cuando termines los cambios, emite la revisión desde el registro.</p></div>`,
+        confirmText: 'Crear revisión ' + nextDraft,
+      });
+      if (!ok) return;
+      const cur = ref.current;
+      const data = cur.r.exists ? cur.r.data : null;
+      if (!data || EDITABLE_STATUS.includes(docStatus(data))) return;
+      const next = PM.calc.nextDraftRev(data.rev ? String(data.rev) : null);
+      const base = PM.clone(data);
+      base.status = 'borrador'; base.rev = next;
+      base.titleBlock = { codigo: '', elaboro: '', reviso: '', aprobo: '', ...(base.titleBlock || {}), fechaAprobacion: null };
+      base.updatedAt = PM.nowIso(); base.updatedBy = PM.getState().meId || null;
+      PM.touchProject(cur.pid);
+      await cur.r.saveNow(base);
+      PM.toast('Revisión ' + next + ' del ' + name + ' abierta como borrador.');
+    };
+    return { canWrite, locked, editable: canWrite && !locked, status, rev, nextDraft, newRevision, isLocked: () => ref.current.locked };
+  };
+  const LOCKED_SAVE_MSG = (register) => 'No se guardó: el ' + register + ' quedó bloqueado (aprobado u obsoleto) mientras llenabas el formulario. Crea una nueva revisión del registro y vuelve a intentarlo.';
+  /* Aviso de registro bloqueado con la acción para crear la nueva revisión (el registro se abre desde el encabezado). */
+  const RegisterLockNote = ({ lock, register, what }) => {
+    if (!lock.locked || !lock.canWrite) return null;
+    const obs = lock.status === 'obsoleto';
+    const state = lock.status === 'aprobado' ? 'está aprobado' : obs ? 'está marcado como obsoleto' : 'está bloqueado';
+    return html`<div class=${cx('matrices-note', lock.status === 'aprobado' ? 'is-good' : 'is-warn')} role="status" data-mx-lock=${lock.status}>
+      <${ui.Icon} name="lock" size=${16} />
+      <div class="stack-sm" style="min-width:0;flex:1">
+        <span>El ${register} ${state}${lock.rev ? ' (revisión ' + lock.rev + ')' : ''}, así que esta vista se muestra en modo de consulta. ${obs ? 'Para reactivarlo y ' + what + ', crea una nueva revisión.' : 'Para ' + what + ', crea una nueva revisión del registro; emítela desde el registro cuando termines.'}</span>
+        <div class="row"><${ui.Button} size="sm" variant="primary" icon="edit" onClick=${lock.newRevision}>Crear nueva revisión (${lock.nextDraft})</${ui.Button}></div>
+      </div>
+    </div>`;
+  };
+
   /* ---------------------------------------------------------------- popover anclado (teclado + clic fuera) */
   function Popover({ anchor, onClose, label, children, class: cls }) {
     const ref = useRef();
@@ -592,7 +650,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     }), [roles, rows]);
     const bad = rows.map((r, i) => ({ r, c: checks[i] })).filter((x) => roles.length && x.c.issues.length);
 
-    const header = html`<${ui.PageHeader} eyebrow="9.1 Planificar la gestión de los recursos · Matriz de asignación de responsabilidades" title="Matriz RACI"
+    const header = html`<${ui.PageHeader} eyebrow="9.1 Planificar la gestión de recursos · Matriz de asignación de responsabilidades" title="Matriz RACI"
       description="Define quién ejecuta (R), quién rinde cuentas (A), a quién se consulta (C) y a quién se informa (I) en cada actividad o entregable. Cada fila debe tener exactamente un A y al menos un R."
       actions=${rows.length && roles.length ? html`<${ui.Button} icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}>` : null} />`;
     if (meta.loading) return html`<div class="page">${header}<${ui.Loading} rows=${5} /></div>`;
@@ -744,7 +802,8 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   const THREAT_STRATS = ['Escalar', 'Evitar', 'Transferir', 'Mitigar', 'Aceptar'];
   const OPP_STRATS = ['Escalar', 'Explotar', 'Compartir', 'Mejorar', 'Aceptar'];
   const P_LABELS = { 1: 'Muy baja', 2: 'Baja', 3: 'Media', 4: 'Alta', 5: 'Muy alta' };
-  const I_LABELS = { 1: 'Muy bajo', 2: 'Bajo', 3: 'Moderado', 4: 'Alto', 5: 'Muy alto' };
+  /* Mismas etiquetas que las escalas del plan de gestión de los riesgos (13-templates-b). */
+  const I_LABELS = { 1: 'Muy bajo', 2: 'Bajo', 3: 'Medio', 4: 'Alto', 5: 'Muy alto' };
   const LEVELS_INFO = [
     { id: 'muy-alto', label: 'Muy alto', tone: 'crit', range: '20–25' },
     { id: 'alto', label: 'Alto', tone: 'signal', range: '10–19' },
@@ -810,7 +869,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const strategies = opts.estrategia.filter((s) => pool.includes(s)).length ? opts.estrategia.filter((s) => pool.includes(s)) : opts.estrategia;
     const score = PM.calc.riskScore(f.probabilidad, f.impacto);
     const err = !f.descripcion.trim() ? 'Describe el riesgo para poder registrarlo.' : null;
-    const submit = (e) => { if (e) e.preventDefault(); setTouched(true); if (err) return; onSave({ id: nextId, descripcion: f.descripcion.trim(), causa: f.causa.trim(), efecto: f.efecto.trim(), categoria: f.categoria, tipo: f.tipo, probabilidad: f.probabilidad, impacto: f.impacto, propietario: f.propietario.trim(), estrategia: f.estrategia, respuesta: f.respuesta.trim(), disparador: '', reserva: opp ? null : f.reserva, estado: f.estado }); close(); };
+    const submit = (e) => { if (e) e.preventDefault(); setTouched(true); if (err) return; if (onSave({ id: nextId, descripcion: f.descripcion.trim(), causa: f.causa.trim(), efecto: f.efecto.trim(), categoria: f.categoria, tipo: f.tipo, probabilidad: f.probabilidad, impacto: f.impacto, propietario: f.propietario.trim(), estrategia: f.estrategia, respuesta: f.respuesta.trim(), disparador: '', reserva: opp ? null : f.reserva, estado: f.estado }) === false) return; close(); };
     const scaleOpts = (labels) => [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + ' · ' + labels[n] }));
     return html`<${ui.Modal} title="Agregar riesgo" subtitle=${'Se registrará como ' + nextId + ' en el registro de riesgos.'} size="wide" onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="plus" onClick=${submit}>Agregar riesgo</${ui.Button}>`}>
@@ -825,7 +884,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         <${ui.Field} label="Efecto" for="mx-r-efecto"><${ui.Input} id="mx-r-efecto" value=${f.efecto} onValue=${set('efecto')} /></${ui.Field}>
         <${ui.Field} label="Propietario del riesgo" for="mx-r-prop"><${ui.Input} id="mx-r-prop" value=${f.propietario} onValue=${set('propietario')} placeholder="Rol responsable" /></${ui.Field}>
         <${ui.Field} label="Estrategia de respuesta" for="mx-r-estr"><${ui.Select} id="mx-r-estr" value=${f.estrategia} onValue=${set('estrategia')} placeholder="Sin definir" options=${strategies} /></${ui.Field}>
-        <${ui.Field} label="Respuesta planificada" for="mx-r-resp" class="span-all"><${ui.TextArea} id="mx-r-resp" value=${f.respuesta} onValue=${set('respuesta')} rows=${2} /></${ui.Field}>
+        <${ui.Field} label="Respuesta acordada" for="mx-r-resp" class="span-all"><${ui.TextArea} id="mx-r-resp" value=${f.respuesta} onValue=${set('respuesta')} rows=${2} /></${ui.Field}>
         ${opp ? null : html`<${ui.Field} label="Reserva para contingencias asignada" for="mx-r-res" hint="Monto que se reserva para responder si la amenaza ocurre."><${ui.NumberInput} id="mx-r-res" money currency=${currency} min=${0} value=${f.reserva} onValue=${set('reserva')} /></${ui.Field}>`}
         <${ui.Field} label="Estado" for="mx-r-est"><${ui.Select} id="mx-r-est" value=${f.estado} onValue=${set('estado')} options=${opts.estado} /></${ui.Field}>
         <button type="submit" hidden></button>
@@ -836,6 +895,8 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   function RiskMatrixView({ project }) {
     const canWrite = PM.useCanWrite();
     const [rows, saveRows, meta] = PM.useDocTable('registro-riesgos', 'riesgos');
+    const lock = useRegisterLock('registro-riesgos', meta);
+    const editable = canWrite && !lock.locked;
     const model = PM.useProjectModel();
     const latestRows = useRef(null);
     latestRows.current = { rows, saveRows };
@@ -852,7 +913,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const items = useMemo(() => rows.map((r, idx) => { const p = scale15(r.probabilidad), i = scale15(r.impacto); const score = p && i ? p * i : 0; return { r, idx, p, i, score, level: PM.calc.riskLevel(score), opp: isOpp(r), code: riskCode(r, idx) }; }), [rows]);
     const evaluated = items.filter((x) => x.score > 0);
     const unevaluated = items.filter((x) => !x.score);
-    const patchRow = (idx, patch) => { const cur = latestRows.current; const next = cur.rows.map((r, j) => (j === idx ? { ...r, ...patch } : r)); cur.rows = next; cur.saveRows(next); };
+    const patchRow = (idx, patch) => { if (lock.isLocked()) return; const cur = latestRows.current; const next = cur.rows.map((r, j) => (j === idx ? { ...r, ...patch } : r)); cur.rows = next; cur.saveRows(next); };
     const listed = useMemo(() => {
       let l = evaluated;
       if (filter) l = l.filter((x) => x.opp === filter.opp && x.p === filter.p && x.i === filter.i);
@@ -861,13 +922,14 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       return [...l].sort((a, b) => b.score - a.score || (b.i || 0) - (a.i || 0) || a.code.localeCompare(b.code, 'es', { numeric: true }));
     }, [evaluated, filter, mode]);
 
-    const openAdd = () => PM.openModal((close) => html`<${RiskFormModal} close=${close} nextId=${nextRiskId(rows)} opts=${opts} currency=${currency} onSave=${(row) => { const cur = latestRows.current; cur.saveRows([...cur.rows, row]); PM.toast('Riesgo ' + row.id + ' agregado al registro.'); }} />`);
+    const openAdd = () => PM.openModal((close) => html`<${RiskFormModal} close=${close} nextId=${nextRiskId(rows)} opts=${opts} currency=${currency} onSave=${(row) => { if (lock.isLocked()) { PM.toast(LOCKED_SAVE_MSG('registro de riesgos'), { tone: 'crit' }); return false; } const cur = latestRows.current; cur.saveRows([...cur.rows, row]); PM.toast('Riesgo ' + row.id + ' agregado al registro.'); }} />`);
     const header = html`<${ui.PageHeader} eyebrow="11.3 Realizar el análisis cualitativo de riesgos" title="Matriz de probabilidad e impacto"
       description="Prioriza los riesgos del registro según su probabilidad y su impacto (escala 1–5). La puntuación es P × I. Selecciona una celda para ver sus riesgos."
-      actions=${html`<${ui.Button} icon="file" onClick=${() => openRegister('registro-riesgos')}>Abrir registro completo</${ui.Button}>${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar riesgo</${ui.Button}>` : null}`} />`;
+      actions=${html`<${ui.Button} icon="file" onClick=${() => openRegister('registro-riesgos')}>Abrir registro completo</${ui.Button}>${editable ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar riesgo</${ui.Button}>` : null}`} />`;
+    const lockNote = html`<${RegisterLockNote} lock=${lock} register="registro de riesgos" what="cambiar la probabilidad, el impacto o el estado de los riesgos, o agregar riesgos" />`;
     if (meta.loading) return html`<div class="page">${header}<${ui.Loading} rows=${6} /></div>`;
     if (!rows.length) {
-      return html`<div class="page">${header}<${ui.Empty} icon="risk" title="Aún no hay riesgos registrados" actions=${html`${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar riesgo</${ui.Button}>` : null}<${ui.Button} icon="file" onClick=${() => openRegister('registro-riesgos')}>Abrir registro de riesgos</${ui.Button}>`}>
+      return html`<div class="page">${header}${lockNote}<${ui.Empty} icon="risk" title="Aún no hay riesgos registrados" actions=${html`${editable ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar riesgo</${ui.Button}>` : null}<${ui.Button} icon="file" onClick=${() => openRegister('registro-riesgos')}>Abrir registro de riesgos</${ui.Button}>`}>
         Cuando registres riesgos con su probabilidad e impacto, aparecerán aquí ubicados en la matriz de amenazas o de oportunidades, ordenados por prioridad.
       </${ui.Empty}></div>`;
     }
@@ -889,16 +951,16 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       <td class="mono nowrap">${x.code}</td>
       <td class="matrices-desc"><div class="matrices-desc-txt" title=${x.r.descripcion || undefined}>${x.r.descripcion || html`<span class="faint">Sin descripción</span>`}</div><div class=${cx('matrices-kind', x.opp && 'is-opp')}>${x.opp ? 'Oportunidad' : 'Amenaza'}<span class="matrices-kind-cat">${' · ' + (x.r.categoria || 'Sin categoría')}</span></div></td>
       <td class="matrices-cat-col">${x.r.categoria || html`<span class="faint">—</span>`}</td>
-      <td>${canWrite ? html`<${ScaleSelect} value=${x.p} labels=${P_LABELS} label=${'Probabilidad de ' + x.code} onValue=${(v) => patchRow(x.idx, { probabilidad: v })} />` : html`<span class="mono">${x.p || '—'}</span>`}</td>
-      <td>${canWrite ? html`<${ScaleSelect} impact value=${x.i} labels=${I_LABELS} label=${'Impacto de ' + x.code} onValue=${(v) => patchRow(x.idx, { impacto: v })} />` : html`<span class="mono">${x.i || '—'}</span>`}</td>
+      <td>${editable ? html`<${ScaleSelect} value=${x.p} labels=${P_LABELS} label=${'Probabilidad de ' + x.code} onValue=${(v) => patchRow(x.idx, { probabilidad: v })} />` : html`<span class="mono">${x.p || '—'}</span>`}</td>
+      <td>${editable ? html`<${ScaleSelect} impact value=${x.i} labels=${I_LABELS} label=${'Impacto de ' + x.code} onValue=${(v) => patchRow(x.idx, { impacto: v })} />` : html`<span class="mono">${x.i || '—'}</span>`}</td>
       <td class="nowrap"><span class="mono" style="display:inline-block;min-width:22px;text-align:right">${x.score || '—'}</span> <${LevelChip} score=${x.score} /></td>
       <td class="nowrap">${x.r.estrategia || html`<span class="faint">—</span>`}</td>
       <td style="min-width:120px">${x.r.propietario || html`<span class="faint">—</span>`}</td>
-      <td>${canWrite ? html`<select class="cell-input matrices-sel-estado" aria-label=${'Estado de ' + x.code} value=${x.r.estado || ''} onChange=${(e) => patchRow(x.idx, { estado: e.currentTarget.value })}><option value="">Sin estado</option>${[...new Set([...opts.estado, ...(x.r.estado ? [x.r.estado] : [])])].map((o) => html`<option key=${o} value=${o}>${o}</option>`)}</select>` : x.r.estado || html`<span class="faint">—</span>`}</td>
+      <td>${editable ? html`<select class="cell-input matrices-sel-estado" aria-label=${'Estado de ' + x.code} value=${x.r.estado || ''} onChange=${(e) => patchRow(x.idx, { estado: e.currentTarget.value })}><option value="">Sin estado</option>${[...new Set([...opts.estado, ...(x.r.estado ? [x.r.estado] : [])])].map((o) => html`<option key=${o} value=${o}>${o}</option>`)}</select>` : x.r.estado || html`<span class="faint">—</span>`}</td>
     </tr>`;
     const tableHead = html`<thead><tr><th>ID</th><th>Riesgo</th><th class="matrices-cat-col">Categoría</th><th>Probabilidad</th><th>Impacto</th><th>Puntuación</th><th>Estrategia</th><th>Propietario</th><th>Estado</th></tr></thead>`;
 
-    return html`<div class="page">${header}
+    return html`<div class="page">${header}${lockNote}
       <div class="row-between">
         <${ui.Segmented} label="Matrices visibles" value=${mode} onChange=${setMode} options=${[{ value: 'both', label: 'Amenazas y oportunidades' }, { value: 'threat', label: 'Amenazas' }, { value: 'opp', label: 'Oportunidades' }]} />
         <div class="legend" aria-label="Niveles de riesgo">${LEVELS_INFO.slice().reverse().map((l) => html`<span key=${l.id} class="legend-item"><span class=${'matrices-level-sw matrices-wash-' + l.tone} style=${'border-color:' + TONE_VAR[l.tone]}></span>${l.label} (${l.range})</span>`)}</div>
@@ -1163,7 +1225,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const [touched, setTouched] = useState(false);
     const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
     const err = !f.nombre.trim() ? 'Escribe el nombre del interesado (persona, cargo u organización).' : null;
-    const submit = (e) => { if (e) e.preventDefault(); setTouched(true); if (err) return; onSave({ id: PM.uid('r'), ...f, nombre: f.nombre.trim(), requisitos: '', expectativas: '' }); close(); };
+    const submit = (e) => { if (e) e.preventDefault(); setTouched(true); if (err) return; if (onSave({ id: PM.uid('r'), ...f, nombre: f.nombre.trim(), requisitos: '', expectativas: '' }) === false) return; close(); };
     const sc = (k) => html`<${ui.Select} id=${'mx-s-' + k} value=${f[k] ? String(f[k]) : ''} onValue=${(v) => set(k)(v ? Number(v) : null)} placeholder="Sin evaluar" options=${[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n + (n === 1 ? ' · Muy bajo' : n === 5 ? ' · Muy alto' : n === 3 ? ' · Medio' : n === 2 ? ' · Bajo' : ' · Alto') }))} />`;
     return html`<${ui.Modal} title="Agregar interesado" subtitle="Se agrega al registro de interesados. Completa los demás datos en el registro." size="wide" onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="plus" onClick=${submit}>Agregar interesado</${ui.Button}>`}>
@@ -1190,6 +1252,8 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   function StakeholderView({ project, params }) {
     const canWrite = PM.useCanWrite();
     const [rows, saveRows, meta] = PM.useDocTable('registro-interesados', 'interesados');
+    const lock = useRegisterLock('registro-interesados', meta);
+    const editable = canWrite && !lock.locked;
     const latest = useRef(null);
     latest.current = { rows, saveRows };
     const [tab, setTabRaw] = useState(() => (params && ['poder', 'involucramiento'].includes(params.tab) ? params.tab : prefTab('matrices.stakeTab', ['poder', 'involucramiento'], 'poder')));
@@ -1197,15 +1261,18 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     useEffect(() => { if (params && ['poder', 'involucramiento'].includes(params.tab)) setTabRaw(params.tab); }, [params && params.tab]);
     const [onlyGaps, setOnlyGaps] = useState(false);
     const pop = usePopover();
+    /* si el registro queda bloqueado (otra pestaña lo aprueba), se cierra el selector de nivel abierto */
+    useEffect(() => { if (lock.locked) pop.close(); }, [lock.locked]);
     const items = useMemo(() => rows.map((r, idx) => ({ r, idx, name: stakeName(r, idx), poder: scale15(r.poder), interes: scale15(r.interes), influencia: scale15(r.influencia), actual: normLevel(r.nivelActual), deseado: normLevel(r.nivelDeseado) })), [rows]);
-    const patchRow = (idx, patch) => { const cur = latest.current; const next = cur.rows.map((r, j) => (j === idx ? { ...r, ...patch } : r)); cur.rows = next; cur.saveRows(next); };
-    const openAdd = () => PM.openModal((close) => html`<${StakeholderFormModal} close=${close} onSave=${(row) => { const cur = latest.current; cur.saveRows([...cur.rows, row]); PM.toast('«' + row.nombre + '» agregado al registro de interesados.'); }} />`);
+    const patchRow = (idx, patch) => { if (lock.isLocked()) return; const cur = latest.current; const next = cur.rows.map((r, j) => (j === idx ? { ...r, ...patch } : r)); cur.rows = next; cur.saveRows(next); };
+    const openAdd = () => PM.openModal((close) => html`<${StakeholderFormModal} close=${close} onSave=${(row) => { if (lock.isLocked()) { PM.toast(LOCKED_SAVE_MSG('registro de interesados'), { tone: 'crit' }); return false; } const cur = latest.current; cur.saveRows([...cur.rows, row]); PM.toast('«' + row.nombre + '» agregado al registro de interesados.'); }} />`);
     const header = html`<${ui.PageHeader} eyebrow="13.1 Identificar a los interesados · 13.2 Planificar el involucramiento de los interesados" title="Matrices de interesados"
       description="Clasifica a los interesados por poder e interés para definir cómo gestionarlos, y compara su nivel de involucramiento actual (C) con el deseado (D)."
-      actions=${html`<${ui.Button} icon="file" onClick=${() => openRegister('registro-interesados')}>Abrir registro completo</${ui.Button}>${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar interesado</${ui.Button}>` : null}`} />`;
+      actions=${html`<${ui.Button} icon="file" onClick=${() => openRegister('registro-interesados')}>Abrir registro completo</${ui.Button}>${editable ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar interesado</${ui.Button}>` : null}`} />`;
+    const lockNote = html`<${RegisterLockNote} lock=${lock} register="registro de interesados" what="cambiar el poder, el interés, la influencia o el involucramiento, o agregar interesados" />`;
     if (meta.loading) return html`<div class="page">${header}<${ui.Loading} rows=${6} /></div>`;
     if (!rows.length) {
-      return html`<div class="page">${header}<${ui.Empty} icon="stakeholders" title="Aún no hay interesados registrados" actions=${html`${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar interesado</${ui.Button}>` : null}<${ui.Button} icon="file" onClick=${() => openRegister('registro-interesados')}>Abrir registro de interesados</${ui.Button}>`}>
+      return html`<div class="page">${header}${lockNote}<${ui.Empty} icon="stakeholders" title="Aún no hay interesados registrados" actions=${html`${editable ? html`<${ui.Button} variant="primary" icon="plus" onClick=${openAdd}>Agregar interesado</${ui.Button}>` : null}<${ui.Button} icon="file" onClick=${() => openRegister('registro-interesados')}>Abrir registro de interesados</${ui.Button}>`}>
         Registra a las personas, cargos u organizaciones que afectan o se ven afectados por el proyecto, con su poder, interés y nivel de involucramiento. Aquí verás la matriz de poder e interés y la matriz de evaluación del involucramiento.
       </${ui.Empty}></div>`;
     }
@@ -1235,11 +1302,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     };
 
     const powerTab = html`<div class="stack-lg">
-      ${plotted.length ? html`<${PowerInterestChart} items=${items} canWrite=${canWrite} onMove=${(idx, patch) => patchRow(idx, patch)} />` : html`<${Note}>Ningún interesado tiene poder e interés evaluados todavía. Asígnalos en la tabla de abajo para ubicarlos en la matriz.</${Note}>`}
+      ${plotted.length ? html`<${PowerInterestChart} items=${items} canWrite=${editable} onMove=${(idx, patch) => patchRow(idx, patch)} />` : html`<${Note}>Ningún interesado tiene poder e interés evaluados todavía. Asígnalos en la tabla de abajo para ubicarlos en la matriz.</${Note}>`}
       ${pending.length ? html`<section class="section"><div class="section-head"><h2 class="h3">Interesados sin evaluar</h2><span class="xsmall faint">Asigna poder e interés (1–5) para ubicarlos en la matriz</span></div>
         <div class="table-wrap"><table class="table" data-stake-pending><thead><tr><th>Interesado</th><th>Cargo / organización</th><th>Poder</th><th>Interés</th><th>Influencia</th></tr></thead><tbody>
           ${pending.map((x) => html`<tr key=${x.idx}><td style="min-width:160px">${x.name}</td><td class="small muted" style="min-width:160px">${[x.r.cargo, x.r.organizacion].filter(Boolean).join(' · ') || '—'}</td>
-            ${['poder', 'interes', 'influencia'].map((k) => html`<td key=${k}>${canWrite ? html`<select class="cell-input matrices-scale" aria-label=${(k === 'interes' ? 'Interés' : k[0].toUpperCase() + k.slice(1)) + ' de ' + x.name} value=${x[k] ? String(x[k]) : ''} onChange=${(e) => patchRow(x.idx, { [k]: e.currentTarget.value ? Number(e.currentTarget.value) : null })}><option value="">Sin evaluar</option>${[1, 2, 3, 4, 5].map((n) => html`<option key=${n} value=${String(n)}>${n}</option>`)}</select>` : html`<span class="mono">${x[k] || '—'}</span>`}</td>`)}
+            ${['poder', 'interes', 'influencia'].map((k) => html`<td key=${k}>${editable ? html`<select class="cell-input matrices-scale" aria-label=${(k === 'interes' ? 'Interés' : k[0].toUpperCase() + k.slice(1)) + ' de ' + x.name} value=${x[k] ? String(x[k]) : ''} onChange=${(e) => patchRow(x.idx, { [k]: e.currentTarget.value ? Number(e.currentTarget.value) : null })}><option value="">Sin evaluar</option>${[1, 2, 3, 4, 5].map((n) => html`<option key=${n} value=${String(n)}>${n}</option>`)}</select>` : html`<span class="mono">${x[k] || '—'}</span>`}</td>`)}
           </tr>`)}
         </tbody></table></div></section>` : null}
       <section class="section"><div class="section-head"><h2 class="h3">Estrategia por cuadrante</h2><span class="xsmall faint">Úsala como base del plan de involucramiento de los interesados</span></div>
@@ -1268,7 +1335,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
                 const marks = html`${x.actual === l ? html`<${Mark} k="C" />` : null}${x.deseado === l ? html`<${Mark} k="D" />` : null}`;
                 const label = x.name + ', ' + l + ': ' + (x.actual === l && x.deseado === l ? 'nivel actual y deseado' : x.actual === l ? 'nivel actual' : x.deseado === l ? 'nivel deseado' : 'sin marca');
                 return html`<td key=${l} class=${cx('matrices-eng-td', lo >= 0 && hi > lo && li >= lo && li <= hi && 'matrices-eng-path')}>
-                  ${canWrite ? html`<button type="button" class="matrices-eng-cell" aria-haspopup="dialog" aria-label=${label} data-eng=${x.idx + ':' + li}
+                  ${editable ? html`<button type="button" class="matrices-eng-cell" aria-haspopup="dialog" aria-label=${label} data-eng=${x.idx + ':' + li}
                     onClick=${(e) => pop.open(e.currentTarget, { idx: x.idx, level: l })}
                     onKeyDown=${(e) => { if (e.ctrlKey || e.metaKey || e.altKey) return; const k = e.key.toUpperCase(); if (k === 'C') { e.preventDefault(); patchRow(x.idx, { nivelActual: x.actual === l ? '' : l }); } else if (k === 'D') { e.preventDefault(); patchRow(x.idx, { nivelDeseado: x.deseado === l ? '' : l }); } }}>${marks}</button>`
                     : html`<span class="matrices-eng-static" aria-label=${label}>${marks}</span>`}
@@ -1291,7 +1358,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       </div>
     </div>`;
 
-    return html`<div class="page">${header}
+    return html`<div class="page">${header}${lockNote}
       <${ui.Tabs} value=${tab} onChange=${setTab} tabs=${[{ id: 'poder', label: 'Poder e interés', icon: 'stakeholders', count: plotted.length }, { id: 'involucramiento', label: 'Evaluación del involucramiento', icon: 'table', count: withGap.length ? withGap.length + ' con brecha' : undefined }]} />
       ${tab === 'poder' ? powerTab : engTab}
       ${renderPop()}
@@ -1583,7 +1650,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     return html`<${ui.Modal} title="Nuevo análisis de Pareto" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="plus" disabled=${!ok} onClick=${submit}>Crear análisis</${ui.Button}>`}>
       <form class="stack" onSubmit=${submit}>
         <${ui.Field} label="Nombre" for="mx-par-name" required><${ui.Input} id="mx-par-name" value=${name} onValue=${setName} autoFocus /></${ui.Field}>
-        <${ui.Field} label="Origen de los datos" hint=${source === 'mediciones' ? 'Cuenta las mediciones con «Conforme = No» del registro de mediciones de control de calidad, agrupadas por causa. Hoy hay ' + plural(med.nonconf, 'no conformidad', 'no conformidades') + '.' : 'Escribe las causas y cuántas veces ocurrió cada una.'}>
+        <${ui.Field} label="Origen de los datos" hint=${source === 'mediciones' ? 'Cuenta las mediciones con «Conforme = No» del registro de mediciones de control de calidad, agrupadas por la columna «Causa del defecto». Hoy hay ' + plural(med.nonconf, 'no conformidad', 'no conformidades') + '.' : 'Escribe las causas y cuántas veces ocurrió cada una.'}>
           <${ui.Segmented} label="Origen de los datos" value=${source} onChange=${setSource} options=${[{ value: 'manual', label: 'Datos manuales' }, { value: 'mediciones', label: 'Mediciones de control de calidad' }]} />
         </${ui.Field}>
         <button type="submit" hidden></button>
@@ -1633,7 +1700,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${canWrite ? html`<${ui.Segmented} label="Origen de los datos" value=${cur.source || 'manual'} onChange=${(v) => updCur((d) => ({ ...d, source: v, items: d.items || [] }))} options=${[{ value: 'manual', label: 'Datos manuales' }, { value: 'mediciones', label: 'Desde mediciones' }]} />` : html`<span class="chip">${isMed ? 'Calculado desde las mediciones de control de calidad' : 'Datos manuales'}</span>`}
         ${isMed ? html`<${ui.Button} size="sm" variant="ghost" icon="file" onClick=${() => openRegister('mediciones-control-calidad')}>Abrir mediciones de control de calidad</${ui.Button}>` : null}
       </div>
-      ${isMed ? html`<${Note}>${mmeta.loading ? 'Cargando mediciones…' : 'Se calcula en vivo con ' + plural(med.nonconf, 'medición no conforme', 'mediciones no conformes') + ' (de ' + med.total + ' registradas), agrupadas por la columna «Causa».'}</${Note}>` : null}
+      ${isMed ? html`<${Note}>${mmeta.loading ? 'Cargando mediciones…' : 'Se calcula en vivo con ' + plural(med.nonconf, 'medición no conforme', 'mediciones no conformes') + ' (de ' + med.total + ' registradas), agrupadas por la columna «Causa del defecto».'}</${Note}>` : null}
       ${data.rows.length ? html`<${ParetoChart} data=${data} svgRef=${svgRef} name=${cur.name} />`
         : html`<${Note}>${isMed ? 'El registro de mediciones de control de calidad no tiene mediciones no conformes (Conforme = «No»). Cuando las haya, el diagrama se construirá solo.' : 'Agrega causas con su frecuencia en la tabla de abajo para construir el diagrama.'}</${Note}>`}
       <div class="grid cols-2">
