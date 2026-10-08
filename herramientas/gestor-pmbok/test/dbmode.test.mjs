@@ -33,7 +33,7 @@ async function session(opts) {
 let { browser, page, errors } = await session({ canWrite: true, owner: true });
 check('modo db activo', (await page.evaluate(() => PM.getState().mode)) === 'db');
 check('identidad del visor', (await page.evaluate(() => PM.getState().meId)) === 'u_prueba');
-await page.evaluate(() => PM.createExampleProject());
+await page.evaluate(() => PM.createExampleProject('andamio'));
 await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 120000 });
 const pid = await page.evaluate(() => PM.getState().projectId);
 const writes = await page.evaluate(() => window.__mock.writes);

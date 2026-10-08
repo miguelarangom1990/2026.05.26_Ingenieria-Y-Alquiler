@@ -45,12 +45,12 @@ export async function createProject(page, meta = {}) {
   }, meta);
 }
 
-export async function createExample(page) {
-  return page.evaluate(async () => {
-    if (!PM.exampleBuilders.length) return null;
-    await PM.createExampleProject();
+export async function createExample(page, id = 'andamio') {
+  return page.evaluate(async (id) => {
+    if (!PM.examples || !PM.examples.length) return null;
+    await PM.createExampleProject(id && PM.getExample(id) ? id : PM.examples[0].id);
     return PM.getState().projectId;
-  });
+  }, id);
 }
 
 export async function gotoView(page, id) {

@@ -39,9 +39,9 @@ async function validateInPage(page) {
     const out = { checks: [] };
     const ok = (cond, msg, extra) => out.checks.push({ ok: !!cond, msg, extra: cond ? undefined : extra });
     const D = PM.date;
-    ok(PM.exampleBuilders.length === 1, 'hay exactamente un constructor de ejemplo registrado', PM.exampleBuilders.length);
-    const ex = PM.exampleBuilders[0]({ today: PM.date.today() });
-    const ex2 = PM.exampleBuilders[0]({ today: '2030-01-01' });
+    ok(!!PM.getExample('andamio'), 'el ejemplo del andamio está registrado', PM.examples.map((e) => e.id));
+    const ex = PM.getExample('andamio').build({ today: PM.date.today() });
+    const ex2 = PM.getExample('andamio').build({ today: '2030-01-01' });
     ok(JSON.stringify(ex) === JSON.stringify(ex2), 'el constructor es determinista (no depende de hoy ni de valores aleatorios)');
     ok(ex.format === 'gestor-pmbok' && ex.version === 1, 'formato de exportación');
     const sizes = [];
@@ -328,6 +328,8 @@ section('Portafolio vacío → «Crear proyecto de ejemplo» → recarga');
     check(await page.locator('.empty').count() === 1, 'el portafolio muestra el estado vacío');
     if (shots) await page.screenshot({ path: join(shots, 'portafolio-vacio.png') });
     await btn.click();
+    /* con varios ejemplos registrados aparece el selector: se elige el del andamio */
+    if (await page.evaluate(() => PM.examples.length > 1)) { const card = page.getByRole('button', { name: /^Crear: Alquiler y montaje de andamio/ }); await card.waitFor({ timeout: 5000 }); await card.click(); }
     await page.waitForFunction(() => !!PM.getState().projectId, null, { timeout: 15000 });
     await page.getByText('Proyecto de ejemplo creado.').waitFor({ timeout: 5000 });
     check(true, 'aviso «Proyecto de ejemplo creado.»');

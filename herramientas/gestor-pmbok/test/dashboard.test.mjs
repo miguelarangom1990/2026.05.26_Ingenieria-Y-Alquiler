@@ -624,7 +624,7 @@ try {
 
   /* ------------------------------------------------------------ 11. proyecto de ejemplo (página completa) */
   if (await page.evaluate(() => !!(PM.exampleBuilders && PM.exampleBuilders.length))) {
-    await page.evaluate(() => PM.createExampleProject());
+    await page.evaluate(() => PM.createExampleProject('andamio'));
     await page.waitForFunction(() => PM.getState().view === 'tablero', null, { timeout: 30000 });
     await wait(page, 1200);
     const exp = await page.evaluate(async () => {

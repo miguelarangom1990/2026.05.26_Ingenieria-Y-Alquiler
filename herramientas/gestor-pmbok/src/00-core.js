@@ -251,8 +251,17 @@
   PM.registerTemplates = (list) => { for (const t of list) { PM.templates[t.id] = t; const i = PM.templateList.findIndex((x) => x.id === t.id); if (i >= 0) PM.templateList[i] = t; else PM.templateList.push(t); } };
   PM.PROJECT_COLLECTIONS = [{ name: 'docs', nested: ['revs'] }, { name: 'tools', nested: [] }, { name: 'baselines', nested: [] }, { name: 'flows', nested: [] }];
   PM.registerProjectCollection = (name, nested = []) => { if (!PM.PROJECT_COLLECTIONS.find((c) => c.name === name)) PM.PROJECT_COLLECTIONS.push({ name, nested }); };
+  /* Proyectos de ejemplo: PM.registerExample({id, name, description, summary:[...], build({today}) → exportación}).
+     Se acepta también una función (compatibilidad). PM.exampleBuilders conserva la lista de constructores. */
+  PM.examples = [];
   PM.exampleBuilders = [];
-  PM.registerExample = (fn) => PM.exampleBuilders.push(fn);
+  PM.registerExample = (x) => {
+    const ex = typeof x === 'function' ? { id: 'ejemplo-' + (PM.examples.length + 1), name: 'Proyecto de ejemplo', build: x } : { ...x };
+    if (!ex || typeof ex.build !== 'function') return;
+    const i = PM.examples.findIndex((e) => e.id === ex.id);
+    if (i >= 0) { PM.examples[i] = ex; PM.exampleBuilders[i] = ex.build; } else { PM.examples.push(ex); PM.exampleBuilders.push(ex.build); }
+  };
+  PM.getExample = (id) => PM.examples.find((e) => e.id === id) || null;
 
   PM.paths = {
     projects: () => 'projects',

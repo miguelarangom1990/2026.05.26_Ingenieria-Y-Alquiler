@@ -778,5 +778,11 @@
     };
   }
 
-  PM.registerExample(() => buildExample());
+  PM.registerExample({
+    id: 'andamio', icon: 'wbs',
+    name: 'Alquiler y montaje de andamio',
+    description: 'Suministro, montaje, certificación y desmontaje de un andamio multidireccional para la fachada de una torre de 15 pisos en Bogotá.',
+    summary: ['Servicios de obra', '5 meses', 'COP 486,5 M'],
+    build: () => buildExample(),
+  });
 })();

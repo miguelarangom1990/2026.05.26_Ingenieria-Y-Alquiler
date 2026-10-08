@@ -81,15 +81,35 @@
     try { await PM.projectOps.remove(p.id); if (PM.getState().projectId === p.id) { PM.setState({ projectId: null }); PM.prefs.set('projectId', null); PM.navigate('portafolio'); } PM.toast('Proyecto eliminado.'); }
     catch (e) { PM.toast('No se pudo eliminar por completo el proyecto. Intenta de nuevo.', { tone: 'crit' }); }
   };
-  PM.createExampleProject = async () => {
-    if (!PM.exampleBuilders.length) return;
+  /* Crea un proyecto de ejemplo. Con un id lo crea directamente; sin id y con varios ejemplos, muestra el selector. */
+  PM.createExampleProject = async (id) => {
+    if (!PM.examples.length) return null;
+    let ex = id ? PM.getExample(id) : PM.examples.length === 1 ? PM.examples[0] : null;
+    if (!ex && id) return null;
+    if (!ex) {
+      ex = await new Promise((resolve) => {
+        let done = false; const finish = (v, close) => { if (done) return; done = true; close(); resolve(v); };
+        PM.openModal((close) => html`<${ui.Modal} title="Crear proyecto de ejemplo" subtitle="Los datos son ficticios y quedan marcados como ejemplo. Puedes eliminarlos cuando quieras." size="wide" onClose=${() => finish(null, close)}>
+          <div class="example-grid">
+            ${PM.examples.map((e) => html`<button key=${e.id} type="button" class="example-card" aria-label=${'Crear: ' + e.name} onClick=${() => finish(e, close)}>
+              <div class="example-card-head"><${ui.Icon} name=${e.icon || 'portfolio'} size=${20} /><span class="h3">${e.name}</span></div>
+              ${e.description ? html`<p class="small muted">${e.description}</p>` : null}
+              ${e.summary && e.summary.length ? html`<div class="row" style="gap:6px">${e.summary.map((t) => html`<${ui.Chip} key=${t}>${t}</${ui.Chip}>`)}</div>` : null}
+              <span class="example-card-cta">Crear este ejemplo <${ui.Icon} name="arrow-right" size=${14} /></span>
+            </button>`)}
+          </div>
+        </${ui.Modal}>`);
+      });
+      if (!ex) return null;
+    }
     try {
-      const data = PM.exampleBuilders[0]({ today: PM.date.today() });
-      const id = await PM.runWithProgress('Creando el proyecto de ejemplo', (onProgress) => PM.projectOps.importData(data, { onProgress }));
-      if (!id) return;
+      const data = ex.build({ today: PM.date.today() });
+      const pid = await PM.runWithProgress('Creando el proyecto de ejemplo', (onProgress) => PM.projectOps.importData(data, { onProgress }));
+      if (!pid) return null;
       PM.toast('Proyecto de ejemplo creado.');
-      PM.selectProject(id, 'tablero');
-    } catch (e) { console.error(e); PM.toast('No se pudo crear el proyecto de ejemplo.', { tone: 'crit' }); }
+      PM.selectProject(pid, 'tablero');
+      return pid;
+    } catch (e) { console.error(e); PM.toast('No se pudo crear el proyecto de ejemplo.', { tone: 'crit' }); return null; }
   };
 
   /* ---------------------------------------------------------------- portafolio */
@@ -108,7 +128,7 @@
     return html`<div class="page">
       <${ui.PageHeader} eyebrow="Portafolio" title="Proyectos" description="Crea un proyecto o selecciona uno para gestionar sus documentos, líneas base y herramientas según la Guía del PMBOK®." actions=${actions} />
       ${loading ? html`<${ui.Loading} rows=${4} />` : projects.length === 0 ? html`
-        <${ui.Empty} icon="portfolio" title="Aún no hay proyectos" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => PM.openNewProject(projects)}>Nuevo proyecto</${ui.Button}>${PM.exampleBuilders.length ? html`<${ui.Button} icon="sparkles" onClick=${PM.createExampleProject}>Crear proyecto de ejemplo</${ui.Button}>` : null}` : null}>
+        <${ui.Empty} icon="portfolio" title="Aún no hay proyectos" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => PM.openNewProject(projects)}>Nuevo proyecto</${ui.Button}>${PM.examples.length ? html`<${ui.Button} icon="sparkles" onClick=${() => PM.createExampleProject()}>Crear proyecto de ejemplo</${ui.Button}>` : null}` : null}>
           Cada proyecto guarda su acta de constitución, planes, registros, EDT, cronograma, costos y líneas base. El proyecto de ejemplo muestra todas las herramientas con datos de muestra marcados como ejemplo.
         </${ui.Empty}>` : html`
         <div class="card"><div class="grid cols-4 port-stats" style="gap:0">
@@ -121,7 +141,7 @@
           <div style="flex:1;min-width:200px;max-width:360px"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por nombre, código, cliente…" aria-label="Buscar proyectos" /></div>
           <div style="width:200px"><${ui.Select} value=${status} onValue=${setStatus} placeholder="Todos los estados" options=${PM.PROJECT_STATUS} aria-label="Filtrar por estado" /></div>
           <div class="spacer"></div>
-          ${PM.exampleBuilders.length && canWrite ? html`<${ui.Button} variant="ghost" icon="sparkles" onClick=${PM.createExampleProject}>Crear proyecto de ejemplo</${ui.Button}>` : null}
+          ${PM.examples.length && canWrite ? html`<${ui.Button} variant="ghost" icon="sparkles" onClick=${() => PM.createExampleProject()}>Crear proyecto de ejemplo</${ui.Button}>` : null}
         </div>
         <div class="table-wrap port-wrap"><table class="table port-table">
           <thead><tr><th>Código</th><th>Proyecto</th><th>Director</th><th>Estado</th><th>Inicio</th><th>Fin previsto</th><th class="num">Presupuesto</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
