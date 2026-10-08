@@ -5,7 +5,9 @@ publicada como artefacto de claude.ai: https://claude.ai/artifact/7NdhF1iuH3L7am
 
 ## Qué incluye
 
-- **Portafolio**: crear, seleccionar, duplicar, exportar/importar (.json) y eliminar proyectos; proyecto de ejemplo.
+- **Portafolio**: crear, seleccionar, duplicar, exportar/importar (.json) y eliminar proyectos; dos proyectos de ejemplo
+  (alquiler y montaje de andamio, y edificio residencial en Medellín — supuestos y fuentes en `docs/ejemplo-medellin/`).
+- **Menú lateral plegable** en escritorio con tres modos (fijo, al pasar el mouse, con clic) y vistas a todo el ancho.
 - **Mapa de procesos**: los 49 procesos (10 áreas × 5 grupos) con entradas, herramientas y técnicas y salidas.
 - **Documentos**: 53 plantillas (actas, planes, registros, informes) con cajetín, revisiones A/B → 0/1,
   lista maestra, exportación a Markdown/HTML y redacción asistida con Claude.
@@ -33,7 +35,8 @@ la página funciona en modo local (navegador).
 node build.mjs                                   # genera gestor-pmbok.html
 node test/smoke.mjs --file gestor-pmbok.html     # recorre todas las vistas (también --dark, --mobile)
 node test/dbmode.test.mjs --file gestor-pmbok.html   # modo artefacto con base de datos simulada
-node test/<modulo>.test.mjs --file gestor-pmbok.html # calc, core, kb, docs, wbs, schedule, evm, flow, matrices, dashboard, example
+node test/<modulo>.test.mjs --file gestor-pmbok.html # calc, core, kb, shell, docs, wbs, schedule, evm, flow, matrices, dashboard,
+                                                     # example, example-medellin, example-medellin-docs-a/-b
 node test/templates.test.mjs --file gestor-pmbok.html
 ```
 
