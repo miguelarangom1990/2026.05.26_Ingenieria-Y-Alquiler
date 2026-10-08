@@ -645,7 +645,7 @@
       const ff = evm.forecastFinish, pf = evm.planFinish;
       const wd = wdDiff(cal, pf, ff);
       const tail = wd === 0 ? ', igual a la planificada.' : wd > 0 ? ', ' + wdText(wd) + ' después de la planificada (' + fmt.date(pf, 'long') + ').' : ', ' + wdText(wd) + ' antes de la planificada (' + fmt.date(pf, 'long') + ').';
-      out.push({ id: 'es', tone: idxTone(evm.spiT), text: 'Según el cronograma ganado, el trabajo hecho equivale a ' + fmt.num(evm.esWd, 1) + ' de los ' + fmt.num(evm.atWd, 0) + ' días hábiles transcurridos (SPI(t) ' + fmt.idx(evm.spiT) + '). La fecha de fin pronosticada es el ' + fmt.date(ff, 'long') + tail });
+      out.push({ id: 'es', tone: idxTone(evm.spiT), text: 'Según el cronograma ganado, el trabajo hecho equivale a ' + fmt.num(evm.esWd, 1) + ' de los ' + fmt.num(evm.atWd, 0) + ' días hábiles transcurridos (SPI(t) ' + fmt.idx(evm.spiT) + '). La fecha de fin pronosticada por cronograma ganado es el ' + fmt.date(ff, 'long') + tail });
     }
     out.push({ id: 'avance', tone: null, text: 'Avance: ' + fmt.pct(evm.pctComplete, 1) + ' completado frente a ' + fmt.pct(evm.pctPlanned, 1) + ' planificado; se ha gastado el ' + fmt.pct(evm.pctSpent, 1) + ' del BAC.' });
     return out;
@@ -760,7 +760,7 @@
         <${Metric} id="spiT" abbr="SPI(t)" label="Índice del cronograma (tiempo)" display=${isNum(es.spiT) ? fmt.idx(es.spiT) : '—'} empty=${!isNum(es.spiT)} tone=${idxTone(es.spiT)} formula="SPI(t) = ES / AT" note=${es.actual ? 'Duración planificada frente a la duración real del trabajo.' : isNum(es.spiT) ? 'A diferencia del SPI, no tiende a 1,00 al final del proyecto.' : 'El corte es anterior al inicio planificado (AT = 0).'}>
           <${IndexGauge} value=${es.spiT} label="SPI(t)" />
         </${Metric}>
-        <${Metric} id="forecastFinish" label=${es.actual ? 'Fin del trabajo' : 'Fin pronosticado'} display=${D.valid(ff) ? fmt.date(ff) : '—'} empty=${!D.valid(ff)} tone=${ffTone} full=${D.valid(pf) ? 'Planificado: ' + fmt.date(pf) : null} formula=${es.actual ? 'Terminación según el cronograma vigente' : 'IEAC(t) = PD / SPI(t)'} note=${ffWd === null ? 'Se calcula cuando hay SPI(t).' : ffWd === 0 ? 'Igual a la fecha planificada.' : ffWd > 0 ? wdText(ffWd) + ' de atraso.' : wdText(ffWd) + ' de adelanto.'} />
+        <${Metric} id="forecastFinish" label=${es.actual ? 'Fin del trabajo' : 'Fin pronosticado por cronograma ganado'}display=${D.valid(ff) ? fmt.date(ff) : '—'} empty=${!D.valid(ff)} tone=${ffTone} full=${D.valid(pf) ? 'Planificado: ' + fmt.date(pf) : null} formula=${es.actual ? 'Terminación según el cronograma vigente' : 'IEAC(t) = PD / SPI(t)'} note=${ffWd === null ? 'Se calcula cuando hay SPI(t).' : ffWd === 0 ? 'Igual a la fecha planificada.' : ffWd > 0 ? wdText(ffWd) + ' de atraso.' : wdText(ffWd) + ' de adelanto.'} />
         <${Metric} id="pd" abbr="PD" label="Duración planificada" display=${isNum(evm.pdWd) ? fmt.num(evm.pdWd, 0) : '—'} full=${isNum(evm.pdWd) ? 'días hábiles' : null} empty=${!isNum(evm.pdWd)} formula="PD = días hábiles del inicio al fin planificados" />
       </${Group}>
       <${Group} id="porcentajes" plain title="Porcentajes" subtitle="Respecto al BAC">

@@ -325,7 +325,7 @@
           cNum('cantidad', 'Cantidad', { min: 0 }),
           cMoney('costoUnitario', 'Costo unitario'),
           cCalc('total', 'Total', costTotal, fmtMoney, { hint: 'Cantidad × costo unitario.' }),
-          cPct('contingencia', 'Contingencia (%)', { hint: 'Porcentaje de contingencia asignado a la partida.' }),
+          cPct('contingencia', 'Contingencia (%)', { hint: 'Porcentaje de contingencia asignado a la partida.', format: (v) => (v === null || v === undefined || v === '' ? '' : PM.fmt.pct100(v, 2)) }),
           cCalc('totalContingencia', 'Total con contingencia', costWithContingency, fmtMoney, { hint: 'Total × (1 + contingencia %).' }),
           cSelect('metodo', 'Método', METODOS_ESTIMACION, { width: 200 }),
         ]),

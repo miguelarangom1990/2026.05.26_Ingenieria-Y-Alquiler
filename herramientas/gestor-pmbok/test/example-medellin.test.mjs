@@ -228,6 +228,9 @@ async function validateInPage(page, expect) {
     ok(b0.get('K01').start === '2026-02-16' && b1.get('K01').start === '2026-03-16' && b1.get('C05').start === '2026-02-27' && b1.get('D13').start === '2025-12-15', 'reprogramación de la etapa 1 en la LB1 (inicio de obra del 16 de febrero al 16 de marzo de 2026)');
     const actives = PM.calc.activeBaselines(blDocs);
     ok(actives.cost.label === 'LB1' && actives.schedule.label === 'LB1' && actives.scope.label === 'LB1', 'líneas base activas: LB1');
+    /* la LB0 (22 de abril de 2025) no cita hechos posteriores: Resolución 0194 de 2025 (23 de abril de 2025) ni el contrato CT-015 (13 de marzo de 2026) */
+    const lb0Text = JSON.stringify([lb0.data.schedule.tasks.map((t) => t.name), lb0.data.scope]);
+    ok(!/Resolución 0194 de 2025|CT-01[1-9]|CT-02\d|CC-00\d|INC-0\d\d/.test(lb0Text) && b0.get('D08').name === 'Diseño bioclimático (Resolución 0549 de 2015) y paisajístico' && /0194 de 2025/.test(b1.get('D08').name), 'LB0 sin hechos posteriores a su fecha (D08 con la Resolución 0549 de 2015; la 0194 de 2025 desde la LB1)', lb0Text.match(/Resolución 0194 de 2025|CT-0\d\d|CC-00\d|INC-0\d\d/g));
 
     /* costos reales, cortes y valor ganado */
     const costs = await P('/tools/costs');
@@ -243,6 +246,8 @@ async function validateInPage(page, expect) {
     for (const u of costs.statusUpdates) { for (const [k, v] of Object.entries(u.progress)) { if (!tids.has(k) || (prev[k] || 0) > v) mono = false; prev[k] = v; } }
     ok(mono && tasks.every((t) => (prev[t.id] || 0) === t.progress), 'el avance de los cortes nunca retrocede y el último corte es el avance actual');
     ok(costs.reserves.contingency === X.contVigente && costs.reserves.management === X.gestion, 'reservas vigentes');
+    const lastNote = costs.statusUpdates[costs.statusUpdates.length - 1].note || '';
+    ok(/bloque A en el piso 6 \(75 %\) y bloque B en el piso 3 \(36 %\)/.test(lastNote) && tasks.find((t) => t.id === 'K07').progress === 75 && tasks.find((t) => t.id === 'K09').progress === 36, 'nota del corte de septiembre con el avance de la estructura del cronograma (bloque A 75 %, bloque B 36 %)', lastNote);
     const evm = PM.calc.evm({ sched, costBaseline: actives.cost, costs, statusDate: st });
     out.evm = { pv: evm.pv, ev: evm.ev, ac: evm.ac, spi: evm.spi, cpi: evm.cpi, eac: evm.eac };
     if (X.modelEvm) ok(Math.round(evm.pv) === X.modelEvm[0] && Math.round(evm.ev) === X.modelEvm[1] && Math.round(evm.ac) === X.modelEvm[2], 'PV, EV y AC al corte iguales a los de model.json', [evm.pv, evm.ev, evm.ac, X.modelEvm]);
@@ -415,6 +420,15 @@ for (const [label, opts] of [['escritorio (1360 px)', { width: 1360, height: 900
       const ov = await horizontalOverflow(page);
       const fresh = errors.slice(n0);
       check(!cards.length && !fresh.length && ov <= 1, 'vista ' + id + ' sin errores' + (ov > 1 ? ' (desborde ' + ov + ' px)' : ''), { cards, fresh: fresh.slice(0, 2) });
+      /* la fecha del cronograma ganado (28 abr 2029) se rotula como tal; el fin pronosticado del proyecto es el de la red (29 jun 2029) */
+      if (id === 'valor-ganado' && opts.width >= 900) {
+        const es = await page.locator('[data-note="es"]').first().innerText().catch(() => '');
+        check(/fin pronosticada por cronograma ganado es el 28 de abril de 2029/.test(es.replace(/\s+/g, ' ')), 'interpretación del valor ganado: la fecha de 28 de abril de 2029 se rotula «por cronograma ganado»', es);
+        await page.click('[data-view="valor-ganado"] .tab:has-text("Indicadores")');
+        await page.waitForSelector('[data-metric="forecastFinish"]');
+        const card = (await page.locator('[data-metric="forecastFinish"]').innerText()).replace(/\s+/g, ' ');
+        check(/Fin pronosticado por cronograma ganado/.test(card) && /28 abr 2029/.test(card), 'indicadores: la tarjeta del 28 abr 2029 se llama «Fin pronosticado por cronograma ganado» (el fin de la red es el 29 jun 2029)', card);
+      }
       if (shots) await page.screenshot({ path: join(shots, `${id}${opts.width < 900 ? '-m' : ''}.png`), fullPage: false });
     }
   } finally { await browser.close(); }

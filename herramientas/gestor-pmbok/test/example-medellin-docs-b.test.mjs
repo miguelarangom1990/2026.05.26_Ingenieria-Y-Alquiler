@@ -30,12 +30,13 @@ const CUT = '2026-09-30';
 /* Primera fecha en que existe cada hecho citado (model.json): un documento aprobado antes no puede citarlo. */
 const FACTS = {
   'CC-001': '2025-09-15', 'CC-002': '2026-01-19', 'CC-003': '2026-05-12', 'CC-004': '2026-09-21', 'CC-005': '2026-09-28',
-  'INC-001': '2025-10-06', 'INC-002': '2025-11-24', 'INC-003': '2026-02-02', 'INC-004': '2026-05-07', 'INC-005': '2026-08-12', 'INC-006': '2026-07-20', 'INC-007': '2026-09-15',
+  'INC-001': '2025-10-06', 'INC-002': '2025-11-24', 'INC-003': '2026-02-02', 'INC-004': '2026-05-07', 'INC-005': '2026-08-12', 'INC-006': '2026-07-20', 'INC-007': '2026-09-15', 'INC-011': '2026-09-25',
   'R-013': '2026-07-20', 'R-014': '2026-08-01', 'LB1': '2026-03-10',
   'CT-006': '2025-05-12', 'CT-007': '2025-07-14', 'CT-009': '2025-05-05', 'CT-010': '2025-05-05', 'CT-011': '2025-04-30', 'CT-012': '2025-05-19', 'CT-013': '2025-05-19',
   'CT-014': '2026-02-13', 'CT-015': '2026-03-13', 'CT-016': '2026-03-13', 'CT-017': '2026-03-13', 'CT-018': '2026-03-09', 'CT-019': '2026-03-27', 'CT-020': '2026-05-19',
   'CT-021': '2026-04-28', 'CT-022': '2026-06-10', 'CT-023': '2026-04-28', 'CT-024': '2026-04-28', 'CT-025': '2026-04-28',
   'cuarto de curado': '2026-08-12', 'deslizamiento del': '2026-05-07', 'el deslizamiento': '2026-05-07', 'pantalla anclada': '2026-05-07',
+  'Resolución 0194 de 2025': '2025-04-23', /* publicada en el Diario Oficial el 23 de abril de 2025 */
 };
 /* Causas de las no conformidades (model.json → calidad.noConformidades) */
 const NC_CAUSES = { 'Vibrado insuficiente': 3, 'Formaleta mal aplomada': 2, 'Curado deficiente de cilindros en obra': 1, 'Panelas de separación faltantes': 2, 'Unión mal soldada': 1 };
@@ -185,8 +186,20 @@ try {
     out.totals.r014 = (() => { const r = rr.fields.riesgos.find((x) => x.id === 'R-014'); const a = aq.fields.riesgos.find((x) => x.riesgo.startsWith('R-014')); return { p: r.probabilidad, i: r.impacto, estrategia: r.estrategia, impacto: a.impacto, prob: a.probabilidad }; })();
     /* textos: cifras superadas y cajetines */
     const allText = Object.entries(src).filter(([tid]) => tpls.some((t) => t.id === tid)).map(([, e]) => textOf(e)).join(' ');
-    out.totals.stale = ['2.560 millones', '16.617', '10,09 %', '23,7 %', 'sin ajuste por inflación', '1.024 millones', 'unos COP 1.060 millones', 'administración de obra 6,5 %'].filter((t) => allText.includes(t));
-    out.totals.forecast = ['14.057 millones', '8,67 %', '1.603 millones', 'art. 850'].filter((t) => !allText.includes(t));
+    out.totals.stale = ['2.560 millones', '16.617', '10,09 %', '23,7 %', 'sin ajuste por inflación', '1.024 millones', 'unos COP 1.060 millones', 'administración de obra 6,5 %', '14.057', '8,67 %', '2.155 millones', 'reponer COP 600 millones', 'reposición de COP 600 millones', 'unos COP 1.600 millones', 'sigue vigente para la etapa 2', '18 viviendas al mes'].filter((t) => allText.includes(t));
+    /* amenazas abiertas con la regla de la app (70-matrices y 80-dashboard): sin «Cerrado» ni «Materializado» */
+    out.totals.abiertas = rr.fields.riesgos.filter((r) => r.tipo === 'Amenaza' && !['Cerrado', 'Materializado'].includes(r.estado)).reduce((s, r) => s + (r.reserva || 0), 0);
+    out.totals.r004 = (() => { const r = rr.fields.riesgos.find((x) => x.id === 'R-004'); return [r.estado, r.reserva, aq.fields.riesgos.some((a) => a.riesgo.startsWith('R-004'))]; })();
+    /* asignaciones (rev. A al corte): fechas pronosticadas; los roles del promotor hasta el fin pronosticado de G05/G06 */
+    out.totals.asig = src['asignaciones-recursos'].fields.equipo.filter((r) => /Promotora/.test(r.organizacion)).map((r) => r.rol + '|' + r.hasta);
+    /* reunión de arranque: las 416 viviendas del acta de constitución */
+    out.totals.arranque = (src['acta-reunion'].instances.find((x) => x.key === 'ej1') || { fields: {} }).fields.agenda || [];
+    /* estimación de costos: la columna de contingencia muestra el porcentaje guardado (2,5 % y 2,75 %) */
+    const ecoCol = PM.templates['estimacion-costos'].sections.flatMap((s) => s.fields).find((f) => f.key === 'estimaciones').columns.find((c) => c.key === 'contingencia');
+    const ecoDoc = src['estimacion-costos'];
+    out.totals.contingencia = [ecoDoc.fields.estimaciones, ...ecoDoc.revs.filter((r) => r.fields).map((r) => r.fields.estimaciones)].map((rows) => [...new Set(rows.filter((r) => r.contingencia).map((r) => ecoCol.format ? ecoCol.format(r.contingencia, r) : PM.fmt.pct100(r.contingencia)))].join(' / '));
+    out.totals.subcontratos = Object.fromEntries(src['registro-adquisiciones'].fields.contratos.filter((c) => /^CT-0(19|2[0-5])$/.test(c.id)).map((c) => [c.id, c.valor / 1e6]));
+    out.totals.forecast = ['14.377 millones', '8,87 %', '1.603 millones', 'art. 850', 'COP 2.043 millones', 'faltan COP 280 millones', 'faltan unos COP 1.835 millones'].filter((t) => !allText.includes(t));
     const sameRole = [];
     for (const t of tpls) { const e = src[t.id]; if (!e) continue; for (const it of (t.multiple ? e.instances || [] : [e])) { const tb = it.titleBlock || {}; if (tb.aprobo && tb.elaboro === tb.aprobo) sameRole.push(t.id + (t.multiple ? '--' + it.key : '')); } }
     out.totals.sameRole = sameRole;
@@ -217,13 +230,18 @@ try {
   check(T.reservas[0] === 2363 * M && T.reservas[1] === 1400 * M && T.reservas[2] === 2793 * M, 'reservas: contingencia 2.363 M (LB1) y 2.793 M (LB0); gestión 1.400 M', T.reservas);
   check(T.holgura.every(([last, min, lb]) => last === 44183 * M && min >= 0 && Math.abs(lb - 141939 * M) < 1), 'financiamiento: holgura nunca negativa y excedente final de COP 44.183 M (aporte + utilidad)', T.holgura);
   check(T.rfi[0] === 143339 * M && T.rfi[1] === 141939 * M && T.rfi[2] === 1400 * M, 'requisitos de financiamiento con el presupuesto total, la línea base de costos y la reserva de gestión del modelo', T.rfi);
-  check(T.riesgos[0].n === 14 && T.riesgos[0].reserva === 2363 * M && T.riesgos[1].reserva === 2793 * M && T.riesgos[2].reserva === 2363 * M, 'registro de riesgos: 14 riesgos al corte; reservas de las amenazas = VME (2.363 / 2.793 / 2.363 M)', T.riesgos);
+  check(T.riesgos[0].n === 14 && T.riesgos[0].reserva === 2043 * M && T.riesgos[1].reserva === 2793 * M && T.riesgos[2].reserva === 2363 * M, 'registro de riesgos: 14 riesgos al corte; reservas de las amenazas = VME (2.043 al corte / 2.793 LB0 / 2.363 LB1 M)', T.riesgos);
+  check(T.abiertas === 2043 * M && T.r004.join() === 'Materializado,,false', 'al corte: amenazas abiertas (sin «Cerrado» ni «Materializado», regla de la app) con VME de 2.043 M; R-004 materializado sin reserva (se usó en el CC-003) y fuera del análisis cuantitativo', [T.abiertas, T.r004]);
+  check(JSON.stringify(T.subcontratos) === JSON.stringify({ 'CT-019': 2723, 'CT-020': 571, 'CT-021': 3452, 'CT-022': 4758, 'CT-023': 3714, 'CT-024': 2476, 'CT-025': 5105 }), 'subcontratos CT-019 a CT-025 al costo reembolsable (sin los honorarios del 5 % del constructor)', T.subcontratos);
+  check(T.asig.join(',') === 'Gerente de proyecto|2029-06-28,Estructurador financiero|2029-06-28,Gerente comercial|2029-03-15,Abogado del proyecto|2029-06-28,Contador del proyecto|2029-06-28', 'asignaciones al corte: roles del promotor hasta el fin pronosticado (G05/G06 el 28 de junio de 2029; gerente comercial con C13)', T.asig);
+  check(T.arranque.some((x) => /416 viviendas \(104 VIS y 312 No VIS\)/.test(x)) && !T.arranque.some((x) => /400 a 500/.test(x)), 'reunión de arranque: objetivos con las 416 viviendas del acta de constitución', T.arranque);
+  check(T.contingencia.join(' ; ') === '2,5 % ; 3 % / 2,75 %', 'estimación de costos: la columna «Contingencia (%)» muestra 2,5 % (LB1) y 3 % / 2,75 % (LB0)', T.contingencia);
   check(T.riesgos.every((x) => x.fit === 0), 'todas las estrategias son coherentes con el tipo de riesgo', T.riesgos);
-  check(T.vme[0].amenazas === -2363 * M && Math.abs(T.vme[0].oportunidades - 641.2 * M) < 1 && T.vme[0].reserva === 2363 * M, 'análisis cuantitativo al corte: VME de amenazas −2.363 M, oportunidades +641,2 M (R-014: 40 % de COP 1.603 M), reserva recomendada 2.363 M', T.vme[0]);
+  check(T.vme[0].amenazas === -2043 * M && Math.abs(T.vme[0].oportunidades - 641.2 * M) < 1 && T.vme[0].reserva === 2043 * M, 'análisis cuantitativo al corte: VME de amenazas abiertas −2.043 M, oportunidades +641,2 M (R-014: 40 % de COP 1.603 M), reserva recomendada 2.043 M', T.vme[0]);
   check(!T.scaleOff.length, 'el impacto (1–5) de cada riesgo del registro corresponde a la escala de costo del plan con el impacto del análisis cuantitativo (corte, LB0 y LB1)', T.scaleOff);
   check(T.r014.p === 3 && T.r014.i === 5 && T.r014.estrategia === 'Mejorar' && T.r014.impacto === 1603 * M && T.r014.prob === 40, 'R-014: oportunidad de COP 1.603 M sobre las 130 viviendas por vender (P 3 × I 5, estrategia mejorar)', T.r014);
-  check(!T.stale.length, 'sin cifras superadas (ventas +2.560 M, utilidad de 16.617 M o 10,09 %, SMMLV +23,7 %, precios sin ajuste, préstamo de 1.060 M, capítulos sin honorarios)', T.stale);
-  check(!T.forecast.length, 'pronóstico con ventas de la línea base (utilidad de COP 14.057 M, 8,67 %), R-014 de COP 1.603 M y devolución del IVA de las VIS (art. 850 E.T.)', T.forecast);
+  check(!T.stale.length, 'sin cifras superadas (ventas +2.560 M, utilidad de 16.617 / 14.057 M o 10,09 / 8,67 %, SMMLV +23,7 %, precios sin ajuste, préstamo de 1.060 M, capítulos sin honorarios, CC-005 de 600 M, velocidad única de 18 al mes)', T.stale);
+  check(!T.forecast.length, 'pronóstico con ventas de la línea base (utilidad de COP 14.377 M, 8,87 %; faltan 1.835 M para el 10 %), VME de las amenazas abiertas de 2.043 M (faltan 280 M), R-014 de COP 1.603 M y devolución del IVA de las VIS (art. 850 E.T.)', T.forecast);
   check(T.cuentas2['CC-1.2'] === 26291 * M && T.cuentas2['CC-1.4'] === 5770 * M && T.cuentas2['CC-1.5.1'] === 37009 * M, 'cuentas de control por paquete iguales al modelo (1.2 = 26.291 M con el registro del lote; 1.4 = 5.770 M)', T.cuentas2);
   check(T.fechaPrecios[0] === '2026-03-13' && T.fechaPrecios[1] === '2025-03-31', 'estimación de costos en pesos corrientes: precios base de la LB1 (13-mar-2026) y de la LB0 (31-mar-2025)', T.fechaPrecios);
   check(!T.sameRole.length, 'ningún documento lo elabora y lo aprueba el mismo rol', T.sameRole);

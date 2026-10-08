@@ -29,9 +29,15 @@ const MAY_BE_EMPTY = { 'solicitud-cambio--ej3': ['fechaDecision'] };
 const FACTS = [
   ['CC-001', '2025-09-15'], ['CC-002', '2026-01-19'], ['CC-003', '2026-05-12'], ['CC-004', '2026-09-21'], ['CC-005', '2026-09-28'],
   ['INC-001', '2025-10-06'], ['INC-002', '2025-11-24'], ['INC-003', '2026-02-02'], ['INC-004', '2026-05-07'], ['INC-005', '2026-08-12'],
-  ['INC-006', '2026-07-20'], ['INC-007', '2026-09-15'], ['INC-008', '2026-04-21'], ['INC-009', '2026-06-10'], ['INC-010', '2026-08-28'], ['INC-011', '2026-09-18'],
+  ['INC-006', '2026-07-20'], ['INC-007', '2026-09-15'], ['INC-008', '2026-04-21'], ['INC-009', '2026-06-10'], ['INC-010', '2026-08-28'], ['INC-011', '2026-09-25'],
   ['AAE-02', '2026-08-28'], ['AAE-03', '2026-09-25'], ['R-013', '2026-07-20'], ['R-014', '2026-09-15'],
+  /* cifras del pronóstico al corte del 30 de septiembre (EAC del gerente, utilidad y margen pronosticados) */
+  ['147.745', '2026-09-30'], ['14.377', '2026-09-30'], ['8,87 %', '2026-09-30'],
   ['Resolución 0194 de 2025', '2025-04-23'], ['deslizamiento', '2026-05-07'], ['pantalla anclada', '2026-05-12'], ['Decreto 1469 de 2025', '2025-12-30'],
+  /* contratos firmados (model.json → organizacion.contratos) */
+  ['CT-006', '2025-05-12'], ['CT-007', '2025-07-14'], ['CT-009', '2025-05-05'], ['CT-010', '2025-05-05'], ['CT-011', '2025-04-30'], ['CT-012', '2025-05-19'], ['CT-013', '2025-05-19'],
+  ['CT-014', '2026-02-13'], ['CT-015', '2026-03-13'], ['CT-016', '2026-03-13'], ['CT-017', '2026-03-13'], ['CT-018', '2026-03-09'], ['CT-019', '2026-03-27'], ['CT-020', '2026-05-19'],
+  ['CT-021', '2026-04-28'], ['CT-022', '2026-06-10'], ['CT-023', '2026-04-28'], ['CT-024', '2026-04-28'], ['CT-025', '2026-04-28'],
 ];
 const CUT = '2026-09-30';
 
@@ -224,14 +230,15 @@ try {
     const sup = src['registro-supuestos'].fields.supuestos;
     out.sup = sup.filter((r) => /^S-(0[1-9]|1[0-2])$/.test(r.id)).map((r) => r.id + '|' + r.estado).join(',');
     out.plan = [src['plan-direccion'].rev, src['plan-direccion'].date, src['plan-direccion'].revs.map((r) => r.rev + '@' + r.date).join(',')];
-    /* pronóstico al corte: ventas sostenidas (el alza del CC-004 no se incluye), utilidad 14.057 (8,67 %) en rojo */
+    /* pronóstico al corte: ventas sostenidas (el alza del CC-004 no se incluye), provisión = VME de las amenazas abiertas (2.043),
+       EAC del gerente 147.745 y utilidad 14.377 (8,87 %) en rojo */
     const f2 = inf ? inf.fields : {};
     out.forecast = {
       estado: f2.estadoGeneral,
       text: [f2.resumen, f2.analisisVariacion, f2.cambiosPeriodo, ...(f2.decisionesRequeridas || [])].join(' '),
     };
     const all = JSON.stringify(PART_A.filter((k) => src[k]).map((k) => src[k]));
-    out.stale = ['16.617', '10,09 %', '2.560', '164.682', '+23,7 %'].filter((tok) => all.includes(tok));
+    out.stale = ['16.617', '10,09 %', '2.560', '164.682', '+23,7 %', '14.057', '8,67 %', '148.065', '2.155', '142.539', 'COP 600 millones de la reserva de gestión', 'Reponer COP 600 millones', 'COP 1.400 a 800 millones'].filter((tok) => all.includes(tok));
     out.cc004 = (ch.find((r) => r.id === 'CC-004') || {}).impactoAlcance || '';
     const cn = src['caso-negocio'].fields;
     out.margin = [cn.margenEsperado, Math.round((cn.valorContrato - cn.costoEstimado) / cn.valorContrato * 10000) / 100];
@@ -240,24 +247,41 @@ try {
     out.rq06 = (req.find((r) => r.id === 'RQ-06') || {}).requisito || '';
     out.rq02 = (req.find((r) => r.id === 'RQ-02') || {}).requisito || '';
     out.inc005 = (inc.find((r) => r.id === 'INC-005') || {}).descripcion || '';
+    /* ENT-23 con las fechas del giro de la etapa 2 (C10), como ENT-14 con las del giro de la etapa 1 (C06) */
+    const ent = src.entregables.fields.entregables, E = (id) => ent.find((r) => r.id === id) || {};
+    out.ent = [E('ENT-14').fechaPrevista, E('ENT-23').fechaPrevista, E('ENT-23').criterios];
+    /* CC-002: capítulo de urbanismo con la base reembolsable de model.json (10.185 → 10.595) */
+    out.cc002 = (src['solicitud-cambio'].instances.find((x) => x.fields.codigoCambio === 'CC-002') || { fields: {} }).fields.impactoCosto || '';
+    /* umbrales de SPI y CPI: un solo juego en el plan para la dirección y en los planes del cronograma y de los costos */
+    const um = [];
+    for (const k of ['plan-direccion', 'plan-gestion-cronograma', 'plan-gestion-costos']) for (const f of [src[k].fields, ...(src[k].revs || []).map((r) => r.fields).filter(Boolean)]) {
+      for (const v of Object.values(f)) {
+        if (Array.isArray(v)) for (const r of v) if (r && r.indicador && /\b(SPI|CPI)\b/.test(r.indicador) && r.verde) um.push([r.verde, r.amarillo, r.rojo].join(' | '));
+        if (typeof v === 'string') for (const m of v.matchAll(/(?:SPI y SPI\(t\)|SPI|CPI) (≥ \d,\d{2}) en verde, (\d,\d{2} a \d,\d{2}) en amarillo y menos de (\d,\d{2}) en rojo/g)) um.push([m[1], m[2], '< ' + m[3]].join(' | '));
+      }
+    }
+    out.umbrales = [...new Set(um)].concat(um.length);
     return out;
   }, PART_A);
-  ok(sem.cambios.join(';') === 'CC-001|Rechazada|0|2025-09-30;CC-002|Aprobada|430000000|2026-03-10;CC-003|Aprobada|600000000|2026-05-19;CC-004|Aprobada|0|2026-09-25;CC-005|En análisis|600000000|', 'registro de cambios igual al modelo (CC-001 a CC-005)', sem.cambios);
+  ok(sem.cambios.join(';') === 'CC-001|Rechazada|0|2025-09-30;CC-002|Aprobada|430000000|2026-03-10;CC-003|Aprobada|600000000|2026-05-19;CC-004|Aprobada|0|2026-09-25;CC-005|En análisis|280000000|', 'registro de cambios igual al modelo (CC-001 a CC-005)', sem.cambios);
   ok(sem.incModel.join(',') === 'INC-001|Cerrado,INC-002|Cerrado,INC-003|Cerrado,INC-004|Cerrado,INC-005|Resuelto,INC-006|En curso,INC-007|En curso', 'incidentes INC-001 a INC-007 con los estados del modelo', sem.incModel);
   ok(sem.incOpen.join(',') === 'INC-006,INC-007', 'incidentes abiertos al corte: INC-006 e INC-007', sem.incOpen);
   ok(sem.crDiffs.length === 0, 'cada solicitud de cambio coincide con su fila del registro (sin aviso «difiere» en el editor)', sem.crDiffs);
   ok(!sem.scope0 && sem.scope1 && sem.scopeDates.join() === '2025-04-22,2026-03-13', 'enunciado del alcance: rev. 0 (LB0) sin mitigación vial y rev. 1 (LB1) con ella', sem);
-  ok(sem.ev && sem.ev.join() === '139576000000,48604248308,46668360000,48390020000' && sem.eac === 148065000000 && sem.finPron === '2029-06-29', 'informe de septiembre con el valor ganado, la EAC y el fin del modelo', sem);
+  ok(sem.ev && sem.ev.join() === '139576000000,48807248308,46871360000,48593020000' && sem.eac === 147745000000 && sem.finPron === '2029-06-29', 'informe de septiembre con el valor ganado, la EAC y el fin del modelo', sem);
   ok(sem.idx && sem.idx[0] === 0.96 && sem.idx[1] === 0.96, 'SPI y CPI calculados por la plantilla (0,96 y 0,96)', sem.idx);
   ok(sem.sup === 'S-01|Validado,S-02|Validado,S-03|Validado,S-04|Descartado,S-05|Descartado,S-06|Validado,S-07|Validado,S-08|Validado,S-09|Validado,S-10|Validado,S-11|Por validar,S-12|Por validar', 'supuestos S-01 a S-12 con los estados del modelo', sem.sup);
   ok(sem.plan.join('|') === '1|2026-03-13|0@2025-04-22,1@2026-03-13', 'plan para la dirección: rev. 0 con la LB0 y rev. 1 con la LB1', sem.plan);
-  ok(/^Rojo/.test(sem.forecast.estado || '') && /14\.057/.test(sem.forecast.text) && /8,67 %/.test(sem.forecast.text) && /162\.122/.test(sem.forecast.text) && /1\.603/.test(sem.forecast.text), 'informe de septiembre: ventas sostenidas, utilidad de COP 14.057 millones (8,67 %) en rojo y alza del CC-004 fuera del pronóstico (hasta COP 1.603 millones)', sem.forecast);
-  ok(sem.stale.length === 0, 'sin cifras retiradas (utilidad 16.617, 10,09 %, +2.560 sobre todas las viviendas, ventas 164.682, SMMLV +23,7 %)', sem.stale);
+  ok(/^Rojo/.test(sem.forecast.estado || '') && /14\.377/.test(sem.forecast.text) && /8,87 %/.test(sem.forecast.text) && /147\.745/.test(sem.forecast.text) && /2\.043/.test(sem.forecast.text) && /162\.122/.test(sem.forecast.text) && /1\.603/.test(sem.forecast.text) && /trasladar COP 280 millones/.test(sem.forecast.text), 'informe de septiembre: ventas sostenidas, EAC del gerente de COP 147.745 millones con la provisión de 2.043 millones (VME de las amenazas abiertas), utilidad de COP 14.377 millones (8,87 %) en rojo, CC-005 por 280 millones y alza del CC-004 fuera del pronóstico (hasta COP 1.603 millones)', sem.forecast);
+  ok(sem.stale.length === 0, 'sin cifras retiradas (utilidad 16.617 / 14.057, 10,09 % / 8,67 %, EAC 148.065, +2.560 sobre todas las viviendas, ventas 164.682, SMMLV +23,7 %, CC-005 de 600 M)', sem.stale);
   ok(/1\.603/.test(sem.cc004) && /130 viviendas por vender/.test(sem.cc004), 'CC-004 en el registro: el alza aplica solo a las 130 viviendas por vender y no entra al pronóstico', sem.cc004);
   ok(sem.margin[0] === sem.margin[1], 'caso de negocio: margen esperado = (ingreso − costo estimado) ÷ ingreso', sem.margin);
   ok(/23 viviendas al mes/.test(sem.s04) && /14 al mes/.test(sem.s04) && /19,5 al mes frente a 23/.test(sem.s04), 'S-04: velocidad por etapa (23 al mes en el lanzamiento de la etapa 1 y 14 en la etapa 2)', sem.s04);
   ok(/Macroproyecto de Borde/.test(sem.rq06) && /50 %/.test(sem.rq06) && /39 VIP/.test(sem.rq06), 'RQ-06: obligación VIP con al menos 50 % dentro del Macroproyecto de Borde (art. 326)', sem.rq06);
   ok(/estudio abierto/.test(sem.rq02) && /art\. 370/.test(sem.rq02), 'RQ-02: estudio abierto que no computa como alcoba (art. 370)', sem.rq02);
+  ok(sem.ent[0] === '2026-03-06' && sem.ent[1] === '2027-02-05' && /giro el 7 de mayo de 2027/.test(sem.ent[2]) && /punto de equilibrio el 29 de abril de 2027/.test(sem.ent[2]), 'entregables: ENT-14 y ENT-23 con la fecha del giro de cada etapa (C06 y C10; pronóstico del giro de la etapa 2 el 7 de mayo de 2027)', sem.ent);
+  ok(/capítulo de urbanismo pasa de COP 10\.185 a 10\.595 millones/.test(sem.cc002) && !/10\.693|11\.123/.test(sem.cc002), 'CC-002: capítulo de urbanismo de 10.185 a 10.595 M (costo reembolsable de model.json)', sem.cc002);
+  ok(sem.umbrales.length === 2 && sem.umbrales[0] === '≥ 0,98 | 0,93 a 0,97 | < 0,93' && sem.umbrales[1] >= 6, 'umbrales de SPI, SPI(t) y CPI iguales en los planes de dirección, cronograma y costos (≥ 0,98 / 0,93 a 0,97 / < 0,93)', sem.umbrales);
   ok(/límite inferior de control del gráfico \(27,7 MPa\)/.test(sem.inc005) && /24,5 MPa/.test(sem.inc005), 'INC-005: f\'c, límite inferior de control y mínimo individual distinguidos', sem.inc005);
 
   /* ------------------------------------------------------------ 3) proyecto creado y documentos en el editor */

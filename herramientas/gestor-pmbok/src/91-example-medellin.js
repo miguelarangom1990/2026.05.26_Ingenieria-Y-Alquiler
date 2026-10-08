@@ -176,7 +176,7 @@
     ['w123', 'w12', 'Gestión urbanística: unidad de actuación, cargas y compensación VIP', 'paquete', ROLE.arq,
       'Delimitación de la unidad de actuación urbanística del plan parcial, reparto de cargas y beneficios con el Departamento Administrativo de Planeación y compensación de la obligación VIP por compra de derechos fiduciarios al ISVIMED (Acuerdo 48 de 2014, arts. 324 a 326).',
       'Reparto de cargas aprobado y certificado de cumplimiento de la obligación VIP',
-      'Concepto favorable del DAP; certificado del ISVIMED por 78 viviendas VIP equivalentes.', ''],
+      'Concepto favorable del DAP; certificados del ISVIMED por 78 VIP equivalentes (39 dentro del Macroproyecto de Borde y 39 trasladadas fuera de él).', ''],
     ['w124', 'w12', 'Estructura fiduciaria y financiación', 'paquete', ROLE.est,
       'Contratos de fiducia mercantil (patrimonio autónomo) y de encargo fiduciario de preventas, radicación de documentos para anunciar y enajenar vivienda (Ley 962 de 2005, art. 71), administración fiduciaria y crédito constructor por etapas (COP 30.000 y 26.000 millones a IBR + 4,5 puntos).',
       'Fideicomiso constituido, encargo de preventas y créditos constructores aprobados',
@@ -196,7 +196,8 @@
     ['w133', 'w13', 'Diseños técnicos y bioclimáticos', 'paquete', ROLE.arq,
       'Diseños hidrosanitario, de gas, de red contra incendio, eléctrico, de iluminación y de telecomunicaciones (RETIE, RETILAP, RITEL), bioclimático (Resolución 0194 de 2025) y paisajístico.',
       'Diseños técnicos coordinados',
-      'Diseños coordinados sin interferencias críticas y metas de ahorro de agua y energía cumplidas.', ''],
+      'Diseños coordinados sin interferencias críticas y metas de ahorro de agua y energía cumplidas.', '',
+      { description: 'Diseños hidrosanitario, de gas, de red contra incendio, eléctrico, de iluminación y de telecomunicaciones (RETIE, RETILAP, RITEL), bioclimático (Resolución 0549 de 2015) y paisajístico.' }],
     ['w134', 'w13', 'Estudio de movilidad y diseños de redes de EPM', 'paquete', ROLE.arq,
       'Estudio de movilidad por más de 150 celdas de parqueo y factibilidad y diseños de las redes de acueducto, alcantarillado, energía y gas con EPM.',
       'Estudio de movilidad aprobado y diseños de redes aprobados por EPM',
@@ -240,7 +241,8 @@
     ['w15', null, 'Construcción', 'entregable', ROLE.con,
       'Construcción de la edificación (plataforma de parqueaderos y cuatro bloques de 8 pisos) en dos etapas, urbanismo y cargas del plan parcial, administración de obra, supervisión técnica independiente e interventoría. Se ejecuta por administración delegada (CT-015): costos reembolsables más honorarios del constructor del 5 %, incluidos en el presupuesto de cada actividad de obra.',
       'Edificación terminada con certificado técnico de ocupación por etapa y obras de urbanismo recibidas',
-      'Certificado técnico de ocupación (Ley 1796 de 2016), recibo de redes de EPM y certificaciones RETIE y RITEL.', ''],
+      'Certificado técnico de ocupación (Ley 1796 de 2016), recibo de redes de EPM y certificaciones RETIE y RITEL.', '',
+      { description: 'Construcción de la edificación (plataforma de parqueaderos y cuatro bloques de 8 pisos) en dos etapas, urbanismo y cargas del plan parcial, administración de obra, supervisión técnica independiente e interventoría. Se ejecutará por administración delegada con un constructor por seleccionar: costos reembolsables más honorarios del constructor del 5 %, incluidos en el presupuesto de cada actividad de obra.' }],
     ['w151', 'w15', 'Construcción de la etapa 1 (bloques A y B)', 'cuenta-control', ROLE.con,
       'Preliminares, movimiento de tierras, cimentación, estructura de la plataforma (50 %) y de los bloques A y B, mampostería, instalaciones, cubiertas, fachadas, acabados, equipos especiales y pruebas de la etapa 1.',
       'Bloques A y B (208 viviendas) y 50 % de la plataforma terminados',
@@ -302,12 +304,13 @@
     ['w153', 'w15', 'Urbanismo y cargas del plan parcial', 'cuenta-control', ROLE.con,
       'Obras de urbanismo y cargas locales del plan parcial: vías públicas y mitigación vial, redes externas de EPM, parque de cesión, equipamiento público, retiro de la quebrada y urbanismo interno.',
       'Obras de urbanismo y cesiones listas para entregar al Distrito',
-      'Recibo de obras por la Secretaría de Infraestructura Física y de redes por EPM.', ''],
+      'Recibo de obras por la Secretaría de Infraestructura Física y de redes por EPM.', '',
+      { description: 'Obras de urbanismo y cargas locales del plan parcial: vías públicas, redes externas de EPM, parque de cesión, equipamiento público, retiro de la quebrada y urbanismo interno.' }],
     ['w1531', 'w153', 'Vías públicas y mitigación vial', 'paquete', ROLE.con,
       'Vía colectora del plan parcial (sección pública de 16 m) con andenes, vías locales y obras de mitigación vial exigidas en la licencia: bahía de acceso, carril de desaceleración y semaforización (CC-002).',
       'Vías públicas y obras de mitigación vial construidas',
       'Recibo de la Secretaría de Infraestructura Física y de la Secretaría de Movilidad.', '',
-      { description: 'Vía colectora del plan parcial (sección pública de 16 m) con andenes y vías locales.', deliverable: 'Vías públicas construidas', acceptance: 'Recibo de la Secretaría de Infraestructura Física.' }],
+      { name: 'Vías públicas', description: 'Vía colectora del plan parcial (sección pública de 16 m) con andenes y vías locales.', deliverable: 'Vías públicas construidas', acceptance: 'Recibo de la Secretaría de Infraestructura Física.' }],
     ['w1532', 'w153', 'Redes externas de servicios públicos (EPM)', 'paquete', ROLE.con,
       'Redes externas de acueducto, alcantarillado, energía y gas que conectan el proyecto con la infraestructura de EPM, en dos fases.',
       'Redes externas recibidas por EPM',
@@ -356,7 +359,7 @@
      o.lb1 === false: la actividad no está en la LB1 (cambio posterior); o.a: [inicio real, fin real|null];
      o.prog: avance al corte (actividades en curso); o.fc: [inicio, fin] pronosticados (re-estimación; inicio null = el del CPM);
      o.deps: 'ID' (FS), 'ID:SS', 'ID:FF', 'ID:FS+2' (la primera impulsa; las demás no empujan); o.fix: fecha impuesta (no comenzar antes de);
-     o.cost: presupuesto en millones (LB1; o.cost0 para la LB0); o.k: lote | vip | dir | ind | fin; o.cap: capítulos (directos) o rubro (indirectos);
+     o.name0: nombre en la LB0 si difiere; o.cost: presupuesto en millones (LB1; o.cost0 para la LB0); o.k: lote | vip | dir | ind | fin; o.cap: capítulos (directos) o rubro (indirectos);
      o.loe: esfuerzo de nivel (avance = tiempo planificado transcurrido); o.st: etapa E1 | E2; o.f: costo real / valor ganado. */
   const DEFS = [];
   /* Honorarios del constructor (administración delegada, CT-015): 5 % sobre los costos reembolsables. El presupuesto de cada
@@ -392,7 +395,7 @@
   M('E06', 'w121', 'Escritura del lote, pago del 80 % (COP 12.000 millones) y aporte al patrimonio autónomo', { p: '2025-04-30', a: ['2025-04-30', '2025-04-30'], deps: ['E05', 'E02'], cost: 12000, k: 'lote', resp: ROLE.abo, cat: 'Otros', doc: 'ESC' });
   A('E07', 'w121', 'Registro de la escritura, englobe y certificado de tradición libre de gravámenes', { p: ['2025-05-02', '2025-05-23'], a: ['2025-05-02', '2025-05-23'], deps: ['E06'], cost: 260, k: 'ind', cap: 'not', resp: ROLE.abo, res: res([RS.abo, 0.5]), cat: 'Otros', doc: 'FE', notes: 'Gastos de cierre de la compra a cargo del comprador según la promesa: impuesto de registro departamental (1 % del precio, COP 150 millones), derechos de registro según la tarifa de la Superintendencia de Notariado y Registro (≈ COP 80 millones), 50 % de los derechos notariales con IVA (≈ COP 27 millones) y englobe y certificados (≈ COP 3 millones).' });
   A('E08', 'w123', 'Unidad de actuación urbanística: reparto de cargas y beneficios con el DAP', { b0: ['2025-03-03', '2025-06-27'], p: ['2025-03-03', '2025-07-18'], a: ['2025-03-03', '2025-07-18'], deps: ['E04:SS'], cost: 40, k: 'ind', cap: 'lic', resp: ROLE.arq, cat: 'Otros', doc: 'FE', notes: 'El DAP pidió ajustar el reparto de cargas de la vía colectora: tres semanas de atraso.' });
-  M('E09', 'w123', 'Obligación VIP compensada: derechos fiduciarios del ISVIMED pagados (COP 3.000 millones)', { b0: '2025-06-27', p: '2025-07-18', a: ['2025-07-18', '2025-07-18'], deps: ['E08'], cost: 3000, k: 'vip', resp: ROLE.est, cat: 'Otros', doc: 'ISV', notes: 'Traslado de la obligación VIP (20 % del suelo neto urbanizable = 7.800 m², equivalentes a 78 VIP) al Macroproyecto de Borde (Acuerdo 48 de 2014, art. 326).' });
+  M('E09', 'w123', 'Obligación VIP compensada: derechos fiduciarios del ISVIMED pagados (COP 3.000 millones)', { b0: '2025-06-27', p: '2025-07-18', a: ['2025-07-18', '2025-07-18'], deps: ['E08'], cost: 3000, k: 'vip', resp: ROLE.est, cat: 'Otros', doc: 'ISV', notes: 'Obligación VIP del 20 % del suelo neto urbanizable (7.800 m², equivalentes a 78 VIP) cumplida con derechos fiduciarios del ISVIMED: 39 VIP dentro del Macroproyecto de Borde y 39 trasladadas fuera de él (COP 1.500 millones cada parte; Acuerdo 48 de 2014, art. 326).' });
   A('E10', 'w124', 'Estructuración fiduciaria (fiducia mercantil y encargo de preventas) y radicación de documentos para anunciar y enajenar vivienda', { p: ['2025-05-02', '2025-06-13'], a: ['2025-05-02', '2025-06-13'], deps: ['E06'], resp: ROLE.est, res: res([RS.est, 0.5], [RS.abo, 0.25]), notes: 'Documentos para anunciar y enajenar las 416 viviendas radicados el 13 de junio de 2025 ante la Secretaría de Gestión y Control Territorial de Medellín (Ley 962 de 2005, art. 71, reglamentado por el Decreto 2180 de 2006, compilado en el Decreto 1077 de 2015), antes del anuncio y de las preventas: folio de matrícula del lote, modelos del encargo fiduciario y de la promesa y presupuesto financiero de las dos etapas; sin licencia por tratarse de preventas. El radicado se actualizó con la licencia ejecutoriada en diciembre de 2025, antes del lanzamiento de la etapa 2.' });
   M('E11', 'w124', 'Encargo fiduciario de preventas firmado', { p: '2025-06-13', a: ['2025-06-13', '2025-06-13'], deps: ['E10'], resp: ROLE.fid });
   A('E12', 'w124', 'Administración fiduciaria del encargo y del patrimonio autónomo', { p: ['2025-06-14', '2029-03-16'], a: ['2025-06-14', null], fc: [null, '2029-06-15'], loe: true, deps: ['E11'], cost: 567, k: 'ind', cap: 'fidu', resp: ROLE.fid, cat: 'Otros', doc: 'FID', notes: 'Comisión fiduciaria mensual hasta la liquidación del fideicomiso.' });
@@ -415,7 +418,7 @@
   A('D05', 'w132', 'Revisión independiente de los diseños estructurales (Ley 1796 de 2016)', { p: ['2025-07-14', '2025-08-01'], a: ['2025-07-14', '2025-08-01'], deps: ['D04:FF'], cost: 85, k: 'ind', cap: 'dis', resp: ROLE.ies, cat: 'Subcontratos', doc: 'FE' });
   A('D06', 'w133', 'Diseños hidrosanitario, de gas y de red contra incendio', { p: ['2025-04-21', '2025-08-29'], a: ['2025-04-21', '2025-08-29'], deps: ['D01:SS'], cost: 140, k: 'ind', cap: 'dis', resp: ROLE.arq, res: res([RS.ing, 0.5]), cat: 'Subcontratos', doc: 'FE' });
   A('D07', 'w133', 'Diseños eléctrico, de iluminación y de telecomunicaciones (RETIE, RETILAP, RITEL)', { p: ['2025-04-21', '2025-08-29'], a: ['2025-04-21', '2025-08-29'], deps: ['D01:SS'], cost: 140, k: 'ind', cap: 'dis', resp: ROLE.arq, res: res([RS.ing, 0.5]), cat: 'Subcontratos', doc: 'FE' });
-  A('D08', 'w133', 'Diseño bioclimático (Resolución 0194 de 2025) y paisajístico', { p: ['2025-05-05', '2025-08-15'], a: ['2025-05-05', '2025-08-15'], deps: ['D01:SS'], cost: 70, k: 'ind', cap: 'dis', resp: ROLE.arq, cat: 'Subcontratos', doc: 'FE' });
+  A('D08', 'w133', 'Diseño bioclimático (Resolución 0194 de 2025) y paisajístico', { name0: 'Diseño bioclimático (Resolución 0549 de 2015) y paisajístico', p: ['2025-05-05', '2025-08-15'], a: ['2025-05-05', '2025-08-15'], deps: ['D01:SS'], cost: 70, k: 'ind', cap: 'dis', resp: ROLE.arq, cat: 'Subcontratos', doc: 'FE' });
   A('D09', 'w134', 'Estudio de movilidad (281 celdas) y aprobación de la Secretaría de Movilidad', { b0: ['2025-05-05', '2025-09-12'], p: ['2025-05-05', '2025-10-03'], a: ['2025-05-05', '2025-10-03'], deps: ['D01:SS'], cost: 110, k: 'ind', cap: 'dis', resp: ROLE.arq, cat: 'Subcontratos', doc: 'FE', f: 1.1, notes: 'Movilidad exigió obras de mitigación (bahía de acceso, carril de desaceleración y semaforización); incorporadas con el CC-002.' });
   A('D10', 'w134', 'Factibilidad de servicios y aprobación de diseños de redes de EPM', { b0: ['2025-04-07', '2025-12-12'], p: ['2025-04-07', '2026-01-23'], a: ['2025-04-07', '2026-01-23'], deps: ['E04:SS'], cost: 160, k: 'ind', cap: 'dis', resp: ROLE.arq, cat: 'Subcontratos', doc: 'FE', f: 1.05, notes: 'EPM pidió redimensionar la red de acueducto (INC-002): seis semanas de atraso, sin efecto en el inicio de obra.' });
   M('D11', 'w135', 'Licencia de urbanización y construcción radicada en legal y debida forma', { p: '2025-08-04', a: ['2025-08-04', '2025-08-04'], deps: ['D05', 'D02', 'D04'], resp: ROLE.arq });
@@ -451,7 +454,7 @@
   A('K04', 'w1511', 'Pilas pre-excavadas de la etapa 1 (bloques A y B y plataforma)', { ...E1('2026-04-06', '2026-06-05'), a: ['2026-05-04', '2026-07-11'], deps: ['K03:SS+30'], cost: 2175, k: 'dir', cap: { cim: 2175 }, st: 'E1', resp: ROLE.con, res: res([RS.pil, 1], [RS.cim, 1]), f: 1.05 });
   A('K05', 'w1511', 'Zapatas, dados y vigas de amarre de la etapa 1', { ...E1('2026-05-04', '2026-07-10'), a: ['2026-06-01', '2026-08-21'], deps: ['K04:SS+24'], cost: 1450, k: 'dir', cap: { cim: 1450 }, st: 'E1', resp: ROLE.con, res: res([RS.cim, 1]), f: 1.05 });
   A('K06', 'w1512', 'Estructura de la plataforma de parqueaderos de la etapa 1', { ...E1('2026-05-19', '2026-08-07'), a: ['2026-06-16', '2026-09-18'], deps: ['K05:SS+12'], cost: 2601, k: 'dir', cap: { est: 2601 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1]), f: 1.05 });
-  A('K07', 'w1512', 'Estructura del bloque A (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-06-16', '2026-09-04'), a: ['2026-07-13', null], prog: 75, deps: ['K06:SS+21'], cost: 3774, k: 'dir', cap: { est: 3774 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), f: 1.05, notes: 'Piso 6 de 8 al corte; un piso cada 8 días hábiles.' });
+  A('K07', 'w1512', 'Estructura del bloque A (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-06-16', '2026-09-04'), a: ['2026-07-13', null], prog: 75, deps: ['K06:SS+21'], cost: 3774, k: 'dir', cap: { est: 3774 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), f: 1.05, notes: 'Piso 6 de 8 al corte; un piso cada 11 días hábiles (8,5 planificados), por la rotación de oficiales (INC-006).' });
   M('K08', 'w1512', 'Fin de la estructura del bloque A', { b0: '2026-09-04', p: '2026-10-02', deps: ['K07'], resp: ROLE.con });
   A('K09', 'w1512', 'Estructura del bloque B (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-07-27', '2026-10-16'), a: ['2026-08-24', null], prog: 36, deps: ['K07:SS+36'], cost: 4727, k: 'dir', cap: { est: 4727 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), f: 1.05 });
   M('K10', 'w1512', 'Fin de la estructura del bloque B', { b0: '2026-10-16', p: '2026-11-13', deps: ['K09'], resp: ROLE.con });
@@ -654,7 +657,7 @@
   const scheduleSettings = () => ({ ...SETTINGS, extraHolidays: [], resourceLimits: { ...RESOURCE_LIMITS } });
   const planData = (ver) => {
     const solved = ver === 'lb0' ? solvedLb0 : solvedLb1;
-    return { settings: scheduleSettings(), tasks: solved.map((x) => taskOut(x, { cost: costOf(x.def, ver) * MM })) };
+    return { settings: scheduleSettings(), tasks: solved.map((x) => taskOut(x, { cost: costOf(x.def, ver) * MM, ...(ver === 'lb0' && x.def.name0 ? { name: x.def.name0 } : {}) })) };
   };
 
   /* Plan vigente con avance: dependencias y desfases de la LB1; duraciones reales, re-estimadas o de la LB1. */
@@ -749,10 +752,10 @@
     '2026-03': 'CC-002 aprobado y LB1 establecida el 13 de marzo; acta de inicio de obra de la etapa 1 el 16 de marzo; lanzamiento de la etapa 2.',
     '2026-04': 'Preliminares terminados; movimiento de tierras afectado por lluvias.',
     '2026-05': 'Deslizamiento del talud oriental el 7 de mayo (INC-004); contención adicional aprobada con el CC-003.',
-    '2026-06': 'Pilas y estructura de la plataforma en curso; restauración del retiro de la quebrada iniciada.',
-    '2026-07': 'Movimiento de tierras terminado el 17 de julio (tres semanas tarde); primer desembolso del crédito constructor.',
+    '2026-06': 'Pilas y estructura de la plataforma en curso; restauración del retiro de la quebrada iniciada; primer desembolso del crédito constructor (COP 3.000 millones) el 30 de junio.',
+    '2026-07': 'Movimiento de tierras terminado el 17 de julio (tres semanas tarde); segundo desembolso del crédito constructor (COP 3.000 millones) el 31 de julio.',
     '2026-08': 'Cimentación terminada el 21 de agosto; cilindros del piso 3 del bloque A bajo el límite de control (INC-005).',
-    '2026-09': 'Corte del 30 de septiembre: plataforma terminada, bloque A en el piso 6 y bloque B al 30 %; ventas de 274 viviendas.',
+    '2026-09': 'Corte del 30 de septiembre: plataforma terminada, bloque A en el piso 6 (75 %) y bloque B en el piso 3 (36 %); ventas de 274 viviendas.',
   };
   /* estado completo de avance en cada corte; se guardan solo los cambios (como 50-evm) */
   function statusUpdates() {
