@@ -75,9 +75,9 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-load { display: flex; gap: 8px; align-items: center; min-width: 120px; }
 .matrices-load .meter { flex: 1; }
 .matrices-heat-wrap { overflow-x: auto; max-width: 100%; }
-.matrices-heat-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.matrices-heat-pair.is-single { grid-template-columns: minmax(0, 1fr); max-width: 640px; }
-@media (max-width: 1180px) { .matrices-heat-pair { grid-template-columns: minmax(0, 1fr); max-width: 640px; } }
+/* Amenazas y oportunidades lado a lado cuando caben (≥ 2 × 420 px); una sola matriz, o el contenido angosto, usa todo el ancho */
+.matrices-heat-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+.matrices-heat-pair.is-single .matrices-heat-cell { min-height: 80px; }
 .matrices-heat-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .matrices-heat { display: grid; grid-template-columns: 60px repeat(5, minmax(48px, 1fr)); gap: 3px; min-width: 310px; }
 .matrices-heat.is-opp { grid-template-columns: repeat(5, minmax(48px, 1fr)) 60px; }
@@ -138,7 +138,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-mark { display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 23px; border-radius: 50%; font-family: var(--font-mono); font-weight: 700; font-size: 11.5px; border: 1.5px solid; line-height: 1; }
 .matrices-mark-c { background: var(--surface-3); border-color: var(--fg-2); color: var(--fg); }
 .matrices-mark-d { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
-.matrices-cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.matrices-cat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 12px; }
 .matrices-cat { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); display: flex; flex-direction: column; min-width: 0; }
 .matrices-cat-head { display: flex; gap: 4px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-md) var(--r-md) 0 0; }
 .matrices-cat-head .cell-input { font-weight: 600; }
@@ -153,7 +153,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-picker { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .matrices-picker .select { width: auto; min-width: 200px; max-width: 100%; flex: 1 1 220px; }
 .matrices-fish text, .matrices-chart text { font-family: var(--font-body); }
-.matrices-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.matrices-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
 .matrices-stats .stat { padding: 10px 14px; }
 .matrices-stats .stat-value { font-size: 1.25rem; }
 .matrices-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
@@ -1105,12 +1105,14 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const tip = PM.useChartTip();
     const svgRef = useRef();
     const [drag, setDrag] = useState(null);
-    const W = PM.clamp(width, 300, 820);
+    /* La matriz ocupa todo el ancho del contenedor. Hasta 820 px conserva la proporción; más ancha, la altura crece
+       despacio (tope 680 px) y las celdas se ensanchan: las etiquetas caben en menos líneas. */
+    const W = Math.max(300, width);
     const narrow = W < 560;
-    const H = Math.round(narrow ? PM.clamp(W * 1.08, 330, 600) : PM.clamp(W * 0.66, 300, 540));
+    const H = Math.round(narrow ? PM.clamp(W * 1.08, 330, 600) : W <= 820 ? PM.clamp(W * 0.66, 300, 540) : PM.clamp(540 + (W - 820) * 0.12, 540, 680));
     const radScale = PM.clamp(W / 640, 0.72, 1);
-    const labelW = narrow ? 104 : 136;
     const m = { l: 40, r: 8, t: 6, b: 42 };
+    const labelW = narrow ? 104 : PM.clamp(Math.round(((W - m.l - m.r) / 5) * 0.62), 136, 210);
     const band = 22;
     const pw = W - m.l - m.r, ph = H - m.t - m.b;
     const area = { ix0: m.l, ix1: m.l + pw, iy0: m.t + band, iy1: m.t + ph - band, x0: m.l + 2, x1: m.l + pw - 2, y0: m.t + 2, y1: m.t + ph - 2 };
@@ -1126,7 +1128,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const lay = useMemo(() => {
       const obstacles = quads.map((q) => { const w = tw(QUAD[q.id].label, 11, 600); return { x: q.anchor === 'end' ? q.lx - w : q.lx, y: q.ly - 11, w, h: 14 }; });
       return layoutStakeholders(plotted, X, Y, area, obstacles, radScale, labelW);
-    }, [items, W, H, fv]);
+    }, [items, W, H, labelW, fv]);
     const snapI = (x) => PM.clamp(Math.round(0.5 + ((x - area.ix0) / (area.ix1 - area.ix0)) * 5), 1, 5);
     const snapP = (y) => PM.clamp(Math.round(5.5 - ((y - area.iy0) / (area.iy1 - area.iy0)) * 5), 1, 5);
     const local = (e) => { const r = svgRef.current.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -1367,25 +1369,29 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 
   /* ================================================================== 4. HERRAMIENTAS DE CALIDAD */
   const SIX_M = ['Mano de obra', 'Método', 'Maquinaria', 'Materiales', 'Medición', 'Medio ambiente'];
+  const FISH_SCALES = [2, 1.75, 1.5, 1.3, 1.15, 1];
   const FISH = { K: 0.42, gap0: 18, gapC: 10, labelGap: 8, margin: 18, colGap: 20, minBone: 70, minCol: 120, causeSize: 12, subSize: 11, catSize: 12.5, effSize: 13.5, causeLH: 15, subLH: 14, causeW: 180, subW: 165, catW: 150, effW: 170 };
 
   /* Diagrama de espina de pescado: espina horizontal hacia el efecto (cabeza, a la derecha), categorías alternadas
      arriba/abajo en diagonal, causas como líneas horizontales con su texto pegado a la espina y subcausas debajo.
-     Las columnas se separan según el ancho real de los textos, así que nada se superpone. */
-  function fishLayout(d) {
+     Las columnas se separan según el ancho real de los textos, así que nada se superpone.
+     «s» ensancha los renglones de texto (s = 1: medidas base); «target» reparte el ancho sobrante entre las columnas
+     y la cabeza para que el diagrama ocupe todo el contenedor. */
+  function fishLayout(d, s = 1, target = 0) {
     const F = FISH;
+    const causeW = F.causeW * s, subW = F.subW * s, catW = F.catW * Math.min(s, 1.4), effW = F.effW * s;
     const cats = d.categories || [];
     const bones = cats.map((c, ci) => {
       const causes = (c.causes || []).map((ca) => {
         const has = !!String(ca.text || '').trim();
-        const lines = wrap(has ? ca.text : 'Causa sin describir', F.causeW, F.causeSize, 500);
-        const subs = (ca.sub || []).map((s) => { const hs = !!String(s.text || '').trim(); return { lines: wrap('• ' + (hs ? s.text : 'Subcausa sin describir'), F.subW, F.subSize, 400), empty: !hs }; });
+        const lines = wrap(has ? ca.text : 'Causa sin describir', causeW, F.causeSize, 500);
+        const subs = (ca.sub || []).map((sc) => { const hs = !!String(sc.text || '').trim(); return { lines: wrap('• ' + (hs ? sc.text : 'Subcausa sin describir'), subW, F.subSize, 400), empty: !hs }; });
         const above = lines.length * F.causeLH + 3;
         const below = subs.reduce((t, s) => t + s.lines.length * F.subLH, 0) + (subs.length ? 5 : 0);
         return { lines, subs, above, below, empty: !has };
       });
       const stack = causes.reduce((t, x) => t + x.above + x.below, 0) + Math.max(0, causes.length - 1) * F.gapC;
-      const catLines = wrap(String(c.name || '').trim() || 'Categoría sin nombre', F.catW, F.catSize, 700);
+      const catLines = wrap(String(c.name || '').trim() || 'Categoría sin nombre', catW, F.catSize, 700);
       const catBoxW = Math.max(64, ...catLines.map((l) => tw(l, F.catSize, 700))) + 18;
       const catBoxH = catLines.length * 16 + 10;
       return { top: ci % 2 === 0, causes, stack, catLines, catBoxW, catBoxH };
@@ -1395,7 +1401,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const Ltop = boneLen(tops), Lbot = boneLen(bots);
     const catHTop = Math.max(0, ...tops.map((b) => b.catBoxH)), catHBot = Math.max(0, ...bots.map((b) => b.catBoxH));
     const effHas = !!String(d.effect || '').trim();
-    const effLines = wrap(effHas ? d.effect : 'Describe el efecto o problema', F.effW, F.effSize, 700);
+    const effLines = wrap(effHas ? d.effect : 'Describe el efecto o problema', effW, F.effSize, 700);
     const effBoxW = Math.max(110, ...effLines.map((l) => tw(l, F.effSize, 700))) + 26;
     const effBoxH = effLines.length * 18 + 34;
     const topH = Math.max(Ltop + catHTop, effBoxH / 2 + 4, 40);
@@ -1447,10 +1453,18 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       const lab = Math.max(((p.t ? p.t.catBoxW : 0) + (c.t ? c.t.catBoxW : 0)) / 2, ((p.b ? p.b.catBoxW : 0) + (c.b ? c.b.catBoxW : 0)) / 2) + F.colGap;
       xs.push(xs[k - 1] + Math.max(c.reqW + F.colGap, lab, F.minCol));
     });
+    let spineEnd = (xs.length ? xs[xs.length - 1] : F.margin + 80) + 44;
+    let W = Math.ceil(spineEnd + effBoxW + F.margin);
+    /* ancho sobrante: se reparte por igual entre los huecos de las columnas (y el de la última columna a la cabeza) */
+    const extra = Math.floor(target) - W;
+    if (extra > 0) {
+      const n = Math.max(1, xs.length);
+      xs.forEach((x, k) => { xs[k] = x + (extra * k) / n; });
+      spineEnd += extra;
+      W += extra;
+    }
     const items = [];
     cols.forEach((c, k) => { for (const part of [c.pt, c.pb]) if (part) for (const it of part.items) items.push(it.t === 'text' || it.t === 'cat' ? { ...it, x: it.x + xs[k] } : { ...it, x1: it.x1 + xs[k], x2: it.x2 + xs[k] }); });
-    const spineEnd = (xs.length ? xs[xs.length - 1] : F.margin + 80) + 44;
-    const W = Math.ceil(spineEnd + effBoxW + F.margin);
     return { W, H, y0, spineStart: F.margin, spineEnd, items, eff: { x: spineEnd, y: y0 - effBoxH / 2, w: effBoxW, h: effBoxH, lines: effLines, empty: !effHas } };
   }
 
@@ -1458,7 +1472,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const fv = useFontsVersion();
     const host = useRef();
     const avail = useWidth(host, 4000);
-    const L = useMemo(() => fishLayout(diagram), [diagram, fv]);
+    /* el renglón de texto más ancho que quepa en el contenedor; luego el diagrama se estira hasta su borde derecho */
+    const L = useMemo(() => {
+      const s = FISH_SCALES.find((k) => fishLayout(diagram, k).W <= avail) || 1;
+      return fishLayout(diagram, s, avail);
+    }, [diagram, fv, avail]);
     const F = FISH;
     return html`<div ref=${host} class="stack-sm" style="min-width:0">${L.W > avail + 2 ? html`<div class="xsmall faint">El diagrama es más ancho que la pantalla: desplázalo horizontalmente para verlo completo.</div>` : null}<div class="chart matrices-fish" data-fishbone>
       <svg ref=${svgRef} width=${L.W} height=${L.H} viewBox=${'0 0 ' + L.W + ' ' + L.H} role="img" aria-label=${'Diagrama de causa y efecto: ' + (diagram.effect || diagram.name || '')}>
@@ -1600,11 +1618,14 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     /* cada categoría necesita al menos el ancho de su palabra más larga: así las etiquetas no se parten a mitad de palabra */
     const longestWord = useMemo(() => Math.max(0, ...data.rows.map((r) => Math.max(0, ...r.cause.split(/\s+/).map((w) => tw(w, 11, 400))))), [data, fv]);
     const minSlot = PM.clamp(Math.ceil(longestWord) + 12, 56, 128);
-    const slot = PM.clamp((Math.max(280, cw) - m.l - m.r) / Math.max(1, n), minSlot, Math.max(120, minSlot));
-    const pw = slot * n, W = Math.ceil(m.l + pw + m.r), ph = 230, H = m.t + ph + m.b;
+    /* las categorías se reparten todo el ancho disponible; solo si no caben con su ancho mínimo el gráfico desborda */
+    const avail = Math.max(280, cw);
+    const fit = (avail - m.l - m.r) / Math.max(1, n);
+    const slot = Math.max(fit, minSlot);
+    const pw = slot * n, W = slot === fit ? avail : Math.ceil(m.l + pw + m.r), ph = Math.round(PM.clamp(avail * 0.16, 230, 320)), H = m.t + ph + m.b;
     const sc = niceScale(0, data.total, 5, true);
     const Y = (v) => m.t + ph - (v / sc.hi) * ph;
-    const bw = Math.min(24, slot * 0.55);
+    const bw = Math.min(56, slot * 0.5);
     const labels = useMemo(() => data.rows.map((r) => wrap(r.cause, slot - 8, 11, 400, 3)), [data, slot, fv]);
     const X = (k) => m.l + slot * (k + 0.5);
     const y80 = Y(0.8 * data.total);
@@ -1756,8 +1777,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     const unit = series.unit ? ' ' + series.unit : '';
     const pts = st.pts, n = pts.length;
     const m = { l: 56, r: 104, t: 14, b: 42 };
-    const step = PM.clamp((Math.max(320, cw) - m.l - m.r) / Math.max(1, n), 16, 64);
-    const pw = step * n, W = Math.ceil(m.l + pw + m.r), ph = 250, H = m.t + ph + m.b;
+    /* las muestras se reparten todo el ancho disponible (mínimo 16 px por muestra; si no caben, el gráfico desborda) */
+    const avail = Math.max(320, cw);
+    const fit = (avail - m.l - m.r) / Math.max(1, n);
+    const step = Math.max(fit, 16);
+    const pw = step * n, W = step === fit ? avail : Math.ceil(m.l + pw + m.r), ph = Math.round(PM.clamp(avail * 0.16, 250, 340)), H = m.t + ph + m.b;
     const refs = [
       st.mean !== null && { key: 'mean', label: 'Media', v: st.mean, style: 'stroke:var(--fg-3);stroke-width:1.25' },
       st.ucl !== null && { key: 'ucl', label: 'LSC', v: st.ucl, style: 'stroke:var(--signal);stroke-width:1.5' },

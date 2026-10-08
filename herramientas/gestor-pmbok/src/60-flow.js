@@ -179,7 +179,7 @@
 .flow-lane-hdr { font-size: var(--fs-xs); color: var(--fg-3); font-weight: 500; }
 .flow-sel:focus:not(:focus-visible) { box-shadow: none; }
 .flow-lane-row .input { padding: 4px 6px; font-size: var(--fs-sm); }
-.flow-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.flow-tpls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
 .flow-tpl-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); min-width: 0; }
 .flow-tpl-card p { font-size: var(--fs-sm); color: var(--fg-2); flex: 1; }
 .flow-tpl-opts { display: flex; flex-direction: column; gap: 6px; }

@@ -1167,8 +1167,28 @@
       const band = iw / data.length;
       const bw = Math.min(24, Math.max(6, band * 0.6));
       const y = (v) => M.t + ih - (Math.max(0, v) / sc.top) * ih;
-      const every = Math.max(1, Math.ceil(58 / band));
-      return { M, iw, ih, W: M.l + iw + M.r, band, bw, y, ticks: sc.ticks.map((v, i) => ({ v, y: y(v), label: labels[i] })), every };
+      const W = M.l + iw + M.r;
+      /* etiquetas del eje x: el paso sale del ancho de la etiqueta frente al ancho de cada columna (pasos de calendario
+         1, 2, 3, 4, 6 o 12); la forma corta («ene 25») solo se usa si permite un paso menor. Cada etiqueta va centrada
+         bajo su columna, se ajusta a los bordes del gráfico y se omite si tocaría la anterior. */
+      const tw = (s) => String(s || '').length * 6.5 + 10;
+      const stepFor = (fn) => { const need = Math.max(...data.map((d) => tw(fn(d)))) / band; return [1, 2, 3, 4, 6, 12, 24, 36, 48, 60].find((n) => n >= need) || Math.ceil(need); };
+      const longOf = (d) => d.label;
+      const shortOf = (d) => d.short || d.label;
+      const everyLong = stepFor(longOf);
+      const everyShort = data.some((d) => d.short) ? stepFor(shortOf) : everyLong;
+      const labelOf = everyShort < everyLong ? shortOf : longOf;
+      const every = Math.min(everyLong, everyShort);
+      const xLabels = new Map(); let lastRight = -Infinity;
+      data.forEach((d, i) => {
+        if (i % every) return;
+        const text = labelOf(d); const w = tw(text) - 10; const cx = M.l + band * i + band / 2;
+        let anchor = 'middle', tx = cx, x0 = cx - w / 2;
+        if (x0 < 2) { anchor = 'start'; tx = 2; x0 = 2; } else if (cx + w / 2 > W - 2) { anchor = 'end'; tx = W - 2; x0 = W - 2 - w; }
+        if (x0 < lastRight + 6) return;
+        lastRight = x0 + w; xLabels.set(i, { text, anchor, tx });
+      });
+      return { M, iw, ih, W, band, bw, y, ticks: sc.ticks.map((v, i) => ({ v, y: y(v), label: labels[i] })), xLabels };
     }, [data, width, height, currency]);
     if (!g) return null;
     const M = g.M;
@@ -1178,11 +1198,10 @@
         ${g.ticks.map((t) => html`<g key=${'t' + t.v}><line class="grid-line" x1=${M.l} x2=${M.l + g.iw} y1=${t.y} y2=${t.y} /><text x=${M.l - 8} y=${t.y + 3.5} text-anchor="end">${t.label}</text></g>`)}
         ${data.map((d, i) => {
           const cxm = M.l + g.band * i + g.band / 2; const x0 = cxm - g.bw / 2; const yt = g.y(d.value); const h = M.t + g.ih - yt;
-          const anchor = i === 0 && g.band < 60 ? 'start' : i === data.length - 1 && g.band < 60 ? 'end' : 'middle';
-          const tx = anchor === 'start' ? Math.max(2, x0) : anchor === 'end' ? Math.min(g.W - 2, x0 + g.bw) : cxm;
+          const xl = g.xLabels.get(i);
           return html`<g key=${d.key}>
             ${h > 0.5 ? html`<path d=${col(x0, yt, g.bw, h)} style=${'fill:' + color + (hi === i ? ';opacity:0.78' : '')} />` : null}
-            ${i % g.every === 0 ? html`<text x=${tx} y=${height - 9} text-anchor=${anchor}>${d.label}</text>` : null}
+            ${xl ? html`<text x=${xl.tx} y=${height - 9} text-anchor=${xl.anchor} data-role="x-label">${xl.text}</text>` : null}
             <rect class="evm-colhit" x=${M.l + g.band * i} y=${M.t} width=${g.band} height=${g.ih} style="fill:transparent"
               onPointerMove=${(e) => { setHi(i); tip.show(e, d.tip); }} onPointerLeave=${() => { setHi(null); tip.hide(); }} />
           </g>`;
@@ -1216,7 +1235,7 @@
       let prev = 0;
       return monthsBetween(ps, pf).map((m) => { const cum = evm.pvAt(D.endOfMonth(m)); const inc = cum - prev; prev = cum; return { m, inc, cum }; });
     }, [evm]);
-    const colData = useMemo(() => funding.map((f) => ({ key: f.m, value: f.inc, label: fmt.date(f.m, 'month'), tip: html`<div class="evm-tip"><div class="evm-tip-date">${fmt.date(f.m, 'monthLong')}</div><div class="evm-tip-row"><span class="legend-line" style="background:var(--s1)"></span><span class="evm-tip-lbl">Requerido en el mes</span><strong>${short(f.inc, currency)}</strong></div><div class="evm-tip-row"><span></span><span class="evm-tip-lbl">Acumulado</span><strong>${short(f.cum, currency)}</strong></div></div>` })), [funding, currency]);
+    const colData = useMemo(() => funding.map((f) => ({ key: f.m, value: f.inc, label: fmt.date(f.m, 'month'), short: PM.MONTHS[+f.m.slice(5, 7) - 1] + ' ' + f.m.slice(2, 4), tip: html`<div class="evm-tip"><div class="evm-tip-date">${fmt.date(f.m, 'monthLong')}</div><div class="evm-tip-row"><span class="legend-line" style="background:var(--s1)"></span><span class="evm-tip-lbl">Requerido en el mes</span><strong>${short(f.inc, currency)}</strong></div><div class="evm-tip-row"><span></span><span class="evm-tip-lbl">Acumulado</span><strong>${short(f.cum, currency)}</strong></div></div>` })), [funding, currency]);
     const cmp = approved !== null ? cur.total - approved : null;
     const cmpChip = cmp === null
       ? html`<${ui.Chip} tone="outline" icon="info">La ficha del proyecto no tiene presupuesto aprobado</${ui.Chip}><${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => go('ficha')}>Ir a la ficha</${ui.Button}>`

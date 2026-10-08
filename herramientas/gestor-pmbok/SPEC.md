@@ -25,6 +25,8 @@ Colombia**, tono profesional y directo.
   - `node test/smoke.mjs --file <ruta.html> [--only vista1,vista2] [--shots dir] [--dark] [--mobile]` —
     abre la página, crea un proyecto (o el de ejemplo si existe), recorre las vistas y reporta errores
     de consola, tarjetas de error y desbordes horizontales. Código de salida ≠ 0 si algo falla.
+  - `node test/shell.test.mjs --file <ruta.html> [--quick]` — riel de escritorio (tres modos, plegado, teclado, móvil) y ancho
+    completo de las vistas a 1920/2560 px (ver §4, «Riel de navegación»).
   - `test/harness.mjs` exporta `openApp({file, width, height, dark})` (espera a que la pantalla salga de «Conectando…»), `createProject(page, meta)`,
     `gotoView(page, id)`, etc. Escribe tus propias pruebas de interacción en `test/<modulo>.test.mjs`.
   - Para mirar el resultado: `page.screenshot(...)` y lee la imagen. Revisa tema claro y oscuro y 400 px.
@@ -104,7 +106,8 @@ Reglas:
 ### API de datos (núcleo)
 
 ```js
-PM.useAppState()                // {projectId, view, params, canWrite, mode:'db'|'local'|'loading', meId, saving}
+PM.useAppState()                // {projectId, view, params, canWrite, mode:'db'|'local'|'loading', meId, saving, lastSaved, storageWarning, persistFailed}
+                                // persistFailed: modo local y el navegador no dejó escribir (cuota llena) → el riel dice «Cambios sin guardar»
 PM.useCurrentProject()          // {project:{id,...meta}|null, loading}
 PM.useProjects()                // {projects:[...], loading}
 PM.useToolData(toolId, PM.EMPTY.<tool>)  // [data (normalizada con PM.normalizeTool), save(next) (antirrebote 650 ms), {loading, exists, error, saveNow}]
@@ -117,6 +120,8 @@ PM.useProjectDocs()             // {list, byTemplate, get(templateId), loading}
 PM.useDocTable(templateId, fieldKey) // [rows, saveRows, {doc, exists, loading}] — lee/escribe una tabla de un documento singleton
 PM.newDocBody(template, project, extra) // cuerpo inicial de documento
 PM.store.get/set/update/delete/list(path)  // acceso directo (promesas); set/update/delete aceptan {quiet:true} (sin aviso de error)
+PM.store.flush()                // escribe ya lo pendiente; false si el modo local no pudo guardar (importData lo usa: si no cabe,
+                                // retira el proyecto y lanza un error con `user: true` y un mensaje para mostrar)
 PM.normalizeTool(toolId, data)  // corrige tipos (arreglo/objeto) de datos importados; devuelve el mismo objeto si ya es válido
 PM.projectOps.update(pid, patch) // metadatos del proyecto
 PM.statusDateOf(project)        // fecha de corte (project.statusDate o hoy)
@@ -143,7 +148,7 @@ PM.selectProject(pid, viewId)
 
 ## 4. Vistas y navegación
 
-Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, description})`.
+Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, parent?, description})` (`parent`: id de la vista visible que se marca como actual mientras se muestra una vista oculta).
 Grupos: `portafolio`, `proyecto`, `planificacion` (Alcance, tiempo y recursos), `costos` (Costos y desempeño), `analisis` (Matrices y análisis).
 El componente recibe `{project, params}`. Íconos disponibles: claves de `PM.ICONS` en 00-core.js.
 
@@ -165,6 +170,48 @@ El componente recibe `{project, params}`. Íconos disponibles: claves de `PM.ICO
 | `interesados-matriz` | Interesados | analisis | 30 | 70 |
 | `calidad` | Ishikawa y Pareto | analisis | 40 | 70 |
 | `flujogramas` | Diagramas de flujo | analisis | 50 | 60 |
+
+### Riel de navegación y ancho de las vistas (08-shell, head.html)
+
+- **Móvil (≤ 900 px)**: panel lateral de siempre (botón «Abrir menú» en la barra superior, `navOpen`); los modos de abajo no aplican.
+- **Escritorio (> 900 px)**: riel plegable. Desplegado mide `--rail-w` (252 px); plegado, `--rail-mini` (60 px) y muestra solo
+  la marca, el botón de modo, el selector de proyecto compacto (prefijo y número del código, o carpeta sin proyecto; menú
+  flotante a la derecha del riel), los íconos de las vistas (nombre accesible = etiqueta, `aria-current="page"` en la actual),
+  separadores en lugar de los títulos de grupo y el ícono de almacenamiento. Las etiquetas emergentes de los íconos (y de los
+  botones de modo y de plegar) salen de `data-tip` al apuntarlos o enfocarlos con el teclado (`.rail-tip`, una sola,
+  `position: fixed`); en el modo «al pasar el mouse» no se muestran (el propio despliegue enseña las etiquetas).
+- **Mismo ritmo vertical plegado y desplegado**: marca 34 px, botones 28 px, selector 64 px, títulos de grupo 21 px (una línea;
+  plegado, un separador `::before` dentro de esa altura) e ítems 30 px, con los mismos márgenes. Al desplegarse encima del
+  contenido, cada ícono queda donde estaba y el clic cae en la sección apuntada (en modo fijo el plegado apila los dos botones
+  y desplaza todo 32 px, lo que no importa porque el diseño cambia a propósito).
+- Si el riel no cabe en la altura de la ventana se desplaza (barra delgada también plegado) y una sombra arriba/abajo
+  (`--rail-shade`) avisa que hay más contenido.
+- Vistas ocultas (p. ej. `documento`): marcan como actual su `parent` (campo opcional de `registerView`) o, si no lo declaran,
+  la vista visible anterior de su grupo («Documentos»).
+- Un solo botón (`.rail-mode`, arriba del riel en ambos estados) alterna **fijo → al pasar el mouse → con clic → fijo**; su
+  `aria-label`/`title` dicen el modo actual y el siguiente («Menú: fijo. Cambiar a: se abre al pasar el mouse»); cada cambio
+  muestra un aviso. Preferencias: `PM.prefs` `railMode` (`'fijo'|'hover'|'clic'`) y `railCollapsed` (solo modo fijo).
+  - **fijo**: sin automatismos; el botón `.rail-fold` («Plegar menú» / «Desplegar menú», `aria-expanded`) lo deja como la
+    persona quiera. El riel es parte del diseño: al plegarlo el contenido gana el ancho.
+  - **al pasar el mouse**: plegado en reposo (el diseño reserva solo 60 px); al entrar el puntero (120 ms de intención) se
+    despliega **encima** del contenido (sombra, sin mover el diseño) y se pliega 300 ms después de salir.
+  - **con clic**: plegado en reposo; un clic sobre el riel lo despliega encima del contenido (ese primer clic solo abre; el
+    botón de modo siempre actúa); se pliega solo 3 s después de abrir o de salir el puntero si este no está sobre el riel
+    (volver a entrar cancela), y al instante con un clic fuera del riel.
+  - En los dos modos superpuestos: el foco del teclado (`:focus-visible`, y solo si se está navegando con Tab desde la última
+    pulsación del puntero) dentro del riel lo despliega y cuenta como puntero encima; si el foco pasa al contenido se pliega;
+    Escape lo pliega; con el menú de proyectos abierto no se pliega, y al cerrarlo (también con Escape, que devuelve el foco
+    al selector) retoma el plegado automático. La presencia del puntero se confirma con `pointerover`/`pointermove` del
+    documento mientras está desplegado: Chromium no envía `pointerleave` si el nodo bajo el puntero desaparece (p. ej.
+    «Nuevo proyecto» abre un modal).
+- Clases: `.rail.is-mini` (plegado), `.rail.is-peek` (desplegado encima), `.rail.track-mini` (el diseño usa 60 px, vía
+  `.app:has(> .rail.track-mini)`), `data-mode` en el `<aside>`. Transición de 180 ms, desactivada con `prefers-reduced-motion`.
+- **Ancho**: `.page` no tiene tope de ancho; todas las vistas usan el ancho disponible a 1920 y 2560 px. Limita la medida del
+  texto corrido en el propio párrafo (`max-width` ~70–80ch) y no estires formularios cortos (usa rejillas `auto-fill`, como
+  `.pf-grid` en `PM.ProjectForm`). Nada de `max-width` fijo en contenedores de vista.
+- Pruebas: `node test/shell.test.mjs --file <html> [--quick]` (modos, persistencia, temporizadores con movimientos reales del
+  mouse, teclado, nombres accesibles, alineación plegado/desplegado, presencia tras un modal o Escape, ventana baja, modo local
+  sin espacio, móvil sin cambios y ancho completo de las 17 vistas con el riel desplegado y plegado).
 
 Funciones globales que deben existir (para enlaces entre módulos):
 - `PM.openDocument(templateIdOrDocId)` (20-docs): abre el editor; si no existe un singleton, lo crea al primer guardado.

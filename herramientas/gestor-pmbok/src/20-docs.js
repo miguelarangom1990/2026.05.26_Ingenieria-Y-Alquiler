@@ -113,7 +113,11 @@
   .docs-m-only { display: inline; }
 }
 
-.docs-title-input { display: block; width: 100%; min-width: 0; font: inherit; line-height: inherit; color: inherit; letter-spacing: inherit; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: transparent; padding: 0 6px; margin-left: -7px; resize: none; overflow: hidden; overflow-wrap: break-word; }
+/* Título editable: el área de texto y una copia invisible del texto (::after) comparten la celda de una rejilla, así el
+   bloque mide lo mismo que el título en lectura (hasta el tope de .page-head-text) en vez del ancho por defecto de un textarea. */
+.docs-title-wrap { display: grid; min-width: 0; margin-left: -7px; }
+.docs-title-wrap::after { content: attr(data-value) ' '; grid-area: 1 / 1; visibility: hidden; pointer-events: none; min-width: 0; white-space: pre-wrap; overflow-wrap: break-word; border: 1px dashed transparent; padding: 0 6px; }
+.docs-title-input { grid-area: 1 / 1; align-self: stretch; display: block; width: 100%; min-width: 0; font: inherit; line-height: inherit; color: inherit; letter-spacing: inherit; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: transparent; padding: 0 6px; margin: 0; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: break-word; }
 .docs-title-input:hover { border-color: var(--fg-3); }
 .docs-title-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-wash); }
 .docs-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
@@ -133,9 +137,16 @@
 .docs-tb-input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg); padding: 2px 6px; min-height: 24px; }
 .docs-tb-input:hover { border-color: var(--line-strong); }
 .docs-tb-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
-.docs-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; }
-.docs-wide { grid-column: 1 / -1; }
-@media (max-width: 680px) { .docs-fields { grid-template-columns: minmax(0, 1fr); } }
+/* Campos de una sección, en tramos consecutivos del mismo tipo (se respeta el orden de la plantilla):
+   cortos en una rejilla que no los estira (como .pf-grid), textos largos y listas en columnas de lectura (máx. 70ch)
+   que se reparten el ancho, tablas a todo el ancho. */
+.docs-fields { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.docs-run { display: grid; gap: 16px 18px; min-width: 0; }
+.docs-run.is-short { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.docs-run.is-long { grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); }
+.docs-run.is-long > * { min-width: 0; max-width: 70ch; }
+.docs-run.is-table { grid-template-columns: minmax(0, 1fr); }
+.docs-line { display: block; resize: none; overflow-y: auto; overflow-wrap: break-word; }
 .docs-sec-n { font-family: var(--font-mono); font-weight: 500; color: var(--fg-3); margin-right: 8px; font-size: 0.9em; }
 .docs-ro { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); padding: 1px 0; }
 .docs-ro-empty { color: var(--fg-3); font-style: italic; }
@@ -349,7 +360,13 @@
     for (const f of allFields(t)) if (out[f.key] === undefined && f.from) { const v = projectValue(f, project); if (v !== undefined) out[f.key] = v; }
     return out;
   }
-  const isWide = (f) => f.type === 'textarea' || f.type === 'list' || f.type === 'table';
+  const fieldKind = (f) => (f.type === 'table' ? 'table' : f.type === 'textarea' || f.type === 'list' ? 'long' : 'short');
+  /* Agrupa los campos consecutivos del mismo tipo (corto, largo, tabla) para darles la rejilla que les conviene. */
+  const fieldRuns = (fields) => {
+    const runs = [];
+    for (const f of fields || []) { const kind = fieldKind(f); const last = runs[runs.length - 1]; if (last && last.kind === kind) last.fields.push(f); else runs.push({ kind, fields: [f] }); }
+    return runs;
+  };
   function optionLabel(options, v) { const o = (options || []).map(normOpt).find((x) => String(x.value) === String(v)); return o ? o.label : String(v); }
   function fmtValue(f, v, currency) {
     if (v === undefined || v === null || v === '') return '';
@@ -897,6 +914,32 @@
       onKeyDown=${(e) => { if (e.isComposing) return; if (e.key === 'Enter') { e.preventDefault(); onEnter(); } else if (e.key === 'Backspace' && e.currentTarget.value === '') { e.preventDefault(); onEmptyBackspace(); } }}></textarea>`;
   }
 
+  /* Campo de texto corto en edición: área de texto de una línea que crece con el contenido (Enter no agrega saltos de línea).
+     En la rejilla de campos cortos la columna es angosta: así un valor largo se ve completo, partido como en lectura.
+     Un solo observador recalcula el alto cuando cambia el ancho (riel plegado, ventana), fuera del ciclo del observador. */
+  const lineWidths = new WeakMap();
+  let lineRO = null;
+  function watchLineWidth(el) {
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!lineRO) {
+      lineRO = new ResizeObserver((entries) => {
+        const changed = [];
+        for (const e of entries) { const w = Math.round(e.contentRect.width); if (lineWidths.get(e.target) !== w) { lineWidths.set(e.target, w); changed.push(e.target); } }
+        if (changed.length) requestAnimationFrame(() => changed.forEach((x) => PM.autoSize(x, 640)));
+      });
+    }
+    lineRO.observe(el);
+    return () => { lineRO.unobserve(el); lineWidths.delete(el); };
+  }
+  function TextLineInput({ id, value, placeholder, onValue }) {
+    const ref = useRef(null);
+    useLayoutEffect(() => { PM.autoSize(ref.current, 640); }, [value]);
+    useEffect(() => watchLineWidth(ref.current), []);
+    return html`<textarea ref=${ref} id=${id} rows="1" class="input docs-line" value=${value ?? ''} placeholder=${placeholder}
+      onInput=${(e) => onValue(e.currentTarget.value.replace(/\r?\n/g, ' '))}
+      onKeyDown=${(e) => { if (e.key === 'Enter' && !e.isComposing) e.preventDefault(); }}></textarea>`;
+  }
+
   const sameValue = (a, b) => String(a ?? '') === String(b ?? '');
 
   function FieldEditor({ f, value, onField, currency, project, t }) {
@@ -921,7 +964,7 @@
       case 'list': labelFor = undefined; control = html`<${ListEditor} id=${id} value=${value} onChange=${set} label=${f.label} placeholder=${f.placeholder} />`; break;
       case 'table': labelFor = undefined; control = html`<div class="docs-tbl" role="group" aria-label=${f.label}><${ui.DataTable} columns=${f.columns || []} rows=${Array.isArray(value) ? value : []} onChange=${set} currency=${currency} newRow=${makeNewRow(f, t)} addLabel=${f.addLabel || 'Agregar fila'} emptyText=${'Sin filas todavía. Usa «' + (f.addLabel || 'Agregar fila') + '» para empezar.'} /></div>`; break;
       case 'check': break;
-      default: control = html`<${ui.Input} id=${id} value=${value ?? ''} placeholder=${f.placeholder} onValue=${set} />`;
+      default: control = html`<${TextLineInput} id=${id} value=${value} placeholder=${f.placeholder} onValue=${set} />`;
     }
     if (f.type === 'check') {
       return html`<div class="field"><${ui.Check} id=${id} checked=${!!value} onValue=${set} label=${f.label} />${hint ? html`<div class="field-hint">${hint}</div>` : null}</div>`;
@@ -945,10 +988,12 @@
     return html`<section class="card" data-section=${s.id}>
       <div class="card-head"><div class="stack-sm" style="gap:2px"><h2 class="h3"><span class="docs-sec-n">${i + 1}</span>${s.title}</h2>${s.description ? html`<p class="xsmall faint">${s.description}</p>` : null}</div></div>
       <div class="card-body"><div class="docs-fields">
-        ${(s.fields || []).map((f) => html`<div key=${f.key} class=${isWide(f) ? 'docs-wide' : ''} data-field=${f.key}>
-          ${editable
-            ? html`<${FieldEditor} f=${f} value=${fields[f.key]} onField=${onField} currency=${currency} project=${project} t=${t} />`
-            : html`<div class="field"><div class="field-label">${f.label}</div><${FieldView} f=${f} value=${fields[f.key]} currency=${currency} /></div>`}
+        ${fieldRuns(s.fields).map((run) => html`<div key=${run.kind + ':' + run.fields[0].key} class=${'docs-run is-' + run.kind}>
+          ${run.fields.map((f) => html`<div key=${f.key} data-field=${f.key}>
+            ${editable
+              ? html`<${FieldEditor} f=${f} value=${fields[f.key]} onField=${onField} currency=${currency} project=${project} t=${t} />`
+              : html`<div class="field"><div class="field-label">${f.label}</div><${FieldView} f=${f} value=${fields[f.key]} currency=${currency} /></div>`}
+          </div>`)}
         </div>`)}
         ${!(s.fields || []).length ? html`<p class="small faint">Esta sección no tiene campos.</p>` : null}
       </div></div>
@@ -991,9 +1036,10 @@
     const ref = useRef(null);
     const width = useWidth(ref);
     const shown = draft !== null ? draft : value || fallback;
-    /* Área de texto de una línea que crece con el contenido: los títulos largos se parten como en lectura. */
+    /* Área de texto de una línea que crece con el contenido: los títulos largos se parten como en lectura. La copia invisible
+       (.docs-title-wrap::after) da el ancho y el alto; esta medición solo asegura que nunca se recorte el texto. */
     useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; }, [shown, width]);
-    return html`<textarea ref=${ref} rows="1" class="docs-title-input" aria-label="Título del documento" value=${shown} placeholder=${fallback}
+    return html`<span class="docs-title-wrap" data-value=${shown || fallback}><textarea ref=${ref} rows="1" class="docs-title-input" aria-label="Título del documento" value=${shown} placeholder=${fallback}
       onFocus=${() => { typed.current = false; setDraft(value || fallback); }}
       onInput=${(e) => { const v = e.currentTarget.value.replace(/\r?\n/g, ' '); typed.current = true; setDraft(v); if (v.trim()) onValue(v); }}
       onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
@@ -1001,7 +1047,7 @@
         const v = String(draft ?? '').trim(); setDraft(null);
         if (!typed.current) return;
         if (!v) { if (value !== fallback) onValue(fallback); } else if (v !== value) onValue(v);
-      }}></textarea>`;
+      }}></textarea></span>`;
   }
 
   /* Diálogo de emisión con nota opcional (y aprobador cuando se aprueba). Resuelve {note, aprobo} o null. */

@@ -740,6 +740,36 @@ try {
   tb = Date.now(); await page.evaluate(() => PM.navigate('recursos')); await page.waitForSelector('.sched-reslist'); const tRes = Date.now() - tb;
   check('300 actividades: recursos en menos de 1,5 s', tRes < 1500, tRes);
   void pidBig;
+
+  /* cronograma de varios años (p. ej. desarrollo inmobiliario de ~5 años): duraciones de 4 cifras y fechas con año */
+  const pidLong = await page.evaluate(async () => {
+    const id = await PM.projectOps.create({ name: 'Proyecto largo', code: 'PRY-L', start: '2025-01-13' });
+    await PM.store.set(PM.paths.tool(id, 'wbs'), { nodes: [{ id: 'g', parentId: null, name: 'Gerencia del proyecto', order: 1 }, { id: 'g1', parentId: 'g', name: 'Seguimiento y control', order: 1 }, { id: 'g11', parentId: 'g1', name: 'Informes', order: 1 }, { id: 'g111', parentId: 'g11', name: 'Informes de gerencia', order: 1 }] });
+    const base = { start: null, progress: 0, cost: 0, responsible: '', actualStart: null, actualFinish: null, notes: '' };
+    await PM.store.set(PM.paths.tool(id, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [], resourceLimits: { 'Director de proyecto': 0.5 } }, tasks: [
+      { ...base, id: 'l1', name: 'Gerencia y seguimiento', wbsId: 'g111', duration: 1320, milestone: false, deps: [], resources: [{ name: 'Director de proyecto', units: 1 }] },
+      { ...base, id: 'l2', name: 'Informe mensual', wbsId: 'g111', duration: 20, milestone: false, deps: [{ id: 'l1', type: 'SS', lag: 0 }], resources: [{ name: 'Director de proyecto', units: 1 }] },
+    ] });
+    PM.selectProject(id, 'portafolio'); return id;
+  });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => PM.navigate('cronograma')); await page.waitForSelector('.sched-row[data-id="l1"]');
+  if (!(await page.locator('label.check:has-text("Agrupar por EDT") input').isChecked())) { await page.click('label.check:has-text("Agrupar por EDT")'); await page.waitForSelector('.sched-row.is-sum'); }
+  const durTxt = (await page.locator('.sched-row[data-id="l1"] [data-col="dur"]').innerText()).trim();
+  const durClip = await page.$$eval('.sched-grid [data-col="dur"] .sched-ro, .sched-grid [data-col="dur"] .sched-txt, .sched-grid [data-col="code"] .sched-ro', (els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
+  const codeTxt = (await page.locator('.sched-row[data-id="l1"] [data-col="code"]').innerText()).trim();
+  check('duraciones de 4 cifras y EDT de 5 niveles: «Dur.» y «EDT» se ensanchan y no recortan «1.320 d» ni «1.1.1.1.1»', durTxt === '1.320 d' && codeTxt === '1.1.1.1.1' && durClip.length === 0 && (await page.locator('.sched-row.is-sum [data-col="dur"]').count()) >= 4, { durTxt, codeTxt, durClip });
+  await page.evaluate(() => PM.navigate('recursos')); await page.waitForSelector('.sched-hist svg');
+  await page.click('.btn-group button:has-text("Semana")'); await page.waitForTimeout(150);
+  const histTxt = await page.locator('.sched-hist svg text').allTextContents();
+  const histYears = ['2025', '2026', '2027', '2028', '2029'].filter((y) => histTxt.includes('ene ' + y) || histTxt.some((t) => t.endsWith(' ' + y)));
+  check('histograma por semana de varios años: fila de meses con el año («ene 2027»)', histTxt.includes('ene 2027') && histTxt.includes('ene 2028') && histYears.length === 5 && (await page.locator('.sched-hist-month').count()) >= 55, { histYears, months: await page.locator('.sched-hist-month').count() });
+  const confTxt = (await page.locator('.sched-conflicts tbody tr td:first-child').first().innerText()).trim();
+  const matTxt = (await page.locator('.sched-matrix tbody tr').first().locator('td.mono').innerText()).trim();
+  check('sobreasignaciones y matriz de varios años: periodos y fechas con año', /^\d{2} [a-z]{3}( \d{4})? – \d{2} [a-z]{3} \d{4}$/.test(confTxt) && confTxt.endsWith('2025') && /^\d{2} [a-z]{3} 2025 – \d{2} [a-z]{3} 2030$/.test(matTxt), { confTxt, matTxt });
+  await page.click('.btn-group button:has-text("Mes")'); await page.waitForTimeout(150);
+  check('histograma por mes: sin fila de meses adicional (la etiqueta ya trae el año)', (await page.locator('.sched-hist-month').count()) === 0);
+  void pidLong;
   const cards2 = await errorCards(page);
   check('sin tarjetas de error (bloque B)', cards2.length === 0, cards2);
 } catch (e) {

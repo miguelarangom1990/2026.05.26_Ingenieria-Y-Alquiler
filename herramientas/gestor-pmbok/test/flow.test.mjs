@@ -38,6 +38,17 @@ async function main() {
     check(await page.getByText('Aún no hay diagramas de flujo').isVisible(), 'estado vacío visible');
     check(await page.locator('.flow-tpl-card').count() === 4, 'estado vacío ofrece 4 plantillas');
     if (shots) await page.screenshot({ path: join(shots, 't-empty.png'), fullPage: true });
+    /* en pantallas anchas las tarjetas de plantilla llenan la fila (auto-fit): no queda franja vacía a la derecha */
+    const tplFill = async () => page.evaluate(() => { const g = document.querySelector('.flow-tpls').getBoundingClientRect(); const cs = [...document.querySelectorAll('.flow-tpl-card')].map((c) => c.getBoundingClientRect()); return { grid: Math.round(g.width), gapRight: Math.round(g.right - Math.max(...cs.map((c) => c.right))), rows: new Set(cs.map((c) => Math.round(c.top))).size }; });
+    for (const w of [1920, 2560]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await page.waitForTimeout(200);
+      const r = await tplFill();
+      check(r.rows === 1 && r.gapRight <= 1 && r.grid > w * 0.6, 'plantillas llenan el ancho a ' + w + ' px', r);
+      if (shots && w === 2560) await page.screenshot({ path: join(shots, 't-empty-2560.png'), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await page.waitForTimeout(200);
 
     /* ---- crear desde plantilla ---- */
     await page.locator('.page-actions').getByRole('button', { name: 'Nuevo diagrama' }).click();

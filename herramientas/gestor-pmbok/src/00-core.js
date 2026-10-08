@@ -216,7 +216,7 @@
 
   /* ------------------------------------------------------------------ estado de la app (observable mínimo) */
   const appListeners = new Set();
-  let appState = { projectId: null, view: 'portafolio', params: {}, navOpen: false, mode: 'loading', canWrite: true, meId: null, isOwner: false, saving: 0, lastSaved: null, storageWarning: null, syncIssues: 0 };
+  let appState = { projectId: null, view: 'portafolio', params: {}, navOpen: false, mode: 'loading', canWrite: true, meId: null, isOwner: false, saving: 0, lastSaved: null, storageWarning: null, persistFailed: false, syncIssues: 0 };
   PM.getState = () => appState;
   PM.setState = (patch) => { appState = { ...appState, ...(typeof patch === 'function' ? patch(appState) : patch) }; appListeners.forEach((fn) => fn(appState)); };
   PM.subscribeState = (fn) => { appListeners.add(fn); return () => appListeners.delete(fn); };
@@ -299,7 +299,7 @@
   class LocalStore {
     constructor() {
       this.kind = 'local'; this.key = 'pmbok-gestor.data.v1'; this.map = {}; this.docL = new Map(); this.colL = new Map(); this.persistOk = true;
-      this.dirty = new Set(); this.lastRaw = null;
+      this.dirty = new Set(); this.lastRaw = null; this.failed = false;
       try { const raw = localStorage.getItem(this.key); this.lastRaw = raw; this.map = raw ? JSON.parse(raw) : {}; if (!this.map || typeof this.map !== 'object' || Array.isArray(this.map)) this.map = {}; } catch (e) { this.persistOk = false; this.map = {}; }
       this.persist = PM.debounce(() => this.persistNow(), 250);
       try {
@@ -329,17 +329,28 @@
       for (const p of changed) { this.notifyDoc(p); cols.add(p.slice(0, p.lastIndexOf('/'))); }
       cols.forEach((c) => this.notifyCol(c));
     }
+    /* Devuelve false si el navegador no permitió escribir (cuota llena): el estado lo refleja (persistFailed, sin
+       «Cambios guardados») hasta que una escritura posterior funcione. Sin almacenamiento disponible (persistOk = false)
+       no hay nada que verificar: el aviso de arranque ya lo explica. */
     persistNow() {
-      if (!this.persistOk) return;
+      if (!this.persistOk) return true;
       this.persist.cancel();
       try {
         /* si otra pestaña guardó desde nuestra última lectura, fusiona antes de escribir para no pisar sus cambios */
         const raw = localStorage.getItem(this.key);
         if (raw !== this.lastRaw && raw) { try { const cur = JSON.parse(raw); if (cur && typeof cur === 'object' && !Array.isArray(cur)) this.adopt(cur); } catch (e) { /* contenido ilegible: se reemplaza */ } }
       } catch (e) { /* lectura bloqueada */ }
-      try { const out = JSON.stringify(this.map); localStorage.setItem(this.key, out); this.lastRaw = out; this.dirty.clear(); }
-      catch (e) { PM.setState({ storageWarning: 'El navegador no permitió guardar (espacio lleno o almacenamiento bloqueado). Exporta tus proyectos para no perder cambios.' }); }
+      try {
+        const out = JSON.stringify(this.map); localStorage.setItem(this.key, out); this.lastRaw = out; this.dirty.clear();
+        if (this.failed) { this.failed = false; PM.setState({ storageWarning: null, persistFailed: false, lastSaved: Date.now() }); }
+        return true;
+      } catch (e) {
+        this.failed = true;
+        PM.setState({ persistFailed: true, lastSaved: null, storageWarning: 'El navegador no permitió guardar los cambios (espacio lleno o almacenamiento bloqueado): se perderán al cerrar la página. Exporta los proyectos que necesites y elimina los que no uses para liberar espacio.' });
+        return false;
+      }
     }
+    flush() { return this.persistNow(); }
     touchPath(path) { this.dirty.add(path); this.persist(); this.notify(path); }
     snap(path) { const v = this.map[path]; return v === undefined ? null : PM.deepFreeze(PM.clone(v)); }
     async get(path) { return this.snap(path); }
@@ -402,6 +413,8 @@
     delete(path, opts) { return track(chain(path, async () => { await PM.storeReady; return withRetry(() => backend.delete(path)); })).catch((e) => { if (!(opts && opts.quiet)) PM.reportWriteError(e); throw e; }); },
     subDoc(path, next, err) { return subscribeWith('subDoc', path, next, err); },
     subCol(path, next, err) { return subscribeWith('subCol', path, next, err); },
+    /* Escribe ya lo pendiente (modo local) y dice si quedó guardado; en la base de datos cada escritura ya se confirmó. */
+    async flush() { await PM.storeReady; return backend && backend.flush ? backend.flush() : true; },
   };
   PM.reportWriteError = (e) => {
     const code = e && e.code;
@@ -734,6 +747,12 @@
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     checklist: '<path d="M10 6h11M10 12h11M10 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/>',
     ruler: '<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+    /* riel de escritorio: modos del menú (fijo, al pasar el mouse, con clic) y plegar/desplegar */
+    pin: '<path d="M12 16v6"/><path d="M8 3h8"/><path d="M9.5 3v6.2L6 12.8V16h12v-3.2l-3.5-3.6V3"/>',
+    hover: '<path d="m10 4 10 9.2-4.6.8 2.7 5.3-2.3 1.2-2.7-5.4L10 18.3z"/><path d="M2.5 8h4M2.5 12h4M3.5 16h3"/>',
+    click: '<path d="m11 11 9.5 3.6-4.2 1.5 3.4 3.4-1.4 1.4-3.4-3.4-1.5 4.2z"/><path d="M7.5 3.5 8.2 6M3.5 7.5 6 8.2M12.8 4.6l-1.6 1.8M4.6 12.8l1.8-1.6"/>',
+    'rail-collapse': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m16 9-3 3 3 3"/>',
+    'rail-expand': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m13 9 3 3-3 3"/>',
   };
   PM.ICONS = ICONS;
   PM.iconSvg = (name, size = 16, stroke = 1.75) => '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + stroke + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || ICONS.file) + '</svg>';
@@ -1230,6 +1249,12 @@
       } catch (e) {
         try { for (const [path] of writes.slice(0, done)) await PM.store.delete(path); } catch (e2) { /* limpieza parcial */ }
         throw e;
+      }
+      /* modo local: si el navegador no pudo guardar (cuota llena), se retira el proyecto para no mostrar como creado algo
+         que se perdería al recargar (y para que lo demás se pueda volver a guardar) */
+      if (!(await PM.store.flush())) {
+        try { await PM.projectOps.remove(id); await PM.store.flush(); } catch (e2) { /* limpieza parcial */ }
+        throw Object.assign(new Error('No hay espacio en el almacenamiento de este navegador para guardar el proyecto, así que no se creó. Exporta y elimina proyectos que no uses, o abre la página en claude.ai para guardarlos en el artefacto.'), { user: true, code: 'local_quota' });
       }
       return id;
     },

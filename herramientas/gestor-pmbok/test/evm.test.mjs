@@ -67,6 +67,23 @@ async function seed(page, pid) {
     await PM.store.set(PM.paths.tool(pid, 'schedule'), schedule);
   }, pid);
 }
+/* etiquetas del eje x del gráfico de financiamiento: dentro del SVG, sin encimarse (≥ 2 px entre cajas) y con paso regular */
+const fundingAxis = (page) => page.locator('[data-role="funding"] .chart svg').evaluate((svg) => {
+  const W = +svg.getAttribute('width');
+  const cols = [...svg.querySelectorAll('rect.evm-colhit')].map((r) => +r.getAttribute('x'));
+  const band = cols.length > 1 ? cols[1] - cols[0] : 0;
+  const H = +svg.getAttribute('height');
+  const bs = [...svg.querySelectorAll('text')].filter((t) => +t.getAttribute('y') > H - 15).map((t) => { const b = t.getBBox(); return { s: t.textContent, x0: b.x, x1: b.x + b.width, col: band ? Math.floor((b.x + b.width / 2 - cols[0]) / band) : 0 }; });
+  const bad = [];
+  bs.forEach((b, i) => { if (b.x0 < 0 || b.x1 > W) bad.push('fuera del gráfico: ' + b.s); if (i && b.x0 < bs[i - 1].x1 + 2) bad.push('encimadas: ' + bs[i - 1].s + ' / ' + b.s); });
+  const steps = new Set(bs.slice(1, -1).map((b, i) => b.col - bs[i].col));
+  return { n: bs.length, cols: cols.length, steps: [...steps], first: bs.slice(0, 3).map((b) => b.s), bad };
+});
+/* plan de unos 57 meses (ene 2025 – sep 2029): muchas columnas en el gráfico de financiamiento */
+const seedLong = (page, pid) => page.evaluate(async (pid) => {
+  const T = (id, d, cost, deps) => ({ id, name: 'Etapa ' + id, wbsId: null, duration: d, deps: deps.map((x) => ({ id: x, type: 'FS', lag: 0 })), cost, progress: 0 });
+  await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: [T('l1', 120, 3000000000, []), T('l2', 400, 20000000000, ['l1']), T('l3', 500, 40000000000, ['l2']), T('l4', 120, 5000000000, ['l3'])] });
+}, pid);
 const expected = (page, pid) => page.evaluate(async (pid) => {
   const project = await PM.store.get(PM.paths.project(pid));
   const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
@@ -299,6 +316,8 @@ try {
   await page.locator('[data-role="funding"] .chart rect.evm-colhit').nth(1).hover();
   await page.waitForTimeout(100);
   check('presupuesto: información al pasar sobre una columna', norm(await page.locator('[data-role="funding"] .chart-tip').innerText().catch(() => '')).includes('Requerido en el mes'));
+  const axShort = await fundingAxis(page);
+  check('presupuesto: etiquetas del eje x del financiamiento sin encimarse (plan corto)', axShort.n >= 2 && axShort.bad.length === 0, axShort);
   await page.mouse.move(5, 5);
   await page.waitForTimeout(1500);
   costs = await stored(page, pid, 'costs');
@@ -578,6 +597,16 @@ for (const mode of [{ name: 'móvil 400 px', width: 400, height: 860, dark: fals
       const w = await app.page.evaluate(() => { const s = document.querySelector('[data-chart="curva-s"]'); return { svg: s.getBoundingClientRect().width, host: s.parentElement.clientWidth }; });
       check(mode.name + ': la curva S cabe en el ancho', w.svg <= w.host + 1, w);
     }
+    /* plan largo: el gráfico mensual de financiamiento tiene más de 50 columnas y no cabe sin desplazamiento */
+    const pidLong = await createProject(app.page, { name: 'Plan largo', code: 'PRY-LARGO-001', start: '2025-01-06', end: '2029-06-29', statusDate: '2026-10-02', budget: 70000000000 });
+    await seedLong(app.page, pidLong);
+    await gotoView(app.page, 'valor-ganado');
+    await app.page.click('[data-view="valor-ganado"] .tab:has-text("Presupuesto")');
+    await app.page.waitForSelector('[data-role="funding"] .chart svg');
+    await app.page.waitForTimeout(300);
+    const ax = await fundingAxis(app.page);
+    check(mode.name + ': plan de más de 50 meses, etiquetas del eje x del financiamiento sin encimarse ni salirse', ax.cols >= 50 && ax.n >= 8 && ax.bad.length === 0 && ax.steps.length === 1 && ax.first[0] === 'ene 2025', ax);
+    if (shots) await app.page.locator('[data-role="funding"]').screenshot({ path: join(shots, `evm-${mode.tag}-financiamiento-54-meses.png`) });
     check(mode.name + ': sin errores', app.errors.length === 0 && (await errorCards(app.page)).length === 0, app.errors.slice(0, 3));
   } catch (e) {
     check(mode.name + ': excepción', false, String(e && e.stack || e).slice(0, 600));

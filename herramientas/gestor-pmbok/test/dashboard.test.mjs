@@ -147,27 +147,32 @@ try {
     const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
     const e = PM.calc.evm({ sched, costBaseline: null, costs, statusDate: project.statusDate });
     const vNet = sched.cal.indexOf(fc.finish) - sched.cal.indexOf(sched.finish);
-    return { spi: PM.fmt.idx(e.spi), cpi: PM.fmt.idx(e.cpi), avance: PM.fmt.pct(e.pctComplete, 1), eac: PM.fmt.moneyShort(e.eac, 'COP'), fin: PM.fmt.date(e.forecastFinish || fc.finish), hasEs: !!e.forecastFinish, bac: e.bac,
-      net: fc.finish, netFmt: PM.fmt.date(fc.finish), planFmt: PM.fmt.date(sched.finish), netLater: fc.finish > sched.finish,
-      netPhrase: vNet === 0 ? 'sin variación frente al fin planificado' : Math.abs(vNet) + (Math.abs(vNet) === 1 ? ' día hábil' : ' días hábiles') + (vNet > 0 ? ' de atraso' : ' de adelanto') + ' frente al fin planificado' };
+    const vEs = e.forecastFinish ? sched.cal.indexOf(e.forecastFinish) - sched.cal.indexOf(sched.finish) : null;
+    const phrase = (v) => (v === 0 ? 'sin variación' : Math.abs(v) + (Math.abs(v) === 1 ? ' día hábil' : ' días hábiles') + (v > 0 ? ' de atraso' : ' de adelanto'));
+    return { spi: PM.fmt.idx(e.spi), cpi: PM.fmt.idx(e.cpi), avance: PM.fmt.pct(e.pctComplete, 1), eac: PM.fmt.moneyShort(e.eac, 'COP'), fin: PM.fmt.date(fc.finish), hasEs: !!e.forecastFinish, bac: e.bac,
+      es: e.forecastFinish, esFmt: e.forecastFinish ? PM.fmt.date(e.forecastFinish) : null, spiT: PM.fmt.idx(e.spiT), esPhrase: vEs === null ? null : phrase(vEs) + ' frente al fin planificado',
+      net: fc.finish, netFmt: PM.fmt.date(fc.finish), planFmt: PM.fmt.date(sched.finish), netLater: fc.finish > sched.finish, netShort: phrase(vNet) };
   }, pid);
   const kpi = async (sel) => (await page.locator(sel).first().innerText()).trim();
   check('KPI avance = EV/BAC', (await kpi('[data-kpi="avance"] .stat-value')) === expected.avance, [await kpi('[data-kpi="avance"] .stat-value'), expected.avance]);
   check('KPI SPI', (await kpi('[data-index="spi"] .stat-value')) === expected.spi, [await kpi('[data-index="spi"] .stat-value'), expected.spi]);
   check('KPI CPI', (await kpi('[data-index="cpi"] .stat-value')) === expected.cpi, [await kpi('[data-index="cpi"] .stat-value'), expected.cpi]);
   check('KPI EAC', (await kpi('[data-kpi="eac"] .stat-value')) === expected.eac, [await kpi('[data-kpi="eac"] .stat-value'), expected.eac]);
-  check('KPI fin pronosticado (cronograma ganado o, sin él, red actualizada al corte)', (await kpi('[data-kpi="fin"] .stat-value')) === expected.fin, [await kpi('[data-kpi="fin"] .stat-value'), expected.fin]);
-  /* fin pronosticado: además del cronograma ganado, la red actualizada a la fecha de corte (6.6), con la misma referencia
+  /* fin pronosticado: la cifra principal es la red actualizada a la fecha de corte (6.6), la misma «Fin pronosticado al
+     corte» del cronograma; el cronograma ganado (IEAC(t)) va como contraste en una línea aparte, con la misma referencia
      y redacción del cronograma (sin línea base: el fin planificado; «N días hábiles de atraso frente a …») */
-  const netLine = page.locator('[data-kpi="fin"] [data-network]');
-  const netTxt = (await netLine.count()) ? (await netLine.innerText()).replace(/\s+/g, ' ').trim() : '';
-  check('KPI fin: segunda línea «Red actualizada al corte» con la fecha de la red actualizada', expected.hasEs && (await netLine.getAttribute('data-network').catch(() => null)) === expected.net && netTxt.startsWith('Red actualizada al corte: ' + expected.netFmt), { netTxt, expected });
-  check('KPI fin: la red actualizada se desplaza tras el corte (trabajo atrasado) y su variación usa días hábiles frente al fin planificado', expected.netLater && netTxt.endsWith(expected.netPhrase) && !/ vs /.test(netTxt), { netTxt, phrase: expected.netPhrase });
+  const finTile = (await page.locator('[data-kpi="fin"]').innerText()).replace(/\s+/g, ' ').trim();
+  check('KPI fin pronosticado = red actualizada al corte (aunque haya cronograma ganado)', (await kpi('[data-kpi="fin"] .stat-value')) === expected.fin && (await page.locator('[data-kpi="fin"] .stat-value').getAttribute('data-source')) === 'red' && finTile.includes('Red actualizada al corte'), [await kpi('[data-kpi="fin"] .stat-value'), expected.fin, finTile]);
+  check('KPI fin: la red actualizada se desplaza tras el corte (trabajo atrasado) y su variación usa días hábiles frente al fin planificado', expected.netLater && finTile.includes('Fin planificado: ' + expected.planFmt + ' · ' + expected.netShort) && !/ vs /.test(finTile), { finTile, expected });
+  const esLine = page.locator('[data-kpi="fin"] [data-earned]');
+  const esTxt = (await esLine.count()) ? (await esLine.innerText()).replace(/\s+/g, ' ').trim() : '';
+  check('KPI fin: línea aparte «Por cronograma ganado (SPI(t) …)» con su fecha y su variación frente al fin planificado', expected.hasEs && (await esLine.getAttribute('data-earned').catch(() => null)) === expected.es && esTxt.startsWith('Por cronograma ganado (SPI(t) ' + expected.spiT + '): ' + expected.esFmt + ' · ' + expected.esPhrase), { esTxt, expected });
   check('KPI fin: sin línea base la referencia es el fin planificado (la misma del cronograma)', (await page.locator('[data-kpi="fin"]').innerText()).includes('Fin planificado: ' + expected.planFmt));
   check('KPI días hábiles restantes numérico', /^\d+$/.test(await page.locator('[data-kpi="fin"] [data-remaining]').getAttribute('data-remaining')));
   check('KPI avance con medidor real vs planificado', await page.locator('[data-kpi="avance"] .dashboard-meter-plan').count() === 1);
   check('curva S: 3 series dibujadas', await page.locator('[data-card="scurve"] svg path[data-series]').count() === 3);
   const hit = page.locator('[data-card="scurve"] .dashboard-hit');
+  await hit.scrollIntoViewIfNeeded();
   const hb = await hit.boundingBox();
   await page.mouse.move(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
   await wait(page, 150);
@@ -404,7 +409,8 @@ try {
   const m2Text = await page.locator('[data-milestone="m2"]').innerText();
   check('tablero: hito con variación «frente a» LB0', (m2Text.includes('+5 d frente a LB0') || m2Text.includes('+8 d frente a LB0')) && !m2Text.includes(' vs '), m2Text);
   check('tablero: fin pronosticado contra LB0', (await page.locator('[data-kpi="fin"]').innerText()).includes('Fin LB0'));
-  const netLB = (await page.locator('[data-kpi="fin"] [data-network]').innerText()).replace(/\s+/g, ' ').trim();
+  const netLB = (await page.locator('[data-kpi="fin"]').innerText()).replace(/\s+/g, ' ').trim();
+  const finLB = await kpi('[data-kpi="fin"] .stat-value');
   const expLB = await page.evaluate(async (pid) => {
     const project = await PM.store.get(PM.paths.project(pid));
     const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
@@ -412,15 +418,16 @@ try {
     const sched = PM.calc.computeSchedule(schedule, project.start);
     const fc = PM.calc.computeSchedule(schedule, project.start, project.statusDate);
     const v = sched.cal.indexOf(fc.finish) - sched.cal.indexOf(bl.schedule.finish);
-    return { date: PM.fmt.date(fc.finish), phrase: v === 0 ? 'sin variación frente a LB0' : Math.abs(v) + (Math.abs(v) === 1 ? ' día hábil' : ' días hábiles') + (v > 0 ? ' de atraso' : ' de adelanto') + ' frente a LB0' };
+    const short = v === 0 ? 'sin variación' : Math.abs(v) + (Math.abs(v) === 1 ? ' día hábil' : ' días hábiles') + (v > 0 ? ' de atraso' : ' de adelanto');
+    return { date: PM.fmt.date(fc.finish), blFmt: PM.fmt.date(bl.schedule.finish), short, phrase: v === 0 ? 'sin variación frente a LB0' : short + ' frente a LB0' };
   }, pid);
-  check('tablero: la red actualizada al corte se compara con LB0 en días hábiles', netLB === 'Red actualizada al corte: ' + expLB.date + ' · ' + expLB.phrase, { netLB, expLB });
+  check('tablero: la red actualizada al corte es la cifra principal y se compara con LB0 en días hábiles', finLB === expLB.date && netLB.includes('Fin LB0: ' + expLB.blFmt + ' · ' + expLB.short), { finLB, netLB, expLB });
   /* el cronograma (página completa) dice lo mismo: misma fecha, misma referencia y misma redacción */
   if (await page.evaluate(() => !!PM.getView('cronograma'))) {
     await gotoView(page, 'cronograma');
     await page.waitForSelector('.sched-strip [data-stat="forecast"]');
     const strip = (await page.locator('.sched-strip [data-stat="forecast"]').innerText()).split('\n').map((x) => x.trim()).filter(Boolean);
-    check('cronograma y tablero coinciden: «Fin pronosticado al corte» = red actualizada del tablero (fecha, LB0 y días hábiles)', strip[0] === 'Fin pronosticado al corte' && strip[1] === expLB.date && strip[2] === expLB.phrase, { strip, expLB });
+    check('cronograma y tablero coinciden: «Fin pronosticado al corte» = «Fin pronosticado» del tablero (fecha, LB0 y días hábiles)', strip[0] === 'Fin pronosticado al corte' && strip[1] === expLB.date && strip[1] === finLB && strip[2] === expLB.phrase, { strip, expLB, finLB });
     await gotoView(page, 'tablero');
   }
   /* sugerencia de estado: con línea base y estado «En planificación» */
@@ -569,7 +576,7 @@ try {
     return { sd: project.statusDate, plan: sched.finish, net: fc.finish, planFmt: PM.fmt.date(sched.finish), netFmt: PM.fmt.date(fc.finish) };
   }, pid2);
   let ne = await noEs();
-  check('sin costos: el fin pronosticado es el de la red actualizada al corte', (await kpi('[data-kpi="fin"] .stat-value')) === ne.netFmt && await page.locator('[data-kpi="fin"] [data-network]').count() === 0 && (await page.locator('[data-kpi="fin"]').innerText()).includes('Red actualizada al corte'), ne);
+  check('sin costos: el fin pronosticado es el de la red actualizada al corte (sin línea de cronograma ganado)', (await kpi('[data-kpi="fin"] .stat-value')) === ne.netFmt && await page.locator('[data-kpi="fin"] [data-earned]').count() === 0 && (await page.locator('[data-kpi="fin"]').innerText()).includes('Red actualizada al corte'), ne);
   /* fecha de corte posterior al fin planificado con trabajo pendiente: nunca el fin planificado vencido */
   await page.evaluate((pid) => PM.projectOps.update(pid, { statusDate: '2026-09-30' }), pid2);
   await wait(page, 300);
@@ -622,6 +629,61 @@ try {
   ir = await idxRead();
   check('índices: por encima de 1,02 se lee «Adelantado» y «Por debajo del presupuesto»', ir.spiWord === 'Adelantado' && ir.cpiWord === 'Por debajo del presupuesto', ir);
 
+  /* ------------------------------------------------------------ 10b. plan de varios años: eje x de la curva S y ruta */
+  /* Cada etiqueta del eje x se ubica en su año (el año aparece en la primera marca y cada vez que cambia), las etiquetas
+     no se superponen ni se recortan, y las marcas siguen el calendario (meses, trimestres, semestres o años). */
+  const axisRead = () => page.$$eval('[data-card="scurve"] svg g[data-month]', (gs) => {
+    let year = null; const bad = []; const boxes = [];
+    const w = gs.length ? +gs[0].ownerSVGElement.getAttribute('width') : 0;
+    for (const g of gs) {
+      const t = g.querySelector('text'); const txt = t.textContent; const m = g.getAttribute('data-month');
+      const y = (txt.match(/\d{4}/) || [])[0]; if (y) year = y;
+      if (year !== m.slice(0, 4)) bad.push(txt + ' ≠ ' + m);
+      const b = t.getBBox(); boxes.push({ l: b.x, r: b.x + b.width, txt });
+    }
+    const overlap = boxes.filter((b, i) => i > 0 && b.l < boxes[i - 1].r + 2).map((b) => b.txt);
+    const clipped = boxes.filter((b) => b.l < 0 || b.r > w + 0.5).map((b) => b.txt);
+    const months = gs.map((g) => { const m = g.getAttribute('data-month'); return +m.slice(0, 4) * 12 + +m.slice(5, 7) - 1; });
+    const steps = months.slice(1).map((m, i) => m - months[i]);
+    return { labels: boxes.map((b) => b.txt), bad, overlap, clipped, steps };
+  });
+  const pid4 = await createProject(page, { name: 'Proyecto de varios años', code: 'PRY-TEST-004', start: '2025-02-03', end: '2029-06-29' });
+  await page.evaluate(async (pid) => {
+    await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: [
+      { id: 'l', name: 'Compra del lote', duration: 60, deps: [], progress: 100, cost: 15e9 },
+      { id: 'e', name: 'Estructuración y licencias', duration: 220, deps: [{ id: 'l', type: 'FS', lag: 0 }], progress: 80, cost: 4e9 },
+      { id: 'c', name: 'Construcción', duration: 760, deps: [{ id: 'e', type: 'FS', lag: 0 }], progress: 0, cost: 120e9 },
+      { id: 'f', name: 'Fin del proyecto', duration: 0, milestone: true, deps: [{ id: 'c', type: 'FS', lag: 0 }], progress: 0 },
+    ] });
+    await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [{ id: 'a1', date: '2025-04-30', amount: 15.2e9, taskId: 'l' }, { id: 'a2', date: '2026-03-31', amount: 3.4e9, taskId: 'e' }], statusUpdates: [], reserves: { contingency: 0, management: 0 } });
+    await PM.projectOps.update(pid, { statusDate: '2026-09-30' });
+  }, pid4);
+  await gotoView(page, 'tablero');
+  await wait(page, 500);
+  for (const [vw, vh] of [[1360, 900], [1920, 1080], [400, 860], [2560, 1440]]) {
+    await page.setViewportSize({ width: vw, height: vh });
+    await wait(page, 400);
+    const ax = await axisRead();
+    check(`curva S de varios años (${vw} px): cada etiqueta del eje x lleva o hereda su año correcto`, ax.labels.length >= 2 && /\d{4}/.test(ax.labels[0]) && ax.bad.length === 0, ax);
+    check(`curva S de varios años (${vw} px): etiquetas sin superponerse ni recortarse, a paso de calendario constante`, ax.overlap.length === 0 && ax.clipped.length === 0 && new Set(ax.steps).size <= 1 && [1, 2, 3, 4, 6, 12, 24, 36, 60, 120].includes(ax.steps[0] || 1), ax);
+    if (vw === 1360) check('curva S de varios años (1360 px): más de dos marcas en el eje', ax.labels.length > 2, ax);
+  }
+  /* ruta sugerida: en cada fase las filas llegan al borde derecho (sin pista vacía) y se reparten parejas */
+  const routeBtn = page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' });
+  if (await routeBtn.count()) await routeBtn.click();
+  for (const [vw, vh] of [[2560, 1440], [1920, 1080], [1360, 900], [1100, 900]]) {
+    await page.setViewportSize({ width: vw, height: vh });
+    await wait(page, 400);
+    const grid = await page.$$eval('[data-card="route"] .dashboard-steps', (ols) => ols.map((ol) => {
+      const r = ol.getBoundingClientRect(); const items = [...ol.children].map((c) => c.getBoundingClientRect());
+      const rows = []; for (const b of items) { const row = rows.find((x) => Math.abs(x.top - b.top) < 2); if (row) { row.n++; row.right = Math.max(row.right, b.right); } else rows.push({ top: b.top, n: 1, right: b.right }); }
+      return { n: items.length, rows: rows.map((x) => x.n), gap: Math.round(r.right - rows[0].right), minW: Math.round(Math.min(...items.map((b) => b.width))) };
+    }));
+    check(`ruta sugerida (${vw} px): la primera fila de cada fase llega al borde y las filas son parejas`, grid.length === 2 && grid.every((g) => g.gap <= 2 && Math.max(...g.rows) - Math.min(...g.rows) <= 1 && g.minW >= 220), grid);
+  }
+  await page.setViewportSize({ width: 1360, height: 900 });
+  await wait(page, 300);
+
   /* ------------------------------------------------------------ 11. proyecto de ejemplo (página completa) */
   if (await page.evaluate(() => !!(PM.exampleBuilders && PM.exampleBuilders.length))) {
     await page.evaluate(() => PM.createExampleProject('andamio'));
@@ -647,6 +709,21 @@ try {
     await shot('14-tablero-ejemplo-ruta');
     const ovEx = await horizontalOverflow(page);
     check('ejemplo: sin desborde horizontal', ovEx <= 1, ovEx);
+  }
+
+  /* ------------------------------------------------------------ 12. ejemplo de Medellín (página completa) */
+  if (await page.evaluate(() => !!(PM.getExample && PM.getExample('medellin')) && !!PM.getView('cronograma'))) {
+    await page.evaluate(() => PM.createExampleProject('medellin'));
+    await page.waitForFunction(() => PM.getState().view === 'tablero', null, { timeout: 30000 });
+    await wait(page, 1200);
+    const med = await page.evaluate(() => ({ fin: document.querySelector('[data-kpi="fin"] .stat-value').textContent.trim(), source: document.querySelector('[data-kpi="fin"] .stat-value').getAttribute('data-source'), earned: !!document.querySelector('[data-kpi="fin"] [data-earned]') }));
+    const medAx = await axisRead();
+    check('Medellín: eje x de la curva S con el año en cada etiqueta o heredado sin ambigüedad', medAx.labels.length > 2 && medAx.bad.length === 0 && medAx.overlap.length === 0, medAx);
+    await gotoView(page, 'cronograma');
+    await page.waitForSelector('.sched-strip [data-stat="forecast"]');
+    const medStrip = (await page.locator('.sched-strip [data-stat="forecast"]').innerText()).split('\n').map((x) => x.trim()).filter(Boolean);
+    check('Medellín: «Fin pronosticado» del tablero = «Fin pronosticado al corte» del cronograma', med.source === 'red' && medStrip[1] === med.fin, { med, medStrip });
+    await gotoView(page, 'tablero');
   }
 
   const cards = await errorCards(page);

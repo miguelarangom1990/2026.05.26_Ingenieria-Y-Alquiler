@@ -176,6 +176,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
 
   /* ---------------------------------------------------------------- utilidades */
   const fd = (iso) => (D.valid(iso) ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4) : '—');
+  /* Rango con año: «13 ene – 19 ene 2027», o «29 dic 2026 – 04 ene 2027» si cruza el año (cronogramas de varios años). */
+  const rangeTxt = (a, b, sep = ' – ') => (D.valid(a) && D.valid(b) && a.slice(0, 4) !== b.slice(0, 4) ? fmt.date(a) : fmt.date(a, 'dm')) + sep + fmt.date(b);
   const tw = (s, px = 11) => String(s == null ? '' : s).length * px * 0.56;
   const fit = (s, w, px = 11) => { s = String(s == null ? '' : s); if (tw(s, px) <= w) return s; const n = Math.floor(w / (px * 0.56)) - 1; return n > 1 ? s.slice(0, n) + '…' : ''; };
   const lagSigned = (lag) => (lag > 0 ? '+' + lag : lag < 0 ? '−' + Math.abs(lag) : '');
@@ -728,7 +730,19 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const showFc = fcAvail && !fcHidden;
     const colSet = colsPref === 'auto' ? (frameW && frameW < 960 ? 'compact' : 'full') : colsPref;
     const cols = COLSETS[colSet] || COLSETS.full;
-    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : GCOLS[k].w);
+    /* «Dur.» crece con la duración más larga que puede mostrarse (actividades y, al agrupar, el resumen más largo,
+       que nunca supera el plazo total), para que «1.320 d» no se corte. No depende de los grupos contraídos. */
+    const durW = useMemo(() => {
+      let n = 0; for (const t of sched.tasks) n = Math.max(n, num(t.duration));
+      if (group && sched.tasks.length && D.valid(sched.start) && D.valid(sched.finish)) n = Math.max(n, sched.cal.countWork(sched.start, sched.finish));
+      return Math.max(GCOLS.dur.w, Math.ceil((fmt.num(n) + ' d').length * 7.8 + 13));
+    }, [sched, group]);
+    /* «EDT» igual: códigos de 4 niveles («1.5.1.1», mono) no caben en 52 px. Los resúmenes tienen códigos más cortos que sus actividades. */
+    const codeW = useMemo(() => {
+      let n = 0; for (const t of sched.tasks) { const c = t.wbsId && tree.codes.get(t.wbsId); if (c) n = Math.max(n, String(c).length); }
+      return Math.max(GCOLS.code.w, Math.ceil(n * 7 + 12));
+    }, [sched, tree]);
+    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : k === 'dur' ? durW : k === 'code' ? codeW : GCOLS[k].w);
     const gridW = cols.reduce((s, k) => s + colW(k), 0);
     const gridTemplate = cols.map((k) => colW(k) + 'px').join(' ');
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
@@ -1725,7 +1739,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [wrapRef, cw] = useWidth();
     const P = model.periods;
     const single = selKey !== '__all' ? model.list.find((R) => R.key === selKey) : null;
-    const M = { l: 40, r: 18, t: 26, b: 34 };
+    /* En escala Semana las etiquetas «dd mmm» no llevan año: una segunda fila (como el nivel superior del Gantt) marca cada mes
+       con su año («ene 2027»), así ninguna semana queda sin año a la vista en cronogramas de varios años. Los inicios de año van en negrita. */
+    const monthRow = [];
+    if (bucket !== 'mes') P.forEach((p, i) => { const ym = p.start.slice(0, 7); if (!i || ym !== P[i - 1].start.slice(0, 7)) monthRow.push({ i, ym, jan: ym.slice(5) === '01', label: PM.MONTHS[+ym.slice(5, 7) - 1] + ' ' + ym.slice(0, 4) }); });
+    const M = { l: 40, r: 18, t: 26, b: monthRow.length ? 50 : 34 };
     const slotMin = bucket === 'mes' ? 64 : 34;
     const plotW = Math.max(P.length * slotMin, (cw || 640) - M.l - M.r - 2);
     const slot = plotW / Math.max(1, P.length);
@@ -1737,7 +1755,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const step = Math.max(1, Math.ceil((tw(P[0] ? P[0].label : '') + 10) / slot));
     const showTip = (e, p) => {
       if (!tipApi.current) return;
-      const per = (bucket === 'mes' ? 'Mes de ' + PM.MONTHS_LONG[+p.start.slice(5, 7) - 1] + ' ' + p.start.slice(0, 4) : 'Semana del ' + fmt.date(p.start, 'dm') + ' al ' + fmt.date(p.end));
+      const per = (bucket === 'mes' ? 'Mes de ' + PM.MONTHS_LONG[+p.start.slice(5, 7) - 1] + ' ' + p.start.slice(0, 4) : 'Semana del ' + rangeTxt(p.start, p.end, ' al '));
       if (single) {
         const x = p.byRes.get(single.key);
         tipApi.current.show(e, html`<div><strong>${single.name}</strong><div class="xsmall faint">${per}</div><div class="sched-tipgrid">
@@ -1788,6 +1806,12 @@ button.sched-day:hover { border-color: var(--line-strong); }
           ${limY !== null ? html`<g pointer-events="none"><line x1=${M.l} x2=${M.l + plotW} y1=${limY} y2=${limY} stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="5 3" />
             <rect x=${M.l + plotW - tw(limLabel) - 10} y=${limY - 17} width=${tw(limLabel) + 8} height="14" rx="2" fill="var(--surface)" /><text x=${M.l + plotW - 6} y=${limY - 6} text-anchor="end" style="fill:var(--fg)">${limLabel}</text></g>` : null}
           ${P.map((p, i) => (i % step === 0 ? html`<text key=${'x' + p.start} x=${M.l + i * slot + slot / 2} y=${M.t + PH + 16} text-anchor="middle">${p.label}</text>` : null))}
+          ${monthRow.map((mo, k) => {
+            const x0 = M.l + mo.i * slot; const nxt = monthRow[k + 1];
+            const room = (nxt ? nxt.i * slot : plotW + M.r) - mo.i * slot;
+            return html`<g key=${'mo' + mo.ym} class="sched-hist-month" data-month=${mo.ym}>${mo.i ? html`<line x1=${x0} x2=${x0} y1=${M.t + PH + 21} y2=${M.t + PH + 36} stroke=${mo.jan ? 'var(--axis)' : 'var(--grid)'} />` : null}
+              ${room >= tw(mo.label) + 8 ? html`<text x=${x0 + 4} y=${M.t + PH + 32} text-anchor="start" style=${mo.jan ? 'font-weight:600' : null}>${mo.label}</text>` : null}</g>`;
+          })}
           <text x=${M.l + plotW} y=${Ht - 4} text-anchor="end" class="sched-faint">${bucket === 'mes' ? 'Mes' : 'Semana (lunes)'}</text>
         </svg>
         <${TipLayer} host=${hostRef} api=${tipApi} />
@@ -1866,7 +1890,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ${model.conflicts.length ? html`<div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-conflicts">
           <thead><tr><th>Periodo</th><th>Recurso</th><th class="num">Demanda máxima</th><th class="num">Disponible</th><th class="num">Días sobreasignados</th><th>Primer día</th><th>Actividades involucradas</th></tr></thead>
           <tbody>${model.conflicts.map((c) => html`<tr key=${c.key}>
-            <td class="nowrap">${bucket === 'mes' ? PM.MONTHS_LONG[+c.per.start.slice(5, 7) - 1] + ' ' + c.per.start.slice(0, 4) : fmt.date(c.per.start, 'dm') + ' – ' + fmt.date(c.per.end, 'dm')}</td>
+            <td class="nowrap">${bucket === 'mes' ? PM.MONTHS_LONG[+c.per.start.slice(5, 7) - 1] + ' ' + c.per.start.slice(0, 4) : rangeTxt(c.per.start, c.per.end)}</td>
             <td><span class="row" style="gap:6px;flex-wrap:nowrap"><span class="swatch" style=${'background:' + c.R.color}></span>${c.R.name}</span></td>
             <td class="num" style="color:var(--crit);font-weight:600">${fmt.num(c.demand, 2)}</td>
             <td class="num">${fmt.num(c.limit, 2)}</td>
@@ -1880,7 +1904,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table table-tight sched-tbl sched-matrix">
           <thead><tr><th class="num">#</th><th>Actividad</th><th>Fechas</th>${model.list.map((R) => html`<th key=${R.key} class="u" title=${R.name}><span class="row" style="gap:5px;flex-wrap:nowrap;justify-content:center"><span class="swatch" style=${'background:' + R.color}></span>${fit(R.name, 140)}</span></th>`)}</tr></thead>
           <tbody>${matrixTasks.map((t) => html`<tr key=${t.id}>
-            <td class="num faint">${idx.get(t.id)}</td><td class="wrap">${taskName(t)}</td><td class="mono xsmall">${fmt.date(t.startDate, 'dm')} – ${fmt.date(t.finishDate, 'dm')}</td>
+            <td class="num faint">${idx.get(t.id)}</td><td class="wrap">${taskName(t)}</td><td class="mono xsmall nowrap">${rangeTxt(t.startDate, t.finishDate)}</td>
             ${model.list.map((R) => { const u = unitsOf(t, R); return html`<td key=${R.key} class=${cx('u', u > 0 && 'has')}>${u > 0 ? fmt.num(u, 2) : ''}</td>`; })}
           </tr>`)}</tbody>
           <tfoot><tr><td></td><td colspan="2">Total días-recurso</td>${model.list.map((R) => html`<td key=${R.key} class="u">${fmt.num(R.rd, 1)}</td>`)}</tr></tfoot>

@@ -253,7 +253,19 @@ try {
 
   step('Edición de campos');
   await page.fill('#docs-f-proposito', PROPOSITO);
+  await page.fill('#docs-f-codigoInterno', 'Código interno del cliente con una descripción larga que no cabe en una sola línea de la columna de campos cortos');
+  await page.waitForTimeout(150);
+  const tl = await page.evaluate(() => { const el = document.querySelector('#docs-f-codigoInterno'); const g = el.closest('.docs-run'); return { tag: el.tagName, ch: el.clientHeight, sh: el.scrollHeight, w: Math.round(el.getBoundingClientRect().width), lh: parseFloat(getComputedStyle(el).lineHeight), cols: g ? getComputedStyle(g).gridTemplateColumns.split(' ').length : 0 }; });
+  check(tl.cols >= 3 && tl.w < 420, 'los campos cortos van en una rejilla de columnas angostas, no estirados a media página (' + JSON.stringify(tl) + ')');
+  check(tl.tag === 'TEXTAREA' && tl.sh <= tl.ch + 1 && tl.ch > tl.lh * 1.5, 'un valor largo en un campo corto se parte en varias líneas sin recortarse');
+  await page.focus('#docs-f-codigoInterno');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  check(!/\n/.test(await page.inputValue('#docs-f-codigoInterno')), 'Enter no agrega saltos de línea en un campo de texto corto');
   await page.fill('#docs-f-codigoInterno', 'CLI-778');
+  await page.waitForTimeout(150);
+  const tl1 = await page.evaluate(() => { const el = document.querySelector('#docs-f-codigoInterno'); return { ch: el.clientHeight, lh: parseFloat(getComputedStyle(el).lineHeight) }; });
+  check(tl1.ch < tl1.lh * 1.5 + 12, 'al acortar el valor el campo vuelve a una línea (' + JSON.stringify(tl1) + ')');
   await page.selectOption('#docs-f-nivelRiesgo', 'Alto');
   await page.check('#docs-f-requiereInterventoria');
   await page.fill('#docs-f-duracionSemanas', '20');
@@ -484,6 +496,11 @@ try {
   await page.waitForTimeout(100);
   const tsz = await page.evaluate(() => { const el = document.querySelector('.docs-title-input'); return { tag: el.tagName, ch: el.clientHeight, sh: el.scrollHeight, cw: el.clientWidth, sw: el.scrollWidth, lh: parseFloat(getComputedStyle(el).lineHeight) }; });
   check(tsz.tag === 'TEXTAREA' && tsz.sh <= tsz.ch + 1 && tsz.sw <= tsz.cw + 1 && tsz.ch > tsz.lh * 1.5, 'un título largo se parte en varias líneas sin recortarse (' + JSON.stringify(tsz) + ')');
+  const tw = await page.evaluate(() => {
+    const el = document.querySelector('.docs-title-input'); const ht = el.closest('.page-head-text'); const head = el.closest('.page-head');
+    return { w: Math.round(el.getBoundingClientRect().width), text: Math.round(ht.getBoundingClientRect().width), max: parseFloat(getComputedStyle(ht).maxWidth), head: Math.round(head.getBoundingClientRect().width), lines: Math.round(el.clientHeight / parseFloat(getComputedStyle(el).lineHeight)) };
+  });
+  check(tw.text >= Math.min(tw.max, tw.head) - 2 && tw.w >= tw.text && tw.lines === 2, 'el título editable ocupa el ancho del encabezado como el título en lectura, no el ancho por defecto de un área de texto (' + JSON.stringify(tw) + ')');
   await page.fill('.docs-title-input', 'Reunión de arranque con el cliente');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(900);
@@ -759,6 +776,43 @@ try {
       const csv2 = (await p.evaluate(() => window.__dl))[0];
       const lines = csv2 ? csv2.data.split(/\r?\n/) : [];
       check(lines.some((l) => /;\d{2}\/\d{2}\/\d{4} \d{2}:\d{2};\d{2}\/\d{2}\/\d{4};/.test(l)) && !lines.some((l) => /;\d{4}-\d{2}-\d{2};/.test(l) || /\d{2} [a-z]{3} \d{4}, \d{2}:\d{2}/.test(l)), 'CSV: actualizado dd/mm/aaaa hh:mm y aprobación dd/mm/aaaa, sin ISO ni nombres de mes');
+      step('Integración: ancho de los campos y medida del texto (1360 y 2560 px)');
+      const longDoc = await p.evaluate(async () => {
+        const docs = await PM.store.list(PM.paths.docs(PM.getState().projectId));
+        let id = null, len = 0;
+        for (const d of docs) {
+          const t = d.data && PM.templates[d.data.template]; if (!t || d.data.status !== 'aprobado') continue;
+          for (const s of t.sections || []) for (const f of s.fields || []) if (f.type === 'textarea') { const v = String((d.data.fields || {})[f.key] || ''); if (v.length > len && !v.includes('\n')) { len = v.length; id = d.id; } }
+        }
+        return { id, len };
+      });
+      const measure = () => p.evaluate(() => {
+        const cpl = (el) => { const tn = el.firstChild; if (!tn || tn.nodeType !== 3) return 0; const r = document.createRange(); let top = null, n = 0; for (let i = 0; i < tn.length; i++) { r.setStart(tn, i); r.setEnd(tn, i + 1); const b = r.getClientRects()[0]; if (!b) continue; if (top === null) top = b.top; if (b.top > top + 4) break; n++; } return n; };
+        const cells = [...document.querySelectorAll('.docs-run.is-long > [data-field]')];
+        let lim = 0; if (cells.length) { const s = document.createElement('div'); s.style.cssText = 'position:absolute;visibility:hidden;width:70ch'; cells[0].appendChild(s); lim = s.getBoundingClientRect().width; s.remove(); }
+        const ros = [...document.querySelectorAll('.docs-run.is-long .docs-ro')].filter((e) => e.textContent.length > 240);
+        const tables = [...document.querySelectorAll('.docs-run.is-table .table-wrap')].map((t) => t.getBoundingClientRect().width / t.closest('.card-body').clientWidth);
+        return {
+          paras: ros.length, cpl: Math.max(0, ...ros.map(cpl)), widest: Math.round(Math.max(0, ...cells.map((c) => c.getBoundingClientRect().width))), lim: Math.round(lim),
+          shortCols: Math.max(0, ...[...document.querySelectorAll('.docs-run.is-short')].map((g) => getComputedStyle(g).gridTemplateColumns.split(' ').length)),
+          tableFrac: tables.length ? Math.round(Math.min(...tables) * 100) / 100 : 1, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      if (!longDoc.id) check(false, 'hay un documento aprobado con texto largo en el ejemplo');
+      else {
+        await p.evaluate((id) => PM.openDocument(id), longDoc.id);
+        await p.waitForTimeout(500);
+        for (const [w, h] of [[1360, 900], [2560, 1200]]) {
+          await p.setViewportSize({ width: w, height: h });
+          await p.waitForTimeout(400);
+          const m = await measure();
+          check(m.paras >= 1 && m.cpl >= 45 && m.cpl <= 95, w + ' px: el texto corrido en lectura queda entre 45 y 95 caracteres por línea (' + longDoc.id + ', ' + JSON.stringify(m) + ')');
+          check(m.widest <= m.lim + 1, w + ' px: los campos de texto largo no pasan de 70ch');
+          check(m.tableFrac >= 0.9 && m.overflow <= 0, w + ' px: las tablas usan todo el ancho de la tarjeta, sin desborde de la página');
+          if (w === 2560) check(m.shortCols >= 4, w + ' px: los campos cortos se reparten en varias columnas (' + m.shortCols + ')');
+        }
+        await p.setViewportSize({ width: 1360, height: 900 });
+      }
       await noErrorCards(p, 'integración');
       check(!ex.errors.length, 'sin errores de consola (integración)' + (ex.errors.length ? ': ' + ex.errors.join(' | ').slice(0, 600) : ''));
     }

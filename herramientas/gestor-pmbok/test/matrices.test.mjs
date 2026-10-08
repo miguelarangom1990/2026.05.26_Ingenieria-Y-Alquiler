@@ -135,6 +135,42 @@ const ambiguousLabels = (page) => page.evaluate(() => {
   }
   return out;
 });
+/* Diagrama de Ishikawa: textos superpuestos, fuera del lienzo o que cruzan una espina. */
+const fishIssues = (page) => page.evaluate(() => {
+  const svg = document.querySelector('[data-fishbone] svg');
+  const els = [...svg.querySelectorAll('text')].map((t) => { const b = t.getBBox(); return [b.x, b.y, b.width, b.height, t.textContent]; });
+  const W = +svg.getAttribute('width'), H = +svg.getAttribute('height');
+  const bones = [...svg.querySelectorAll('line[data-bone]')].map((l) => [+l.getAttribute('x1'), +l.getAttribute('y1'), +l.getAttribute('x2'), +l.getAttribute('y2')]);
+  const overlap = [], outside = [], cross = new Set();
+  for (let i = 0; i < els.length; i++) for (let j = i + 1; j < els.length; j++) { const [x1, y1, w1, h1, t1] = els[i], [x2, y2, w2, h2, t2] = els[j]; if (x1 < x2 + w2 - 1 && x2 < x1 + w1 - 1 && y1 < y2 + h2 - 1 && y2 < y1 + h1 - 1) overlap.push(t1 + ' / ' + t2); }
+  for (const [x, y, w, h, t] of els) if (!(x >= 0 && y >= 0 && x + w <= W + 1 && y + h <= H + 1)) outside.push(t);
+  /* ningún texto de causa cruza una espina */
+  for (const [x, y, w, h, t] of els) for (const [x1, y1, x2, y2] of bones) {
+    for (let k = 0; k <= 10; k++) { const yy = y + (h * k) / 10; if ((yy - y1) * (yy - y2) > 0) continue; const xx = x1 + ((x2 - x1) * (yy - y1)) / (y2 - y1 || 1); if (xx > x + 1 && xx < x + w - 1) { cross.add(t); break; } }
+  }
+  return { overlap, outside, cross: [...cross] };
+});
+/* Etiquetas superpuestas en la matriz de poder e interés. */
+const piOverlaps = (page) => page.evaluate(() => {
+  const texts = [...document.querySelectorAll('[data-pi-chart] g[pointer-events="none"] text')].map((t) => { const b = t.getBBox(); return [b.x, b.y, b.width, b.height, t.textContent]; });
+  const out = [];
+  for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) { const [x1, y1, w1, h1, a] = texts[i], [x2, y2, w2, h2, b] = texts[j]; if (x1 < x2 + w2 - 1 && x2 < x1 + w1 - 1 && y1 < y2 + h2 - 1 && y2 < y1 + h1 - 1) out.push(a + ' / ' + b); }
+  return out;
+});
+/* Espacio vacío (px) entre el borde derecho del elemento y el borde derecho útil de la vista (sin el relleno). */
+const rightGap = (page, sel) => page.evaluate((sel) => {
+  const host = document.querySelector('.view-host');
+  const right = host.getBoundingClientRect().right - parseFloat(getComputedStyle(host).paddingRight);
+  const els = [...document.querySelectorAll(sel)].filter((el) => el.getClientRects().length);
+  if (!els.length) return null;
+  return Math.round(right - Math.max(...els.map((el) => el.getBoundingClientRect().right)));
+}, sel);
+/* Espacio vacío (px) dentro de una rejilla: borde derecho de la rejilla menos el del hijo más a la derecha. */
+const gridGap = (page, sel) => page.evaluate((sel) => {
+  const g = document.querySelector(sel);
+  if (!g) return null;
+  return Math.round(g.getBoundingClientRect().right - Math.max(...[...g.children].map((c) => c.getBoundingClientRect().right)));
+}, sel);
 /* Rótulos del eje X del Pareto: cada rótulo debe conservar palabras completas. */
 const brokenParetoLabels = (page) => page.evaluate(() => [...document.querySelectorAll('[data-pareto-chart] g[data-xlabel]')].map((g) => {
   const cause = g.getAttribute('data-xlabel'); const lines = [...g.querySelectorAll('text')].map((t) => t.textContent);
@@ -625,23 +661,10 @@ try {
     for (const t of ['Rotación de montadores', 'Salarios por debajo', 'Lluvias en la tarde', 'EFECTO', 'Mano de obra', 'Medio ambiente']) assert(svgText.includes(t), 'texto en el diagrama: ' + t);
   });
   await step('Calidad: el diagrama de Ishikawa no superpone textos', async () => {
-    const res = await page.evaluate(() => {
-      const svg = document.querySelector('[data-fishbone] svg');
-      const els = [...svg.querySelectorAll('text')].map((t) => { const b = t.getBBox(); return [b.x, b.y, b.width, b.height, t.textContent]; });
-      const W = +svg.getAttribute('width'), H = +svg.getAttribute('height');
-      const bones = [...svg.querySelectorAll('line[data-bone]')].map((l) => [+l.getAttribute('x1'), +l.getAttribute('y1'), +l.getAttribute('x2'), +l.getAttribute('y2')]);
-      return { els, W, H, bones };
-    });
-    const bad = [];
-    for (let i = 0; i < res.els.length; i++) for (let j = i + 1; j < res.els.length; j++) { const [x1, y1, w1, h1, t1] = res.els[i], [x2, y2, w2, h2, t2] = res.els[j]; if (x1 < x2 + w2 - 1 && x2 < x1 + w1 - 1 && y1 < y2 + h2 - 1 && y2 < y1 + h1 - 1) bad.push(t1 + ' / ' + t2); }
-    eq(bad, [], 'textos superpuestos');
-    for (const [x, y, w, h, t] of res.els) assert(x >= 0 && y >= 0 && x + w <= res.W + 1 && y + h <= res.H + 1, 'texto fuera del lienzo: ' + t);
-    // ningún texto de causa cruza una espina
-    const cross = [];
-    for (const [x, y, w, h, t] of res.els) for (const [x1, y1, x2, y2] of res.bones) {
-      for (let k = 0; k <= 10; k++) { const yy = y + (h * k) / 10; if ((yy - y1) * (yy - y2) > 0) continue; const xx = x1 + ((x2 - x1) * (yy - y1)) / (y2 - y1 || 1); if (xx > x + 1 && xx < x + w - 1) { cross.push(t); break; } }
-    }
-    eq([...new Set(cross)], [], 'textos que cruzan espinas');
+    const f = await fishIssues(page);
+    eq(f.overlap, [], 'textos superpuestos');
+    eq(f.outside, [], 'textos fuera del lienzo');
+    eq(f.cross, [], 'textos que cruzan espinas');
   });
   await step('Calidad: descargar SVG del Ishikawa, renombrar y eliminar diagramas', async () => {
     await page.getByRole('button', { name: 'Descargar SVG' }).click();
@@ -851,6 +874,83 @@ for (const variant of [{ name: 'light' }, { name: 'dark', dark: true }, { name: 
       }
     }
     await step(`Captura ${variant.name}: sin errores de consola`, async () => eq(app.errors, [], 'errores de consola'));
+  } finally { await app.browser.close(); }
+}
+
+/* ------------------------------------------------------------------ pantallas anchas: los gráficos usan todo el ancho */
+/* La prueba de ancho del riel (shell.test) mira el elemento más a la derecha de la vista; aquí se mide cada gráfico,
+   porque una tarjeta o tabla de ancho completo no debe ocultar un gráfico de ancho fijo con una franja vacía al lado. */
+for (const [width, height] of [[1920, 1080], [2560, 1440]]) {
+  const app = await openApp({ file, width, height });
+  const p = app.page;
+  try {
+    const p3 = await createProject(p, { name: 'EJEMPLO · Andamio multidireccional Torre 2 — Edificio Altavista', code: 'PRY-2026-014' });
+    await p.waitForTimeout(200);
+    await seed(p, p3, { full: true });
+    await p.mouse.move(Math.round(width * 0.6), Math.round(height * 0.6));
+    for (const collapsed of width === 1920 ? [false, true] : [true]) {
+      const tag = width + ' px, riel ' + (collapsed ? 'plegado' : 'desplegado');
+      if (collapsed) { await p.click('.rail-fold'); await p.waitForTimeout(400); }
+      const go = async (v, tab) => { await p.evaluate(({ v, tab }) => PM.navigate(v, tab ? { tab } : undefined), { v, tab }); await p.waitForTimeout(450); };
+      await step(`Ancho ${tag}: matriz de poder e interés a todo el ancho, sin etiquetas superpuestas ni ambiguas`, async () => {
+        await go('interesados-matriz', 'poder');
+        const gap = await rightGap(p, '[data-pi-chart]');
+        assert(gap !== null && gap <= 2, 'franja vacía a la derecha de la matriz: ' + gap + ' px');
+        eq(await piOverlaps(p), [], 'etiquetas superpuestas');
+        eq(await ambiguousLabels(p), [], 'etiquetas ambiguas');
+        const h = await p.locator('[data-pi-chart]').evaluate((el) => +el.getAttribute('height'));
+        assert(h >= 540 && h <= 680, 'altura de la matriz fuera de 540–680 px: ' + h);
+      });
+      await step(`Ancho ${tag}: mapas de calor (dos lado a lado; uno solo a todo el ancho)`, async () => {
+        await go('riesgos-matriz');
+        const seg = p.getByRole('group', { name: 'Matrices visibles' });
+        const blocks = await p.locator('.matrices-heat-block').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width)]; }));
+        assert(blocks.length === 2 && blocks[0][1] === blocks[1][1] && Math.abs(blocks[0][2] - blocks[1][2]) <= 1, 'amenazas y oportunidades lado a lado: ' + JSON.stringify(blocks));
+        assert((await rightGap(p, '.matrices-heat-block')) <= 2, 'franja vacía junto a los mapas de calor');
+        for (const name of ['Amenazas', 'Oportunidades']) {
+          await seg.getByRole('button', { name, exact: true }).click();
+          await p.waitForTimeout(150);
+          const gap = await rightGap(p, '.matrices-heat-block');
+          assert(gap !== null && gap <= 2, 'franja vacía junto al mapa de ' + name + ': ' + gap + ' px');
+        }
+        await seg.getByRole('button', { name: 'Amenazas y oportunidades' }).click();
+      });
+      await step(`Ancho ${tag}: Ishikawa a todo el ancho, sin textos superpuestos; categorías sin columnas vacías`, async () => {
+        await go('calidad', 'ishikawa');
+        const gap = await rightGap(p, '[data-fishbone] svg');
+        assert(gap !== null && gap <= 2, 'franja vacía a la derecha del diagrama: ' + gap + ' px');
+        assert(await p.getByText('El diagrama es más ancho que la pantalla').count() === 0, 'no debe pedir desplazamiento horizontal');
+        const f = await fishIssues(p);
+        eq(f.overlap, [], 'textos superpuestos');
+        eq(f.outside, [], 'textos fuera del lienzo');
+        eq(f.cross, [], 'textos que cruzan espinas');
+        const g = await gridGap(p, '.matrices-cat-grid');
+        assert(g !== null && g <= 2, 'columnas vacías en las categorías: ' + g + ' px');
+      });
+      await step(`Ancho ${tag}: Pareto a todo el ancho con rótulos completos`, async () => {
+        await go('calidad', 'pareto');
+        const gap = await rightGap(p, '[data-pareto-chart]');
+        assert(gap !== null && gap <= 2, 'franja vacía a la derecha del Pareto: ' + gap + ' px');
+        eq(await brokenParetoLabels(p), [], 'rótulos partidos a mitad de palabra');
+        const bw = await p.locator('[data-pareto-chart] path[data-vital]').first().evaluate((el) => el.getBBox().width);
+        assert(bw > 24 && bw <= 56, 'ancho de barra: ' + bw);
+      });
+      await step(`Ancho ${tag}: gráfico de control y estadísticas a todo el ancho`, async () => {
+        await go('calidad', 'control');
+        const gap = await rightGap(p, '[data-control-chart]');
+        assert(gap !== null && gap <= 2, 'franja vacía a la derecha del gráfico de control: ' + gap + ' px');
+        const g = await gridGap(p, '.matrices-stats');
+        assert(g !== null && g <= 2, 'espacio vacío dentro del recuadro de estadísticas: ' + g + ' px');
+        const sw = await p.locator('.chart:has([data-control-chart])').evaluate((el) => el.scrollWidth - el.clientWidth);
+        assert(sw <= 0, 'el gráfico de control no debe desplazarse horizontalmente: ' + sw);
+      });
+      await step(`Ancho ${tag}: sin desborde horizontal ni tarjetas de error`, async () => {
+        assert((await horizontalOverflow(p)) <= 1, 'desborde horizontal');
+        eq(await errorCards(p), [], 'tarjetas de error');
+      });
+      if (shots) for (const [v, tab] of [['interesados-matriz', 'poder'], ['calidad', 'ishikawa'], ['calidad', 'pareto']]) { await go(v, tab); await p.screenshot({ path: join(shots, `wide-${width}${collapsed ? 'm' : ''}-${v}-${tab}.png`) }); }
+    }
+    await step(`Ancho ${width} px: sin errores de consola`, async () => eq(app.errors, [], 'errores de consola'));
   } finally { await app.browser.close(); }
 }
 

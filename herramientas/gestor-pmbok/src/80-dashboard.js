@@ -74,7 +74,7 @@
 .dashboard-swatch-none { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .dashboard-route.is-prominent { border-color: var(--accent); box-shadow: inset 0 3px 0 var(--accent), var(--shadow-card); }
 .dashboard-route-meter { width: 140px; }
-.dashboard-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.dashboard-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
 .dashboard-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; height: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); cursor: pointer; color: var(--fg); min-width: 0; }
 .dashboard-step:hover { border-color: var(--line-strong); background: var(--surface-2); }
 .dashboard-step[data-next="true"] { border-color: var(--accent); background: var(--accent-wash); }
@@ -296,10 +296,10 @@
   }
 
   /* ---------------------------------------------------------------- tablero: indicadores */
-  function Tile({ label, value, tone, sub, sub2, sub3, children, action, title, kpi, foot }) {
+  function Tile({ label, value, tone, sub, sub2, sub3, children, action, title, kpi, foot, source }) {
     return html`<div class="card dashboard-tile" data-kpi=${kpi}>
       <div class="stat-label">${label}</div>
-      ${value !== undefined ? html`<div class="stat-value" style=${toneStyle(tone)} title=${title}>${value}</div>` : null}
+      ${value !== undefined ? html`<div class="stat-value" style=${toneStyle(tone)} title=${title} data-source=${source}>${value}</div>` : null}
       ${children}
       ${sub ? html`<div class="stat-sub">${sub}</div>` : null}
       ${sub2 ? html`<div class="stat-sub">${sub2}</div>` : null}
@@ -366,35 +366,41 @@
       eac = { label: 'Estimación a la conclusión (EAC)', value: moneyShort(evm.eac, currency), title: money(evm.eac, currency), tone: vac >= 0 ? 'good' : -vac / bac <= 0.05 ? 'warn' : 'crit', sub: 'BAC ' + moneyShort(bac, currency) + ' · VAC ' + signedMoney(vac, currency) + (vac < 0 ? ' (sobrecosto previsto)' : vac > 0 ? ' (ahorro previsto)' : ''), sub2: 'EAC = BAC / CPI' };
     }
 
-    /* 4. fin pronosticado: por cronograma ganado (si hay valor ganado) y por la red actualizada a la fecha de corte
-       (6.6: lo pendiente no queda antes del corte). Sin valor ganado, el valor es el de la red actualizada, nunca el fin
-       planificado vencido. La variación se mide en días hábiles frente a la misma referencia del cronograma. */
+    /* 4. fin pronosticado. La cifra principal es la de la red actualizada a la fecha de corte (6.6: ruta crítica con lo
+       pendiente reprogramado desde el corte), la misma «Fin pronosticado al corte» del cronograma, los hitos y los
+       informes; nunca el fin planificado vencido. El cronograma ganado (IEAC(t) = PD / SPI(t)) va como contraste: pondera
+       el avance por costo, así que una compra grande ejecutada al inicio puede ocultar el atraso de la ruta crítica (o un
+       atraso fuera de ella adelantarlo). Solo si el modelo no trae la red actualizada manda el cronograma ganado.
+       Las variaciones se miden en días hábiles frente a la misma referencia del cronograma. */
     let fin;
     if (!hasTasks) fin = { value: '—', sub: 'Sin cronograma para pronosticar el fin.', action: ['Crear cronograma', 'cronograma'] };
     else {
+      const hasNet = !!(model.forecast && D.valid(model.forecast.finish));
       const forecast = forecastOf(model);
       const ref = finishRef(model);
       const net = D.valid(forecast.finish) ? forecast.finish : sched.finish;
       const es = D.valid(evm.forecastFinish) ? evm.forecastFinish : null;
-      const fc = es || net;
+      const fc = hasNet || !es ? net : es;
+      const fromNet = fc === net;
       const v = wdDiff(cal, ref.date, fc);
-      const vNet = wdDiff(cal, ref.date, net);
+      const vEs = es ? wdDiff(cal, ref.date, es) : null;
+      /* diferencia entre los dos pronósticos (positiva: el cronograma ganado termina después de la cifra principal) */
+      const gap = es && fromNet ? wdDiff(cal, fc, es) : 0;
       const remaining = statusDate >= fc ? 0 : cal.countWork(D.max(D.add(statusDate, 1), sched.start), fc);
-      /* desplazamiento frente al fin planificado del valor ganado (si la referencia es otra fecha) */
-      const planFin = es && D.valid(evm.planFinish) && evm.planFinish !== ref.date ? evm.planFinish : null;
-      const slip = planFin ? wdDiff(cal, planFin, fc) : null;
       /* el fin planificado ya pasó con trabajo pendiente: el cronograma necesita actualizarse */
       const overdue = sched.finish < statusDate && work.some((t) => t.progress < 100);
       let tone = lateTone(v);
-      if (tone === 'good' && (slip > 0 || (es && vNet > 0))) tone = 'warn';
-      const netText = 'Red actualizada al corte (' + fmt.date(statusDate, 'dm') + '): ruta crítica con el trabajo pendiente reprogramado desde la fecha de corte.';
+      if (tone === 'good' && vEs > 0) tone = 'warn';
+      const netText = 'Red actualizada al corte (' + fmt.date(statusDate, 'dm') + '): ruta crítica con lo pendiente reprogramado desde el corte.';
+      const esLabel = 'Por cronograma ganado (SPI(t) ' + idx(evm.spiT) + ')';
+      const esTitle = 'IEAC(t) = PD / SPI(t): pondera el avance por costo y no sigue la ruta crítica. Es un contraste del pronóstico de la red actualizada a la fecha de corte.';
       fin = {
-        value: fmt.date(fc), tone, title: fmt.date(fc, 'long'),
+        value: fmt.date(fc), tone, title: fmt.date(fc, 'long') + (fromNet ? ' · red actualizada a la fecha de corte' : ' · por cronograma ganado'), source: fromNet ? 'red' : 'cronograma-ganado',
         sub: ref.label + ': ' + fmt.date(ref.date) + ' · ' + (v === 0 ? 'sin variación' : fmt.num(Math.abs(v)) + ' ' + wdUnit(v) + (v > 0 ? ' de atraso' : ' de adelanto')),
-        sub2: es ? 'Pronóstico por cronograma ganado (SPI(t) ' + idx(evm.spiT) + ')' + (slip ? ': ' + fmt.num(Math.abs(slip)) + ' ' + wdUnit(slip) + (slip > 0 ? ' después' : ' antes') + ' del fin planificado del cronograma (' + fmt.date(planFin) + ')' : '')
-          : netText + (overdue ? ' El fin planificado (' + fmt.date(sched.finish) + ') ya pasó con actividades sin terminar: actualiza el avance o reprograma lo pendiente.' : ' Sin valor ganado (costos por actividad y avance) no hay pronóstico por cronograma ganado.'),
-        sub3: es ? html`<div class="stat-sub dashboard-net" data-network=${net} title=${netText}><span class="dashboard-fc-key" aria-hidden="true"></span><span>Red actualizada al corte: <strong>${fmt.date(net)}</strong> · ${varPhrase(vNet, ref.vs)}</span></div>` : null,
-        action: overdue && !es ? ['Actualizar el cronograma', 'cronograma'] : undefined,
+        sub2: fromNet ? netText + (overdue ? ' El fin planificado (' + fmt.date(sched.finish) + ') ya pasó con actividades sin terminar: actualiza el avance o reprograma lo pendiente.' : es ? '' : ' Sin valor ganado (costos por actividad y avance) no hay pronóstico por cronograma ganado.')
+          : esLabel + '. La red actualizada a la fecha de corte no está disponible.',
+        sub3: es && fromNet ? html`<div class="stat-sub dashboard-net" data-earned=${es} title=${esTitle}><span>${esLabel}: <strong>${fmt.date(es)}</strong> · ${varPhrase(vEs, ref.vs)}${Math.abs(gap) >= 10 ? '. Difiere ' + fmt.num(Math.abs(gap)) + ' ' + wdUnit(gap) + ': pondera el avance por costo, no la ruta crítica.' : ''}</span></div>` : null,
+        action: overdue ? ['Actualizar el cronograma', 'cronograma'] : undefined,
         remaining,
       };
     }
@@ -410,7 +416,7 @@
         </div>
       </${Tile}>
       <${Tile} kpi="eac" label=${eac.label} value=${eac.value} title=${eac.title} tone=${eac.tone} sub=${eac.sub} sub2=${eac.sub2} action=${eac.action} />
-      <${Tile} kpi="fin" label="Fin pronosticado" value=${fin.value} title=${fin.title} tone=${fin.tone} sub=${fin.sub} sub2=${fin.sub2} sub3=${fin.sub3} action=${fin.action}
+      <${Tile} kpi="fin" label="Fin pronosticado" value=${fin.value} title=${fin.title} source=${fin.source} tone=${fin.tone} sub=${fin.sub} sub2=${fin.sub2} sub3=${fin.sub3} action=${fin.action}
         foot=${fin.remaining !== undefined ? html`<div class="dashboard-tile-foot" data-remaining=${fin.remaining}><strong>${fmt.num(fin.remaining)}</strong>${fin.remaining === 1 ? 'día hábil restante' : 'días hábiles restantes'} desde la fecha de corte</div>` : null} />
     </div>`;
   }
@@ -432,6 +438,36 @@
     { key: 'ev', label: 'Valor ganado (EV)', color: evmColor('ev', 'var(--s3)') },
     { key: 'ac', label: 'Costo real (AC)', color: evmColor('ac', 'var(--s2)') },
   ];
+  /* Marcas del eje x: inicio de mes cada 1, 2, 3, 4, 6, 12… meses, alineadas con el calendario (trimestres, semestres,
+     años). La etiqueta lleva el año en la primera marca y cada vez que cambia frente a la anterior, así en un plan de
+     varios años ninguna marca queda sin su año. Se toma el paso más corto cuyas etiquetas no se superponen, contando el
+     ajuste en los bordes del lienzo (unos 6,4 px por carácter a 11 px). */
+  const MONTH_STEPS = [1, 2, 3, 4, 6, 12, 24, 36, 60, 120];
+  const AXIS_CHAR_W = 6.4;
+  function monthTicks(months, x, width) {
+    const build = (sel) => {
+      let prevY = null;
+      return sel.map((m) => {
+        const yy = m.slice(0, 4);
+        const label = PM.MONTHS[+m.slice(5, 7) - 1] + (yy !== prevY ? ' ' + yy : '');
+        prevY = yy;
+        const xx = x(m), w = label.length * AXIS_CHAR_W;
+        const end = xx + w / 2 > width - 2, start = !end && xx - w / 2 < 2;
+        const l = end ? width - 2 - w : start ? 2 : xx - w / 2;
+        return { m, x: xx, label, anchor: end ? 'end' : start ? 'start' : 'middle', tx: end ? width - 2 : start ? 2 : xx, l, r: l + w };
+      });
+    };
+    const fits = (t) => t.every((k, i) => i === 0 || k.l >= t[i - 1].r + 8);
+    for (const step of MONTH_STEPS) {
+      const sel = months.filter((m) => (+m.slice(0, 4) * 12 + +m.slice(5, 7) - 1) % step === 0);
+      if (!sel.length) continue;
+      const t = build(sel);
+      if (fits(t)) return t;
+      /* si solo choca la primera marca (dos etiquetas con año seguidas: «jul 2025 · ene 2026»), se omite esa marca */
+      if (sel.length > 2) { const t2 = build(sel.slice(1)); if (fits(t2)) return t2; }
+    }
+    return months.length ? build([months[0]]) : [];
+  }
   function MiniSCurve({ evm, currency }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
@@ -454,9 +490,8 @@
       const y = (v) => M.t + ih - (v / top) * ih;
       const path = (key) => { let d = ''; for (const p of series) { if (!isNum(p[key])) continue; d += (d ? 'L' : 'M') + x(p.date).toFixed(1) + ' ' + y(p[key]).toFixed(1); } return d; };
       const months = []; let m = D.startOfMonth(first); if (m < first) m = D.addMonths(m, 1);
-      let guard = 0; while (m <= last && guard++ < 240) { months.push(m); m = D.addMonths(m, 1); }
-      const every = Math.max(1, Math.ceil(months.length / Math.max(1, Math.floor(iw / 58))));
-      return { M, x, y, iw, ih, ticks, labels, paths: SERIES.map((s) => ({ ...s, d: path(s.key) })), months: months.filter((_, i) => i % every === 0), xs: series.map((p) => x(p.date)), first, last };
+      let guard = 0; while (m <= last && guard++ < 1200) { months.push(m); m = D.addMonths(m, 1); }
+      return { M, x, y, iw, ih, ticks, labels, paths: SERIES.map((s) => ({ ...s, d: path(s.key) })), months: monthTicks(months, x, width), xs: series.map((p) => x(p.date)), first, last };
     }, [series, width, evm.bac, currency]);
     if (!geo) return null;
     const M = geo.M;
@@ -482,14 +517,7 @@
       <svg width=${width} height=${H} viewBox=${'0 0 ' + width + ' ' + H} role="img" aria-label=${aria}>
         ${geo.ticks.map((v, i) => html`<g key=${'y' + v}><line class="grid-line" x1=${M.l} x2=${M.l + geo.iw} y1=${geo.y(v)} y2=${geo.y(v)} /><text x=${M.l - 8} y=${geo.y(v) + 3.5} text-anchor="end">${geo.labels[i]}</text></g>`)}
         <line class="axis-line" x1=${M.l} x2=${M.l + geo.iw} y1=${M.t + geo.ih} y2=${M.t + geo.ih} />
-        ${geo.months.map((m) => {
-          const xx = geo.x(m);
-          const label = PM.MONTHS[+m.slice(5, 7) - 1] + (m.slice(5, 7) === '01' || m === geo.months[0] ? ' ' + m.slice(0, 4) : '');
-          /* la etiqueta no se sale del lienzo en los extremos */
-          const half = label.length * 3.2;
-          const end = xx + half > width - 2, start = xx - half < 2;
-          return html`<g key=${'m' + m}><line class="axis-line" x1=${xx} x2=${xx} y1=${M.t + geo.ih} y2=${M.t + geo.ih + 4} /><text x=${end ? width - 2 : start ? 2 : xx} y=${H - 8} text-anchor=${end ? 'end' : start ? 'start' : 'middle'}>${label}</text></g>`;
-        })}
+        ${geo.months.map((k) => html`<g key=${'m' + k.m} data-month=${k.m}><line class="axis-line" x1=${k.x} x2=${k.x} y1=${M.t + geo.ih} y2=${M.t + geo.ih + 4} /><text x=${k.tx} y=${H - 8} text-anchor=${k.anchor}>${k.label}</text></g>`)}
         ${bacY !== null ? html`<line x1=${M.l} x2=${M.l + geo.iw} y1=${bacY} y2=${bacY} style="stroke:var(--line-strong);stroke-width:1" /><text x=${M.l + 4} y=${bacY - 4}>BAC</text>` : null}
         ${sx !== null ? html`<line x1=${sx} x2=${sx} y1=${M.t - 4} y2=${M.t + geo.ih} style="stroke:var(--signal);stroke-width:1.5" /><text x=${sx > M.l + geo.iw - 40 ? sx - 4 : sx + 4} y=${M.t - 6} text-anchor=${sx > M.l + geo.iw - 40 ? 'end' : 'start'} style="fill:var(--signal-ink);font-weight:600">Corte</text>` : null}
         ${geo.paths.map((s) => (s.d ? html`<path key=${s.key} data-series=${s.key} d=${s.d} style=${'fill:none;stroke:' + s.color + ';stroke-width:2;stroke-linejoin:round;stroke-linecap:round'} />` : null))}
@@ -807,18 +835,29 @@
           ${!prominent ? html`<${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ocultar pasos' : 'Mostrar pasos'}</${ui.Button}>` : null}
         </div>
       </div>
-      ${open ? html`<div class="card-body stack">
-        ${PHASES.map((ph) => {
-          const items = route.map((s, i) => ({ s, i })).filter((x) => x.s.phase === ph.id);
-          if (!items.length) return null;
-          const n = items.filter((x) => x.s.done).length;
-          return html`<div class="stack-sm" key=${ph.id} data-phase=${ph.id}>
-            <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${items.length}</span></div>
-            <ol class="dashboard-steps" start=${items[0].i + 1}>${items.map(({ s, i }) => html`<${RouteStep} key=${s.id} s=${s} i=${i} next=${i === nextIdx} />`)}</ol>
-          </div>`;
-        })}
-      </div>` : null}
+      ${open ? html`<${RouteSteps} route=${route} nextIdx=${nextIdx} />` : null}
     </section>`;
+  }
+  /* Pasos por fase en filas parejas que llegan al borde derecho: con el ancho disponible caben hasta `max` columnas de
+     230 px; cada fase usa las filas necesarias y reparte sus pasos entre ellas (8 pasos en 7 columnas → 4 + 4; 6 pasos en
+     9 columnas → 6). Sin medida (primer cuadro) rige la regla CSS auto-fit. */
+  const STEP_MIN = 230, STEP_GAP = 8;
+  function RouteSteps({ route, nextIdx }) {
+    const ref = useRef();
+    const w = useWidth(ref, 0);
+    const max = w > 0 ? Math.max(1, Math.floor((w + STEP_GAP) / (STEP_MIN + STEP_GAP))) : 0;
+    return html`<div class="card-body"><div class="stack" ref=${ref}>
+      ${PHASES.map((ph) => {
+        const items = route.map((s, i) => ({ s, i })).filter((x) => x.s.phase === ph.id);
+        if (!items.length) return null;
+        const n = items.filter((x) => x.s.done).length;
+        const cols = max ? Math.ceil(items.length / Math.ceil(items.length / max)) : 0;
+        return html`<div class="stack-sm" key=${ph.id} data-phase=${ph.id}>
+          <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${items.length}</span></div>
+          <ol class="dashboard-steps" start=${items[0].i + 1} data-cols=${cols || undefined} style=${cols ? 'grid-template-columns:repeat(' + cols + ', minmax(0, 1fr))' : undefined}>${items.map(({ s, i }) => html`<${RouteStep} key=${s.id} s=${s} i=${i} next=${i === nextIdx} />`)}</ol>
+        </div>`;
+      })}
+    </div></div>`;
   }
 
   /* Sugerencia de estado del proyecto en los hitos del flujo (línea base → En ejecución; informe final o acta de cierre →

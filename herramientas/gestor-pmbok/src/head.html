@@ -35,6 +35,7 @@
   --grid: #e3e7ec;
   --axis: #b3bdc9;
   --rail: #f8f9fb;
+  --rail-shade: rgba(18, 28, 45, 0.2); /* sombra que avisa que el riel tiene más contenido arriba o abajo */
   /* series (categóricas, orden fijo) */
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
   /* grupos de procesos */
@@ -57,7 +58,7 @@
     --accent: #85a2ff; --accent-hover: #a3b9ff; --accent-wash: #1c2847; --accent-fg: #0a1020;
     --signal: #f2953f; --signal-wash: #3a2513; --signal-ink: #f2953f;
     --good: #45cc76; --good-wash: #12301e; --warn: #f0b443; --warn-wash: #392a0e; --crit: #ff6f6b; --crit-wash: #3d1819; --crit-fg: #151c25;
-    --info: #6cb3ea; --info-wash: #13293b; --grid: #232d39; --axis: #3d4a5b; --rail: #111821;
+    --info: #6cb3ea; --info-wash: #13293b; --grid: #232d39; --axis: #3d4a5b; --rail: #111821; --rail-shade: rgba(0, 0, 0, 0.6);
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
     --g-inicio: #3987e5; --g-planificacion: #d95926; --g-ejecucion: #199e70; --g-monitoreo: #c98500; --g-cierre: #9085e9;
     --shadow-pop: 0 12px 34px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -71,7 +72,7 @@
   --accent: #85a2ff; --accent-hover: #a3b9ff; --accent-wash: #1c2847; --accent-fg: #0a1020;
   --signal: #f2953f; --signal-wash: #3a2513; --signal-ink: #f2953f;
   --good: #45cc76; --good-wash: #12301e; --warn: #f0b443; --warn-wash: #392a0e; --crit: #ff6f6b; --crit-wash: #3d1819; --crit-fg: #151c25;
-  --info: #6cb3ea; --info-wash: #13293b; --grid: #232d39; --axis: #3d4a5b; --rail: #111821;
+  --info: #6cb3ea; --info-wash: #13293b; --grid: #232d39; --axis: #3d4a5b; --rail: #111821; --rail-shade: rgba(0, 0, 0, 0.6);
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
   --g-inicio: #3987e5; --g-planificacion: #d95926; --g-ejecucion: #199e70; --g-monitoreo: #c98500; --g-cierre: #9085e9;
   --shadow-pop: 0 12px 34px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -80,7 +81,7 @@
 }
 
 html, body { height: 100%; }
-body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-md); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-md); line-height: 1.5; -webkit-font-smoothing: antialiased; }
 *, *::before, *::after { box-sizing: border-box; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
@@ -92,10 +93,12 @@ p { margin: 0; }
 
 /* ---------- shell ---------- */
 #app { min-height: 100%; }
-.app { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); min-height: 100%; }
+.app { --rail-mini: 60px; --rail-track: var(--rail-w); display: grid; grid-template-columns: var(--rail-track) minmax(0, 1fr); min-height: 100%; }
 .rail { position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; height: 100dvh; overflow-y: auto; background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; padding-block: 16px 20px; }
 .rail-inner { display: flex; flex-direction: column; gap: 14px; padding-inline: 14px; }
-.brand { display: flex; align-items: center; gap: 10px; padding-inline: 4px; }
+.rail-head { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; padding-inline: 4px; flex: 1; min-width: 0; }
+.brand-text { min-width: 0; }
 .brand-mark { width: 30px; height: 30px; flex: none; color: var(--accent); }
 .brand-name { font-family: var(--font-display); font-weight: 750; font-stretch: 112%; font-size: 1.02rem; line-height: 1.1; letter-spacing: 0.01em; }
 .brand-sub { font-size: var(--fs-xs); color: var(--fg-3); line-height: 1.2; }
@@ -108,6 +111,71 @@ p { margin: 0; }
 .nav-item[disabled] { opacity: 0.45; cursor: not-allowed; }
 .nav-item .icon { flex: none; }
 .rail-foot { margin-top: auto; padding-inline: 18px; font-size: 0.6875rem; color: var(--fg-3); line-height: 1.45; }
+.rail-saving.is-unsaved { color: var(--warn); font-weight: 600; }
+/* riel de escritorio: botón de modo (fijo / al pasar el mouse / con clic) y botón «Plegar menú» */
+.rail-ctl { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rail-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; min-width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--r-md); background: transparent; color: var(--fg-2); cursor: pointer; font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.rail-btn:hover { background: var(--surface-3); color: var(--fg); }
+.rail-btn.rail-mode { min-width: 0; flex: 0 1 auto; padding: 0 9px 0 7px; border-color: var(--line); background: var(--surface); }
+.rail-btn.rail-mode .icon { color: var(--accent); }
+.rail-btn.rail-mode:hover { border-color: var(--line-strong); }
+.rail-mode-text { overflow: hidden; text-overflow: ellipsis; }
+.rail-btn.rail-fold { margin-left: auto; }
+.rail-tip { position: fixed; z-index: 75; transform: translateY(-50%); pointer-events: none; background: var(--fg); color: var(--bg); font-size: var(--fs-xs); font-weight: 500; line-height: 1.35; padding: 5px 9px; border-radius: var(--r-sm); box-shadow: var(--shadow-pop); white-space: nowrap; max-width: min(360px, calc(100vw - 90px)); overflow: hidden; text-overflow: ellipsis; }
+.switcher-badge { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; font-family: var(--font-mono); color: var(--fg); min-width: 0; }
+.switcher-badge-pre { font-size: 0.5625rem; letter-spacing: 0.04em; color: var(--fg-3); }
+.switcher-badge-num { font-size: 0.75rem; font-weight: 600; }
+@media not all and (max-width: 900px) {
+  .app { transition: grid-template-columns 0.18s ease; }
+  /* modo fijo plegado y modos superpuestos: el diseño reserva solo el riel angosto */
+  .app:has(> .rail.track-mini) { --rail-track: var(--rail-mini); }
+  .rail { z-index: 50; width: var(--rail-track); overflow-x: hidden; scrollbar-width: thin; transition: width 0.18s ease, box-shadow 0.18s ease; }
+  /* si el riel no cabe en la altura de la ventana, una sombra arriba o abajo avisa que hay más (también con barras de
+     desplazamiento superpuestas, que no se ven en reposo): las cubiertas «local» se desplazan con el contenido y tapan la
+     sombra en cada extremo */
+  .rail {
+    background:
+      linear-gradient(var(--rail) 30%, transparent) top / 100% 36px no-repeat local,
+      linear-gradient(transparent, var(--rail) 70%) bottom / 100% 36px no-repeat local,
+      radial-gradient(farthest-side at 50% 0, var(--rail-shade), transparent) top / 100% 12px no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, var(--rail-shade), transparent) bottom / 100% 12px no-repeat scroll,
+      var(--rail);
+  }
+  /* el contenido conserva su ancho mientras el riel cambia de tamaño (no se reacomoda durante la transición) */
+  .rail > .rail-inner, .rail > .rail-foot { flex: none; width: calc(var(--rail-w) - 1px); }
+  .rail .nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* mismo ritmo vertical plegado y desplegado: cada bloque mide lo mismo en los dos estados, así que al desplegarse
+     encima del contenido (modos superpuestos) cada ícono queda donde estaba y el clic cae en la sección apuntada */
+  .rail .brand { flex: none; height: 34px; }
+  .rail .switcher-btn { height: 64px; padding-block: 0; }
+  .rail .nav-group-label { position: relative; height: 21px; line-height: 17px; padding: 0 8px 4px; font-size: 0.65625rem; letter-spacing: 0.07em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rail .nav-item { height: 30px; padding-block: 0; }
+  /* desplegado encima del contenido (modos «al pasar el mouse» y «con clic») */
+  .rail.is-peek { width: var(--rail-w); box-shadow: var(--shadow-pop); border-right-color: var(--line-strong); }
+  /* plegado: solo íconos (los bloques conservan su altura; la barra de desplazamiento delgada avisa si no cabe todo) */
+  .rail.is-mini > .rail-inner, .rail.is-mini > .rail-foot { width: auto; }
+  .rail.is-mini .rail-inner { padding-inline: 7px; align-items: center; }
+  .rail.is-mini .rail-head { align-items: center; }
+  .rail.is-mini .brand { flex: none; padding: 0; }
+  .rail.is-mini .brand-text, .rail.is-mini .rail-legal { display: none; }
+  .rail.is-mini .rail-ctl { flex-direction: column; gap: 4px; }
+  .rail.is-mini .rail-btn { width: 34px; padding: 0; margin: 0; }
+  .rail.is-mini .rail-mode-text { display: none; }
+  .rail.is-mini .switcher { width: 44px; }
+  .rail.is-mini .switcher-btn.is-mini { flex-direction: column; justify-content: center; padding-inline: 2px; gap: 3px; color: var(--fg-3); }
+  .rail.is-mini .nav { align-self: stretch; }
+  /* el título de grupo se vuelve un separador centrado en el espacio entre grupos (14 px de separación + 21 px de título) */
+  .rail.is-mini .nav-group-label { padding: 0; }
+  .rail.is-mini .nav-group-label::before { content: ""; position: absolute; left: 6px; right: 6px; top: 3px; height: 1px; background: var(--line); }
+  .rail.is-mini .nav-item { justify-content: center; padding-inline: 0; }
+  .rail.is-mini .nav-item[aria-current="page"] { box-shadow: inset 2px 0 0 var(--accent); }
+  .rail.is-mini .nav-item[aria-current="page"]:focus-visible { box-shadow: var(--focus); }
+  .rail.is-mini .rail-foot { padding-inline: 0; align-items: center; }
+  .rail.is-mini .rail-store { justify-content: center; padding: 6px; color: var(--fg-3) !important; }
+  .rail.is-mini .rail-store.is-unsaved { color: var(--warn) !important; }
+  .rail.is-mini .nav-label, .rail.is-mini .nav-group-text, .rail.is-mini .rail-store-text, .rail.is-mini .rail-saving { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .app, .rail { transition: none !important; } }
 .main { min-width: 0; display: flex; flex-direction: column; }
 .topbar { display: none; }
 .view-host { padding: 22px 28px 48px; min-width: 0; flex: 1; }
@@ -139,7 +207,8 @@ p { margin: 0; }
 }
 
 /* ---------- page scaffolding ---------- */
-.page { display: flex; flex-direction: column; gap: 20px; max-width: 1480px; }
+/* las vistas ocupan todo el ancho disponible (sin tope): los párrafos limitan su propia medida (~70ch) */
+.page { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; }
 .page-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 820px; }
 .eyebrow { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-3); font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -182,6 +251,8 @@ p { margin: 0; }
 .cols-auto { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 @media (max-width: 1100px) { .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .cols-2, .cols-3, .cols-4 { grid-template-columns: minmax(0, 1fr); } }
+/* formulario del proyecto: tantas columnas de ~280 px como quepan (2 en el modal, 3–4 en la ficha a pantalla completa, 1 en el móvil) */
+.pf-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
