@@ -1164,7 +1164,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       if (!t) return null;
       const cat = origCat(r.col.id) || r.col.category;
       const same = t.category === cat;
-      return html`<span class="small">Historial: los pasos de ${plural(r.h, 'elemento', 'elementos')} por «${r.col.name}» quedan registrados en «${t.name || 'Sin nombre'}»${same ? ', de la misma categoría, para conservar el tiempo de ciclo y el flujo acumulado.' : : no queda otra columna de la categoría «' + CAT_LABEL[cat] + '»' + (cat === 'en-curso' ? ', así que esos pasos dejan de contar en el tiempo de ciclo.' : '.')}</span>`;
+      return html`<span class="small">Historial: los pasos de ${plural(r.h, 'elemento', 'elementos')} por «${r.col.name}» quedan registrados en «${t.name || 'Sin nombre'}»${same ? ', de la misma categoría, para conservar el tiempo de ciclo y el flujo acumulado.' : ': no queda otra columna de la categoría «' + CAT_LABEL[cat] + '»' + (cat === 'en-curso' ? ', así que esos pasos dejan de contar en el tiempo de ciclo.' : '.')}</span>`;
     };
     return html`<${ui.Modal} title="Columnas del tablero" subtitle="Nombre, categoría y límite de trabajo en curso (WIP) de cada columna, en el orden del flujo." onClose=${close} size="wide" footer=${footer}>
       <div class="agk-colrows" data-agk-columns="1">
