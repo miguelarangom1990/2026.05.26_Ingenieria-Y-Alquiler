@@ -466,7 +466,11 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
 - `releaseProgress`, `releaseBurnup({release, sprints, items, settings, statusDate})` → `{points:[{date,label,scope,done,future}], total, done, remaining, pct, baselinePoints}`.
 - `releaseForecast({release, sprints, items, settings, cal, statusDate})` → `{velocity, sprintsNeeded, finish, finishBest, finishWorst, …}` (velocidad media, máxima y mínima de las últimas 3).
 - `agileEvm({release, sprints, items, settings, actualCost, statusDate})` → `{bac, plannedSprints, sprintsElapsed, ppc, apc, pv, ev, ac, sv, cv, spi, cpi, eac, vac, expectedSprints}`
-  (AgileEVM: PPC = iteraciones transcurridas / planeadas; APC = terminado / alcance actual; PV = BAC × PPC; EV = BAC × APC).
+  (AgileEVM: PPC = iteraciones transcurridas / planeadas (máx. 1); APC = terminado / alcance actual; PV = BAC × PPC; EV = BAC × APC;
+  con línea base del release, las iteraciones planeadas y el BAC salen de ella: `fromBaseline: true`).
+- `releaseForecast`: sin iteraciones cerradas del release, cuenta desde lo más tarde entre el día siguiente al corte, `release.start`
+  y el inicio de su primera iteración. `releaseVariance({…, sprints})` agrega `sprintChange` (frente a `baseline.sprints`) y
+  `sprintsAfterEnd` (iteraciones que terminan después del fin), que también exigen control de cambios.
   Costo real: `PM.agile.releaseActualCost(release, costs, tree, statusDate)`: los registros con `releaseId` del release; si el release
   no tiene ninguno marcado, los de su actividad (`taskId`) o de su paquete EDT y descendientes (`wbsId`) desde `release.start`.
 - `cfd({items, settings, from, to})` → `[{date, nuevo, pendiente, 'en-curso', terminado}]` (semanal si el rango supera 180 días).
@@ -485,7 +489,8 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   (el de la iteración en curso, si no el primero en curso, comprometido o sin cerrar), `PM.agile.sortSprints(sprints)` (por inicio).
 - `PM.agile.applyToSchedule(schedule, agileData, items)`: las actividades vinculadas a un release (`release.taskId` o `task.releaseId`)
   toman `progress` = terminado/alcance × 100 (1 decimal), `actualStart` = inicio de la primera iteración iniciada (si no tenía) y
-  `actualFinish` = última terminación al llegar a 100 %; marca `agileDerived: true`. `useProjectModel` lo aplica antes del CPM:
+  `actualFinish` = última terminación al llegar a 100 %; marca `agileDerived: true`. Con `opts.statusDate`, agrega
+  `forecastFinish` (pronóstico por velocidad) y `computeSchedule` con fecha de corte lo usa como duración restante. `useProjectModel` lo aplica antes del CPM:
   así el trabajo ágil entra a la ruta crítica, la curva S, el valor ganado y el tablero del proyecto. No modifica lo guardado.
   Los vínculos salen de `PM.agile.linksOf(tasks, agileData)` → `Map(taskId → release)`: primero `release.taskId` (si dos releases
   apuntan a la misma actividad gana el último) y luego `task.releaseId` solo para releases sin actividad (la primera en el orden

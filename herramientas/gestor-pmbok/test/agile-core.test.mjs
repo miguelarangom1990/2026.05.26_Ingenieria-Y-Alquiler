@@ -78,6 +78,19 @@ const results = await page.evaluate(() => {
   const r3 = (x) => Math.round(x * 1000) / 1000;
   eq('AgileEVM', [ae.bac, ae.plannedSprints, ae.sprintsElapsed, r3(ae.ppc), r3(ae.apc), r3(ae.pv), r3(ae.ev), ae.ac, r3(ae.spi), r3(ae.cpi), r3(ae.eac)], [300, 3, 1, 0.333, 0.382, 100, 114.706, 120, 1.147, 0.956, 313.846]);
   eq('AgileEVM sin costo real', [C.agileEvm({ release, sprints, items, settings, actualCost: 0, statusDate: '2026-08-21' }).cpi], [null]);
+  // AgileEVM con línea base: iteraciones y BAC de la línea base (agregar iteraciones no mejora el SPI)
+  const relB = { ...release, plannedSprints: 5, budget: 400, baseline: { ...release.baseline, sprints: 3, budget: 300 } };
+  const aeB = C.agileEvm({ release: relB, sprints, items, settings, actualCost: 120, statusDate: '2026-08-21' });
+  eq('AgileEVM con línea base', [aeB.plannedSprints, aeB.bac, r3(aeB.ppc), aeB.fromBaseline], [3, 300, 0.333, true]);
+  eq('AgileEVM sin línea base usa lo actual', (({ plannedSprints, bac, fromBaseline }) => [plannedSprints, bac, fromBaseline])(C.agileEvm({ release: { ...relB, baseline: null }, sprints, items, settings, statusDate: '2026-08-21' })), [5, 400, false]);
+  eq('AgileEVM: PPC no pasa de 1', C.agileEvm({ release: relB, sprints, items, settings, statusDate: '2027-01-01' }).ppc, 1);
+  // Pronóstico de un release que aún no empieza: desde su inicio, no desde el corte
+  const relFut = { id: 'r2', start: '2026-10-05' };
+  const fut = C.releaseForecast({ release: relFut, sprints: [...sprints, { id: 's9', releaseId: 'r2', start: '2026-10-05', end: '2026-10-16', status: 'planeado' }], items: [...items, { id: 'z1', type: 'historia', estimate: 8, releaseId: 'r2', status: 'backlog' }], settings, cal, statusDate: '2026-08-21' });
+  eq('pronóstico de release futuro desde su inicio', [fut.sprintsNeeded, fut.finish], [1, '2026-10-16']);
+  // Variación con iteraciones: más iteraciones que la línea base o después del fin
+  const rvS = C.releaseVariance({ release: { ...release, baseline: { ...release.baseline, sprints: 3 } }, items, settings, sprints: [...sprints, { id: 's4', releaseId: 'r1', start: '2026-09-14', end: '2026-09-25' }] });
+  eq('variación por iteraciones', [rvS.sprintChange, rvS.sprintsAfterEnd, rvS.needsChangeControl], [1, ['s4'], true]);
   // Variación frente a la línea base: 34 vs 30 = +13,3 % > 10 % → control de cambios
   const rv = C.releaseVariance({ release, items, settings });
   eq('variación del release', [rv.hasBaseline, r3(rv.scopePct), rv.dateChange, rv.budgetChange, rv.needsChangeControl], [true, 0.133, 0, 0, true]);
@@ -129,6 +142,12 @@ const results = await page.evaluate(() => {
   const dup2 = A.applyToSchedule({ tasks: [{ id: 'x1', duration: 5, releaseId: 'r1' }, { id: 'x2', duration: 5, releaseId: 'r1' }] }, { releases: [{ ...release, taskId: null }], sprints }, items);
   eq('cronograma: sin taskId gana la primera actividad', dup2.tasks.map((t) => !!t.agileDerived), [true, false]);
   eq('vínculos: dos releases en la misma actividad, gana el último', A.linksOf([{ id: 'a' }], { releases: [{ id: 'r1', taskId: 'a' }, { id: 'r2', taskId: 'a' }] }).get('a').id, 'r2');
+  // Fin pronosticado por velocidad: computeSchedule lo usa como duración restante al actualizar a la fecha de corte
+  const withFc = A.applyToSchedule(schedule, agileData, items, { statusDate: '2026-08-21' });
+  eq('cronograma: fin pronosticado por velocidad', withFc.tasks[0].forecastFinish, '2026-09-25');
+  const fcSched = C.computeSchedule(withFc, '2026-08-03', '2026-08-21');
+  eq('CPM al corte usa el fin pronosticado del release', fcSched.byId.get('t-rel').finishDate, '2026-09-25');
+  eq('sin fecha de corte no hay pronóstico', A.applyToSchedule(schedule, agileData, items).tasks[0].forecastFinish, undefined);
   eq('cronograma sin releases: misma referencia', A.applyToSchedule(schedule, { releases: [] }, items) === schedule, true);
   // Datos mal formados no lanzan excepciones
   let bad = null;

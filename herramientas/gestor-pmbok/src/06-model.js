@@ -53,7 +53,7 @@
        queda antes del corte, de modo que fin, ruta crítica e hitos pronosticados reflejan el atraso. */
     /* las actividades vinculadas a un release toman su avance del backlog (terminado / alcance): así la parte ágil
        entra a la ruta crítica, la curva S y el valor ganado del proyecto sin modificar el cronograma guardado */
-    const effSchedule = useMemo(() => (PM.agile && agileOn ? PM.agile.applyToSchedule(schedule, agile, agileItems) : schedule), [schedule, agile, agileItems, agileOn]);
+    const effSchedule = useMemo(() => (PM.agile && agileOn ? PM.agile.applyToSchedule(schedule, agile, agileItems, { statusDate }) : schedule), [schedule, agile, agileItems, agileOn, statusDate]);
     const sched = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart), [effSchedule, projectStart]);
     const forecast = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart, statusDate), [effSchedule, projectStart, statusDate]);
     const baselines = useMemo(() => PM.calc.activeBaselines(baselineDocs), [baselineDocs]);

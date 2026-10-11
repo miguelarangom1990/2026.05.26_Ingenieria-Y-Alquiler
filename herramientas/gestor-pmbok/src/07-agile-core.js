@@ -265,8 +265,12 @@
     if (!prog.remaining) { out.sprintsNeeded = 0; out.finish = prog.lastDone; return out; }
     if (!avg || avg <= 0 || !cal) return out;
     const cut = D.valid(statusDate) ? statusDate : D.today();
-    const closedRel = calc.sprintsOfRelease(sprints, release.id).filter((s) => s.status === 'cerrado' && D.valid(s.end) && s.end <= cut);
-    const from = closedRel.length ? D.add(closedRel[closedRel.length - 1].end, 1) : D.add(cut, 1);
+    const relSprints = calc.sprintsOfRelease(sprints, release.id);
+    const closedRel = relSprints.filter((s) => s.status === 'cerrado' && D.valid(s.end) && s.end <= cut);
+    /* sin iteraciones cerradas del release: desde lo más tarde entre el día siguiente al corte, el inicio del release y el
+       inicio de su primera iteración (un release que aún no empieza no puede terminar antes de empezar) */
+    const firstStart = relSprints.find((s) => D.valid(s.start));
+    const from = closedRel.length ? D.add(closedRel[closedRel.length - 1].end, 1) : D.max(D.add(cut, 1), ...[release.start, firstStart && firstStart.start].filter((x) => D.valid(x)));
     const L = st.sprintLength;
     const at = (v) => { const n = Math.ceil(prog.remaining / v); return { n, date: cal.addWork(from, n * L - 1) }; };
     const mid = at(avg); out.sprintsNeeded = mid.n; out.finish = mid.date;
@@ -282,16 +286,20 @@
     const st = settings || agile.settings(null);
     const cut = D.valid(statusDate) ? statusDate : D.today();
     const rs = calc.sprintsOfRelease(sprints, release.id);
-    const planned = Math.max(rs.length, Math.round(num(release.plannedSprints, 0)));
+    /* con línea base del release, las iteraciones planeadas y el BAC salen de ella (AgileEVM): agregar iteraciones o
+       presupuesto sin control de cambios no mejora el SPI ni el CPI */
+    const b = agile.hasBaseline(release) ? release.baseline : null;
+    const bSprints = b ? Math.round(num(b.sprints, 0)) : 0;
+    const planned = bSprints > 0 ? bSprints : Math.max(rs.length, Math.round(num(release.plannedSprints, 0)));
     const elapsed = rs.filter((s) => D.valid(s.end) && s.end <= cut).length;
     const prog = calc.releaseProgress({ release, items, settings: st });
-    const bac = num(release.budget, 0);
-    const ppc = planned ? elapsed / planned : 0;
+    const bac = b && Number.isFinite(num(b.budget, NaN)) && num(b.budget) > 0 ? num(b.budget) : num(release.budget, 0);
+    const ppc = planned ? Math.min(1, elapsed / planned) : 0;
     const apc = prog.pct;
     const pv = bac * ppc, ev = bac * apc, ac = Math.max(0, num(actualCost, 0));
     const spi = pv > 0 ? ev / pv : null, cpi = ac > 0 ? ev / ac : null;
     const eac = cpi ? bac / cpi : null;
-    return { bac, plannedSprints: planned, sprintsElapsed: elapsed, ppc, apc, pv, ev, ac, sv: ev - pv, cv: ev - ac, spi, cpi, eac, vac: eac !== null ? bac - eac : null, expectedSprints: spi ? planned / spi : null, ...prog };
+    return { bac, plannedSprints: planned, sprintsElapsed: elapsed, ppc, apc, pv, ev, ac, sv: ev - pv, cv: ev - ac, spi, cpi, eac, vac: eac !== null ? bac - eac : null, expectedSprints: spi ? planned / spi : null, fromBaseline: !!b, ...prog };
   };
 
   /* Costos reales de releases (para AgileEVM). Un registro de costs.actuals es de un release si:
@@ -376,7 +384,7 @@
   };
 
   /* Cambios de alcance del release frente a su línea base (control integrado de cambios en dos niveles). */
-  calc.releaseVariance = function ({ release, items, settings }) {
+  calc.releaseVariance = function ({ release, items, settings, sprints }) {
     const prog = calc.releaseProgress({ release, items, settings });
     const b = agile.hasBaseline(release) ? release.baseline : null;
     if (!b) return { hasBaseline: false, ...prog };
@@ -385,7 +393,13 @@
     const thr = (settings ? settings.scopeChangeThreshold : 10) / 100;
     const dateChange = D.valid(b.end) && D.valid(release.end) ? D.diff(b.end, release.end) : 0;
     const budgetChange = num(release.budget, 0) - num(b.budget, 0);
-    return { hasBaseline: true, ...prog, baselinePoints: bp, scopePct, dateChange, budgetChange, needsChangeControl: Math.abs(scopePct) > thr + 1e-9 || dateChange !== 0 || Math.abs(budgetChange) > 0.5 };
+    /* con las iteraciones (opcional): más o menos iteraciones que la línea base, o iteraciones que terminan después del fin */
+    const rs = Array.isArray(sprints) ? calc.sprintsOfRelease(sprints, release.id) : null;
+    const bs = Math.round(num(b.sprints, 0));
+    const sprintChange = rs && bs > 0 ? rs.length - bs : 0;
+    const endRef = D.valid(release.end) ? release.end : D.valid(b.end) ? b.end : null;
+    const sprintsAfterEnd = rs && endRef ? rs.filter((s) => D.valid(s.end) && s.end > endRef).map((s) => s.id) : [];
+    return { hasBaseline: true, ...prog, baselinePoints: bp, scopePct, dateChange, budgetChange, sprintChange, sprintsAfterEnd, needsChangeControl: Math.abs(scopePct) > thr + 1e-9 || dateChange !== 0 || Math.abs(budgetChange) > 0.5 || sprintChange !== 0 || sprintsAfterEnd.length > 0 };
   };
 
   /* Aplica el avance ágil a las actividades del cronograma vinculadas a releases (task.releaseId o release.taskId):
@@ -409,13 +423,14 @@
     return byTask;
   };
 
-  agile.applyToSchedule = function (schedule, agileData, items) {
+  agile.applyToSchedule = function (schedule, agileData, items, opts) {
+    const statusDate = opts && D.valid(opts.statusDate) ? opts.statusDate : null;
     const releases = arr(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
     if (!schedule || !releases.length || !arr(schedule.tasks).length) return schedule;
     const st = agile.settings(agileData);
     const byTask = agile.linksOf(schedule.tasks, agileData);
     if (!byTask.size) return schedule;
-    let changed = false;
+    let changed = false, cal = null;
     const tasks = schedule.tasks.map((t) => {
       if (!isObj(t)) return t;
       const r = byTask.get(t.id);
@@ -429,6 +444,12 @@
       if (started && D.valid(started.start) && !D.valid(t.actualStart)) next.actualStart = started.start;
       if (progress >= 100 && prog.lastDone) next.actualFinish = prog.lastDone;
       else if (progress < 100 && t.actualFinish) next.actualFinish = null;
+      /* con fecha de corte: fin pronosticado por velocidad (computeSchedule lo usa como duración restante al actualizar) */
+      if (statusDate && progress < 100) {
+        if (!cal) cal = PM.cal.make(schedule.settings || {}, statusDate);
+        const fc = calc.releaseForecast({ release: r, sprints: agileData.sprints, items, settings: st, cal, statusDate });
+        if (D.valid(fc.finish)) next.forecastFinish = fc.finish;
+      }
       changed = true;
       return next;
     });

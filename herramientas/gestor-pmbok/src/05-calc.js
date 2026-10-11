@@ -123,7 +123,8 @@
         } else if (prog <= 0 && !D.valid(t.actualStart)) {
           if (es < sIdx) { es = sIdx; ef = es + d; updated = true; }
         } else {
-          remaining = Math.max(1, Math.round(d * (1 - prog / 100)));
+          /* forecastFinish (releases ágiles: pronóstico por velocidad) reemplaza la regla proporcional */
+          remaining = D.valid(t.forecastFinish) && t.forecastFinish > statusDate ? Math.max(1, cal.indexOf(t.forecastFinish) + 1 - sIdx) : Math.max(1, Math.round(d * (1 - prog / 100)));
           if (ef < sIdx + remaining) { ef = sIdx + remaining; updated = true; }
         }
       }
