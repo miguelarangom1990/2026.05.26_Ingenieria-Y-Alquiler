@@ -213,7 +213,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
   const arrOf = (x) => (Array.isArray(x) ? x : []);
   const relName = (r) => (r && String(r.name || '').trim()) || 'Release sin nombre';
-  /* Vínculos actividad ↔ release (release.taskId o task.releaseId, con la misma precedencia que PM.agile.applyToSchedule),
+  /* Vínculos actividad ↔ release (release.taskId o task.releaseId, con la misma precedencia que PM.agile.applyToSchedule:
+     manda release.taskId y, si dos releases apuntan a la misma actividad, el último de la lista),
      iteraciones por release y avance de cada release (perezoso y memorizado por llamada). */
   function agileLinks(agileData, tasks, items) {
     const A = PM.agile;
@@ -221,7 +222,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const relById = new Map(releases.map((r) => [r.id, r]));
     const ids = new Set(arrOf(tasks).filter(isObj).map((t) => t.id));
     const relByTask = new Map();
-    for (const r of releases) if (r.taskId && ids.has(r.taskId) && !relByTask.has(r.taskId)) relByTask.set(r.taskId, r);
+    for (const r of releases) if (r.taskId && ids.has(r.taskId)) relByTask.set(r.taskId, r);
     for (const t of arrOf(tasks)) if (isObj(t) && t.releaseId && !relByTask.has(t.id) && relById.has(t.releaseId)) relByTask.set(t.id, relById.get(t.releaseId));
     const taskByRel = new Map();
     for (const [tid, r] of relByTask) if (!taskByRel.has(r.id)) taskByRel.set(r.id, tid);
@@ -411,11 +412,18 @@ button.sched-day:hover { border-color: var(--line-strong); }
   }
 
   /* ---------------------------------------------------------------- operaciones sobre el cronograma */
-  /* Tras fijar una restricción de inicio: avisa si una dependencia (o el inicio del proyecto) manda. */
-  function explainStart(schedule, projectStart, taskId, wanted) {
-    const res = PM.calc.computeSchedule(schedule, projectStart);
+  /* Tras fijar una restricción de inicio: avisa si una dependencia, el inicio del proyecto o el inicio real manda.
+     agileSrc: { agile, items, agileOn } o una referencia ({ current }) a los datos ágiles más recientes (opcional): la red se
+     recalcula como en el modelo (PM.agile.applyToSchedule), así cuenta el inicio real calculado desde las iteraciones. */
+  function explainStart(schedule, projectStart, taskId, wanted, agileSrc) {
+    const ag = (agileSrc && 'current' in agileSrc ? agileSrc.current : agileSrc) || null;
+    const eff = ag && ag.agileOn && PM.agile ? PM.agile.applyToSchedule(schedule, ag.agile, ag.items || []) : schedule;
+    const res = PM.calc.computeSchedule(eff, projectStart);
     const t = res.byId.get(taskId);
-    if (!t || !D.valid(wanted) || t.startDate <= wanted) return;
+    if (!t || !D.valid(wanted)) return;
+    /* con inicio real la restricción no mueve la actividad, ni antes ni después */
+    const started = D.valid(t.actualStart);
+    if (started ? t.startDate === wanted || t.actualStart === wanted : t.startDate <= wanted) return;
     let best = null, bestEs = -Infinity;
     for (const p of t.preds) {
       const r = res.byId.get(p.id); if (!r) continue;
@@ -425,7 +433,12 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const cal = res.cal;
     const consEs = Math.max(0, cal.indexOf(wanted) + (t.milestone ? 1 : 0));
     const head = '«' + taskName(t) + '» queda el ' + fmt.date(t.startDate) + ' y no el ' + fmt.date(wanted) + ': ';
-    if (D.valid(t.actualStart)) {
+    if (started && t.agileDerived) {
+      /* inicio real calculado desde el backlog (no guardado en la actividad) o guardado antes de vincular el release */
+      const stored = arrOf(schedule && schedule.tasks).find((x) => isObj(x) && x.id === taskId);
+      const fromIter = !(stored && D.valid(stored.actualStart));
+      PM.toast(head + 'la actividad ya inició (inicio real ' + fmt.date(t.actualStart) + (fromIter ? ', calculado desde las iteraciones del release vinculado' : '') + '). La restricción quedó guardada, pero no cambia el inicio de una actividad iniciada.', { timeout: 8000 });
+    } else if (started) {
       PM.toast(head + 'la actividad tiene inicio real (' + fmt.date(t.actualStart) + '). Cambia el inicio real en el editor de la actividad.', { timeout: 7000 });
     } else if (best && bestEs === t.es && bestEs > consEs) {
       PM.toast(head + 'manda la dependencia ' + DEP_NAME[best.p.type] + ' (' + DEP_CODE[best.p.type] + lagSigned(best.p.lag) + ') con «' + taskName(best.r) + '». La fecha quedó guardada como restricción «No comenzar antes de»; quita o cambia la dependencia si necesitas adelantarla.', { timeout: 8000 });
@@ -506,8 +519,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const sameLink = !!(selRel && curRel && selRel.id === curRel.id);
     /* vista previa con la misma regla del núcleo (PM.agile.applyToSchedule) aplicada a lo guardado */
     const preview = derived && PM.agile ? (PM.agile.applyToSchedule({ settings: {}, tasks: [{ ...baseT, releaseId: selRel.id }] }, { ...((ag0 && ag0.agile) || {}), releases: [{ ...selRel, taskId }] }, (ag0 && ag0.items) || []).tasks[0] || null) : null;
-    const otherTaskId = selRel ? links.taskByRel.get(selRel.id) : null;
-    const otherTask = otherTaskId && otherTaskId !== taskId ? liveTasks.find((t) => t.id === otherTaskId) : null;
+    /* otras actividades que hoy toman el avance del release elegido (también con datos inconsistentes, p. ej. tras una
+       importación con dos actividades con el mismo release): al guardar pierden el vínculo */
+    const others = selRel ? liveTasks.filter((t) => t.id !== taskId && links.relByTask.get(t.id) === selRel) : [];
+    const otherTask = others[0] || null;
+    const othersTxt = others.length ? '«' + taskName(others[0]) + '»' + (others.length > 1 ? ' y de ' + (others.length === 2 ? 'otra actividad' : (others.length - 1) + ' actividades más') : '') : '';
     const relOptions = links.releases.map((r) => { const tid = links.taskByRel.get(r.id); const other = tid && tid !== taskId ? liveTasks.find((t) => t.id === tid) : null; return { value: r.id, label: relName(r) + (other ? ' (vinculado a «' + taskName(other) + '»)' : '') }; });
     const onRel = (v) => {
       setRelSel(v || ''); setError(null);
@@ -547,7 +563,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
         actualFinish: derived ? base.actualFinish || null : D.valid(d.actualFinish) ? d.actualFinish : null, notes: d.notes || '',
       };
       const newRel = relSel || null;
-      const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel;
+      /* también si el release ya era el de esta actividad pero otra lo comparte: se cumple «una actividad por release» */
+      const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel || (!!newRel && others.length > 0);
       let tasks = (cur.tasks || []).map((t) => (t.id === taskId ? next : t));
       let movedFrom = null;
       if (linkChanged) {
@@ -570,10 +587,13 @@ button.sched-day:hover { border-color: var(--line-strong); }
       close();
       if (linkChanged) {
         const relNew = newRel ? links.relById.get(newRel) : null;
-        if (relNew) PM.toast('«' + name + '» representa ahora el release «' + relName(relNew) + '»' + (links.progressOf(relNew).total > 0 ? ': su avance se calcula desde el backlog.' : '. Cuando el release tenga elementos estimados, su avance se calculará desde el backlog.') + (movedFrom ? ' Se quitó el vínculo de «' + taskName(movedFrom) + '».' : ''), { timeout: 7000 });
+        const kept = !!(relNew && curRel && relNew.id === curRel.id && !staleRel);
+        const movedTxt = others.length ? ' Se quitó el vínculo de ' + othersTxt + ': un release se representa con una sola actividad.' : movedFrom ? ' Se quitó el vínculo de «' + taskName(movedFrom) + '».' : '';
+        if (relNew && kept) PM.toast('«' + name + '» sigue representando el release «' + relName(relNew) + '».' + movedTxt, { timeout: 7000 });
+        else if (relNew) PM.toast('«' + name + '» representa ahora el release «' + relName(relNew) + '»' + (links.progressOf(relNew).total > 0 ? ': su avance se calcula desde el backlog.' : '. Cuando el release tenga elementos estimados, su avance se calculará desde el backlog.') + movedTxt, { timeout: 7000 });
         else if (curRel) PM.toast('«' + name + '» ya no representa el release «' + relName(curRel) + '»: su avance vuelve a registrarse en el cronograma.', { timeout: 7000 });
       }
-      if (next.start && next.start !== base.start) explainStart(w.get(), ctx.projectStart, taskId, next.start);
+      if (next.start && next.start !== base.start) explainStart(w.get(), ctx.projectStart, taskId, next.start, ctx.agileRef);
     };
     const remove = async () => { const ok = await deleteTaskFlow(w, sched, taskId, ctx.agileRef); if (ok) close(); };
     const footer = ro ? html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>` : html`
@@ -588,7 +608,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <${ui.Field} label="Paquete de la EDT" for="te-wbs"><${ui.Select} id="te-wbs" value=${d.wbsId || ''} onValue=${(v) => set('wbsId')(v || null)} placeholder="Sin paquete de la EDT" options=${wbsOptions} disabled=${ro} /></${ui.Field}>
         ${showRel ? html`<${ui.Field} label="Release vinculado" for="te-rel" hint=${!selRel
             ? (staleRel ? 'El release vinculado ya no existe; al guardar se quita el vínculo.' : links.releases.length ? 'Vincula la actividad que representa un release: su avance se calculará desde el backlog.' : 'Aún no hay releases. Créalos en Releases e iteraciones.')
-            : (otherTask ? 'Al guardar se quita el vínculo de «' + taskName(otherTask) + '»: un release se representa con una sola actividad. ' : '') + (derived ? 'El avance y las fechas reales se calculan desde el backlog del release.' : 'El release aún no tiene elementos estimados: mientras tanto, el avance se registra aquí.')}>
+            : (otherTask ? 'Al guardar se quita el vínculo de ' + othersTxt + ': un release se representa con una sola actividad. ' : '') + (derived ? 'El avance y las fechas reales se calculan desde el backlog del release.' : 'El release aún no tiene elementos estimados: mientras tanto, el avance se registra aquí.')}>
           <${ui.Select} id="te-rel" value=${relSel} onValue=${onRel} placeholder="Sin release" options=${relOptions} disabled=${ro} />
         </${ui.Field}>` : null}
         <${ui.Field} label="Responsable" for="te-resp"><${ui.Input} id="te-resp" value=${d.responsible || ''} onValue=${set('responsible')} disabled=${ro} placeholder="Rol o persona" /></${ui.Field}>
@@ -598,7 +618,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
             <${ui.Check} label="Hito" checked=${d.milestone} disabled=${ro} onValue=${(v) => setD((x) => ({ ...x, milestone: v, duration: v ? 0 : Math.max(1, num(x.duration)) }))} />
           </div>
         </${ui.Field}>
-        <${ui.Field} label="No comenzar antes de" for="te-start" hint="Restricción de fecha. Déjala vacía para que manden las dependencias."><${ui.DateInput} id="te-start" value=${d.start} onValue=${set('start')} disabled=${ro} /></${ui.Field}>
+        <${ui.Field} label="No comenzar antes de" for="te-start" hint=${derived && preview && D.valid(preview.actualStart) ? 'La actividad ya inició según las iteraciones del release (' + fmt.date(preview.actualStart) + '): esta restricción no cambia su inicio.' : 'Restricción de fecha. Déjala vacía para que manden las dependencias.'}><${ui.DateInput} id="te-start" value=${d.start} onValue=${set('start')} disabled=${ro} /></${ui.Field}>
         <${ui.Field} label="% de avance" for="te-pct" hint=${derived ? 'Calculado desde el backlog del release; no se edita aquí.' : undefined}><${ui.NumberInput} id="te-pct" value=${derived && preview ? preview.progress : d.progress} min=${0} max=${100} onValue=${set('progress')} disabled=${ro || derived} title=${derived ? DERIVED_TITLE(selRel) : undefined} /></${ui.Field}>
         <${ui.Field} label=${'Costo presupuestado (' + currency + ')'} for="te-cost"><${ui.NumberInput} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
         <${ui.Field} label="Inicio real" for="te-as" hint=${derived ? 'Inicio de la primera iteración iniciada del release.' : undefined}><${ui.DateInput} id="te-as" value=${derived && preview ? preview.actualStart : d.actualStart} onValue=${set('actualStart')} disabled=${ro || derived} /></${ui.Field}>
@@ -816,7 +836,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const fileBase = (project) => (project && project.code ? project.code + '_' : '') + PM.slug((project && project.name) || 'proyecto');
 
   /* ---------------------------------------------------------------- pestaña Gantt */
-  function GanttTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused }) {
+  function GanttTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused, agileRef }) {
     const { sched, tree, rollup, baselines, statusDate, project, currency } = m;
     const [zoom, setZoom] = usePref('sched.zoom', 'semana');
     const [group, setGroup] = usePref('sched.group', true);
@@ -1017,7 +1037,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         let ns = D.add(t.startDate, steps); if (!cal.isWork(ns)) ns = cal.dateOf(cal.indexOf(ns));
         if (ns === t.startDate) return; /* al ajustar al día hábil no se movió: no crea una restricción */
         w.updateTask(t.id, { start: ns });
-        explainStart(w.get(), project.start, t.id, ns);
+        explainStart(w.get(), project.start, t.id, ns, agileRef);
       } else {
         if (D.valid(t.actualFinish) && t.progress >= 100) { PM.toast('«' + taskName(t) + '» ya terminó (fin real ' + fmt.date(t.actualFinish) + '); su duración no se cambia arrastrando.', { timeout: 7000 }); return; }
         let nf = D.add(t.finishDate, steps); if (nf < t.startDate) nf = t.startDate;
@@ -1076,7 +1096,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       else if (k === 'start') c = html`<${EditCell} kind="date" cls="sched-mono" value=${t.start || t.startDate} display=${fd(t.startDate)} validate=${V.date} label=${'No comenzar antes de, fila ' + r.num} readOnly=${ro}
           icon=${t.start ? html`<span class="sched-pin" aria-hidden="true"></span>` : null}
           title=${t.start ? 'Restricción: no comenzar antes del ' + fmt.date(t.start) + '. Borra la fecha para quitarla.' : 'Escribe una fecha para fijar la restricción «No comenzar antes de».'}
-          onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} />`;
+          onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v, agileRef); }} />`;
       else if (k === 'finish') c = html`<div class="sched-ro sched-mono">${fd(t.finishDate)}</div>`;
       else if (k === 'pct') c = t.agileDerived
         ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + r.num} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} />`
@@ -1192,7 +1212,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <${ui.Button} size="sm" variant="primary" icon="plus" onClick=${() => addTask(false)}>Agregar actividad</${ui.Button}>
           <${ui.Button} size="sm" icon="milestone" onClick=${() => addTask(true)}>Agregar hito</${ui.Button}>
           <${ui.Button} size="sm" icon="edit" disabled=${!selTask} onClick=${() => selTask && edit(selTask.id)}>Editar</${ui.Button}>
-          <${ui.Button} size="sm" variant="danger" icon="trash" disabled=${!selTask} onClick=${() => selTask && deleteTaskFlow(w, sched, selTask.id, { agile: m.agile, saveAgile: m.saveAgile }).then((ok) => ok && setSel(null))}>Eliminar</${ui.Button}>
+          <${ui.Button} size="sm" variant="danger" icon="trash" disabled=${!selTask} onClick=${() => selTask && deleteTaskFlow(w, sched, selTask.id, agileRef).then((ok) => ok && setSel(null))}>Eliminar</${ui.Button}>
           <div class="btn-group">
             <${ui.Button} size="sm" icon="arrow-up" aria-label="Subir actividad" title="Subir actividad" disabled=${!up} onClick=${() => move(-1)} />
             <${ui.Button} size="sm" icon="arrow-down" aria-label="Bajar actividad" title="Bajar actividad" disabled=${!down} onClick=${() => move(1)} />
@@ -1288,7 +1308,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
   }
 
   /* ---------------------------------------------------------------- pestaña Actividades (tabla completa) */
-  function ActivitiesTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused }) {
+  function ActivitiesTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused, agileRef }) {
     const { sched, tree, currency, project } = m;
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
     const links = useMemo(() => agileLinks(m.agile, m.schedule.tasks, m.agileItems), [m.agile, m.schedule, m.agileItems]);
@@ -1340,7 +1360,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
               <td class="num">${fmt.num(t.ff)}</td>
               <td>${critCell(t)}</td>
               <td class="edit" style="min-width:110px"><${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + (i + 1)} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} /></td>
-              <td class="edit" style="min-width:120px"><${EditCell} kind="date" cls="sched-mono" value=${t.start || ''} display=${t.start ? fmt.date(t.start, 'short') : '—'} validate=${V.date} label=${'No comenzar antes de, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} /></td>
+              <td class="edit" style="min-width:120px"><${EditCell} kind="date" cls="sched-mono" value=${t.start || ''} display=${t.start ? fmt.date(t.start, 'short') : '—'} validate=${V.date} label=${'No comenzar antes de, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v, agileRef); }} /></td>
               <td class="edit" style="min-width:70px">${t.agileDerived
                 ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} icon=${html`<${ui.Icon} name="release" size=${10} />`} />`
                 : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`}</td>
@@ -1534,8 +1554,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
       ${cyc.map((e, i) => html`<div class="sched-banner" role="alert" key=${'c' + i}><${ui.Icon} name="alert" size=${16} /><div><strong>Dependencias circulares.</strong> ${e.message} Revisa las predecesoras de las filas ${e.ids.map((id) => idx.get(id)).filter(Boolean).sort((a, b) => a - b).join(', ')}.</div></div>`)}
       ${sched.tasks.length ? html`<${SummaryStrip} m=${m} />` : null}
       <${ui.Tabs} tabs=${tabs} value=${cur} onChange=${setTab} />
-      ${cur === 'gantt' ? html`<${GanttTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} />`
-        : cur === 'actividades' ? html`<${ActivitiesTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} />`
+      ${cur === 'gantt' ? html`<${GanttTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} agileRef=${agileRef} />`
+        : cur === 'actividades' ? html`<${ActivitiesTab} m=${m} w=${w} canWrite=${canWrite} sel=${sel} setSel=${setSel} edit=${edit} focus=${focus} onFocused=${onFocused} agileRef=${agileRef} />`
         : cur === 'hitos' ? html`<${MilestonesTab} m=${m} canWrite=${canWrite} edit=${edit} addMilestone=${addMilestone} />`
         : html`<${CalendarTab} m=${m} w=${w} canWrite=${canWrite} />`}
     </div>`;
@@ -1798,6 +1818,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <span class="legend-item"><span class="legend-line" style="background:var(--fg-3)"></span>Dependencia (FC sin desfase si no tiene etiqueta)</span>
         <span class="legend-item"><span class="legend-line" style="background:repeating-linear-gradient(90deg, var(--fg-3) 0 4px, transparent 4px 7px)"></span>Enlace con Inicio o Fin</span>
         <span class="legend-item"><span class="code-tag">CC+2</span>Tipo y desfase en días hábiles</span>
+        ${links.any ? html`<span class="legend-item" data-legend="release"><${ui.Icon} name="release" size=${12} />Release vinculado (avance desde el backlog)</span>` : null}
       </div>
       <${ui.Card} title="Ruta crítica" subtitle=${critCount ? critCount + ' actividades críticas · duración ' + fmt.num(sched.workdays) + ' días hábiles' : 'No hay actividades críticas pendientes'}>
         ${paths.length ? html`<div class="stack">${paths.map((p, i) => html`<div key=${i} class="sched-path">

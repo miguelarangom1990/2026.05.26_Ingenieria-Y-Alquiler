@@ -3,7 +3,11 @@
    grupos), lista maestra de documentos y editor con cajetín, flujo de
    revisiones (convención de planos), historial, exportación (Markdown/HTML)
    y redacción asistida con Claude.
-   Vistas: procesos, documentos, documento (oculta). Expone PM.openDocument.
+   Vistas: procesos, documentos, documento (oculta). Expone PM.openDocument,
+   PM.templateApplies(t|id, project, byTemplate) y PM.applicableTemplates(project,
+   byTemplate): las plantillas ágiles (SPEC §9.5) solo cuentan en el avance
+   documental con ciclo de vida adaptativo o híbrido, o si ya tienen documentos.
+   La vista `documentos` acepta los parámetros area, status y template.
    ========================================================================== */
 (function () {
   'use strict';
@@ -183,6 +187,16 @@
 .docs-agile-body { display: flex; flex-direction: column; gap: 8px; padding: 2px 14px 12px; font-size: var(--fs-sm); color: var(--fg-2); }
 .docs-agile-body > p { margin: 0; max-width: 80ch; }
 .docs-agile-body .row { flex-wrap: wrap; }
+.docs-agile-off { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-2); }
+.docs-agile-off > .icon { flex: none; margin-top: 2px; color: var(--accent); }
+.docs-agile-n { font-variant-numeric: tabular-nums; }
+.docs-agile-src { margin: 0; max-width: 80ch; }
+.docs-na-row .docs-out-name, .docs-na-row .docs-out-iname { color: var(--fg-2); }
+.docs-na > summary { cursor: pointer; padding: 12px 16px; font-size: var(--fs-sm); font-weight: 600; color: var(--fg); border-radius: var(--r-lg); list-style-position: inside; }
+.docs-na > summary:hover { background: var(--surface-2); }
+.docs-na > summary .icon { vertical-align: -2px; margin: 0 6px 0 2px; color: var(--accent); }
+.docs-na[open] > summary { border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.docs-na-note { margin: 0; padding: 10px 16px; max-width: 90ch; }
 .docs-ai-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; }
 .docs-ai-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .docs-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -306,6 +320,27 @@
      sin contar los que dependen de eventos (una solicitud de cambio puede no ocurrir nunca). */
   const EVENT_DOCS = new Set(['solicitud-cambio']);
   const trackedDocs = (p) => uniq(((p && p.outputs) || []).filter((o) => o && o.doc && !o.update && !EVENT_DOCS.has(o.doc)).map((o) => o.doc));
+  /* Capa ágil (SPEC §9.1): las plantillas ágiles (§9.5) aplican con ciclo de vida adaptativo o híbrido. En un proyecto
+     predictivo no cuentan en el avance documental (mapa, lista maestra y tablero) ni se proponen como entradas o
+     herramientas, salvo que el proyecto ya tenga documentos de esa plantilla (entonces cuentan como cualquier otro). */
+  const agileOnFor = (project) => { try { return !!(project && PM.agile && typeof PM.agile.enabled === 'function' && PM.agile.enabled(project)); } catch (e) { return false; } };
+  function isAgileDoc(id) {
+    const t = PM.templates[id];
+    if (t) return !!t.agile;
+    const K = PM.KB;
+    if (K && typeof K.doc === 'function') { try { const d = K.doc(id); return !!(d && d.agile); } catch (e) { /* sin catálogo */ } }
+    return false;
+  }
+  function templateApplies(tOrId, project, byTemplate) {
+    const id = typeof tOrId === 'string' ? tOrId : tOrId && tOrId.id;
+    if (!id || !isAgileDoc(id) || agileOnFor(project)) return true;
+    return !!(byTemplate && Array.isArray(byTemplate[id]) && byTemplate[id].length);
+  }
+  /* Uso compartido (p. ej. la tarjeta de documentación del tablero): mismas plantillas que cuentan el mapa y la lista. */
+  PM.templateApplies = templateApplies;
+  PM.applicableTemplates = (project, byTemplate) => (PM.templateList || []).filter((t) => templateApplies(t, project, byTemplate));
+  /* Vistas que el proyecto puede abrir (las ágiles declaran when: PM.agile.when). */
+  const viewAvailable = (v, project) => { if (!v || !v.when) return true; try { return !!v.when(project); } catch (e) { return false; } };
   /* Procesos de una plantilla separados en los que crean el documento y los que solo lo actualizan. */
   function templateProcessRoles(t) {
     const create = [], update = [];
@@ -501,31 +536,51 @@
     return PM.navigate('documento', { docId: s });
   };
 
-  /* Consideraciones para entornos ágiles/adaptativos del área (PM.KB.areas[].agile, Guía del PMBOK® 6.ª ed.).
-     `go(fn)` envuelve la navegación (en el detalle del proceso, cierra el modal antes de navegar). */
-  function AgileNote({ area, open, go }) {
+  /* Consideraciones para entornos ágiles/adaptativos del área (PM.KB.areas[].agile: síntesis propia con referencia
+     general a la Guía del PMBOK® 6.ª ed.). `go(fn)` envuelve la navegación (en el detalle del proceso, cierra el modal
+     antes de navegar). En un proyecto predictivo avisa que no aplican y no ofrece las vistas ágiles (no están activas). */
+  function AgileNote({ area, open, go, project, idx }) {
     const ag = area && area.agile;
     if (!ag || !ag.summary) return null;
     const wrap = go || ((fn) => fn);
+    const agileOn = agileOnFor(project);
     const practices = Array.isArray(ag.practices) ? ag.practices.filter(Boolean) : [];
-    const views = uniq(ag.views || []).map((id) => PM.getView(id)).filter((v) => v && !v.hidden);
+    const allViews = uniq(ag.views || []).map((id) => PM.getView(id)).filter((v) => v && !v.hidden);
+    const views = allViews.filter((v) => viewAvailable(v, project));
+    const offViews = allViews.filter((v) => !viewAvailable(v, project));
     const docs = uniq(ag.docs || []).filter((id) => PM.templates[id]);
+    const byT = (idx && idx.byTemplate) || {};
+    /* Plantillas múltiples (actas de la iteración, SOW): la lista de documentos filtrada por la plantilla. El editor
+       abriría uno nuevo en blanco, sin vínculo con ninguna iteración. */
+    const docBtn = (id) => {
+      const t = PM.templates[id];
+      if (t.multiple) {
+        const n = (byT[id] || []).length;
+        const aria = 'Ver en la lista de documentos: ' + t.name + ' (' + (n ? n + (n === 1 ? ' documento' : ' documentos') : 'ninguno todavía') + ')';
+        return html`<${ui.Button} key=${id} size="sm" variant="ghost" icon="files" data-agile-doc=${id} title=${aria} aria-label=${aria} onClick=${wrap(() => PM.navigate('documentos', { template: id }))}>${t.name}${n ? html`<span class="docs-agile-n"> · ${n}</span>` : null}</${ui.Button}>`;
+      }
+      return html`<${ui.Button} key=${id} size="sm" variant="ghost" icon="file" data-agile-doc=${id} onClick=${wrap(() => PM.openDocument(id))}>${t.name}</${ui.Button}>`;
+    };
     return html`<details class="docs-agile" data-agile=${area.id} open=${!!open}>
       <summary><${ui.Icon} name="sprint" size=${15} />Consideraciones para entornos ágiles/adaptativos <span class="docs-agile-area">· ${areaShort(area)}</span></summary>
       <div class="docs-agile-body">
+        ${project && !agileOn ? html`<p class="docs-agile-off" data-agile-off><${ui.Icon} name="info" size=${14} /><span>El ciclo de vida de este proyecto es ${project.lifecycle || 'Predictivo'}. Estas prácticas, las vistas ágiles y sus documentos aplican con un ciclo de vida adaptativo o híbrido, que se elige en Tablero › Datos del proyecto.</span></p>` : null}
         <p>${ag.summary}</p>
         ${practices.length ? html`<div class="label-caps">Prácticas recomendadas</div><ul class="docs-tips">${practices.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : null}
-        ${views.length || docs.length ? html`<div class="label-caps">En el gestor</div><div class="row">
+        ${views.length || docs.length || offViews.length ? html`<div class="label-caps">En el gestor</div>` : null}
+        ${views.length || docs.length ? html`<div class="row">
           ${views.map((v) => html`<${ui.Button} key=${v.id} size="sm" icon=${v.icon} onClick=${wrap(() => PM.navigate(v.id))}>${v.label}</${ui.Button}>`)}
-          ${docs.map((id) => html`<${ui.Button} key=${id} size="sm" variant="ghost" icon="file" data-agile-doc=${id} onClick=${wrap(() => PM.openDocument(id))}>${docName(id)}</${ui.Button}>`)}
+          ${docs.map(docBtn)}
         </div>` : null}
+        ${offViews.length ? html`<p class="xsmall faint" data-off-views>Vistas ágiles del gestor (se activan con ciclo de vida adaptativo o híbrido): ${offViews.map((v) => v.label).join(', ')}.</p>` : null}
+        ${ag.source ? html`<p class="xsmall faint docs-agile-src">${ag.source}</p>` : null}
       </div>
     </details>`;
   }
 
   /* ==================================================================== MAPA DE PROCESOS */
-  function ProcessCard({ p, idx, state, onOpen }) {
-    const pr = progressOf(trackedDocs(p), idx);
+  function ProcessCard({ p, idx, state, onOpen, applies }) {
+    const pr = progressOf(trackedDocs(p).filter((d) => !applies || applies(d)), idx);
     const outs = (p.outputs || []).filter(Boolean);
     const views = outs.filter((o) => o.view || o.baseline);
     const other = views.length ? 'Salidas en herramientas' : outs.some((o) => o.doc && o.update) ? 'Actualiza documentos existentes' : outs.some((o) => o.doc) ? 'Genera solicitudes de cambio' : 'Sin documentos propios';
@@ -556,17 +611,21 @@
     const setMode = (m) => { setModeRaw(m); PM.prefs.set('docs.mapMode', m); };
     const [openAreas, setOpenAreas] = useState(() => new Set());
     useEffect(() => { if (K && params && params.process && processOf(params.process)) openProcess(params.process); }, []);
+    const agileOn = agileOnFor(project);
+    /* Documentos que cuentan en este proyecto (las plantillas ágiles no cuentan en un proyecto predictivo sin ellas). */
+    const applies = useMemo(() => (id) => agileOn || templateApplies(id, project, idx.byTemplate), [agileOn, idx]);
     const data = useMemo(() => {
       if (!K) return null;
       const A = areasList(); const G = groupsList();
       const procs = K.processes.filter((p) => p && p.code).slice().sort((a, b) => cmpCode(a.code, b.code));
       const cell = {};
       for (const p of procs) (cell[p.area + '|' + p.group] = cell[p.area + '|' + p.group] || []).push(p);
-      const tpls = PM.templateList || [];
+      const all = PM.templateList || [];
+      const tpls = all.filter((t) => applies(t.id));
       const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(tpls.filter((t) => t.group === g.id), idx) }));
       const total = templateProgress(tpls, idx);
-      return { A, G, procs, cell, groupStats, total, tpls };
-    }, [K, idx]);
+      return { A, G, procs, cell, groupStats, total, tpls, notApplicable: all.length - tpls.length };
+    }, [K, idx, applies]);
 
     const ql = norm(q.trim());
     const matches = (p) => !ql || norm([p.code, p.name, p.description, ...docOutputs(p).map(docName)].join(' ')).includes(ql);
@@ -581,7 +640,7 @@
         </${ui.Empty}>
       </div>`;
     }
-    const { A, G, procs, cell, groupStats, total, tpls } = data;
+    const { A, G, procs, cell, groupStats, total, tpls, notApplicable } = data;
     const open = (code) => openProcess(code);
     const toggleArea = (id) => setOpenAreas((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
     const anyMatch = !ql || procs.some(matches);
@@ -593,7 +652,7 @@
       </div>
       ${A.map((a) => html`<div class="docs-mrow" role="row" key=${a.id} data-area=${a.id}>
         <div class="docs-ma" role="rowheader" title=${a.name}><span class="docs-num">${a.num}</span><span class="docs-ma-name">${areaShort(a)}<span class="sr-only"> (${a.name})</span></span></div>
-        ${G.map((g) => html`<div key=${g.id} class="docs-mc" role="cell">${(cell[a.id + '|' + g.id] || []).map((p) => html`<${ProcessCard} key=${p.code} p=${p} idx=${idx} state=${stateOf(p)} onOpen=${open} />`)}</div>`)}
+        ${G.map((g) => html`<div key=${g.id} class="docs-mc" role="cell">${(cell[a.id + '|' + g.id] || []).map((p) => html`<${ProcessCard} key=${p.code} p=${p} idx=${idx} applies=${applies} state=${stateOf(p)} onOpen=${open} />`)}</div>`)}
       </div>`)}
     </div></div>`;
 
@@ -610,10 +669,10 @@
             <${ui.Icon} name=${isOpen ? 'chevron-up' : 'chevron-down'} size=${16} />
           </button>
           ${isOpen ? html`<div class="docs-acc-body">
-            <${AgileNote} area=${a} />
+            <${AgileNote} area=${a} project=${project} idx=${idx} />
             ${G.map((g) => { const gp = ps.filter((p) => p.group === g.id); if (!gp.length) return null; return html`<div class="stack-sm" key=${g.id}>
               <div class="docs-acc-glabel"><span class="docs-sw" style=${'background:' + groupColor(g.id)}></span>${g.name}</div>
-              <div class="docs-acc-list">${gp.map((p) => html`<${ProcessCard} key=${p.code} p=${p} idx=${idx} state=${ql ? 'hit' : ''} onOpen=${open} />`)}</div>
+              <div class="docs-acc-list">${gp.map((p) => html`<${ProcessCard} key=${p.code} p=${p} idx=${idx} applies=${applies} state=${ql ? 'hit' : ''} onOpen=${open} />`)}</div>
             </div>`; })}
           </div>` : null}
         </section>`;
@@ -633,7 +692,7 @@
             <span class="docs-gbtn-sub">${s.count} ${s.count === 1 ? 'proceso' : 'procesos'} · ${s.total ? s.done + '/' + s.total + ' documentos aprobados' : 'sin documentos propios'}</span>
           </button>`)}
         </div>
-        <div class="row-between"><${Legend} /><span class="xsmall faint" data-total title="Cuenta todas las plantillas del proyecto, igual que el tablero y la lista de documentos. Los medidores de cada proceso cuentan solo los documentos que ese proceso crea.">Total: ${total.done} de ${total.total} documentos aprobados · ${total.prog} en elaboración · ${total.none} sin iniciar</span></div>
+        <div class="row-between"><${Legend} /><span class="xsmall faint" data-total title=${'Cuenta las plantillas que aplican al proyecto, igual que la lista de documentos.' + (notApplicable ? ' Las ' + notApplicable + ' plantillas ágiles no cuentan porque el ciclo de vida es predictivo.' : '') + ' Los medidores de cada proceso cuentan solo los documentos que ese proceso crea.'}>Total: ${total.done} de ${total.total} documentos aprobados · ${total.prog} en elaboración · ${total.none} sin iniciar${notApplicable ? html`<span data-total-na> · ${notApplicable} ${notApplicable === 1 ? 'plantilla ágil no aplica' : 'plantillas ágiles no aplican'}</span>` : null}</span></div>
       </div>
       <div class="toolbar">
         <div style="flex:1 1 220px;min-width:0;max-width:380px"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar proceso, código o documento…" aria-label="Buscar procesos" /></div>
@@ -651,19 +710,24 @@
     const idx = PM.useProjectDocs();
     const canWrite = PM.useCanWrite();
     const { project: curProject } = PM.useCurrentProject();
-    const agileOn = !!(curProject && PM.agile && PM.agile.enabled(curProject));
+    const agileOn = agileOnFor(curProject);
+    /* En un proyecto predictivo, los documentos ágiles sin instancias no cuentan ni se proponen (se marcan «No aplica»). */
+    const applies = (id) => templateApplies(id, curProject, idx.byTemplate);
     if (!p) {
       return html`<${ui.Modal} title="Proceso no disponible" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}>
         <p>No se encontró el proceso ${code} en la base de conocimiento.</p>
       </${ui.Modal}>`;
     }
     const a = areaOf(p.area), g = groupOf(p.group);
-    const pr = progressOf(trackedDocs(p), idx);
+    const pr = progressOf(trackedDocs(p).filter(applies), idx);
     const go = (fn) => () => { close(); fn(); };
     const inputs = (p.inputs || []).map(ioText).filter(Boolean);
     const tools = (p.tools || []).map(ioText).filter(Boolean);
     const inputDocs = uniq((p.inputsDocs || []).map((d) => (typeof d === 'string' ? d : d && d.doc)).filter(Boolean));
-    const toolViews = uniq(p.toolViews || []).map((id) => PM.getView(id)).filter((v) => v && !v.hidden);
+    const allTools = uniq(p.toolViews || []).map((id) => PM.getView(id)).filter((v) => v && !v.hidden);
+    /* Las vistas ágiles no se ofrecen si el proyecto no las tiene activas (el riel tampoco las muestra). */
+    const toolViews = allTools.filter((v) => viewAvailable(v, curProject));
+    const offTools = allTools.filter((v) => !viewAvailable(v, curProject));
     const subtitle = html`<span class="docs-sub"><span class="docs-sw" style=${'background:' + groupColor(p.group)}></span><span>${(g ? g.name : p.group) + (a ? ' · ' + a.num + '. ' + a.name : '')}</span></span>`;
     return html`<${ui.Modal} size="wide" title=${p.code + ' ' + p.name} subtitle=${subtitle} onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}>
       ${p.description ? html`<p>${p.description}</p>` : null}
@@ -673,6 +737,11 @@
           ${inputs.length ? html`<ul>${inputs.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : html`<p class="small faint">Sin entradas registradas.</p>`}
           ${inputDocs.length ? html`<div class="stack-sm" style="margin-top:10px"><div class="label-caps">Documentos del proyecto que usa</div>
             ${inputDocs.map((d) => { const t = PM.templates[d]; const insts = sortedInstances(idx.byTemplate[d]);
+              if (!applies(d)) {
+                return html`<div class="docs-out-inst docs-na-row" key=${d} data-input-doc=${d} data-na="1">
+                  <span class="docs-out-iname">${docName(d)}</span><${NaTag} />
+                </div>`;
+              }
               /* Plantillas múltiples: se listan sus documentos (el enlace a la plantilla abriría uno nuevo en blanco). */
               if (t && t.multiple) {
                 return html`<div class="stack-sm" style="gap:4px" key=${d} data-input-doc=${d}>
@@ -698,16 +767,20 @@
           ${toolViews.length ? html`<div class="stack-sm" style="margin-top:10px"><div class="label-caps">Herramientas de la aplicación</div><div class="row">
             ${toolViews.map((v) => html`<${ui.Button} key=${v.id} size="sm" icon=${v.icon} onClick=${go(() => PM.navigate(v.id))}>${v.label}</${ui.Button}>`)}
           </div></div>` : null}
+          ${offTools.length ? html`<p class="xsmall faint" style="margin:8px 0 0" data-off-tools>Con ciclo de vida adaptativo o híbrido también: ${offTools.map((v) => v.label).join(', ')}.</p>` : null}
         </section>
       </div>
       <section class="stack-sm"><h3 class="h4">Salidas</h3>
-        ${(p.outputs || []).length ? html`<div class="docs-out">${(p.outputs || []).map((o, i) => html`<${OutputRow} key=${i} o=${o} idx=${idx} canWrite=${canWrite} go=${go} />`)}</div>` : html`<p class="small faint">Sin salidas registradas.</p>`}
+        ${(p.outputs || []).length ? html`<div class="docs-out">${(p.outputs || []).map((o, i) => html`<${OutputRow} key=${i} o=${o} idx=${idx} canWrite=${canWrite} go=${go} na=${!!(o && o.doc && !applies(o.doc))} />`)}</div>` : html`<p class="small faint">Sin salidas registradas.</p>`}
       </section>
-      <${AgileNote} area=${a} open=${agileOn} go=${go} />
+      <${AgileNote} area=${a} open=${agileOn} go=${go} project=${curProject} idx=${idx} />
     </${ui.Modal}>`;
   }
 
-  function OutputRow({ o, idx, canWrite, go }) {
+  /* Distintivo de los documentos ágiles que no aplican al proyecto (texto, no solo color). */
+  const NaTag = () => html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban)">Ágil</${ui.Chip}><span class="xsmall faint">No aplica al ciclo de vida predictivo</span>`;
+
+  function OutputRow({ o, idx, canWrite, go, na }) {
     if (!o) return null;
     if (typeof o === 'string') return html`<div class="docs-out-row"><span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${o}</span></div>`;
     if (o.doc) {
@@ -716,6 +789,12 @@
       const name = docName(o.doc);
       const nameNode = html`<span class="stack-sm" style="gap:0;min-width:0"><span>${name}</span>${o.label && norm(o.label) !== norm(name) ? html`<span class="xsmall faint">Salida de la Guía: ${o.label}</span>` : null}</span>`;
       const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}`;
+      if (na) {
+        return html`<div class="docs-out-row docs-na-row" data-doc=${o.doc} data-na="1">
+          <span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${nameNode}</span>${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}<${NaTag} />
+          ${t ? html`<${ui.Button} size="sm" variant="ghost" icon="eye" onClick=${go(() => PM.openDocument(o.doc))} aria-label=${'Ver plantilla: ' + name}>Ver plantilla</${ui.Button}>` : null}
+        </div>`;
+      }
       if (!t && !insts.length) {
         return html`<div class="docs-out-row" data-doc=${o.doc}><span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${nameNode}</span>${upd}<span class="xsmall faint">Plantilla no disponible</span></div>`;
       }
@@ -762,7 +841,8 @@
     for (const t of tpls) {
       known.add(t.id);
       const insts = sortedInstances(idx.byTemplate[t.id]);
-      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '' };
+      /* na: plantilla ágil que no aplica al proyecto (predictivo y sin documentos): se lista aparte y no cuenta. */
+      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate) };
       if (!t.multiple) {
         const doc = insts.find((d) => d.id === t.id) || insts[0] || null;
         out.push({ ...base, type: 'single', key: t.id, doc, status: doc ? statusOf(doc) : 'sin', code: baseCode(project, t.id), name: t.name });
@@ -778,7 +858,8 @@
     }
     return out;
   }
-  const countable = (e) => e.type !== 'parent' || !e.count;
+  const countable = (e) => !e.na && (e.type !== 'parent' || !e.count);
+  const NaStatus = () => html`<${ui.Chip} title="Plantilla del enfoque ágil o híbrido: no aplica al ciclo de vida predictivo y no cuenta en el avance documental">No aplica</${ui.Chip}>`;
 
   function DocRow({ e, canWrite }) {
     const openIt = () => PM.openDocument(e.type === 'parent' ? e.tid : e.doc ? e.doc.id : e.tid);
@@ -787,7 +868,7 @@
         <td class="docs-c-code mono xsmall">${e.code}-NN</td>
         <td class="docs-c-name"><div class="stack-sm" style="gap:0"><span style="font-weight:600">${e.name}</span><span class="xsmall faint">${kindLabel(e.kind)}${kindLabel(e.kind) ? ' · ' : ''}${e.count ? e.count + (e.count === 1 ? ' documento' : ' documentos') : 'Admite varios documentos por proyecto'}</span></div></td>
         <td class="docs-c-proc mono xsmall">${e.process}</td>
-        <td class="docs-c-status">${e.count ? null : html`<${StatusChip} status="sin" />`}</td>
+        <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : html`<${StatusChip} status="sin" />`}</td>
         <td class="docs-c-rev"></td><td class="docs-c-upd"></td>
         <td class="docs-act">${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${openIt} aria-label=${'Nuevo: ' + e.name}>Nuevo</${ui.Button}>` : e.count ? null : html`<${ui.Button} size="sm" icon="eye" onClick=${openIt}>Ver plantilla</${ui.Button}>`}</td>
       </tr>`;
@@ -798,7 +879,7 @@
       <td class="docs-c-code mono xsmall">${e.code}</td>
       <td class="docs-c-name"><div class="stack-sm" style="gap:0"><button type="button" class="docs-link" onClick=${openIt}>${e.name}</button>${e.type !== 'instance' && kindLabel(e.kind) ? html`<span class="xsmall faint">${kindLabel(e.kind)}</span>` : e.type === 'orphan' ? html`<span class="xsmall faint">Plantilla no disponible</span>` : null}</div></td>
       <td class="docs-c-proc mono xsmall">${e.process}</td>
-      <td class="docs-c-status"><${StatusChip} status=${e.status} /></td>
+      <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
       <td class="docs-c-rev mono">${d && d.rev ? html`<span class="docs-m-only">Rev. </span>${d.rev}` : html`<span class="faint">—</span>`}</td>
       <td class="docs-c-upd xsmall faint">${d ? PM.fmt.datetime(d.updatedAt) : '—'}</td>
       <td class="docs-act"><${ui.Button} size="sm" icon=${!d ? (canWrite ? 'plus' : 'eye') : 'file'} onClick=${openIt} aria-label=${btn + ': ' + e.name}>${btn}</${ui.Button}></td>
@@ -813,10 +894,17 @@
     const [grp, setGrp] = useState('');
     const [estado, setEstado] = useState((params && params.status) || '');
     const [kind, setKind] = useState('');
+    /* Filtro por plantilla (enlaces de las consideraciones ágiles y de otras vistas): parámetro template. */
+    const [tpl, setTpl] = useState(() => (params && params.template && PM.templates[params.template] ? params.template : ''));
+    const tplParam = params && params.template;
+    useEffect(() => { if (tplParam && PM.templates[tplParam]) setTpl(tplParam); }, [tplParam]);
     const entries = useMemo(() => buildEntries(project, idx), [project, idx]);
     const counts = useMemo(() => {
-      const c = { total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0 };
-      for (const e of entries) if (countable(e)) { c.total++; c[e.status] = (c[e.status] || 0) + 1; }
+      const c = { total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0, templates: 0, na: 0 };
+      for (const e of entries) {
+        if (e.type === 'single' || e.type === 'parent') { if (e.na) c.na++; else c.templates++; }
+        if (countable(e)) { c.total++; c[e.status] = (c[e.status] || 0) + 1; }
+      }
       return c;
     }, [entries]);
     const A = areasList();
@@ -833,7 +921,7 @@
     }
 
     const ql = norm(q.trim());
-    const matchT = (e) => (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind);
+    const matchT = (e) => (!tpl || e.tid === tpl) && (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind);
     const matchQ = (e) => !ql || norm([e.code, e.name, e.t && e.t.name, e.t && e.t.abbr, e.process].join(' ')).includes(ql);
     const matchS = (e) => !estado || e.status === estado;
     const visible = [];
@@ -847,11 +935,15 @@
         if (ok) visible.push(e, ...vis);
       } else if (matchQ(e) && matchS(e)) visible.push(e);
     }
-    const byArea = PM.groupBy(visible, (e) => e.area || 'otros');
+    /* Las plantillas ágiles que no aplican (proyecto predictivo sin documentos de ellas) van aparte, plegadas y sin contar. */
+    const byArea = PM.groupBy(visible.filter((e) => !e.na), (e) => e.area || 'otros');
+    const naRows = estado ? [] : visible.filter((e) => e.na);
     const areaBlocks = [...A.map((a) => ({ id: a.id, num: a.num, name: a.name })), { id: 'otros', num: '—', name: 'Documentos sin plantilla disponible' }].filter((a) => byArea[a.id]);
-    const filtered = !!(ql || area || grp || estado || kind);
+    const filtered = !!(ql || area || grp || estado || kind || tpl);
     const shownCount = visible.filter(countable).length;
-    const clear = () => { setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); };
+    const clear = () => { setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); setTpl(''); };
+    const tableHead = () => html`<colgroup><col style="width:190px" /><col /><col style="width:74px" /><col style="width:122px" /><col style="width:62px" /><col style="width:148px" /><col style="width:132px" /></colgroup>
+            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th><th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>`;
 
     const exportCsv = () => {
       const rows = entries.filter(countable).map((e) => {
@@ -880,7 +972,7 @@
         actions=${html`<${ui.Button} icon="map" onClick=${() => PM.navigate('procesos')}>Mapa de procesos</${ui.Button}><${ui.Button} icon="download" onClick=${exportCsv}>Exportar lista (CSV)</${ui.Button}>`} />
       <div class="card">
         <div class="docs-stats">
-          <${ui.Stat} label="Documentos" value=${counts.total} sub=${counts.obsoleto ? counts.obsoleto + (counts.obsoleto === 1 ? ' obsoleto' : ' obsoletos') : PM.templateList.length + ' plantillas'} />
+          <${ui.Stat} label="Documentos" value=${counts.total} sub=${counts.obsoleto ? counts.obsoleto + (counts.obsoleto === 1 ? ' obsoleto' : ' obsoletos') : counts.templates + ' plantillas' + (counts.na ? ' (sin ' + counts.na + ' ágiles)' : '')} />
           <${ui.Stat} label="Aprobados" value=${counts.aprobado} tone=${counts.aprobado ? 'good' : undefined} sub=${PM.fmt.pct(approvedPct) + ' del total'} />
           <${ui.Stat} label="En revisión" value=${counts.revision} />
           <${ui.Stat} label="Borradores" value=${counts.borrador} />
@@ -895,8 +987,8 @@
         <${ui.Select} value=${estado} onValue=${setEstado} placeholder="Todos los estados" aria-label="Filtrar por estado" options=${statusOpts} />
         <${ui.Select} value=${kind} onValue=${setKind} placeholder="Todos los tipos" aria-label="Filtrar por tipo de documento" options=${Object.keys(KIND).map((k) => ({ value: k, label: KIND[k][1] }))} />
       </div>
-      ${filtered ? html`<div class="row small muted"><span>${shownCount} de ${counts.total} documentos</span><${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}></div>` : null}
-      ${!areaBlocks.length ? html`<${ui.Empty} icon="filter" title="Ningún documento coincide con los filtros" actions=${html`<${ui.Button} onClick=${clear}>Limpiar filtros</${ui.Button}>`}>Cambia la búsqueda o quita alguno de los filtros de área, grupo, estado o tipo.</${ui.Empty}>` : null}
+      ${filtered ? html`<div class="row small muted" data-filtered><span>${shownCount} de ${counts.total} documentos${tpl ? html` · plantilla: <strong>${docName(tpl)}</strong>` : null}</span><${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}></div>` : null}
+      ${!areaBlocks.length && !naRows.length ? html`<${ui.Empty} icon="filter" title="Ningún documento coincide con los filtros" actions=${html`<${ui.Button} onClick=${clear}>Limpiar filtros</${ui.Button}>`}>Cambia la búsqueda o quita alguno de los filtros de área, grupo, estado o tipo.</${ui.Empty}>` : null}
       ${areaBlocks.map((a) => {
         const rows = byArea[a.id];
         const n = rows.filter(countable).length;
@@ -904,12 +996,19 @@
         return html`<section class="card" key=${a.id} data-area=${a.id}>
           <div class="card-head"><h2 class="h3"><span class="docs-sec-n">${a.num}</span>${a.name}</h2><span class="xsmall faint">${n} ${n === 1 ? 'documento' : 'documentos'} · ${ap} ${ap === 1 ? 'aprobado' : 'aprobados'}</span></div>
           <div class="table-wrap docs-tablewrap"><table class="table docs-table">
-            <colgroup><col style="width:190px" /><col /><col style="width:74px" /><col style="width:122px" /><col style="width:62px" /><col style="width:148px" /><col style="width:132px" /></colgroup>
-            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th><th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+            ${tableHead()}
             <tbody>${rows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} />`)}</tbody>
           </table></div>
         </section>`;
       })}
+      ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl)}>
+        <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naRows.filter((e) => e.type !== 'instance').length} · no cuentan en el avance</span></summary>
+        <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido (Tablero › Datos del proyecto).</p>
+        <div class="table-wrap docs-tablewrap"><table class="table docs-table" aria-label="Plantillas ágiles que no aplican a este proyecto">
+          ${tableHead()}
+          <tbody>${naRows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} />`)}</tbody>
+        </table></div>
+      </details>` : null}
     </div>`;
   }
 

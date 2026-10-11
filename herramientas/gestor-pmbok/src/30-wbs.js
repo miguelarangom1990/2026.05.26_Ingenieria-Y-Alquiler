@@ -198,13 +198,16 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const target = mode === 'adaptativo' ? 'predictivo' : 'adaptativo';
     const inheritedOf = (id) => { const p = tree.parentOf.get(id); return p ? approach.get(p) || def : def; };
     const badges = new Map();
+    const own = (id) => { const n = tree.byId.get(id); return n && (n.approach === 'adaptativo' || n.approach === 'predictivo') ? n.approach : null; };
     for (const f of tree.flat) {
       const id = f.node.id; const ap = approach.get(id) || def;
       if (ap !== target) continue;
       const p = tree.parentOf.get(id);
-      const root = !p || (approach.get(p) || def) !== ap;
+      /* distintivo lleno: inicio de la rama o enfoque propio (aunque coincida con el del padre); punteado: heredado */
+      const root = !p || own(id) === ap || (approach.get(p) || def) !== ap;
       let from = null;
-      if (!root) { let a = p; while (a && tree.parentOf.get(a) && (approach.get(tree.parentOf.get(a)) || def) === ap) a = tree.parentOf.get(a); from = tree.codes.get(a); }
+      /* «heredado de»: el ancestro más cercano que fija el enfoque (o el inicio de la rama con ese enfoque) */
+      if (!root) { let a = p; while (a && own(a) !== ap && tree.parentOf.get(a) && (approach.get(tree.parentOf.get(a)) || def) === ap) a = tree.parentOf.get(a); from = tree.codes.get(a); }
       badges.set(id, { ap, root, from });
     }
     const releases = arrOf(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
@@ -813,7 +816,10 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           <div class="wbs-agile-meter"><${ui.Meter} value=${pct} label=${'Avance del backlog de ' + code + ' ' + name} /><span class="v" data-wbs-backlog-pct>${PM.fmt.pct100(pct * 100, 1)}</span></div>
           <p class="xsmall faint">${byPts ? 'Avance = ' + ag.unit + ' terminados / ' + ag.unit + ' estimados' : 'Avance = elementos terminados / elementos (aún no hay estimaciones)'}. Incluye este elemento${stats.count > own.count ? ' (' + own.count + ' propios) y los que lo componen' : ''}; las épicas agrupan y no se cuentan.</p>`
           : html`<p class="small faint">${adaptive ? 'Aún no hay elementos del backlog vinculados a este entregable ni a los que lo componen.' : 'No hay elementos del backlog vinculados.'}</p>`}
-        ${hasBacklog && ag.enabled ? html`<div><${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('backlog', { wbs: id })}>Ir al backlog</${ui.Button}></div>` : null}
+        ${hasBacklog && ag.enabled ? html`<div class="row" style="gap:4px 10px" data-wbs-goto-backlog>
+          <${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('backlog', { wbs: id })}>Ir al backlog</${ui.Button}>
+          <span class="xsmall faint">En el backlog, elige ${code} en el filtro de entregables para ver solo sus elementos.</span>
+        </div>` : null}
         <div class="wbs-sec-title"><${ui.Icon} name="release" size=${15} />Releases<span class="code-tag">${rels.length}</span></div>
         ${rels.length ? html`<div class="wbs-rels">${rels.map((r) => html`<div class="wbs-rel" key=${r.id} data-wbs-release=${r.id}>
             <div class="stack-sm" style="gap:1px;min-width:0">
@@ -1215,7 +1221,9 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     /* estado vivo para las acciones (identidad estable) */
     const live = useRef({});
     live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci, scope: scopeTpl,
-      agile: agileData, saveAgile: model.saveAgile, items: agileItems, ag, project, rollup, est, agileLoading: !!(model.agileMeta && model.agileMeta.loading) };
+      agile: agileData, saveAgile: model.saveAgile, items: agileItems, ag, project, rollup, est, agileLoading: !!(model.agileMeta && model.agileMeta.loading),
+      /* datos que guardan referencias a la EDT (cronograma, costos, releases, backlog, RACI) aún cargando: eliminar no podría limpiarlas */
+      refsLoading: !!model.loading || !!raciMeta.loading };
 
     const actions = useMemo(() => {
       const L = () => live.current;
@@ -1254,6 +1262,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         ${refs.rels.length ? html`<p class="small muted" data-wbs-confirm-rels>${refs.rels.length === 1 ? 'El release «' + (txt(refs.rels[0].name) || 'sin nombre') + '» quedará' : refs.rels.length + ' releases (' + refs.rels.slice(0, 3).map((r) => '«' + (txt(r.name) || 'sin nombre') + '»').join(', ') + (refs.rels.length > 3 ? '…' : '') + ') quedarán'} sin entregable de la EDT. Los releases no se eliminan.</p>` : null}
         ${refs.items.length ? html`<p class="small muted" data-wbs-confirm-items>${plural(refs.items.length, 'elemento del backlog quedará', 'elementos del backlog quedarán')} sin entregable de la EDT (${refs.items.slice(0, 4).map((it) => it.code || 'sin código').join(', ')}${refs.items.length > 4 ? '…' : ''}). No se eliminan: reasígnalos desde el backlog.</p>` : null}`;
       const wbsIndex = (tree) => new Map(tree.flat.map((f, i) => [f.node.id, i]));
+      /* no se elimina mientras cargan los datos vinculados: la confirmación no avisaría de ellos ni se limpiarían sus vínculos */
+      const refsBusy = () => { if (!L().refsLoading) return false; PM.toast('Aún se están cargando el cronograma, los costos o los datos ágiles del proyecto. Intenta de nuevo en un momento.'); return true; };
       const A = {
         select(id) { setSelectedId(id); if (L().editingId && L().editingId !== id) setEditing(null); },
         codeClick(id) { if (drag.current && drag.current.moved) return; A.openDict(id); },
@@ -1326,8 +1336,10 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const cur = L(); if (!cur.canWrite) return false;
           const n = cur.tree.byId.get(id); if (!n || cur.tree.childrenOf(id).length) return false;
           if (['name', 'description', 'responsible', 'deliverable', 'acceptance', 'notes'].some((k) => txt(n[k])) || num(n.costEstimate) > 0) return false;
+          if (cur.refsLoading) return false;
           if (((cur.schedule && cur.schedule.tasks) || []).some((t) => t.wbsId === id)) return false;
-          if (cur.ag.relsOf(id).length || cur.ag.direct.has(id)) return false;
+          /* releases o elementos del backlog (épicas incluidas) que apuntan al elemento: se conserva */
+          if (cur.ag.relsOf(id).length || cur.ag.itemsByWbs(new Set([id])).length) return false;
           const vis = cur.visible; const i = vis.findIndex((f) => f.node.id === id); const prev = vis[i - 1] || vis[i + 1];
           commitNodes(renumber(cur.wbs.nodes.filter((x) => x.id !== id)));
           if (prev) A.edit(prev.node.id); else { setSelectedId(null); setEditing(null); }
@@ -1347,6 +1359,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         async remove(id) {
           const cur = L(); if (!cur.canWrite || !id || id === ROOT) return;
           const tree = cur.tree; const n = tree.byId.get(id); if (!n) return;
+          if (refsBusy()) return;
           const desc = tree.descendants(id);
           const gone = new Set([id, ...desc]);
           const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((t) => t.wbsId && gone.has(t.wbsId)).length;
@@ -1445,6 +1458,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const cur = L(); if (!cur.canWrite) return;
           const old = cur.wbs.nodes;
           if (old.length) {
+            if (refsBusy()) return;
             const ids = new Set(old.map((n) => n.id));
             const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((x) => x.wbsId && ids.has(x.wbsId)).length;
             const refs = agileRefs(ids);
