@@ -290,6 +290,49 @@
     return sum;
   };
 
+  /* Costos reales de varios releases sin duplicar: recorre costs.actuals una vez con las reglas de releaseActualCost.
+     → { byRelease: Map(id → {ac, shared}), total (cada registro una sola vez), shared: [{actual, ids, amount}] }.
+     ac de cada release = releaseActualCost; shared = parte de ese ac imputada también a otros releases (por actividad o EDT). */
+  agile.releaseCosts = function (releases, costs, tree, statusDate) {
+    const rels = arr(releases).filter((r) => isObj(r) && r.id);
+    const cut = D.valid(statusDate) ? statusDate : null;
+    const wbsOf = rels.map((r) => {
+      const ids = new Set();
+      if (r.wbsId) { ids.add(r.wbsId); if (tree && tree.descendants) for (const id of tree.descendants(r.wbsId) || []) ids.add(id && typeof id === 'object' ? id.id : id); }
+      return ids;
+    });
+    const byRelease = new Map(rels.map((r) => [r.id, { ac: 0, shared: 0 }]));
+    const shared = [];
+    let total = 0;
+    for (const a of arr(costs && costs.actuals)) {
+      if (!isObj(a)) continue;
+      if (cut && D.valid(a.date) && a.date > cut) continue;
+      const ids = [];
+      rels.forEach((r, k) => { if (a.releaseId ? a.releaseId === r.id : (r.taskId && a.taskId === r.taskId) || (a.wbsId && wbsOf[k].has(a.wbsId))) ids.push(r.id); });
+      if (!ids.length) continue;
+      const amount = num(a.amount, 0);
+      total += amount;
+      for (const id of ids) { const e = byRelease.get(id); e.ac += amount; if (ids.length > 1) e.shared += amount; }
+      if (ids.length > 1) shared.push({ actual: a, ids, amount });
+    }
+    return { byRelease, total, shared };
+  };
+
+  /* Límite WIP válido de una columna (entero ≥ 1) o null; conteo por columna sobre todo el tablero (sin filtros). */
+  agile.wipLimit = (column) => { const n = column ? num(column.wip, 0) : 0; return n > 0 ? Math.max(1, Math.round(n)) : null; };
+  agile.wipCounts = function (settings, items) {
+    const st = settings && Array.isArray(settings.columns) ? settings : agile.settings(null);
+    const m = new Map(st.columns.map((c) => [c.id, 0]));
+    for (const it of arr(items)) if (agile.countable(it) && m.has(it.status)) m.set(it.status, m.get(it.status) + 1);
+    return m;
+  };
+  /* estado WIP de cada columna: [{id, name, category, wip, count, over, full}] */
+  agile.wipStatus = function (settings, items) {
+    const st = settings && Array.isArray(settings.columns) ? settings : agile.settings(null);
+    const counts = agile.wipCounts(st, items);
+    return st.columns.map((c) => { const wip = agile.wipLimit(c), count = counts.get(c.id) || 0; return { id: c.id, name: c.name, category: c.category, wip, count, over: !!(wip && count > wip), full: !!(wip && count >= wip) }; });
+  };
+
   /* Diagrama de flujo acumulado: elementos por categoría y día (muestreo semanal si el rango es largo). */
   calc.cfd = function ({ items, settings, from, to }) {
     const st = settings || agile.settings(null);

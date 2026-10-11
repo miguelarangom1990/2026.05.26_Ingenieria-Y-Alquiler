@@ -855,8 +855,8 @@
       ${opts.map((o) => html`<button key=${o.value} type="button" class=${cx('btn', size === 'sm' && 'btn-sm')} aria-pressed=${String(value) === String(o.value) ? 'true' : 'false'} disabled=${disabled || o.disabled} onClick=${() => onChange(o.value)} title=${o.title}>${o.icon ? html`<${ui.Icon} name=${o.icon} size=${14} />` : null}${o.label}</button>`)}
     </div>`;
   };
-  ui.Chip = function Chip({ tone, icon, children, class: cls, title }) {
-    return html`<span class=${cx('chip', tone && 'chip-' + tone, cls)} title=${title}>${icon ? html`<${ui.Icon} name=${icon} size=${12} />` : null}${children}</span>`;
+  ui.Chip = function Chip({ tone, icon, children, class: cls, title, ...rest }) {
+    return html`<span ...${rest} class=${cx('chip', tone && 'chip-' + tone, cls)} title=${title}>${icon ? html`<${ui.Icon} name=${icon} size=${12} />` : null}${children}</span>`;
   };
   ui.Empty = function Empty({ icon = 'folder', title, children, actions }) {
     return html`<div class="empty"><${ui.Icon} name=${icon} size=${30} stroke=${1.5} /><div class="empty-title">${title}</div>${children ? html`<p>${children}</p>` : null}${actions ? html`<div class="row" style="justify-content:center">${actions}</div>` : null}</div>`;
