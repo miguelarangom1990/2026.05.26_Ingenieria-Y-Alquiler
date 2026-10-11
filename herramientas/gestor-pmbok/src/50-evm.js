@@ -1542,10 +1542,15 @@
     const shared = hits.filter((h) => h.ids.length > 1);
     const sharedBy = new Map();
     for (const h of shared) for (const id of h.ids) sharedBy.set(id, (sharedBy.get(id) || 0) + h.amount);
+    /* actividad vinculada a cada release, con la misma regla del núcleo que aplica el avance del backlog (PM.agile.linksOf:
+       una actividad por release; release.taskId primero, luego task.releaseId) */
+    const taskOfRel = new Map();
+    if (typeof PM.agile.linksOf === 'function') { const byId = new Map(sched.tasks.map((t) => [t.id, t])); for (const [tid, r] of PM.agile.linksOf(sched.tasks, agile)) if (byId.has(tid)) taskOfRel.set(r.id, byId.get(tid)); }
+    else for (const r of rels) { const t = sched.tasks.find((x) => (r.taskId && x.id === r.taskId) || x.releaseId === r.id); if (t) taskOfRel.set(r.id, t); }
     const rows = rels.map((r) => {
       const ac = PM.agile.releaseActualCost(r, costs, tree, statusDate);
       const e = PM.calc.agileEvm({ release: r, sprints, items, settings, actualCost: ac, statusDate });
-      const task = sched.tasks.find((t) => (r.taskId && t.id === r.taskId) || t.releaseId === r.id) || null;
+      const task = taskOfRel.get(r.id) || null;
       let link = null;
       if (task) {
         /* mismo plan de medición que el valor ganado del proyecto: una actividad agregada después de la línea base de
@@ -1687,7 +1692,7 @@
             <thead><tr><th scope="col">Release</th><th scope="col">Actividad vinculada</th><th class="num" scope="col" title="Presupuesto de la actividad en el plan de medición del proyecto">Presupuesto</th><th class="num" scope="col" title="% planificado al corte según las fechas de la actividad">% plan.</th><th class="num" scope="col" title="% completado de la actividad (desde el backlog si está vinculada)">% compl.</th><th class="num" scope="col">SPI proyecto</th><th class="num" scope="col">SPI ágil</th></tr></thead>
             <tbody>${rows.map(({ r, e, link }) => html`<tr key=${r.id} data-link=${r.id}>
               <td style="min-width:150px">${releaseName(r)}</td>
-              <td>${link ? html`<div class="evm-linked"><span>${link.task.name || 'Actividad sin nombre'}</span>${link.derived ? html`<${ui.Chip} tone="info" icon="release">Avance desde el backlog</${ui.Chip}>` : html`<${ui.Chip} tone="warn" icon="alert" title="El release no tiene elementos estimados: la actividad conserva su avance registrado">Sin alcance estimado</${ui.Chip}>`}${link.outside ? html`<${ui.Chip} tone="warn" data-outside="1" title="Se agregó después de la línea base de costos: no tiene presupuesto en el valor ganado del proyecto">Fuera de la línea base</${ui.Chip}>` : null}</div>` : html`<span class="faint">Sin vincular: no entra a la curva S</span>`}</td>
+              <td>${link ? html`<div class="evm-linked"><span>${link.task.name || 'Actividad sin nombre'}</span>${link.derived ? html`<${ui.Chip} tone="info" icon="release">Avance desde el backlog</${ui.Chip}>` : html`<${ui.Chip} tone="warn" icon="alert" title="El release no tiene elementos estimados: la actividad conserva su avance registrado">Sin alcance estimado</${ui.Chip}>`}${link.outside ? html`<${ui.Chip} tone="warn" class="evm-outside" title="Se agregó después de la línea base de costos: no tiene presupuesto en el valor ganado del proyecto">Fuera de la línea base</${ui.Chip}>` : null}</div>` : html`<span class="faint">Sin vincular: no entra a la curva S</span>`}</td>
               <td class="num">${link ? m(link.budget) : html`<span class="faint">—</span>`}</td>
               <td class="num">${link ? fmt.pct(link.planned, 1) : html`<span class="faint">—</span>`}</td>
               <td class="num">${link ? fmt.pct100(link.progress, 1) : html`<span class="faint">—</span>`}</td>

@@ -82,12 +82,18 @@ async function seed(page, meta = {}, opts = {}) {
   return page.evaluate(async ({ WBS, SCHEDULE, COSTS, AGILE, ITEMS, meta, opts, STUB_VIEWS }) => {
     const pid = await PM.projectOps.create({ name: 'Plataforma y montaje Torre 3', code: 'PRY-AG-002', start: '2026-08-03', end: '2026-12-18', budget: 300000000, currency: 'COP', status: 'En ejecución', lifecycle: 'Híbrido', statusDate: '2026-09-08', manager: 'Director de proyecto', sponsor: 'Gerencia General', ...meta });
     if (!opts.blank) {
-      await PM.store.set(PM.paths.tool(pid, 'wbs'), WBS);
-      await PM.store.set(PM.paths.tool(pid, 'schedule'), SCHEDULE);
-      await PM.store.set(PM.paths.tool(pid, 'costs'), COSTS);
+      await PM.store.set(PM.paths.tool(pid, 'wbs'), opts.wbs || WBS);
+      /* línea base de costos tomada de un cronograma anterior (actividades agregadas después quedan fuera de ella) */
+      if (opts.costBaselineFrom) {
+        const sched0 = PM.calc.computeSchedule(opts.costBaselineFrom, '2026-08-03');
+        await PM.store.set(PM.paths.baseline(pid, 'b0'), { number: 0, label: 'LB0', date: '2026-07-31', note: '', changeRef: null, byId: null, ...PM.calc.makeBaselineSnapshot({ includes: ['cost'], sched: sched0, wbs: { nodes: [] }, costs: opts.costs || COSTS }) });
+      }
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), opts.schedule || SCHEDULE);
+      await PM.store.set(PM.paths.tool(pid, 'costs'), opts.costs || COSTS);
       await PM.store.set(PM.paths.tool(pid, 'agile'), opts.agile || AGILE);
       for (const it of opts.items || ITEMS) { const { id, ...body } = it; await PM.store.set(PM.paths.backlogItem(pid, id), body); }
     }
+    for (const [docId, body] of Object.entries(opts.docs || {})) await PM.store.set(PM.paths.doc(pid, docId), { title: body.template, status: 'borrador', rev: null, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso(), ...body });
     /* la página de prueba (50,70,80) no incluye 45 ni 46: vistas mínimas para comprobar la navegación */
     for (const id of STUB_VIEWS) if (!PM.getView(id)) PM.registerView({ id, label: id, group: 'agil', icon: 'sprint', order: 90, needsProject: true, hidden: true, component: ({ params }) => PM.lib.html`<div class="page" data-stub=${id}>${JSON.stringify(params || {})}</div>` });
     PM.selectProject(pid, 'tablero');
@@ -254,6 +260,90 @@ await section('A2. valor ganado: predictivo sin capa ágil', async () => {
   } finally { await browser.close(); }
 });
 
+/* =============================================================== A3. regresiones de la revisión: costos compartidos, BAC 0, línea base */
+await section('A3. valor ganado ágil: AC sin duplicar, release sin BAC y actividad fuera de la línea base', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* r1 y r2 comparten el entregable w2: el costo a1 (sin release, actividad t2 del paquete w21) cuenta en ambos.
+       r3 no tiene presupuesto y tiene un costo imputado. t4 se vincula a r1 después de la línea base de costos. */
+    const agile = { ...AGILE,
+      releases: [
+        { id: 'r1', name: 'R1 · Inventario', start: '2026-08-03', end: '2026-09-25', status: 'en-curso', budget: 80000000, plannedSprints: 4, wbsId: 'w2', taskId: null, baseline: null },
+        { id: 'r2', name: 'R2 · Facturación', start: '2026-09-28', end: '2026-11-20', status: 'planeado', budget: 70000000, plannedSprints: 3, wbsId: 'w2', taskId: null, baseline: null },
+        { id: 'r3', name: 'R3 · Tablero gerencial', start: '2026-11-23', end: '2026-12-18', status: 'planeado', budget: 0, plannedSprints: 2, wbsId: null, taskId: null, baseline: null },
+      ],
+      sprints: [
+        { id: 's1', name: 'Iteración 1', releaseId: 'r1', start: '2026-08-03', end: '2026-08-14', status: 'cerrado', committed: 5, completed: 5, docs: {} },
+        { id: 's2', name: 'Iteración 2', releaseId: 'r1', start: '2026-09-01', end: '2026-09-14', status: 'en-curso', committed: 5, docs: {} },
+      ] };
+    const items = [
+      item('i1', 'HU-001', 'Catálogo', 5, { sprintId: 's1', status: 'terminado', doneDate: '2026-08-12' }),
+      item('i2', 'HU-002', 'Remisiones', 5, { sprintId: 's2', status: 'en-curso' }),
+      item('j1', 'HU-020', 'Factura electrónica', 5, { releaseId: 'r2', wbsId: 'w22' }),
+    ];
+    const costs = { actuals: [
+      { id: 'a1', date: '2026-08-20', amount: 40000000, taskId: 't2', wbsId: 'w21', category: 'Mano de obra', description: 'Equipo agosto', document: 'NOM-08' },
+      { id: 'a2', date: '2026-08-25', amount: 10000000, taskId: null, wbsId: null, releaseId: 'r3', category: 'Otros', description: 'Prototipo del tablero', document: 'FE-200' },
+    ], statusUpdates: [], reserves: { contingency: 0, management: 0 } };
+    const base = { ...SCHEDULE, tasks: SCHEDULE.tasks.map(({ releaseId, ...t }) => t) };
+    const schedule = { ...base, tasks: [...base.tasks, { id: 't5', name: 'Integración del inventario', wbsId: 'w21', releaseId: 'r1', duration: 20, milestone: false, start: '2026-08-03', deps: [], progress: 0, cost: 25000000, resources: [] }] };
+    const pid = await seed(page, { code: 'PRY-AG-RV1' }, { agile, items, costs, schedule, costBaselineFrom: base });
+    await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'agil' }));
+    await page.waitForSelector('[data-role="agile-evm-table"]');
+    const M = (v) => page.evaluate((v) => PM.fmt.moneyShort(v, 'COP'), v);
+    const acCell = async (rid) => nb(await page.$eval(`tr[data-release="${rid}"] td[data-col="ac"] > div`, (d) => d.textContent));
+    eq('AC por release (releaseActualCost): el costo compartido cuenta en r1 y en r2', [await acCell('r1'), await acCell('r2'), await acCell('r3')], [nb(await M(40000000)), nb(await M(40000000)), nb(await M(10000000))]);
+    check('la fila marca el costo compartido con texto', /incl\. .*40 M compartido/.test(nb(await page.textContent('tr[data-release="r1"] [data-shared]'))) && (await page.$$('tr[data-release="r3"] [data-shared]')).length === 0, null);
+    const acTile = nb(await page.textContent('[data-metric="agile-ac"] .evm-metric-value'));
+    eq('indicador AC: total registrado sin duplicar (50 M, no 90 M)', acTile, nb(await M(50000000)));
+    const totAc = nb(await page.textContent('[data-role="agile-totals"] td[data-col="ac"]'));
+    check('fila de totales: AC sin duplicar', totAc.startsWith(nb(await M(50000000))) && /sin duplicar/.test(totAc), totAc);
+    /* CPI total = Σ EV / AC de los releases con presupuesto: EV 40 M (r1 50 %) / AC 40 M = 1,00 (antes 40 / 90 = 0,44) */
+    eq('CPI total con el AC sin duplicar y solo de releases con BAC', nb(await page.textContent('[data-metric="agile-cpi"] .evm-metric-value')), '1,00');
+    check('nota del CPI: AC de los releases con presupuesto', /Con el AC de los releases con presupuesto/.test(nb(await page.textContent('[data-metric="agile-cpi"]'))), null);
+    /* celdas de totales: nombre, BAC, PPC, APC, PV, EV, AC, SV, CV, SPI, CPI, EAC, VAC */
+    const totCells = await page.$$eval('[data-role="agile-totals"] td', (tds) => tds.map((t) => t.firstElementChild && t.firstElementChild.tagName === 'DIV' ? t.firstElementChild.textContent.trim() : t.textContent.trim()));
+    eq('totales: CPI 1,00, EAC = BAC / CPI = 150 M y VAC 0', [totCells[10], nb(totCells[11]), nb(totCells[12])], ['1,00', nb(await M(150000000)), nb(await M(0))]);
+    const shared = nb(await page.textContent('[data-note="compartido"]'));
+    check('nota de registros compartidos con los releases y la sugerencia de imputarlos', /1 registro de costos sin release/.test(shared) && /«R1 · Inventario», «R2 · Facturación»/.test(shared) && /una sola vez en el total/.test(shared) && /selector «Release»/.test(shared), shared);
+    /* release sin presupuesto: SV, CV, SPI y CPI en «—» (no 0,00) y nota corregida */
+    eq('r3 sin BAC: SV, CV, SPI y CPI sin calcular', await page.$$eval('tr[data-release="r3"] td[data-nobac]', (tds) => tds.map((t) => t.dataset.col + '=' + t.textContent.trim())), ['sv=—', 'cv=—', 'spi=—', 'cpi=—']);
+    check('r3 sin BAC: el «—» explica el motivo (title)', /Sin presupuesto \(BAC\)/.test(await page.getAttribute('tr[data-release="r3"] td[data-col="cpi"]', 'title')), null);
+    const noBac = nb(await page.textContent('[data-note="sin-bac"]'));
+    check('nota sin BAC: PV y EV en cero, sin EAC y sin índices', /su PV y su EV quedan en cero, no hay EAC/.test(noBac) && !/EAC quedan en cero/.test(noBac) && /no entra al CPI total/.test(noBac), noBac);
+    /* actividad vinculada fuera de la línea base de costos: presupuesto 0 como en «Por actividad» */
+    const link = nb(await page.textContent('[data-role="agile-link-table"] tr[data-link="r1"]'));
+    check('vínculo: actividad fuera de la línea base marcada', /Integración del inventario/.test(link) && (await page.$$('[data-role="agile-link-table"] tr[data-link="r1"] .evm-outside')).length === 1, link);
+    eq('vínculo: presupuesto 0 y SPI del proyecto sin calcular', await page.$$eval('[data-role="agile-link-table"] tr[data-link="r1"] td.num', (tds) => [tds[0].textContent.trim(), tds[3].textContent.trim()]), [await M(0), '—']);
+    await page.getByRole('tab', { name: /Por actividad/ }).click(); await page.waitForTimeout(250);
+    check('«Por actividad» marca la misma actividad fuera de la línea base', /Fuera de la línea base/.test(nb(await page.textContent('[data-role="tabpanel"], [role="tabpanel"]'))), null);
+    await page.getByRole('tab', { name: /Valor ganado ágil/ }).click(); await page.waitForSelector('[data-note="compartido"]');
+    /* CSV: total sin duplicar y columna del AC compartido */
+    await stubDownloads(page);
+    await page.locator('[data-role="agile-evm-card"]').getByRole('button', { name: 'Exportar CSV' }).click(); await page.waitForTimeout(100);
+    const csv = (await page.evaluate(() => window.__dl)).pop();
+    const lines = csv.data.replace(/^﻿/, '').trim().split(/\r?\n/);
+    const sep = lines[0].includes(';') ? ';' : ',';
+    const head = lines[0].split(sep).map((x) => x.replace(/"/g, ''));
+    const totLine = lines[lines.length - 1].split(sep).map((x) => x.replace(/"/g, ''));
+    check('CSV: columna «AC compartido con otros releases»', head.includes('AC compartido con otros releases'), head);
+    eq('CSV: AC total sin duplicar', Number(String(totLine[head.indexOf('AC')]).replace(',', '.')), 50000000);
+    const r3Line = lines.find((l) => /R3 · Tablero/.test(l)).split(sep).map((x) => x.replace(/"/g, ''));
+    eq('CSV: r3 sin BAC con CPI y SPI vacíos', [r3Line[head.indexOf('SPI')], r3Line[head.indexOf('CPI')]], ['', '']);
+    /* la nota lleva a Costos reales con el teclado */
+    await page.locator('[data-note="compartido"]').getByRole('button', { name: 'Ir a costos reales' }).focus();
+    await page.keyboard.press('Enter'); await page.waitForTimeout(250);
+    eq('«Ir a costos reales» abre la pestaña', await page.getAttribute('[role="tabpanel"]', 'data-tab'), 'reales');
+    /* imputar el costo a r1 con el selector: deja de ser compartido */
+    await page.selectOption('tr[data-actual="a1"] select[data-field="releaseId"]', 'r1'); await page.waitForTimeout(900);
+    await page.getByRole('tab', { name: /Valor ganado ágil/ }).click(); await page.waitForSelector('[data-role="agile-evm-table"]');
+    check('imputado a r1: sin nota de compartidos y r2 sin AC', (await page.$$('[data-note="compartido"]')).length === 0 && (await acCell('r2')) === nb(await M(0)), await acCell('r2'));
+    eq('sin tarjetas de error', await errorCards(page), []);
+    eq('sin errores de consola', errors, []);
+    void pid;
+  } finally { await browser.close(); }
+});
+
 /* =============================================================== B. RACI: roles y eventos ágiles */
 const raciData = (page, pid) => tool(page, pid, 'raci');
 const raciCellMap = (raci) => {
@@ -286,7 +376,7 @@ await section('B. RACI', async () => {
     await page.waitForSelector('.modal [data-role="agile-events"]');
     const evs = await page.$$eval('.modal [data-agile-event]', (ls) => ls.map((l) => l.dataset.agileEvent));
     eq('los 9 eventos ágiles', evs, ['Refinamiento del backlog', 'Priorización del backlog', 'Planificación de la iteración', 'Reunión diaria', 'Revisión de la iteración', 'Retrospectiva', 'Definición de terminado', 'Aceptación de historias de usuario', 'Planificación del release']);
-    check('vista previa de la asignación con texto (no solo color)', /Dueño del producto/.test(nb(await page.textContent('.modal [data-agile-event="Priorización del backlog"]'))) && /Dueño del producto: Rinde cuentas/.test(nb(await page.textContent('.modal [data-agile-event="Priorización del backlog"] .sr-only'))), null);
+    check('vista previa de la asignación con texto (no solo color)', /Dueño del producto/.test(nb(await page.textContent('.modal [data-agile-event="Priorización del backlog"]'))) && /Dueño del producto: Responsable y rinde cuentas; Scrum Master \/ facilitador: Consultado/.test(nb(await page.textContent('.modal [data-agile-event="Priorización del backlog"] .sr-only'))), nb(await page.textContent('.modal [data-agile-event="Priorización del backlog"] .sr-only')));
     const otherLbl = nb(await page.textContent('.modal label.check'));
     check('ofrece agregar el patrocinador (el director ya está)', /el rol «Patrocinador»/.test(otherLbl), otherLbl);
     /* desmarcar «Reunión diaria» con el teclado */
@@ -299,7 +389,9 @@ await section('B. RACI', async () => {
     eq('8 filas de eventos agregadas', raci.rows.map((r) => r.activity), ['Refinamiento del backlog', 'Priorización del backlog', 'Planificación de la iteración', 'Revisión de la iteración', 'Retrospectiva', 'Definición de terminado', 'Aceptación de historias de usuario', 'Planificación del release']);
     eq('roles: se agrega el patrocinador; el director se reutiliza', raci.roles.map((r) => r.name), ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo', 'Director de proyecto', 'Patrocinador']);
     const cm = raciCellMap(raci);
-    eq('priorización: dueño del producto A, facilitador R', cm['Priorización del backlog'], { 'Dueño del producto': 'A', 'Scrum Master / facilitador': 'R', 'Equipo de desarrollo': 'C', 'Director de proyecto': 'C' });
+    /* Guía de Scrum 2020: ordenar el backlog del producto es responsabilidad del dueño del producto; el Scrum Master solo apoya */
+    eq('priorización: dueño del producto R/A, facilitador C', cm['Priorización del backlog'], { 'Dueño del producto': 'RA', 'Scrum Master / facilitador': 'C', 'Equipo de desarrollo': 'C', 'Director de proyecto': 'C' });
+    check('el facilitador solo es R en eventos que facilita (no en la priorización ni en la aceptación)', !['R', 'RA'].includes(cm['Priorización del backlog']['Scrum Master / facilitador']) && !['R', 'RA'].includes(cm['Aceptación de historias de usuario']['Scrum Master / facilitador']), cm);
     eq('aceptación: dueño del producto A, equipo R', [cm['Aceptación de historias de usuario']['Dueño del producto'], cm['Aceptación de historias de usuario']['Equipo de desarrollo']], ['A', 'R']);
     eq('refinamiento: dueño del producto R (y rinde cuentas)', cm['Refinamiento del backlog']['Dueño del producto'], 'RA');
     eq('planificación de la iteración: equipo R', cm['Planificación de la iteración']['Equipo de desarrollo'], 'RA');
@@ -349,7 +441,7 @@ await section('B. RACI', async () => {
     await page.waitForTimeout(900);
     raci = await raciData(page, pid2);
     const cm2 = raciCellMap(raci);
-    check('usa «Product Owner» como dueño del producto; sin director ni patrocinador', raci.roles.length === 3 && cm2['Priorización del backlog']['Product Owner'] === 'A' && cm2['Revisión de la iteración']['Scrum Master'] === 'R', cm2);
+    check('usa «Product Owner» como dueño del producto; sin director ni patrocinador', raci.roles.length === 3 && cm2['Priorización del backlog']['Product Owner'] === 'RA' && cm2['Revisión de la iteración']['Scrum Master'] === 'R', cm2);
     check('la fila existente no cambia', raci.rows.filter((r) => r.activity === 'Retrospectiva').length === 1 && Object.keys(raci.rows.find((r) => r.id === 'y1').cells).length === 0, null);
 
     /* --- proyecto predictivo: sin botones ágiles --- */
@@ -382,7 +474,9 @@ await section('C. tablero', async () => {
     const wip = nb(await page.textContent(card + ' [data-agile-alert="wip"]'));
     check('alerta de WIP superado con texto', /Límite WIP superado en «En curso»: 4 elementos para un límite de 3/.test(wip), wip);
     const bl = nb(await page.textContent(card + ' [data-agile-alert="blocked"]'));
-    check('alerta de elementos bloqueados', /1 elemento bloqueado: HU-008 Integración con la báscula/.test(bl), bl);
+    check('alerta de elementos bloqueados', /1 elemento bloqueado en la iteración actual: HU-008 Integración con la báscula/.test(bl), bl);
+    eq('título de las alertas sin «iteración actual» (el WIP se mide en todo el tablero)', nb(await page.textContent(card + ' [data-agile="alerts"] h4')), 'Alertas del flujo');
+    eq('base de la velocidad con 2 iteraciones cerradas', nb(await page.textContent(card + ' [data-agile-velbasis]')), 'Promedio de las 2 iteraciones cerradas (mín. 5 pts, máx. 8 pts).');
     check('alertas con icono y texto', await page.$eval(card + ' [data-agile-alert="wip"]', (li) => !!li.querySelector('svg.icon') && li.textContent.trim().length > 10), null);
     /* enlaces */
     for (const [label, view] of [['Backlog', 'backlog'], ['Kanban', 'kanban'], ['Iteraciones', 'iteraciones'], ['Métricas', 'metricas-agiles']]) {
@@ -470,7 +564,7 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     const flow = nb(await page.textContent('[data-card="agile"] [data-agile="sprint"]'));
     check('Kanban: flujo continuo con elementos en curso', /Flujo continuo/.test(flow) && /4 elementos en curso/.test(flow), flow);
     check('Kanban: WIP medido en todo el flujo', /Límite WIP superado en «En curso»/.test(nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]'))), null);
-    check('Kanban: velocidad sin iteraciones cerradas', /Aparece al cerrar la primera iteración/.test(nb(await page.textContent('[data-card="agile"] [data-agile="velocity"]'))), null);
+    check('Kanban: rendimiento en lugar de velocidad', (await page.$$('[data-card="agile"] [data-agile="velocity"]')).length === 0 && /Rendimiento/.test(nb(await page.textContent('[data-card="agile"] [data-agile="throughput"]'))), null);
 
     /* predictivo: sin tarjeta ágil y ruta sin cambios (14 pasos) */
     await seed(page, { lifecycle: 'Predictivo', code: 'PRY-PR-007' }, { blank: true });
@@ -478,6 +572,127 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     check('predictivo: sin tarjeta ágil', (await page.$$('[data-card="agile"]')).length === 0, null);
     eq('predictivo: 14 pasos', await page.$$eval('.dashboard-step', (e) => e.length), 14);
     check('predictivo: sin chip de enfoque', !/Enfoque/.test(nb(await page.textContent('[data-card="route"] h3'))), null);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
+/* =============================================================== C3. regresiones de la revisión del tablero */
+await section('C3. tablero: WIP y bloqueados en todo el tablero, una iteración cerrada, línea base con puntos en texto', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* «En curso» con límite 2 y 3 elementos: uno de la iteración actual, uno de una iteración cerrada y uno sin iteración
+       (el tablero Kanban cuenta los 3). Bloqueados: uno en la iteración actual, uno planeado para la siguiente y uno en el
+       backlog del producto. Solo una iteración cerrada. Línea base del release importada con puntos en texto y sin fecha. */
+    const agile = { settings: { framework: 'scrum-kanban', estimationUnit: 'puntos', sprintLength: 10, scopeChangeThreshold: 10, columns: [
+        { id: 'por-hacer', name: 'Por hacer', category: 'pendiente', wip: null }, { id: 'en-curso', name: 'En curso', category: 'en-curso', wip: 2 },
+        { id: 'terminado', name: 'Terminado', category: 'terminado', wip: null }] },
+      releases: [{ id: 'r1', name: 'Release 1', start: '2026-08-03', end: '2026-09-25', status: 'en-curso', budget: 90000000, plannedSprints: 4, wbsId: 'w21', taskId: null, baseline: { points: '40' } }],
+      sprints: [
+        { id: 's1', name: 'Iteración 1', releaseId: 'r1', start: '2026-08-03', end: '2026-08-14', status: 'cerrado', committed: 8, completed: 7, docs: {} },
+        { id: 's2', name: 'Iteración 2', releaseId: 'r1', start: '2026-09-01', end: '2026-09-14', status: 'en-curso', committed: 9, docs: {} },
+        { id: 's3', name: 'Iteración 3', releaseId: 'r1', start: '2026-09-15', end: '2026-09-28', status: 'planeado', docs: {} },
+      ] };
+    const items = [
+      item('i1', 'HU-001', 'Catálogo de equipos', 7, { sprintId: 's1', status: 'terminado', doneDate: '2026-08-13' }),
+      item('i2', 'HU-002', 'Remisión de salida', 3, { sprintId: 's2', status: 'en-curso', blocked: true }),
+      item('i3', 'HU-003', 'Devolución parcial', 3, { sprintId: 's1', status: 'en-curso' }),
+      item('i4', 'HU-004', 'Urgencia de bodega', 2, { sprintId: null, status: 'en-curso' }),
+      item('i5', 'HU-005', 'Integración con la báscula', 2, { sprintId: 's3', status: 'por-hacer', blocked: true }),
+      item('i6', 'HU-006', 'Firma digital de remisiones', 5, { sprintId: null, status: 'backlog', blocked: true }),
+    ];
+    await seed(page, { code: 'PRY-AG-RV2' }, { agile, items });
+    const card = '[data-card="agile"]';
+    await page.waitForSelector(card + ' [data-agile="alerts"]');
+    eq('título de las alertas', nb(await page.textContent(card + ' [data-agile="alerts"] h4')), 'Alertas del flujo');
+    eq('WIP contado como el tablero Kanban (todo el tablero, sin filtrar por iteración)', nb(await page.textContent(card + ' [data-agile-alert="wip"]')), 'Límite WIP superado en «En curso»: 3 elementos para un límite de 2.');
+    eq('bloqueados del tablero con los de la iteración actual', nb(await page.textContent(card + ' [data-agile-alert="blocked"]')), '2 elementos bloqueados en el tablero (1 de la iteración actual): HU-002 Remisión de salida; HU-005 Integración con la báscula.');
+    eq('bloqueados del backlog del producto aparte', nb(await page.textContent(card + ' [data-agile-alert="blocked-backlog"]')), '1 elemento del backlog del producto está bloqueado (aún sin planificar): HU-006 Firma digital de remisiones.');
+    check('alertas con icono (no solo color)', await page.$$eval(card + ' [data-agile="alerts"] li', (lis) => lis.every((li) => !!li.querySelector('svg.icon'))), null);
+    eq('una iteración cerrada: concordancia', nb(await page.textContent(card + ' [data-agile-velbasis]')), 'Terminado en la única iteración cerrada.');
+    eq('velocidad con una iteración cerrada', nb(await page.textContent(card + ' [data-agile-velocity]')), '7 pts por iteración');
+    check('línea base del release con puntos en texto: «Con línea base»', /Con línea base/.test(nb(await page.textContent(card + ' [data-agile="release"]'))), nb(await page.textContent(card + ' [data-agile="release"]')));
+    /* «Ver backlog» con el teclado */
+    await page.locator(card + ' [data-agile="alerts"]').getByRole('button', { name: 'Ver backlog' }).focus();
+    await page.keyboard.press('Enter'); await page.waitForTimeout(150);
+    eq('«Ver backlog» abre el backlog', (await state(page)).view, 'backlog');
+    await gotoView(page, 'tablero'); await page.waitForSelector(card);
+    const btn = page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' });
+    if (await btn.count()) await btn.click();
+    await page.waitForSelector('.dashboard-step[data-step="linea-base-release"]');
+    eq('ruta: la línea base con puntos en texto cuenta como fijada', await page.getAttribute('.dashboard-step[data-step="linea-base-release"]', 'data-state'), 'done');
+    eq('sin tarjetas de error', await errorCards(page), []);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
+await section('C4. tablero: Kanban (flujo continuo) en la tarjeta y en la ruta; release sin BAC', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    const kanbanAgile = (extra, budget = 0) => ({ settings: { framework: 'kanban', estimationUnit: 'puntos', sprintLength: 10, scopeChangeThreshold: 10, ...extra },
+      releases: [{ id: 'r1', name: 'Flujo del inventario', start: '2026-08-03', end: '2026-09-25', status: 'en-curso', budget, plannedSprints: 0, wbsId: null, taskId: null, baseline: null }], sprints: [] });
+    const items = [
+      item('k1', 'HU-001', 'Catálogo', 3, { status: 'terminado', doneDate: '2026-08-20' }),
+      item('k2', 'HU-002', 'Ubicaciones', 5, { status: 'terminado', doneDate: '2026-09-02' }),
+      item('k3', 'HU-003', 'Remisiones', 8, { status: 'terminado', doneDate: '2026-07-10' }),
+      item('k4', 'HU-004', 'Devoluciones', 8, { status: 'en-curso' }),
+      item('k5', 'HU-005', 'Inspección', 8, { status: 'por-hacer' }),
+    ];
+    const costs = { actuals: [{ id: 'c1', date: '2026-08-31', amount: 12000000, releaseId: 'r1', category: 'Mano de obra', description: 'Equipo', document: 'N-1' }], statusUpdates: [], reserves: { contingency: 0, management: 0 } };
+    /* columnas de fábrica (sin guardar): el paso del tablero queda parcial */
+    await seed(page, { lifecycle: 'Adaptativo (ágil)', code: 'PRY-KB-RV3' }, { agile: kanbanAgile({}), items, costs });
+    const card = '[data-card="agile"]';
+    await page.waitForSelector(card + ' [data-agile="throughput"]');
+    check('Kanban: rendimiento en lugar de velocidad', (await page.$$(card + ' [data-agile="velocity"]')).length === 0, null);
+    eq('rendimiento: elementos terminados en las últimas 4 semanas', await page.getAttribute(card + ' [data-agile-throughput]', 'data-agile-throughput'), '2');
+    check('rendimiento en estimación (8 pts)', /8 pts terminados/.test(nb(await page.textContent(card + ' [data-agile="throughput"]'))), nb(await page.textContent(card + ' [data-agile="throughput"]')));
+    eq('SPI ágil de un release sin BAC: «—» y el motivo', [nb(await page.textContent(card + ' [data-index="spi-agil"] .stat-value')), nb(await page.textContent(card + ' [data-index="spi-agil"] .stat-sub'))], ['—', 'Sin presupuesto (BAC)']);
+    eq('CPI ágil de un release sin BAC: «—», no 0,00', [nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-value')), nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-sub'))], ['—', 'Sin presupuesto (BAC)']);
+    check('release sin BAC: el AC se informa con su contexto', /sin presupuesto \(BAC\) del release/.test(nb(await page.textContent(card + ' [data-agile="release"]'))), null);
+    /* pronóstico por rendimiento: 16 pts restantes a 2 pts por semana = 8 semanas desde el corte */
+    const fc = nb(await page.textContent(card + ' [data-agile-forecast]'));
+    check('pronóstico por rendimiento', /Terminación probable por rendimiento/.test(fc) && /2 pts por semana/.test(fc), fc);
+    const fcDate = await page.getAttribute(card + ' [data-agile-forecast]', 'data-agile-forecast');
+    check('fecha del pronóstico: unas 8 semanas después del corte, en día hábil', fcDate >= '2026-11-03' && fcDate <= '2026-11-06', fcDate);
+    const steps = async () => page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
+    let st = await steps();
+    const ids = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
+    eq('ruta adaptativa en Kanban: columnas y WIP y revisión del flujo en lugar de las iteraciones', ids.slice(-2), ['flujo-kanban', 'revision-flujo']);
+    check('ruta Kanban: sin pasos de iteraciones', !ids.includes('primera-iteracion') && !ids.includes('revision-retro'), ids);
+    eq('columnas de fábrica: paso parcial', [st['flujo-kanban'], nb(await page.textContent('.dashboard-step[data-step="flujo-kanban"] .chip'))], ['partial', 'Columnas por defecto (sin revisar)']);
+    eq('sin revisiones del flujo: pendiente', st['revision-flujo'], 'pending');
+    eq('fase de ejecución en flujo continuo', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución en flujo continuo']);
+    check('resumen de la ruta en flujo continuo', /gestionar el flujo/.test(nb(await page.textContent('[data-route-summary]'))) && !/iterar/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
+    /* el equipo guarda sus columnas con límite WIP y registra una retrospectiva antigua y luego una reciente */
+    await page.evaluate(async () => {
+      const pid = PM.getState().projectId;
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, settings: { ...a.settings, columns: [{ id: 'por-hacer', name: 'Por hacer', category: 'pendiente', wip: null }, { id: 'en-curso', name: 'En curso', category: 'en-curso', wip: 2 }, { id: 'terminado', name: 'Terminado', category: 'terminado', wip: null }] } });
+      await PM.store.set(PM.paths.doc(pid, 'retrospectiva--old'), { template: 'retrospectiva', title: 'Retrospectiva', status: 'borrador', fields: { iteracion: 'Flujo julio', fecha: '2026-07-01' }, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+    });
+    await page.waitForTimeout(700);
+    if (await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).count()) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
+    st = await steps();
+    eq('columnas guardadas con límite WIP: paso hecho', [st['flujo-kanban'], nb(await page.textContent('.dashboard-step[data-step="flujo-kanban"] .chip'))], ['done', '3 columnas · 1 con límite WIP']);
+    eq('revisión de hace más de un mes: desactualizada', [st['revision-flujo'], nb(await page.textContent('.dashboard-step[data-step="revision-flujo"] .chip'))], ['partial', 'Desactualizada · última: 01 jul']);
+    await page.evaluate(async () => {
+      const pid = PM.getState().projectId;
+      await PM.store.set(PM.paths.doc(pid, 'acta-revision-sprint--rec'), { template: 'acta-revision-sprint', title: 'Revisión', status: 'borrador', fields: { iteracion: 'Flujo agosto', fecha: '2026-09-01' }, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+    });
+    await page.waitForTimeout(700);
+    if (await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).count()) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
+    eq('revisión reciente: paso hecho', [(await steps())['revision-flujo'], nb(await page.textContent('.dashboard-step[data-step="revision-flujo"] .chip'))], ['done', 'Última: 01 sep']);
+    await page.click('.dashboard-step[data-step="flujo-kanban"]'); await page.waitForTimeout(150);
+    eq('el paso del tablero abre el Kanban', (await state(page)).view, 'kanban');
+    /* híbrido con Kanban: los mismos pasos de flujo en la ruta completa */
+    await seed(page, { code: 'PRY-KB-RV4' }, { agile: kanbanAgile({}, 50000000), items, costs });
+    await page.waitForSelector('[data-card="route"]');
+    await page.waitForSelector(card + ' [data-index="spi-agil"]');
+    eq('Kanban con BAC: SPI ágil sin iteraciones (flujo continuo)', nb(await page.textContent(card + ' [data-index="spi-agil"] .stat-sub')), 'Sin iteraciones (flujo continuo)');
+    check('Kanban con BAC: CPI ágil calculado', /^\d,\d\d$/.test(nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-value'))), nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-value')));
+    if (await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).count()) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
+    const hyb = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
+    eq('ruta híbrida en Kanban', hyb.slice(hyb.indexOf('lineabase'), hyb.indexOf('informe')), ['lineabase', 'linea-base-release', 'flujo-kanban', 'avance', 'revision-flujo']);
+    eq('sin tarjetas de error', await errorCards(page), []);
     eq('sin errores de consola', errors, []);
   } finally { await browser.close(); }
 });
@@ -497,7 +712,7 @@ await section('E. rendimiento', async () => {
     await page.waitForSelector('[data-card="agile"] [data-agile-velocity]', { timeout: 15000 });
     const tBoard = Date.now() - t0;
     check('tablero con 400 elementos: tarjeta ágil en menos de 4 s (' + tBoard + ' ms)', tBoard < 4000, tBoard);
-    check('alertas con 400 elementos', /elementos bloqueados/.test(nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]'))), null);
+    check('alertas con 400 elementos', /elementos del backlog del producto están bloqueados/.test(nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]'))), nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]')));
     const t1 = Date.now();
     await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'agil' }));
     await page.waitForSelector('[data-role="agile-evm-table"]', { timeout: 15000 });
