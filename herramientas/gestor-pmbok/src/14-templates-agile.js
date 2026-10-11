@@ -324,7 +324,7 @@
         ]),
         section('releases', 'Releases', [
           table('releases', 'Releases planificados', [
-            cText('release', 'Release', { width: 200 }),
+            cArea('release', 'Release', { width: 190 }),
             cArea('objetivo', 'Objetivo', { width: 240 }),
             cDate('fechaInicio', 'Inicio'),
             cDate('fechaFin', 'Fin'),
@@ -451,7 +451,7 @@
       ],
       sections: [
         section('datos', 'Datos de la revisión', [
-          text('iteracion', 'Iteración', { required: true, placeholder: 'Iteración 1' }),
+          text('iteracion', 'Iteración', { required: true, placeholder: 'Iteración 1', hint: 'Iteración revisada, con el mismo nombre que en «Releases e iteraciones».' }),
           date('fecha', 'Fecha de la revisión', { required: true }),
           area('objetivo', 'Objetivo de la iteración', { rows: 2 }),
           select('objetivoCumplido', '¿Se cumplió el objetivo?', OBJETIVO_CUMPLIDO),
@@ -514,7 +514,7 @@
       ],
       sections: [
         section('datos', 'Datos de la retrospectiva', [
-          text('iteracion', 'Iteración', { required: true, placeholder: 'Iteración 1' }),
+          text('iteracion', 'Iteración', { required: true, placeholder: 'Iteración 1', hint: 'Iteración sobre la que reflexiona el equipo; la retrospectiva se hace después de su revisión.' }),
           date('fecha', 'Fecha', { required: true }),
           select('formato', 'Formato', FORMATO_RETRO, { hint: 'Bien, mejorar y acciones; Empezar, dejar y continuar; o 4L (me gustó, aprendí, faltó, anhelo).' }),
           text('facilitador', 'Facilitador', { hint: 'Normalmente el Scrum Master; puede rotar entre los miembros del equipo.' }),

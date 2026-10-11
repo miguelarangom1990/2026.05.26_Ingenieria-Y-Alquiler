@@ -238,7 +238,7 @@ async function validateInPage(page) {
 
     /* Documentos */
     const docs = await PM.store.list(PM.paths.docs(pid));
-    const tplWithEx = PM.templateList.filter((t) => t.example && t.group !== 'cierre');
+    const tplWithEx = PM.templateList.filter((t) => t.example && t.group !== 'cierre' && !t.agile && (!t.exampleProject || t.exampleProject === 'andamio'));
     out.templates = PM.templateList.length; out.docs = docs.length;
     ok(docs.length === tplWithEx.length, 'un documento por plantilla con ejemplo (sin las de cierre)', [docs.length, tplWithEx.length]);
     if (PM.templateList.length) {

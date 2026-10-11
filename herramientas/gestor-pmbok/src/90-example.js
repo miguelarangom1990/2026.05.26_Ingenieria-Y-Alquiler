@@ -687,7 +687,8 @@
   };
 
   function docsData(project) {
-    const list = (PM.templateList || []).filter((t) => t && t.id && t.example && typeof t.example === 'object' && t.group !== 'cierre');
+    /* las plantillas ágiles traen el ejemplo del ERP (exampleProject 'erp'): el andamio es predictivo y no las usa */
+    const list = (PM.templateList || []).filter((t) => t && t.id && t.example && typeof t.example === 'object' && t.group !== 'cierre' && !t.agile && (!t.exampleProject || t.exampleProject === 'andamio'));
     const ev = eventDates();
     const out = [];
     for (const t of list) {
