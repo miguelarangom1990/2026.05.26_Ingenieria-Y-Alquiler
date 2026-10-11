@@ -82,6 +82,8 @@ const backlogItem = (page, pid, id) => page.evaluate(({ pid, id }) => PM.store.g
 const openRowMenu = async (page, code) => { await page.hover(`tr[data-code="${code}"] td:nth-child(3)`); await page.click(`button[aria-label="Acciones de ${code}"]`); await page.waitForSelector('.wbs-rowmenu'); };
 const menuItems = (page) => page.$$eval('.wbs-rowmenu [role=menuitem]', (els) => els.map((e) => e.textContent.trim()));
 const state = (page) => page.evaluate(() => ({ view: PM.getState().view, params: PM.getState().params }));
+/* los avisos (toasts) quedan 3,5 s abajo a la derecha y pueden tapar botones del panel lateral: se descartan antes de pulsarlos */
+const dismissToasts = (page) => page.evaluate(() => document.querySelectorAll('.toasts > *').forEach((t) => t.remove()));
 const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.download = async (name, data) => { window.__dl.push({ name, data: String(data) }); return true; }; });
 
 /* =============================================================== A. EDT: enfoque, distintivos, releases y backlog */
@@ -157,6 +159,8 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     /* --- panel: «Crear otro release» --- */
     await page.click('tr[data-code="1.2.2"] .wbs-code-btn'); await page.waitForTimeout(150);
     eq('botón «Crear otro release» cuando ya hay uno', nb(await page.textContent('aside.wbs-panel [data-wbs-create-release]')), 'Crear otro release');
+    /* el aviso del release anterior sigue visible y, con la vista de iteraciones completa (46), tapa el botón al pie del panel */
+    await dismissToasts(page);
     await page.click('aside.wbs-panel [data-wbs-create-release]'); await page.waitForTimeout(900);
     const ag2 = await tool(page, pid, 'agile');
     check('segundo release del entregable', ag2.releases.filter((r) => r.wbsId === 'w22').length === 2 && ag2.releases.some((r) => r.name === 'Módulo de facturación · release 2'), ag2.releases.map((r) => r.name));
@@ -476,7 +480,14 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     }, pid);
     await page.waitForTimeout(350);
     const rowT4 = '.sched-grid .sched-row[data-id="t4"]';
-    eq('datos inconsistentes: las dos actividades toman el avance de r1', [nb(await page.textContent(rowT2 + ' [data-col="pct"]')), nb(await page.textContent(rowT4 + ' [data-col="pct"]'))], ['38,2 %', '38,2 %']);
+    /* regla del núcleo (PM.agile.linksOf): un release se aplica a una sola actividad, la primera del cronograma (t2) */
+    eq('datos inconsistentes: solo la primera actividad toma el avance de r1 (t4 conserva el suyo)', [nb(await page.textContent(rowT2 + ' [data-col="pct"]')), nb(await page.textContent(rowT4 + ' [data-col="pct"]'))], ['38,2 %', '10 %']);
+    check('datos inconsistentes: el icono de release solo en la actividad vinculada', (await page.$$(rowT2 + ' .sched-rel[data-release="r1"]')).length === 1 && (await page.$$(rowT4 + ' .sched-rel')).length === 0, null);
+    await page.dblclick(rowT4 + ' [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
+    eq('editor de la actividad con el vínculo que no se aplica: sin release', await page.$eval('#te-rel', (s) => s.value), '');
+    check('editor: explica que el release guardado ya se representa con otra actividad', /tiene guardado el release «Release 1 · Inventario», pero ese release se representa con «Desarrollo del inventario»/.test(nb(await page.textContent('.modal'))), nb(await page.textContent('.modal .field-hint')));
+    check('editor: el avance de esa actividad se edita (no viene del backlog)', await page.$eval('#te-pct', (i) => !i.disabled && i.value === '10'), await page.$eval('#te-pct', (i) => [i.disabled, i.value]));
+    await page.click('.modal-foot >> text=Cancelar'); await page.waitForTimeout(150);
     await page.dblclick(rowT2 + ' [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
     check('editor de la primera actividad: avisa que quita el vínculo de la otra', /Al guardar se quita el vínculo de «Desarrollo de la facturación»: un release se representa con una sola actividad/.test(nb(await page.textContent('.modal'))), nb(await page.textContent('.modal .field-hint')));
     await page.click('.modal-foot >> text=Guardar cambios'); await page.waitForTimeout(800);
@@ -587,10 +598,20 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     /* --- 9. «Ir al backlog»: indica cómo ver solo el entregable --- */
     await page.click('tr[data-code="1.2.1"] .wbs-code-btn'); await page.waitForTimeout(150);
     const goTxt = nb(await page.textContent('aside.wbs-panel [data-wbs-goto-backlog] .xsmall'));
-    check('«Ir al backlog» explica el filtro por entregable', goTxt === 'En el backlog, elige 1.2.1 en el filtro de entregables para ver solo sus elementos.', goTxt);
+    check('«Ir al backlog» explica el filtro por entregable', goTxt === 'Abre el backlog filtrado por 1.2.1 y los elementos que lo componen; el filtro se quita desde el backlog.', goTxt);
     await page.locator('aside.wbs-panel [data-wbs-goto-backlog]').getByRole('button', { name: 'Ir al backlog' }).click(); await page.waitForTimeout(250);
     const st = await state(page);
     check('«Ir al backlog» navega con el entregable', st.view === 'backlog' && st.params && st.params.wbs === 'w21', st);
+    /* con la vista real del backlog (45): el filtro llega aplicado, visible y quitable */
+    if (await page.$('select[aria-label="Filtrar por entregable de la EDT"]')) {
+      await page.waitForSelector('[data-agb-fchip="wbs"]');
+      eq('backlog: filtro de entregable aplicado desde la EDT', await page.$eval('select[aria-label="Filtrar por entregable de la EDT"]', (s) => s.value), 'w21');
+      check('backlog: el filtro aplicado se ve con su entregable', /Entregable: ?1\.2\.1 Módulo de inventario y lo que lo compone/.test(nb(await page.textContent('[data-agb-fchip="wbs"]'))), nb(await page.textContent('[data-agb-fchip="wbs"]')));
+      const rowsF = await page.$$eval('tr[data-agb-row]', (trs) => trs.length);
+      check('backlog: solo los elementos de 1.2.1 y su épica (7 de 11)', rowsF === 7 && /7 de 11 elementos/.test(nb(await page.textContent('[data-agb-count]'))), [rowsF, nb(await page.textContent('[data-agb-count]'))]);
+      await page.click('[data-agb-fchip="wbs"]'); await page.waitForTimeout(150);
+      check('backlog: quitar el filtro desde su distintivo', (await page.$$('[data-agb-fchip]')).length === 0 && await page.$eval('select[aria-label="Filtrar por entregable de la EDT"]', (s) => s.value) === '', null);
+    }
 
     const cards = await errorCards(page);
     check('F: sin tarjetas de error', !cards.length, cards);

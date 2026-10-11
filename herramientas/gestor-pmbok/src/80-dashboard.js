@@ -684,13 +684,16 @@
       <span class="dashboard-docrow-count">${c.ok}/${c.total}</span>
     </button>`;
   }
-  function DocsCard({ docs }) {
-    const templates = PM.templateList || [];
+  function DocsCard({ docs, project }) {
+    /* plantillas que aplican al proyecto (20-docs, PM.applicableTemplates): las ágiles solo con ciclo de vida adaptativo o
+       híbrido, o si el proyecto ya tiene documentos de ellas; así el conteo coincide con el mapa de procesos y la lista */
+    const catalog = PM.templateList || [];
+    const templates = useMemo(() => (typeof PM.applicableTemplates === 'function' ? PM.applicableTemplates(project, docs.byTemplate) : catalog), [catalog, project, docs.byTemplate]);
     const statusOf = (t) => { const ds = docs.byTemplate[t.id] || []; if (!ds.length) return 'none'; return ds.some((d) => d.status === 'aprobado') ? 'ok' : 'wip'; };
     const count = (list) => { const c = { ok: 0, wip: 0, none: 0, total: list.length }; for (const t of list) c[statusOf(t)]++; return c; };
     const total = count(templates);
     const actions = html`<${ui.Button} size="sm" variant="ghost" onClick=${() => go('procesos')}>Mapa de procesos</${ui.Button}><${ViewBtn} label="Ver documentos" view="documentos" />`;
-    if (!templates.length) {
+    if (!catalog.length) {
       return html`<${Panel} title="Documentación" actions=${actions} data-card="docs"><div class="dashboard-blank">${docs.list.length ? docs.list.length + ' documentos registrados. ' : ''}El catálogo de plantillas PMBOK no está cargado en esta página, por eso no se puede calcular el avance por área de conocimiento.</div></${Panel}>`;
     }
     return html`<${Panel} title="Documentación" subtitle=${total.ok + ' de ' + total.total + ' documentos aprobados · ' + total.wip + ' en elaboración · ' + total.none + ' sin iniciar'} actions=${actions} data-card="docs">
@@ -723,8 +726,6 @@
   const fpts = (v, unit) => fmt.num(v, Number.isInteger(v) ? 0 : 1) + ' ' + unit;
   const FRAMEWORK_LABEL = { scrum: 'Scrum', kanban: 'Kanban (flujo continuo)', 'scrum-kanban': 'Scrum con tablero Kanban' };
   const MODE_LABEL = { hibrido: 'Enfoque híbrido', adaptativo: 'Enfoque adaptativo' };
-  /* límite WIP de una columna como lo aplica el tablero Kanban (45): entero ≥ 1, o sin límite */
-  const wipLimit = (c) => { const n = c && PM.isNum(c.wip) ? Number(c.wip) : 0; return n > 0 ? Math.max(1, Math.round(n)) : null; };
   const isKanbanFlow = (data) => PM.agile.settings(data).framework === 'kanban';
   const elems = (n) => (n === 1 ? '1 elemento' : fmt.num(n) + ' elementos');
   function agileSummary(model) {
@@ -745,10 +746,11 @@
       sprintDays = D.valid(current.start) && current.start <= current.end ? cal.countWork(current.start, current.end) : null;
     }
     const vel = C.velocity({ sprints, items, settings });
-    /* flujo en una sola pasada: conteo por columna, trabajo en curso, rendimiento de las últimas 4 semanas y bloqueados.
-       El WIP se cuenta como en el tablero Kanban (45): todos los elementos de cada columna, sin filtrar por iteración (los
-       filtros del tablero solo cambian qué tarjetas se ven, no el trabajo en curso real del equipo). */
-    const counts = new Map();
+    /* WIP por columna con la regla del núcleo (PM.agile.wipStatus, la misma del tablero Kanban): todos los elementos de
+       cada columna, sin filtrar por iteración (los filtros del tablero solo cambian qué tarjetas se ven, no el trabajo en
+       curso real del equipo). Luego, en una sola pasada: trabajo en curso, rendimiento de las últimas 4 semanas y bloqueados. */
+    const wipSt = A.wipStatus(settings, items);
+    const counts = new Map(wipSt.map((w) => [w.id, w.count]));
     let wip = 0, thr = 0, thrEst = 0;
     const from28 = D.add(statusDate, -27);
     const boardBlocked = [], backlogBlocked = [];
@@ -756,13 +758,11 @@
       if (!A.countable(it)) continue;
       const cat = A.category(settings, it.status);
       if (cat === 'terminado') { if (D.valid(it.doneDate) && it.doneDate >= from28 && it.doneDate <= statusDate) { thr++; thrEst += A.estimate(it); } continue; }
-      counts.set(it.status, (counts.get(it.status) || 0) + 1);
       if (cat === 'en-curso') wip++;
       /* bloqueados en el tablero (por hacer o en curso) y en el backlog del producto (aún sin planificar) */
       if (it.blocked) (cat === 'nuevo' ? backlogBlocked : boardBlocked).push(it);
     }
-    const wipOver = [];
-    for (const c of settings.columns) { const lim = wipLimit(c), n = counts.get(c.id) || 0; if (lim && n > lim) wipOver.push({ id: c.id, name: c.name, n, wip: lim }); }
+    const wipOver = wipSt.filter((w) => w.over).map((w) => ({ id: w.id, name: w.name, n: w.count, wip: w.wip }));
     const blockedSprint = current ? boardBlocked.filter((it) => it.sprintId === current.id).length : 0;
     const kanban = settings.framework === 'kanban';
     const active = A.activeRelease(releases, sprints);
@@ -868,8 +868,8 @@
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
         <h4 class="label-caps">Flujo continuo</h4>
         <div class="dashboard-agile-big" data-agile-wip=${s.wip}>${fmt.num(s.wip)} <small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
-        ${inProgress.length ? html`<div class="dashboard-agile-kv" data-agile-columns>${inProgress.map((c) => { const n = s.counts.get(c.id) || 0, lim = wipLimit(c); return html`<span key=${c.id}>${c.name} <strong>${lim ? n + ' / ' + lim : n}</strong></span>`; })}</div>` : null}
-        <div class="xsmall faint">Trabajo en curso por columna${inProgress.some(wipLimit) ? ' frente a su límite WIP' : ''}, en todo el tablero.</div>
+        ${inProgress.length ? html`<div class="dashboard-agile-kv" data-agile-columns>${inProgress.map((c) => { const n = s.counts.get(c.id) || 0, lim = PM.agile.wipLimit(c); return html`<span key=${c.id}>${c.name} <strong>${lim ? n + ' / ' + lim : n}</strong></span>`; })}</div>` : null}
+        <div class="xsmall faint">Trabajo en curso por columna${inProgress.some(PM.agile.wipLimit) ? ' frente a su límite WIP' : ''}, en todo el tablero.</div>
       </div>`;
     } else {
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
@@ -1122,7 +1122,7 @@
     /* Kanban: columnas guardadas por el equipo (no las de fábrica) con al menos un límite WIP */
     const kanban = settings.framework === 'kanban';
     const ownCols = isObj(data.settings) && Array.isArray(data.settings.columns) && data.settings.columns.some((c) => isObj(c) && c.id);
-    const nWip = settings.columns.filter(wipLimit).length;
+    const nWip = settings.columns.filter(PM.agile.wipLimit).length;
     /* Kanban: revisión del flujo o retrospectiva (actas de revisión o retrospectivas) en el último periodo (≈ un mes) */
     const reviews = [...(docs.byTemplate['acta-revision-sprint'] || []), ...(docs.byTemplate.retrospectiva || [])];
     const revDate = (d) => (d.fields && D.valid(d.fields.fecha) ? d.fields.fecha : String(d.updatedAt || d.createdAt || '').slice(0, 10));
@@ -1281,7 +1281,7 @@
         </div>
       </div>
       <div class="dashboard-two">
-        <${DocsCard} docs=${docs} />
+        <${DocsCard} docs=${docs} project=${p} />
         <${BaselinesCard} model=${model} canWrite=${canWrite} />
       </div>
       ${!prominent ? html`<${RouteCard} route=${route} mode=${mode} flow=${flow} />` : null}

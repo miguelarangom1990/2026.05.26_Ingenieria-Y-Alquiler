@@ -1505,31 +1505,14 @@
   }
 
   /* ---------------------------------------------------------------- 7. valor ganado ágil (AgileEVM, §9.3) */
-  /* Registros de costos reales que cuentan en cada release, con las mismas reglas de PM.agile.releaseActualCost: con
-     releaseId, el de ese release; sin releaseId, el de su actividad vinculada (taskId) o de su entregable de la EDT o sus
-     descendientes (wbsId); hasta la fecha de corte. Un registro sin release puede coincidir con varios releases (p. ej. dos
-     releases del mismo entregable adaptativo): cuenta en el AC de cada uno, pero una sola vez en el total. */
-  function releaseCostHits(releases, costs, tree, statusDate) {
-    const cut = D.valid(statusDate) ? statusDate : null;
-    const wbsOf = releases.map((r) => {
-      const ids = new Set();
-      if (r.wbsId) { ids.add(r.wbsId); if (tree && tree.descendants) for (const id of tree.descendants(r.wbsId) || []) ids.add(id && typeof id === 'object' ? id.id : id); }
-      return ids;
-    });
-    const out = [];
-    for (const a of costs && Array.isArray(costs.actuals) ? costs.actuals : EMPTY_ARR) {
-      if (!isPlainObj(a)) continue;
-      if (cut && D.valid(a.date) && a.date > cut) continue;
-      const ids = [];
-      releases.forEach((r, k) => { if (a.releaseId ? a.releaseId === r.id : (r.taskId && a.taskId === r.taskId) || (a.wbsId && wbsOf[k].has(a.wbsId))) ids.push(r.id); });
-      if (ids.length) out.push({ a, ids, amount: num(a.amount, 0) });
-    }
-    return out;
-  }
-  /* Por release: PM.calc.agileEvm con el costo real del release (PM.agile.releaseActualCost) y, si el release está
-     vinculado a una actividad del cronograma, la misma actividad medida con el valor ganado del proyecto.
-     Totales: el AC se suma recorriendo los registros una sola vez (sin duplicar los compartidos entre releases); los
-     índices totales (CV, CPI, EAC, VAC) usan el AC de los releases con presupuesto, porque los demás no tienen EV. */
+  /* Por release: PM.calc.agileEvm con el costo real del release y, si el release está vinculado a una actividad del
+     cronograma, la misma actividad medida con el valor ganado del proyecto.
+     Costos reales: PM.agile.releaseCosts (la regla del núcleo, la misma de PM.agile.releaseActualCost): con releaseId, el
+     de ese release; sin releaseId y si el release no tiene registros marcados, los de su actividad vinculada (taskId) o de
+     su entregable de la EDT o sus descendientes (wbsId) desde su inicio; hasta la fecha de corte. Un registro sin release
+     puede coincidir con varios releases (p. ej. dos releases del mismo entregable adaptativo): cuenta en el AC de cada
+     uno, pero una sola vez en el total. Los índices totales (CV, CPI, EAC, VAC) usan el AC de los releases con
+     presupuesto, porque los demás no tienen EV. */
   function agileEvmData(model) {
     const { agile, agileItems, costs, tree, statusDate, sched, evm, baselines } = model;
     const settings = PM.agile.settings(agile);
@@ -1538,17 +1521,15 @@
     const planById = new Map(planOf(evm, sched, baselines).map((p) => [p.id, p]));
     const cal = sched.cal;
     const rels = releasesOf(agile);
-    const hits = releaseCostHits(rels, costs, tree, statusDate);
-    const shared = hits.filter((h) => h.ids.length > 1);
-    const sharedBy = new Map();
-    for (const h of shared) for (const id of h.ids) sharedBy.set(id, (sharedBy.get(id) || 0) + h.amount);
+    const rc = PM.agile.releaseCosts(rels, costs, tree, statusDate);
+    const costOf = (id) => rc.byRelease.get(id) || { ac: 0, shared: 0 };
     /* actividad vinculada a cada release, con la misma regla del núcleo que aplica el avance del backlog (PM.agile.linksOf:
        una actividad por release; release.taskId primero, luego task.releaseId) */
     const taskOfRel = new Map();
-    if (typeof PM.agile.linksOf === 'function') { const byId = new Map(sched.tasks.map((t) => [t.id, t])); for (const [tid, r] of PM.agile.linksOf(sched.tasks, agile)) if (byId.has(tid)) taskOfRel.set(r.id, byId.get(tid)); }
-    else for (const r of rels) { const t = sched.tasks.find((x) => (r.taskId && x.id === r.taskId) || x.releaseId === r.id); if (t) taskOfRel.set(r.id, t); }
+    const byId = new Map(sched.tasks.map((t) => [t.id, t]));
+    for (const [tid, r] of PM.agile.linksOf(sched.tasks, agile)) if (byId.has(tid)) taskOfRel.set(r.id, byId.get(tid));
     const rows = rels.map((r) => {
-      const ac = PM.agile.releaseActualCost(r, costs, tree, statusDate);
+      const ac = costOf(r.id).ac;
       const e = PM.calc.agileEvm({ release: r, sprints, items, settings, actualCost: ac, statusDate });
       const task = taskOfRel.get(r.id) || null;
       let link = null;
@@ -1562,18 +1543,19 @@
         const pv = budget * planned, ev = (budget * progress) / 100;
         link = { task, derived: !!task.agileDerived, outside: !p, budget, planned, progress, pv, ev, spi: pv > 0 ? ev / pv : null };
       }
-      return { r, e, link, noBac: !(e.bac > 0), acShared: sharedBy.get(r.id) || 0 };
+      return { r, e, link, noBac: !(e.bac > 0), acShared: costOf(r.id).shared };
     });
-    const bacIds = new Set(rows.filter((x) => !x.noBac).map((x) => x.r.id));
+    const bacRels = rows.filter((x) => !x.noBac).map((x) => x.r);
     const tot = rows.reduce((t, x) => ({ bac: t.bac + x.e.bac, pv: t.pv + x.e.pv, ev: t.ev + x.e.ev }), { bac: 0, pv: 0, ev: 0 });
-    tot.ac = hits.reduce((t, h) => t + h.amount, 0);
-    tot.acIdx = hits.reduce((t, h) => t + (h.ids.some((id) => bacIds.has(id)) ? h.amount : 0), 0);
+    tot.ac = rc.total;
+    /* AC de los releases con presupuesto, cada registro una vez (la regla de cada release no depende de los demás) */
+    tot.acIdx = bacRels.length === rels.length ? rc.total : bacRels.length ? PM.agile.releaseCosts(bacRels, costs, tree, statusDate).total : 0;
     tot.sumRows = rows.reduce((t, x) => t + x.e.ac, 0);
     tot.sv = tot.ev - tot.pv; tot.cv = tot.ev - tot.acIdx;
     tot.spi = tot.pv > 0 ? tot.ev / tot.pv : null; tot.cpi = tot.acIdx > 0 ? tot.ev / tot.acIdx : null;
     tot.eac = tot.cpi ? tot.bac / tot.cpi : null; tot.vac = tot.eac !== null ? tot.bac - tot.eac : null;
-    const sharedRels = rels.filter((r) => sharedBy.has(r.id));
-    return { rows, tot, shared: { count: shared.length, amount: shared.reduce((t, h) => t + h.amount, 0), releases: sharedRels }, unit: PM.agile.unitShort(settings) };
+    const sharedRels = rels.filter((r) => costOf(r.id).shared > 0);
+    return { rows, tot, shared: { count: rc.shared.length, amount: rc.shared.reduce((t, h) => t + h.amount, 0), releases: sharedRels }, unit: PM.agile.unitShort(settings) };
   }
   const AGILE_COLS = [
     { key: 'name', label: 'Release' },

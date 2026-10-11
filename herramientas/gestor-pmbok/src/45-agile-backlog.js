@@ -60,6 +60,13 @@
 .agb-toolbar .search { flex: 1 1 220px; min-width: 0; max-width: 340px; }
 .agb-toolbar > .select { width: auto; max-width: 230px; flex: 0 1 auto; }
 .agb-toolbar .agb-count { margin-left: auto; }
+.agb-active { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; }
+.agb-fchip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 3px 8px 3px 10px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent-wash); color: var(--fg); font: inherit; font-size: var(--fs-xs); line-height: 1.4; cursor: pointer; }
+.agb-fchip:hover { background: var(--surface-3); }
+.agb-fchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agb-fchip-k { color: var(--fg-2); flex: none; }
+.agb-fchip-v { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agb-fchip > .icon { flex: none; color: var(--fg-2); }
 @media (max-width: 680px) {
   .agb-toolbar .search, .agb-toolbar > .select { flex: 1 1 100%; max-width: none; width: 100%; }
   .agb-toolbar .agb-count { margin-left: 0; }
@@ -176,8 +183,6 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   const str = (v) => (v === null || v === undefined || typeof v === 'object' ? '' : String(v));
   /* etiquetas: arreglo, o texto separado por comas (datos importados) */
   const tagList = (t) => (Array.isArray(t) ? t : typeof t === 'string' ? t.split(',') : []).map((x) => str(x).trim()).filter(Boolean);
-  /* l\u00edmite WIP v\u00e1lido (entero positivo) o null: los valores negativos, cero o no num\u00e9ricos de datos importados no limitan */
-  const wipOf = (c) => { const n = c && PM.isNum(c.wip) ? Number(c.wip) : 0; return n > 0 ? Math.max(1, Math.round(n)) : null; };
   /* quita entradas consecutivas repetidas del historial (conserva la primera de cada tramo) */
   const collapseHistory = (h) => h.filter((e, i) => i === 0 || !isObj(e) || !isObj(h[i - 1]) || e.status !== h[i - 1].status);
   const hasEst = (it) => !!it && it.estimate !== null && it.estimate !== undefined && it.estimate !== '' && Number.isFinite(Number(it.estimate));
@@ -621,6 +626,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 
   /* ---------------------------------------------------------------- vista: Backlog del producto */
   const NO_FILTERS = Object.freeze({ q: '', type: '', release: '', epic: '', status: '', wbs: '' });
+  /* filtros iniciales enviados por otra vista: la EDT navega con {wbs}, Releases e iteraciones con {release} y se acepta
+     también {epic} (ids; '__none' = «Sin …») */
+  const PARAM_FILTERS = ['wbs', 'release', 'epic'];
+  const hasParamFilters = (p) => !!p && PARAM_FILTERS.some((k) => p[k]);
+  const filtersFromParams = (p) => { const f = { ...NO_FILTERS }; if (p) for (const k of PARAM_FILTERS) if (p[k]) f[k] = String(p[k]); return f; };
 
   function EstInput({ it, unit, api }) {
     const cur = hasEst(it) ? Number(it.estimate) : null;
@@ -670,7 +680,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     </tr>`;
   });
 
-  function BacklogView({ project }) {
+  function BacklogView({ project, params }) {
     const model = PM.useAgileModel();
     const canWrite = PM.useCanWrite();
     const st = model.settings, unit = model.unit;
@@ -680,8 +690,12 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const byId = useMemo(() => new Map(items.map((it) => [it.id, it])), [items]);
     const { lk, epics } = useLookups(model, items);
     const posMap = useMemo(() => new Map(sorted.map((it, i) => [it.id, i + 1])), [sorted]);
-    const [f, setF] = useState(NO_FILTERS);
+    const [f, setF] = useState(() => filtersFromParams(params));
     const [refine, setRefine] = useState(false);
+    /* cada PM.navigate crea un objeto params nuevo: si otra vista vuelve a abrir el backlog con un filtro (EDT, releases)
+       mientras ya está abierto, se aplica ese filtro; sin parámetros se conservan los filtros actuales */
+    const params0 = useRef(params);
+    useEffect(() => { if (params === params0.current) return; params0.current = params; if (hasParamFilters(params)) { setF(filtersFromParams(params)); setRefine(false); } }, [params]);
     const [grouped, setGroupedRaw] = useState(() => !!PM.prefs.get('agileBacklogGrouped', false));
     const setGrouped = (v) => { setGroupedRaw(v); PM.prefs.set('agileBacklogGrouped', v); };
     const [sel, setSel] = useState(() => new Set());
@@ -697,16 +711,23 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 
     /* filtros */
     const q = norm(f.q.trim());
+    /* entregable de la EDT: el elemento y los que lo componen (como el conteo del backlog en la EDT) */
+    const wbsSet = useMemo(() => {
+      if (!f.wbs || f.wbs === NONE) return null;
+      const out = new Set([f.wbs]); const t = model.tree;
+      if (t && t.byId && t.byId.has(f.wbs) && t.descendants) for (const d of t.descendants(f.wbs) || []) out.add(d && typeof d === 'object' ? d.id : d);
+      return out;
+    }, [f.wbs, model.tree]);
     const visible = useMemo(() => sorted.filter((it) => {
       if (f.type && it.type !== f.type) return false;
       if (f.release === NONE) { if (it.releaseId && lk.rel.has(it.releaseId)) return false; } else if (f.release && it.releaseId !== f.release) return false;
       if (f.epic === NONE) { if (it.type === 'epica' || (it.epicId && lk.epics.has(it.epicId))) return false; } else if (f.epic && it.epicId !== f.epic && it.id !== f.epic) return false;
       if (f.status === BACKLOG) { if (A.category(st, it.status) !== 'nuevo') return false; } else if (f.status && it.status !== f.status) return false;
-      if (f.wbs === NONE) { if (it.wbsId && lk.wbs.has(it.wbsId)) return false; } else if (f.wbs && it.wbsId !== f.wbs) return false;
+      if (f.wbs === NONE) { if (it.wbsId && lk.wbs.has(it.wbsId)) return false; } else if (wbsSet && !wbsSet.has(it.wbsId)) return false;
       if (refine && !needsRefine(it, st)) return false;
       if (q && !hay(it).includes(q)) return false;
       return true;
-    }), [sorted, f, refine, q, lk, st]);
+    }), [sorted, f, refine, q, lk, st, wbsSet]);
 
     /* agrupación por épica */
     const groups = useMemo(() => {
@@ -953,6 +974,14 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const statusOpts = [{ value: BACKLOG, label: 'Backlog del producto' }, ...st.columns.map((c) => ({ value: c.id, label: c.name }))];
     const wbsOpts = [{ value: NONE, label: 'Sin entregable' }, ...[...lk.wbs].map(([id, w]) => ({ value: id, label: w.code + ' ' + w.name + (w.approach === 'adaptativo' ? ' · Ágil' : '') }))];
     const sprintOpts = model.sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') }));
+    /* filtros aplicados (también los que llegan desde la EDT o desde Releases e iteraciones), visibles y quitables uno a uno */
+    const missing = model.loading ? '…' : 'No encontrado';
+    const active = [];
+    if (f.type) active.push({ k: 'type', label: 'Tipo', value: TYPE_LABEL[f.type] || f.type });
+    if (f.release) { const r = lk.rel.get(f.release); active.push({ k: 'release', label: 'Release', value: f.release === NONE ? 'Sin release' : r ? r.name || 'Release sin nombre' : missing }); }
+    if (f.epic) { const e = lk.epics.get(f.epic); active.push({ k: 'epic', label: 'Épica', value: f.epic === NONE ? 'Sin épica' : e ? ((e.code || '') + ' ' + (e.title || '')).trim() : missing }); }
+    if (f.status) active.push({ k: 'status', label: 'Estado', value: f.status === BACKLOG ? 'Backlog del producto' : statusName(st, f.status) });
+    if (f.wbs) { const w = lk.wbs.get(f.wbs); active.push({ k: 'wbs', label: 'Entregable', value: f.wbs === NONE ? 'Sin entregable' : w ? w.code + ' ' + w.name + (wbsSet && wbsSet.size > 1 ? ' y lo que lo compone' : '') : missing }); }
     const groupHead = (g) => {
       if (!g.epic) return html`<div class="row"><span>Sin épica</span><span class="xsmall muted">${plural(g.rows.length, 'elemento visible', 'elementos visibles')}</span></div>`;
       const s = epicStats.get(g.epic.id) || { n: 0, done: 0, est: 0, estDone: 0 };
@@ -1002,6 +1031,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         ${anyFilter ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => { setF(NO_FILTERS); setRefine(false); }}>Limpiar filtros</${ui.Button}>` : null}
         <span class="xsmall muted agb-count" aria-live="polite" data-agb-count="1">${anyFilter ? fmt.num(visible.length) + ' de ' + fmt.num(items.length) + ' elementos' : plural(items.length, 'elemento', 'elementos') + (stats.epics ? ' (incluye ' + plural(stats.epics, 'épica', 'épicas') + ')' : '')}</span>
       </div>
+      ${active.length ? html`<div class="agb-active" role="group" aria-label="Filtros aplicados" data-agb-active="1">
+        <span class="xsmall muted">Filtrado por:</span>
+        ${active.map((c) => html`<button key=${c.k} type="button" class="agb-fchip" data-agb-fchip=${c.k} title="Quitar este filtro" aria-label=${'Quitar el filtro ' + c.label.toLowerCase() + ': ' + c.value} onClick=${() => setF((x) => ({ ...x, [c.k]: '' }))}>
+          <span class="agb-fchip-k">${c.label}:</span><span class="agb-fchip-v">${c.value}</span><${ui.Icon} name="x" size=${12} /></button>`)}
+      </div>` : null}
       ${refine ? html`<${Note} tone="info" icon="checklist">Modo «Refinamiento»: elementos pendientes (no terminados) sin estimar o sin criterios de aceptación. ${canWrite ? 'Escribe la estimación directamente en la tabla (Enter o salir del campo la guarda) y abre el elemento para completar sus criterios.' : ''}</${Note}>` : null}
 
       ${canWrite ? html`<form class="agb-quick" onSubmit=${quickAdd}>
@@ -1052,7 +1086,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   }
   function ColumnsForm({ close, getLive, data, saveNow, canWrite }) {
     const st0 = useMemo(() => A.settings(data), []);
-    const [cols, setCols] = useState(() => st0.columns.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: wipOf(c), orig: true })));
+    const [cols, setCols] = useState(() => st0.columns.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: A.wipLimit(c), orig: true })));
     /* columnas originales eliminadas: { col, idx (posición al eliminarla), n (elementos actuales), h (elementos con esa columna en su historial), target } */
     const [removed, setRemoved] = useState([]);
     const ro = !canWrite;
@@ -1109,7 +1143,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     }, [cols, removed]);
     const submit = () => {
       if (ro || problems.length) return;
-      const columns = cols.map((c) => ({ id: c.id, name: String(c.name).trim(), category: c.category, wip: wipOf(c) }));
+      const columns = cols.map((c) => ({ id: c.id, name: String(c.name).trim(), category: c.category, wip: A.wipLimit(c) }));
       const stOld = A.settings(data);
       const base = isObj(data.settings) ? PM.clone(data.settings) : {};
       const raw = { ...base, framework: stOld.framework, estimationUnit: stOld.estimationUnit, sprintLength: stOld.sprintLength, scopeChangeThreshold: stOld.scopeChangeThreshold, columns };
@@ -1221,7 +1255,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const L = getLive();
       /* conteo WIP de todo el tablero (no solo de la iteración o el release filtrados) */
       const n0 = (L.wipCounts && L.wipCounts.get(first.id)) || 0;
-      const fw = wipOf(first);
+      const fw = A.wipLimit(first);
       if (fw && n0 + sel.length > fw) {
         const ok = await PM.confirm({ title: 'Se superará el límite WIP', body: '«' + first.name + '» tiene ' + n0 + ' de ' + fw + ' elementos en todo el tablero. Pasar ' + sel.length + ' más supera su límite WIP; la política del tablero es terminar antes de empezar. ¿Continuar de todas formas?', confirmText: 'Pasar de todas formas' });
         if (!ok) return;
@@ -1277,18 +1311,26 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     </article>`;
   });
 
-  function KanbanView({ project }) {
+  function KanbanView({ project, params }) {
     const model = PM.useAgileModel();
     const canWrite = PM.useCanWrite();
     const st = model.settings, unit = model.unit;
-    /* columnas con el límite WIP normalizado (un valor negativo, cero o no numérico de datos importados no limita) */
-    const cols = useMemo(() => st.columns.map((c) => ({ ...c, wip: wipOf(c) })), [st.columns]);
+    /* columnas con el límite WIP normalizado por el núcleo (PM.agile.wipLimit: un valor negativo, cero o no numérico de
+       datos importados no limita) */
+    const cols = useMemo(() => st.columns.map((c) => ({ ...c, wip: A.wipLimit(c) })), [st.columns]);
     const opt = useOptimistic(model.items, model.saveItem, model.deleteItem);
     const items = useStableItems(opt.items);
     const byId = useMemo(() => new Map(items.map((it) => [it.id, it])), [items]);
     const { lk } = useLookups(model, items);
-    const [sprintSel, setSprintSel] = useState(null);
-    const [relF, setRelF] = useState('');
+    /* filtros iniciales enviados por otra vista: {sprint} y/o {release}; con solo el release se muestra todo su flujo */
+    const sprintOfParams = (p) => (p && p.sprint ? String(p.sprint) : p && p.release ? '' : null);
+    const [sprintSel, setSprintSel] = useState(() => sprintOfParams(params));
+    const [relF, setRelF] = useState(() => (params && params.release ? String(params.release) : ''));
+    const params0 = useRef(params);
+    useEffect(() => {
+      if (params === params0.current) return; params0.current = params;
+      if (params && (params.sprint || params.release)) { setSprintSel(sprintOfParams(params)); setRelF(params.release ? String(params.release) : ''); }
+    }, [params]);
     const [whoF, setWhoF] = useState('');
     const [allDone, setAllDone] = useState(false);
     const [dragId, setDragId] = useState(null);
@@ -1308,13 +1350,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const cut = D.valid(model.statusDate) ? model.statusDate : today;
     const scope = useMemo(() => items.filter((it) => A.countable(it) && (!sprintF || it.sprintId === sprintF) && (!relV || it.releaseId === relV)), [items, sprintF, relV]);
     const people = useMemo(() => [...new Set(items.filter(A.countable).map((x) => String(x.assignee || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [items]);
-    /* conteo WIP de cada columna sobre todo el tablero: los filtros de iteración, release y responsable solo cambian
-       qué tarjetas se ven, no el trabajo en curso real del equipo */
-    const wipCounts = useMemo(() => {
-      const m = new Map(cols.map((c) => [c.id, 0]));
-      for (const it of items) if (A.countable(it) && m.has(it.status)) m.set(it.status, m.get(it.status) + 1);
-      return m;
-    }, [items, cols]);
+    /* conteo y estado WIP de cada columna sobre todo el tablero (PM.agile.wipStatus, la misma regla del tablero del
+       proyecto): los filtros de iteración, release y responsable solo cambian qué tarjetas se ven, no el trabajo en curso
+       real del equipo */
+    const wipInfo = useMemo(() => new Map(A.wipStatus(st, items).map((w) => [w.id, w])), [items, st]);
+    const wipCounts = useMemo(() => new Map([...wipInfo].map(([id, w]) => [id, w.count])), [wipInfo]);
     const board = useMemo(() => {
       const byCol = new Map(cols.map((c) => [c.id, []]));
       for (const it of scope) {
@@ -1330,7 +1370,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       }
       return { byCol };
     }, [scope, cols, whoF]);
-    const colsInfo = useMemo(() => cols.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: c.wip, full: !!(c.wip && wipCounts.get(c.id) >= c.wip) })), [cols, wipCounts]);
+    const colsInfo = useMemo(() => cols.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: c.wip, full: !!(wipInfo.get(c.id) || {}).full })), [cols, wipInfo]);
     /* antigüedad en la columna: a hoy (es la posición actual de la tarjeta) */
     const days = useMemo(() => { const m = new Map(); for (const it of items) m.set(it.id, daysIn(it, today)); return m; }, [items, today]);
     /* métricas de flujo del alcance filtrado (iteración y release) hasta la fecha de corte del proyecto */
@@ -1514,9 +1554,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       <div class="agk-board" ref=${boardRef} data-agk-board="1">
         ${cols.map((c, ci) => {
           const list = board.byCol.get(c.id) || [];
-          const n = wipCounts.get(c.id) || 0;
-          const over = !!(c.wip && n > c.wip);
-          const full = !!(c.wip && n === c.wip);
+          const w = wipInfo.get(c.id) || { count: 0, over: false, full: false };
+          const n = w.count, over = w.over, full = w.full;
           const doneCol = c.category === 'terminado';
           const shown = doneCol && !allDone && list.length > DONE_LIMIT ? list.slice(0, DONE_LIMIT) : list;
           return html`<section key=${c.id} class=${cx('agk-col', over && 'is-over', dropCol === c.id && 'is-drop')} data-agk-col=${c.id} aria-labelledby=${'agk-h-' + c.id}>

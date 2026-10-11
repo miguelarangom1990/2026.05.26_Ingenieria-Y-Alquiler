@@ -204,12 +204,19 @@ try {
   check('cambios pendientes = 2', (await kpi('[data-card="changes"] [data-count]')) === '2');
   check('cambios: subtítulo con aprobadas', (await page.locator('[data-card="changes"] .dashboard-panel-head').innerText()).includes('1 aprobada en total'));
   /* conteos esperados según el catálogo cargado (plantillas de prueba o reales) y los documentos sembrados */
-  const expDocs = await page.evaluate(() => {
+  /* solo las plantillas que aplican al proyecto (PM.applicableTemplates de 20-docs, como el mapa de procesos y la lista):
+     en un proyecto predictivo sin documentos ágiles no cuentan las plantillas ágiles */
+  const expDocs = await page.evaluate(async (pid) => {
     const st = { 'registro-riesgos': 'wip', 'registro-incidentes': 'wip', 'registro-cambios': 'ok' };
-    const c = (f) => { const l = PM.templateList.filter(f); const r = { ok: 0, wip: 0, none: 0, total: l.length }; for (const t of l) r[st[t.id] || 'none']++; return r; };
-    return { integ: c((t) => t.area === 'integracion'), plan: c((t) => t.group === 'planificacion') };
-  });
+    const project = await PM.store.get(PM.paths.project(pid));
+    const byTemplate = Object.fromEntries(Object.keys(st).map((k) => [k, [{ id: k, status: st[k] === 'ok' ? 'aprobado' : 'borrador' }]]));
+    const applies = (t) => (typeof PM.templateApplies === 'function' ? PM.templateApplies(t, { id: pid, ...project }, byTemplate) : true);
+    const c = (f) => { const l = PM.templateList.filter((t) => applies(t) && f(t)); const r = { ok: 0, wip: 0, none: 0, total: l.length }; for (const t of l) r[st[t.id] || 'none']++; return r; };
+    const agileInt = PM.templateList.filter((t) => t.agile && t.area === 'integracion').length;
+    return { integ: c((t) => t.area === 'integracion'), plan: c((t) => t.group === 'planificacion'), agileInt, allInt: PM.templateList.filter((t) => t.area === 'integracion').length, lifecycle: project.lifecycle || 'Predictivo' };
+  }, pid);
   const docInt = await page.locator('[data-docrow="integracion"]').getAttribute('aria-label');
+  if (expDocs.agileInt && expDocs.lifecycle === 'Predictivo') check('documentación: un proyecto predictivo no cuenta las plantillas ágiles (como el mapa de procesos)', docInt.includes(', de ' + (expDocs.allInt - expDocs.agileInt) + ' documentos'), { docInt, expDocs });
   const ei = expDocs.integ;
   check('documentación: conteo del área de integración (singular concordado)', ei.ok === 1 && ei.wip === 1 && docInt.includes('1 aprobado, ' + ei.wip + ' en elaboración y ' + ei.none + ' sin iniciar, de ' + ei.total + ' documentos') && !docInt.includes('1 aprobados'), [docInt, ei]);
   const docPlan = await page.locator('[data-docrow="planificacion"]').getAttribute('aria-label');

@@ -213,19 +213,17 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
   const arrOf = (x) => (Array.isArray(x) ? x : []);
   const relName = (r) => (r && String(r.name || '').trim()) || 'Release sin nombre';
-  /* Vínculos actividad ↔ release (release.taskId o task.releaseId, con la misma precedencia que PM.agile.applyToSchedule:
-     manda release.taskId y, si dos releases apuntan a la misma actividad, el último de la lista),
-     iteraciones por release y avance de cada release (perezoso y memorizado por llamada). */
+  /* Vínculos actividad ↔ release: la regla del núcleo (PM.agile.linksOf, la misma que aplica el avance del backlog al
+     cronograma): primero release.taskId (si dos releases apuntan a la misma actividad, gana el último) y luego
+     task.releaseId solo para releases sin actividad (la primera en el orden del cronograma). Un release nunca se aplica a
+     dos actividades. Además: iteraciones por release y avance de cada release (perezoso y memorizado por llamada). */
   function agileLinks(agileData, tasks, items) {
     const A = PM.agile;
     const releases = arrOf(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
     const relById = new Map(releases.map((r) => [r.id, r]));
-    const ids = new Set(arrOf(tasks).filter(isObj).map((t) => t.id));
-    const relByTask = new Map();
-    for (const r of releases) if (r.taskId && ids.has(r.taskId)) relByTask.set(r.taskId, r);
-    for (const t of arrOf(tasks)) if (isObj(t) && t.releaseId && !relByTask.has(t.id) && relById.has(t.releaseId)) relByTask.set(t.id, relById.get(t.releaseId));
+    const relByTask = A && A.linksOf ? A.linksOf(tasks, agileData) : new Map();
     const taskByRel = new Map();
-    for (const [tid, r] of relByTask) if (!taskByRel.has(r.id)) taskByRel.set(r.id, tid);
+    for (const [tid, r] of relByTask) taskByRel.set(r.id, tid);
     const settings = A ? A.settings(agileData) : null;
     const spr = new Map(), prog = new Map();
     const sprintsOf = (rid) => { if (!spr.has(rid)) spr.set(rid, PM.calc.sprintsOfRelease ? PM.calc.sprintsOfRelease(arrOf(agileData && agileData.sprints), rid) : []); return spr.get(rid); };
@@ -456,8 +454,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const dependents = sched.tasks.filter((x) => (x.deps || []).some((d) => d.id === id));
     const AG = () => (agileSrc && 'current' in agileSrc ? agileSrc.current : agileSrc) || null;
     const relsOf = () => { const a = AG(); return arrOf(a && a.agile && a.agile.releases).filter((r) => isObj(r) && r.taskId === id); };
-    const stored = (w.get().tasks || []).find((x) => x.id === id);
-    const relLinked = relsOf()[0] || (stored && stored.releaseId ? arrOf(AG() && AG().agile && AG().agile.releases).find((r) => isObj(r) && r.id === stored.releaseId) : null);
+    /* el release que la actividad representa, con la regla del núcleo (PM.agile.linksOf) */
+    const a0 = AG();
+    const relLinked = a0 && a0.agile && PM.agile && PM.agile.linksOf ? PM.agile.linksOf(w.get().tasks || [], a0.agile).get(id) || null : relsOf()[0] || null;
     const ok = await PM.confirm({
       title: t.milestone ? 'Eliminar hito' : 'Eliminar actividad',
       body: html`<div class="stack-sm"><p>Se eliminará <strong>${taskName(t)}</strong> del cronograma.</p>${dependents.length ? html`<p class="small muted">También se quitará como predecesora de ${dependents.length === 1 ? '1 actividad' : dependents.length + ' actividades'}: ${dependents.slice(0, 4).map(taskName).join(', ')}${dependents.length > 4 ? '…' : ''}.</p>` : null}
@@ -512,6 +511,10 @@ button.sched-day:hover { border-color: var(--line-strong); }
     /* la actividad puede desaparecer mientras el editor sigue abierto (p. ej. al confirmar su eliminación) */
     const baseT = orig || d;
     const staleRel = !!(baseT.releaseId && !links.relById.has(baseT.releaseId));
+    /* release guardado en la actividad que no se le aplica: ese release ya está vinculado a otra actividad (datos
+       inconsistentes, p. ej. tras una importación). El núcleo no le aplica su avance; al guardar se quita. */
+    const shadowRel = !staleRel && baseT.releaseId && (!curRel || curRel.id !== baseT.releaseId) ? links.relById.get(baseT.releaseId) : null;
+    const shadowTask = shadowRel ? liveTasks.find((t) => t.id === links.taskByRel.get(shadowRel.id)) || null : null;
     const showRel = !!((ag0 && ag0.agileOn) || curRel || baseT.releaseId);
     const selRel = relSel ? links.relById.get(relSel) || null : null;
     const selProg = selRel ? links.progressOf(selRel) : null;
@@ -519,9 +522,10 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const sameLink = !!(selRel && curRel && selRel.id === curRel.id);
     /* vista previa con la misma regla del núcleo (PM.agile.applyToSchedule) aplicada a lo guardado */
     const preview = derived && PM.agile ? (PM.agile.applyToSchedule({ settings: {}, tasks: [{ ...baseT, releaseId: selRel.id }] }, { ...((ag0 && ag0.agile) || {}), releases: [{ ...selRel, taskId }] }, (ag0 && ag0.items) || []).tasks[0] || null) : null;
-    /* otras actividades que hoy toman el avance del release elegido (también con datos inconsistentes, p. ej. tras una
-       importación con dos actividades con el mismo release): al guardar pierden el vínculo */
-    const others = selRel ? liveTasks.filter((t) => t.id !== taskId && links.relByTask.get(t.id) === selRel) : [];
+    /* otras actividades vinculadas al release elegido: la que hoy toma su avance y las que lo tienen guardado sin que se
+       les aplique (datos inconsistentes, p. ej. tras una importación con dos actividades con el mismo release): al guardar
+       pierden el vínculo */
+    const others = selRel ? liveTasks.filter((t) => t.id !== taskId && (links.relByTask.get(t.id) === selRel || t.releaseId === selRel.id)) : [];
     const otherTask = others[0] || null;
     const othersTxt = others.length ? '«' + taskName(others[0]) + '»' + (others.length > 1 ? ' y de ' + (others.length === 2 ? 'otra actividad' : (others.length - 1) + ' actividades más') : '') : '';
     const relOptions = links.releases.map((r) => { const tid = links.taskByRel.get(r.id); const other = tid && tid !== taskId ? liveTasks.find((t) => t.id === tid) : null; return { value: r.id, label: relName(r) + (other ? ' (vinculado a «' + taskName(other) + '»)' : '') }; });
@@ -564,7 +568,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       };
       const newRel = relSel || null;
       /* también si el release ya era el de esta actividad pero otra lo comparte: se cumple «una actividad por release» */
-      const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel || (!!newRel && others.length > 0);
+      const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel || !!shadowRel || (!!newRel && others.length > 0);
       let tasks = (cur.tasks || []).map((t) => (t.id === taskId ? next : t));
       let movedFrom = null;
       if (linkChanged) {
@@ -592,6 +596,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         if (relNew && kept) PM.toast('«' + name + '» sigue representando el release «' + relName(relNew) + '».' + movedTxt, { timeout: 7000 });
         else if (relNew) PM.toast('«' + name + '» representa ahora el release «' + relName(relNew) + '»' + (links.progressOf(relNew).total > 0 ? ': su avance se calcula desde el backlog.' : '. Cuando el release tenga elementos estimados, su avance se calculará desde el backlog.') + movedTxt, { timeout: 7000 });
         else if (curRel) PM.toast('«' + name + '» ya no representa el release «' + relName(curRel) + '»: su avance vuelve a registrarse en el cronograma.', { timeout: 7000 });
+        else if (shadowRel) PM.toast('Se quitó de «' + name + '» el release «' + relName(shadowRel) + '»' + (shadowTask ? ', que se representa con «' + taskName(shadowTask) + '»' : '') + '.', { timeout: 7000 });
       }
       if (next.start && next.start !== base.start) explainStart(w.get(), ctx.projectStart, taskId, next.start, ctx.agileRef);
     };
@@ -607,7 +612,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <${ui.Field} label="Nombre" required for="te-name" class="span-all"><${ui.Input} id="te-name" value=${d.name} onValue=${set('name')} disabled=${ro} autoFocus=${!ro} /></${ui.Field}>
         <${ui.Field} label="Paquete de la EDT" for="te-wbs"><${ui.Select} id="te-wbs" value=${d.wbsId || ''} onValue=${(v) => set('wbsId')(v || null)} placeholder="Sin paquete de la EDT" options=${wbsOptions} disabled=${ro} /></${ui.Field}>
         ${showRel ? html`<${ui.Field} label="Release vinculado" for="te-rel" hint=${!selRel
-            ? (staleRel ? 'El release vinculado ya no existe; al guardar se quita el vínculo.' : links.releases.length ? 'Vincula la actividad que representa un release: su avance se calculará desde el backlog.' : 'Aún no hay releases. Créalos en Releases e iteraciones.')
+            ? (staleRel ? 'El release vinculado ya no existe; al guardar se quita el vínculo.'
+              : shadowRel ? 'La actividad tiene guardado el release «' + relName(shadowRel) + '», ' + (shadowTask ? 'pero ese release se representa con «' + taskName(shadowTask) + '» (un release se vincula a una sola actividad)' : 'que no se le aplica (cada actividad representa un solo release)') + ': su avance no se toma del backlog y al guardar se quita el vínculo. Elígelo en la lista para vincularlo a esta actividad.'
+              : links.releases.length ? 'Vincula la actividad que representa un release: su avance se calculará desde el backlog.' : 'Aún no hay releases. Créalos en Releases e iteraciones.')
             : (otherTask ? 'Al guardar se quita el vínculo de ' + othersTxt + ': un release se representa con una sola actividad. ' : '') + (derived ? 'El avance y las fechas reales se calculan desde el backlog del release.' : 'El release aún no tiene elementos estimados: mientras tanto, el avance se registra aquí.')}>
           <${ui.Select} id="te-rel" value=${relSel} onValue=${onRel} placeholder="Sin release" options=${relOptions} disabled=${ro} />
         </${ui.Field}>` : null}

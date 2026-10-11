@@ -783,12 +783,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         </div>
         ${w && isLeaf ? html`<div><${ui.Button} size="sm" icon="plus" onClick=${() => d.actions.createTask(id)}>Crear actividad para este paquete</${ui.Button}></div>` : null}
       </div>
-      ${ag ? html`<${AgileSection} id=${id} n=${n} code=${code} ag=${ag} canWrite=${w} actions=${d.actions} currency=${d.currency} />` : null}
+      ${ag ? html`<${AgileSection} id=${id} n=${n} code=${code} ag=${ag} canWrite=${w} actions=${d.actions} currency=${d.currency} leaf=${isLeaf} />` : null}
     </div>`;
   }
 
   /* Backlog y releases del elemento (capa ágil): conteo y puntos del elemento y los que lo componen, avance y releases. */
-  function AgileSection({ id, n, code, ag, canWrite, actions, currency }) {
+  function AgileSection({ id, n, code, ag, canWrite, actions, currency, leaf }) {
     const stats = ag.stats(id);
     const own = ag.direct.get(id) || ZERO_STATS;
     const rels = ag.relsOf(id);
@@ -818,7 +818,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           : html`<p class="small faint">${adaptive ? 'Aún no hay elementos del backlog vinculados a este entregable ni a los que lo componen.' : 'No hay elementos del backlog vinculados.'}</p>`}
         ${hasBacklog && ag.enabled ? html`<div class="row" style="gap:4px 10px" data-wbs-goto-backlog>
           <${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('backlog', { wbs: id })}>Ir al backlog</${ui.Button}>
-          <span class="xsmall faint">En el backlog, elige ${code} en el filtro de entregables para ver solo sus elementos.</span>
+          <span class="xsmall faint">Abre el backlog filtrado por ${code}${leaf ? '' : ' y los elementos que lo componen'}; el filtro se quita desde el backlog.</span>
         </div>` : null}
         <div class="wbs-sec-title"><${ui.Icon} name="release" size=${15} />Releases<span class="code-tag">${rels.length}</span></div>
         ${rels.length ? html`<div class="wbs-rels">${rels.map((r) => html`<div class="wbs-rel" key=${r.id} data-wbs-release=${r.id}>

@@ -147,6 +147,16 @@ td.ags-actions { background: var(--surface); }
 .ags-key-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .ags-data { max-height: 360px; overflow: auto; }
 .ags-note { font-size: var(--fs-xs); color: var(--fg-3); max-width: 80ch; }
+/* estado vacío: ruta para empezar (ocupa el ancho de la vista, como el resto de las vistas) */
+.ags-steps { list-style: none; margin: 0; padding: 14px 16px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.ags-step { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); min-width: 0; }
+.ags-step[data-done="1"] { border-color: var(--good); background: var(--good-wash); }
+.ags-step-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.ags-step-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: var(--fs-xs); font-weight: 700; border: 1px solid var(--line-strong); color: var(--fg-2); background: var(--surface); }
+.ags-step[data-done="1"] .ags-step-n { border-color: var(--good); color: var(--good); }
+.ags-step-state { font-size: var(--fs-xs); color: var(--fg-2); }
+.ags-step p { margin: 0; max-width: 60ch; font-size: var(--fs-sm); color: var(--fg-2); }
+.ags-step > .ags-step-act { margin-top: auto; padding-top: 2px; }
 .ags-cmp td { white-space: nowrap; }
 .ags-cmp th { white-space: normal; min-width: 8ch; vertical-align: bottom; }
 .ags-empty-chart { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); color: var(--fg-2); padding: 8px 0; max-width: 70ch; }
@@ -188,9 +198,13 @@ td.ags-actions { background: var(--surface); }
   const spName = (s) => (s && String(s.name ?? '').trim()) || 'Iteración sin nombre';
   const relName = (r) => (r && String(r.name ?? '').trim()) || 'Release sin nombre';
 
-  /* La normalización de la herramienta convierte `baseline: null` en `{}`: solo hay línea base si tiene datos. */
-  const hasBaseline = (r) => { const b = r && r.baseline; return isObj(b) && (D.valid(b.date) || PM.isNum(b.points) || D.valid(b.end)); };
-  const normRelease = (r) => (r.baseline == null || hasBaseline(r) ? r : { ...r, baseline: null });
+  /* La normalización de la herramienta puede convertir `baseline: null` en `{}`: solo hay línea base si tiene datos
+     (PM.agile.hasBaseline, la regla del núcleo). */
+  const normRelease = (r) => (r.baseline == null || A.hasBaseline(r) ? r : { ...r, baseline: null });
+  /* Actividad del cronograma que representa el release, con la regla del núcleo (PM.agile.linksOf): release.taskId
+     primero (si dos releases apuntan a la misma actividad gana el último) y luego task.releaseId solo para releases sin
+     actividad. Es la misma actividad a la que el núcleo aplica el avance del backlog. */
+  const taskIdOfRelease = (m, releaseId) => { for (const [tid, r] of A.linksOf(arr(m.schedule && m.schedule.tasks), m.agileData || m.agile)) if (r.id === releaseId) return tid; return null; };
   /* Variación frente a la línea base (PM.calc.releaseVariance) más un caso que el núcleo no cubre: si la línea base
      tiene fecha de fin y el release ya no la tiene, la fecha cambió y requiere control de cambios (§9.6). */
   function relVariance(release, items, settings) {
@@ -383,7 +397,7 @@ td.ags-actions { background: var(--surface); }
     }));
     const [err, setErr] = useState({});
     const set = (k) => (v) => setF((o) => ({ ...o, [k]: v }));
-    const bl = hasBaseline(release);
+    const bl = A.hasBaseline(release);
     /* «Comprometido» se alcanza al fijar la línea base; sin ella no se ofrece (salvo datos anteriores que ya lo tengan). */
     const keepCommitted = release.status === 'comprometido';
     const statusOpts = bl || keepCommitted ? PM.AGILE.RELEASE_STATUS : PM.AGILE.RELEASE_STATUS.filter((o) => o.value !== 'comprometido');
@@ -510,7 +524,7 @@ td.ags-actions { background: var(--surface); }
       d.releases = arr(d.releases); d.sprints = arr(d.sprints);
       fn(d);
       /* «sin línea base» se guarda sin la clave: la normalización de la herramienta convierte null en {} */
-      for (const r of d.releases) if (r.baseline !== undefined && !hasBaseline(r)) delete r.baseline;
+      for (const r of d.releases) if (r.baseline !== undefined && !A.hasBaseline(r)) delete r.baseline;
       return S().m.saveAgile(d);
     };
     const saveItems = (list) => Promise.all(list.map((it) => S().m.saveItem(it)));
@@ -536,12 +550,12 @@ td.ags-actions { background: var(--surface); }
       for (const { node, code } of m.tree.flat) { const ap = m.approach.get(node.id); (ap === 'adaptativo' ? adaptive : other).push({ value: node.id, label: code + ' ' + (node.name || 'Sin nombre') }); }
       return { adaptive, other };
     };
-    const currentTaskOf = (r) => { const tasks = arr(S().m.schedule.tasks); if (r.taskId && tasks.some((t) => t.id === r.taskId)) return r.taskId; const t = tasks.find((x) => x.releaseId === r.id); return t ? t.id : ''; };
+    const currentTaskOf = (r) => taskIdOfRelease(S().m, r.id) || '';
     const taskOptions = (r) => {
-      const { m, releases } = S();
+      const { m } = S();
+      /* actividades que ya representan otro release (regla del núcleo: un release por actividad) */
       const taken = new Map();
-      for (const x of releases) if (x.id !== r.id && x.taskId) taken.set(x.taskId, x);
-      for (const t of arr(m.schedule.tasks)) if (t.releaseId && t.releaseId !== r.id) taken.set(t.id, releases.find((x) => x.id === t.releaseId) || { name: 'otro release' });
+      for (const [tid, x] of A.linksOf(arr(m.schedule.tasks), m.agileData || m.agile)) if (x.id !== r.id) taken.set(tid, x);
       const codes = m.tree.codes;
       return arr(m.schedule.tasks).filter((t) => !taken.has(t.id)).map((t) => ({ value: t.id, label: (t.wbsId && codes.get(t.wbsId) ? codes.get(t.wbsId) + ' · ' : '') + (t.name || 'Actividad sin nombre') + (t.milestone ? ' (hito)' : '') }));
     };
@@ -891,7 +905,7 @@ td.ags-actions { background: var(--surface); }
       <span class="ags-rel-prog"><span class="ags-bar" aria-hidden="true"><span style=${'width:' + Math.round(info.prog.pct * 1000) / 10 + '%'}></span></span><span class="num">${fmt.pct(info.prog.pct)}</span></span>
       <span class="xsmall muted">${fpts(info.prog.done, unit)} de ${fpts(info.prog.total, unit)} · ${info.sprints.length} de ${planned} ${planned === 1 ? 'iteración' : 'iteraciones'}</span>
       <span class="ags-chips">
-        ${hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}
+        ${A.hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}
         ${cc ? html`<${ui.Chip} tone="warn" icon="alert">Requiere control de cambios</${ui.Chip}>` : null}
       </span>
     </button>`;
@@ -968,8 +982,7 @@ td.ags-actions { background: var(--surface); }
     const st = REL_STATUS[r.status] || REL_STATUS.planeado;
     const planned = Math.max(info.sprints.length, Math.round(num(r.plannedSprints, 0)));
     const node = r.wbsId ? m.tree.byId.get(r.wbsId) : null;
-    const tasks = arr(m.schedule.tasks);
-    const taskId = r.taskId && tasks.some((t) => t.id === r.taskId) ? r.taskId : (tasks.find((t) => t.releaseId === r.id) || {}).id;
+    const taskId = taskIdOfRelease(m, r.id);
     const task = taskId ? m.sched.byId.get(taskId) : null;
     const approach = node ? m.approach.get(node.id) : null;
     const relVel = C.velocity({ sprints: info.sprints, items: m.items, settings });
@@ -977,11 +990,11 @@ td.ags-actions { background: var(--surface); }
       <div class="card-head">
         <div class="stack-sm" style="gap:4px;min-width:0">
           <h2 class="h3">${relName(r)}</h2>
-          <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${dateRange(r.start, r.end)}</span>${hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : null}</div>
+          <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${dateRange(r.start, r.end)}</span>${A.hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : null}</div>
         </div>
         <div class="row">
           ${canWrite ? html`<${ui.Button} size="sm" icon="edit" onClick=${() => act.releaseEdit(r)}>Editar release</${ui.Button}>` : null}
-          ${canWrite && !hasBaseline(r) ? html`<${ui.Button} size="sm" icon="lock" disabled=${!info.prog.total || !D.valid(r.end)} onClick=${() => act.releaseBaseline(r)}>Fijar línea base del release</${ui.Button}>` : null}
+          ${canWrite && !A.hasBaseline(r) ? html`<${ui.Button} size="sm" icon="lock" disabled=${!info.prog.total || !D.valid(r.end)} onClick=${() => act.releaseBaseline(r)}>Fijar línea base del release</${ui.Button}>` : null}
           <${ui.Dropdown} label=${'Más acciones de ' + relName(r)} items=${[
             canWrite ? { label: 'Generar iteraciones', icon: 'sprint', onClick: () => act.sprintGenerate(r) } : null,
             { label: 'Ver métricas del release', icon: 'burndown', onClick: () => PM.navigate('metricas-agiles', { release: r.id }) },
@@ -996,8 +1009,8 @@ td.ags-actions { background: var(--surface); }
         <div class="ags-tiles" data-role="release-stats">
           <${ui.Stat} label="Avance" value=${fmt.pct(info.prog.pct)} sub=${fpts(info.prog.done, unit) + ' de ' + fpts(info.prog.total, unit) + ' (' + info.prog.count + ' elementos)'} />
           <${ForecastStat} r=${r} info=${info} unit=${unit} cal=${cal} />
-          <${ui.Stat} label="Fin planeado" value=${fmt.date(r.end)} sub=${hasBaseline(r) ? 'Línea base: ' + fmt.date(r.baseline.end) : 'Sin línea base'} />
-          <${ui.Stat} label="Presupuesto (BAC)" value=${fmt.moneyShort(num(r.budget, 0), currency)} sub=${hasBaseline(r) ? 'Línea base: ' + fmt.moneyShort(num(r.baseline.budget, 0), currency) : 'Base del AgileEVM'} />
+          <${ui.Stat} label="Fin planeado" value=${fmt.date(r.end)} sub=${A.hasBaseline(r) ? 'Línea base: ' + fmt.date(r.baseline.end) : 'Sin línea base'} />
+          <${ui.Stat} label="Presupuesto (BAC)" value=${fmt.moneyShort(num(r.budget, 0), currency)} sub=${A.hasBaseline(r) ? 'Línea base: ' + fmt.moneyShort(num(r.baseline.budget, 0), currency) : 'Base del AgileEVM'} />
           <${ui.Stat} label="Iteraciones" value=${info.sprints.length + ' de ' + planned} sub=${info.sprints.filter((s) => s.status === 'cerrado').length + ' cerradas · ' + settings.sprintLength + ' días hábiles c/u'} />
           <${ui.Stat} label="Velocidad del release" value=${relVel.avg3 !== null ? fpts(relVel.avg3, unit) : '—'} sub=${relVel.closed ? 'Promedio de las últimas ' + Math.min(3, relVel.closed) + ' cerradas' : 'Sin iteraciones cerradas'} />
         </div>
@@ -1201,6 +1214,28 @@ td.ags-actions { background: var(--surface); }
     </div>`;
   }
 
+  /* Ruta para empezar (estado vacío de las vistas ágiles): cada paso dice si está listo (con ícono y texto, no solo color),
+     qué falta y lleva a la vista donde se hace. */
+  function StartCard({ title, subtitle, steps }) {
+    return html`<section class="card ags-start" data-role="agile-start">
+      <div class="card-head"><div class="stack-sm" style="gap:2px"><h2 class="h3">${title}</h2>${subtitle ? html`<div class="xsmall faint">${subtitle}</div>` : null}</div></div>
+      <ol class="ags-steps">${steps.map((st, i) => html`<li key=${st.id} class="ags-step" data-step=${st.id} data-done=${st.done ? '1' : '0'}>
+        <div class="ags-step-head"><span class="ags-step-n" aria-hidden="true">${st.done ? html`<${ui.Icon} name="check" size=${13} />` : i + 1}</span><strong>${st.title}</strong></div>
+        <div class="ags-step-state" data-role="step-state"><span class="sr-only">Paso ${i + 1}: </span>${st.done ? 'Listo' : 'Pendiente'} · ${st.state}</div>
+        <p>${st.text}</p>
+        ${st.action ? html`<div class="ags-step-act"><${ui.Button} size="sm" variant=${st.action.primary ? 'primary' : undefined} icon=${st.action.icon} onClick=${st.action.onClick}>${st.action.label}</${ui.Button}></div>` : null}
+      </li>`)}</ol>
+    </section>`;
+  }
+  const countLabel = (n, one, many) => (n === 1 ? '1 ' + one : fmt.num(n) + ' ' + many);
+  const backlogStep = (m) => {
+    const list = m.items.filter(A.countable);
+    const est = list.reduce((t, it) => t + A.estimate(it), 0);
+    return { id: 'backlog', title: 'Backlog del producto', done: list.length > 0, state: list.length ? countLabel(list.length, 'elemento', 'elementos') + (est > 0 ? ' · ' + fpts(est, m.unit) + ' estimados' : ' sin estimar') : 'sin elementos',
+      text: 'Historias de usuario con criterios de aceptación, estimadas y ordenadas por valor. Los releases y las iteraciones se planifican con ellas.',
+      action: PM.getView('backlog') ? { label: 'Ir al backlog', icon: 'backlog', onClick: () => PM.navigate('backlog') } : null };
+  };
+
   function IterationsView({ project, params }) {
     const m = PM.useAgileModel();
     const canWrite = PM.useCanWrite();
@@ -1232,8 +1267,8 @@ td.ags-actions { background: var(--surface); }
     if (relSel === NONE && orphans.length) selRel = NONE;
     else if (relSel && releases.some((r) => r.id === relSel)) selRel = relSel;
     else {
-      const cur = m.currentSprint && releases.find((r) => r.id === m.currentSprint.releaseId);
-      const pick = cur || releases.find((r) => r.status === 'en-curso') || releases.find((r) => r.status !== 'cerrado') || releases[0];
+      /* release activo (regla del núcleo: el de la iteración en curso, si no el primero en curso, comprometido o sin cerrar) */
+      const pick = A.activeRelease(releases, sprints) || releases[0];
       selRel = pick ? pick.id : orphans.length ? NONE : null;
     }
     const release = selRel && selRel !== NONE ? releases.find((r) => r.id === selRel) : null;
@@ -1254,10 +1289,20 @@ td.ags-actions { background: var(--surface); }
         <${ui.Button} icon="burndown" onClick=${() => PM.navigate('metricas-agiles', release ? { release: release.id } : {})}>Ver métricas</${ui.Button}>
         ${canWrite ? html`<${ui.Button} variant="primary" icon="plus" data-role="release-new" onClick=${act.releaseNew}>Nuevo release</${ui.Button}>` : null}`} />`;
     if (!releases.length && !orphans.length) {
+      const steps = [
+        backlogStep(m),
+        { id: 'release', title: 'Release', done: false, state: 'sin releases', text: 'Objetivo, fechas, presupuesto (BAC) e iteraciones planeadas. Vincúlalo con un entregable adaptativo de la EDT y con su actividad del cronograma para que su avance entre a la curva S del proyecto.',
+          action: canWrite ? { label: 'Crear el primer release', icon: 'plus', onClick: act.releaseNew } : null },
+        { id: 'sprints', title: kanban ? 'Iteraciones (opcionales en Kanban)' : 'Iteraciones', done: false, state: 'sin iteraciones', text: 'Iteraciones de ' + settings.sprintLength + ' días hábiles: capacidad y velocidad al planificar, compromiso al iniciar y lo terminado al cerrar.',
+          action: canWrite && kanban ? { label: 'Agregar iteración sin release', icon: 'sprint', onClick: () => act.sprintAdd(null) } : null },
+        { id: 'baseline', title: 'Línea base del release', done: false, state: 'sin línea base', text: 'Fíjala al comprometer el release. Si su alcance cambia más del ' + fmt.num(settings.scopeChangeThreshold) + '\u00a0% o cambian su fecha o su presupuesto, se registra una solicitud de cambio (4.6).' },
+      ];
       return html`<div class="page" data-view="iteraciones">${header}
         <${ui.Empty} icon="release" title="Aún no hay releases" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${act.releaseNew}>Crear el primer release</${ui.Button}>${kanban ? html`<${ui.Button} icon="sprint" onClick=${() => act.sprintAdd(null)}>Agregar iteración sin release</${ui.Button}>` : null}` : null}>
           Un release agrupa los elementos del backlog que se entregan juntos: objetivo, fechas, presupuesto (BAC) e iteraciones. Vincúlalo con un entregable adaptativo de la EDT y con su actividad del cronograma para que su avance entre a la curva S del proyecto.${kanban ? ' Con Kanban las iteraciones son opcionales.' : ''}
-        </${ui.Empty}></div>`;
+        </${ui.Empty}>
+        <${StartCard} title="Ruta para planificar" subtitle="Lo que falta para planificar releases e iteraciones en este proyecto" steps=${steps} />
+      </div>`;
     }
     return html`<div class="page ags-root" data-view="iteraciones">
       ${header}
@@ -1482,8 +1527,8 @@ td.ags-actions { background: var(--surface); }
     const width = useWidth(tip.ref, 560);
     const g = useMemo(() => {
       if (!pts.length) return null;
-      const bl = PM.isNum(bu.baselinePoints) && hasBaseline(release) ? Number(bu.baselinePoints) : null;
-      const blEnd = hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
+      const bl = PM.isNum(bu.baselinePoints) && A.hasBaseline(release) ? Number(bu.baselinePoints) : null;
+      const blEnd = A.hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
       const dates = [...pts.map((p) => p.date), proj, release.end, blEnd, statusDate].filter(D.valid);
       const first = D.min(...dates); let last = D.max(...dates); if (first === last) last = D.add(first, 7);
       const maxV = Math.max(bl || 0, ...pts.map((p) => Math.max(p.scope || 0, p.done || 0)));
@@ -1632,7 +1677,7 @@ td.ags-actions { background: var(--surface); }
   function ForecastChart({ fc, fl, release, statusDate, unit, svgRef }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
-    const bl = hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
+    const bl = A.hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
     const lanes = useMemo(() => {
       const out = [];
       const done = relFinished(fc);
@@ -1827,11 +1872,11 @@ td.ags-actions { background: var(--surface); }
     return { done, avgCycle: mean(cyc), median: q(0.5), p85: q(0.85), avgLead: mean(leads), weeks, perWeek };
   }
 
-  function AgileEvmSection({ release, ev, m }) {
+  function AgileEvmSection({ release, ev, m, cost }) {
     const { currency } = m;
+    const shared = cost && cost.shared > 0 ? cost : null;
     const pe = m.evm;
-    const tasks = arr(m.schedule.tasks);
-    const taskId = release.taskId && tasks.some((t) => t.id === release.taskId) ? release.taskId : (tasks.find((t) => t.releaseId === release.id) || {}).id;
+    const taskId = taskIdOfRelease(m, release.id);
     const task = taskId ? m.sched.byId.get(taskId) : null;
     const planned = task ? C.plannedFraction(m.sched.cal, task.startDate, task.finishDate, task.milestone, m.statusDate) : null;
     const tSpi = task && planned > 0 ? num(task.progress, 0) / 100 / planned : null;
@@ -1844,7 +1889,7 @@ td.ags-actions { background: var(--surface); }
         <${ui.Stat} label="APC (avance real)" value=${fmt.pct(ev.apc, 1)} sub=${'Terminado / alcance actual'} />
         <${ui.Stat} label="PV" value=${fmt.moneyShort(ev.pv, currency)} sub="BAC × PPC" />
         <${ui.Stat} label="EV" value=${fmt.moneyShort(ev.ev, currency)} sub="BAC × APC" />
-        <${ui.Stat} label="AC (costo real)" value=${fmt.moneyShort(ev.ac, currency)} sub=${ev.ac > 0 ? 'Costos imputados al release' : 'Sin costos imputados'} />
+        <${ui.Stat} label="AC (costo real)" value=${fmt.moneyShort(ev.ac, currency)} sub=${ev.ac > 0 ? (shared ? 'Incluye ' + fmt.moneyShort(shared.shared, currency) + ' compartidos con otro release' : 'Costos imputados al release') : 'Sin costos imputados'} />
         <${ui.Stat} label="SV" value=${(ev.sv > 0 ? '+' : '') + fmt.moneyShort(ev.sv, currency)} sub="EV − PV" tone=${ev.sv < 0 ? 'warn' : null} />
         <${ui.Stat} label="CV" value=${ev.ac > 0 ? (ev.cv > 0 ? '+' : '') + fmt.moneyShort(ev.cv, currency) : '—'} sub="EV − AC" tone=${ev.ac > 0 && ev.cv < 0 ? 'warn' : null} />
         <${ui.Stat} label="SPI" value=${fmt.idx(ev.spi)} sub=${word(ev.spi, 'Adelantado', 'Atrasado')} tone=${tone(ev.spi)} />
@@ -1857,9 +1902,14 @@ td.ags-actions { background: var(--surface); }
         <tbody>
           <tr><td>SPI</td><td class="num">${fmt.idx(ev.spi)}</td><td class="num">${fmt.idx(pe.spi)}</td><td class="num">${task ? fmt.idx(tSpi) : '—'}</td></tr>
           <tr><td>CPI</td><td class="num">${fmt.idx(ev.cpi)}</td><td class="num">${fmt.idx(pe.cpi)}</td><td class="num">—</td></tr>
+          <tr data-role="evm-compare-ac"><td>Costo real (AC)</td><td class="num">${fmt.moneyShort(ev.ac, currency)}</td><td class="num">${fmt.moneyShort(num(pe.ac, 0), currency)}</td><td class="num">—</td></tr>
           <tr><td>Avance real</td><td class="num">${fmt.pct(ev.apc, 1)}</td><td class="num">${fmt.pct(pe.pctComplete, 1)}</td><td class="num">${task ? fmt.pct100(task.progress, 1) : '—'}</td></tr>
           <tr><td>Avance planeado</td><td class="num">${fmt.pct(ev.ppc, 1)}</td><td class="num">${fmt.pct(pe.pctPlanned, 1)}</td><td class="num">${task ? fmt.pct(planned, 1) : '—'}</td></tr>
         </tbody></table></div>
+      ${shared ? html`<${Callout} tone="warn" role="evm-shared" title="Costos compartidos con otros releases"
+        actions=${PM.getView('valor-ganado') ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('valor-ganado', { tab: 'reales' })}>Ir a costos reales</${ui.Button}>` : null}>
+        <span>${(shared.count === 1 ? '1 registro de costos sin release' : shared.count + ' registros de costos sin release') + ' (' + fmt.money(shared.shared, currency) + ') ' + (shared.count === 1 ? 'coincide' : 'coinciden') + ' también con ' + shared.others.map((r) => '«' + relName(r) + '»').join(', ') + ' porque comparten el entregable de la EDT o la actividad: cuenta' + (shared.count === 1 ? '' : 'n') + ' en el AC de este release y en el de ' + (shared.others.length === 1 ? 'ese release' : 'esos releases') + ', pero una sola vez en el total de los releases (' + fmt.money(shared.total, currency) + ', sin duplicar). Imputa cada registro a su release con el selector «Release» de Costos reales para que el CPI del release sea exacto.'}</span>
+      </${Callout}>` : null}
       <p class="ags-note">${task ? 'Actividad vinculada: «' + (task.name || '') + '» (' + fmt.date(task.startDate) + ' – ' + fmt.date(task.finishDate) + '); su avance se calcula desde el backlog del release, así que el valor ganado del proyecto ya incluye este trabajo.' : 'El release no tiene una actividad del cronograma vinculada: su avance no entra al valor ganado del proyecto. Vincúlala desde «Releases e iteraciones».'} El AgileEVM mide el avance planeado por iteraciones transcurridas (PPC) y el real por estimación terminada (APC).</p>
     </div>`;
   }
@@ -1878,7 +1928,7 @@ td.ags-actions { background: var(--surface); }
     let relId = '';
     if (relSel === '' || relSel === NONE) relId = '';
     else if (relSel && releases.some((r) => r.id === relSel)) relId = relSel;
-    else { const cur = m.currentSprint && releases.find((r) => r.id === m.currentSprint.releaseId); const pick = cur || releases.find((r) => r.status === 'en-curso') || releases.find((r) => r.status !== 'cerrado') || releases[0]; relId = pick ? pick.id : ''; }
+    else { const pick = A.activeRelease(releases, sprints) || releases[0]; relId = pick ? pick.id : ''; }
     const release = relId ? releases.find((r) => r.id === relId) : null;
     const spList = useMemo(() => (release ? C.sprintsOfRelease(sprints, release.id) : sprints), [release, sprints]);
     const sprint = spList.find((s) => s.id === spSel) || spList.find((s) => s.status === 'en-curso') || [...spList].reverse().find((s) => s.status === 'cerrado') || spList[0] || null;
@@ -1908,16 +1958,36 @@ td.ags-actions { background: var(--surface); }
       return { from, to };
     }, [release, sprints, scopeItems, flowScope, statusDate]);
     const cfdRows = useMemo(() => (cfdRange ? C.cfd({ items: scopeItems, settings, from: cfdRange.from, to: cfdRange.to }) : []), [cfdRange, scopeItems, settings]);
-    const ev = useMemo(() => (release ? C.agileEvm({ release, sprints, items, settings, actualCost: A.releaseActualCost(release, m.costs, m.tree, statusDate), statusDate }) : null), [release, sprints, items, settings, m.costs, m.tree, statusDate]);
+    /* costos reales de todos los releases en una pasada (PM.agile.releaseCosts, la regla de 50-evm): el AC de cada release
+       y los registros sin release que comparten entregable o actividad con otro release (cuentan una vez en el total) */
+    const relCosts = useMemo(() => A.releaseCosts(releases, m.costs, m.tree, statusDate), [releases, m.costs, m.tree, statusDate]);
+    const costInfo = useMemo(() => {
+      if (!release) return null;
+      const own = relCosts.byRelease.get(release.id) || { ac: 0, shared: 0 };
+      const recs = relCosts.shared.filter((x) => x.ids.includes(release.id));
+      const otherIds = new Set(); for (const x of recs) for (const id of x.ids) if (id !== release.id) otherIds.add(id);
+      return { ac: own.ac, shared: own.shared, count: recs.length, others: releases.filter((r) => otherIds.has(r.id)), total: relCosts.total, sharedAll: relCosts.shared.length };
+    }, [release, relCosts, releases]);
+    const ev = useMemo(() => (release ? C.agileEvm({ release, sprints, items, settings, actualCost: costInfo ? costInfo.ac : 0, statusDate }) : null), [release, sprints, items, settings, costInfo, statusDate]);
     const fst = useMemo(() => flowStats(scopeItems, settings, statusDate), [scopeItems, settings, statusDate]);
     if (m.loading) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
     const header = html`<${ui.PageHeader} eyebrow=${html`<span>Ágil</span><span>·</span><span>4.5 Monitorear y controlar el trabajo · 7.4 Controlar los costos</span>`} title="Métricas ágiles"
       description=${'Burndown, burnup, velocidad, flujo acumulado, pronóstico, valor ganado ágil y tiempos de ciclo, con datos a la fecha de corte (' + fmt.date(statusDate, 'long') + ').'}
       actions=${html`<${ui.Button} icon="sprint" onClick=${() => PM.navigate('iteraciones', release ? { release: release.id } : {})}>Releases e iteraciones</${ui.Button}>`} />`;
     if (!releases.length && !sprints.length && !items.length) {
+      const steps = [
+        { ...backlogStep(m), text: 'Elementos estimados y con fecha de creación: alimentan el burnup, el flujo acumulado y el pronóstico de terminación.' },
+        { id: 'release', title: 'Release con presupuesto', done: false, state: 'sin releases', text: 'Su alcance, su fin planeado y su presupuesto (BAC) dan el burnup, el pronóstico y el valor ganado ágil (AgileEVM).',
+          action: PM.getView('iteraciones') ? { label: 'Ir a releases e iteraciones', icon: 'sprint', onClick: () => PM.navigate('iteraciones') } : null },
+        { id: 'sprints', title: 'Iteraciones cerradas', done: false, state: 'sin iteraciones', text: 'Cada iteración cerrada fija lo terminado: velocidad, burndown y rango del pronóstico (optimista, probable y pesimista).' },
+        { id: 'flow', title: 'Elementos terminados', done: false, state: 'sin elementos terminados', text: 'Mover tarjetas a «Terminado» registra su fecha: tiempo de ciclo, tiempo de entrega y rendimiento semanal.',
+          action: PM.getView('kanban') ? { label: 'Ir al tablero Kanban', icon: 'kanban', onClick: () => PM.navigate('kanban') } : null },
+      ];
       return html`<div class="page" data-view="metricas-agiles">${header}<${ui.Empty} icon="burndown" title="Aún no hay datos para las métricas" actions=${html`<${ui.Button} variant="primary" icon="sprint" onClick=${() => PM.navigate('iteraciones')}>Ir a releases e iteraciones</${ui.Button}><${ui.Button} icon="backlog" onClick=${() => PM.navigate('backlog')}>Ir al backlog</${ui.Button}>`}>
         Las métricas aparecen cuando el proyecto tiene elementos en el backlog, releases e iteraciones: burndown de la iteración, burnup del release, velocidad, flujo acumulado, pronóstico de terminación, valor ganado ágil y tiempo de ciclo.
-      </${ui.Empty}></div>`;
+      </${ui.Empty}>
+        <${StartCard} title="Qué necesitan las métricas" subtitle="Cada métrica se calcula con los datos que registra el equipo" steps=${steps} />
+      </div>`;
     }
     const relOpts = [...releases.map((r) => ({ value: r.id, label: relName(r) })), { value: NONE, label: 'Todo el proyecto (sin release)' }];
     const spOpts = spList.map((s) => ({ value: s.id, label: spName(s) + ' · ' + (SPR_STATUS[s.status] || SPR_STATUS.planeado)[0].toLowerCase() }));
@@ -1940,9 +2010,9 @@ td.ags-actions { background: var(--surface); }
           render=${(r) => html`<${BurndownChart} bd=${bd} unit=${unit} statusDate=${statusDate} svgRef=${r} name=${sprint ? spName(sprint) : ''} />`}
           table=${bd ? tbl('Burndown por día hábil', [{ label: 'Fecha', mono: true }, { label: 'Ideal', num: true }, { label: 'Restante', num: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], bd.days.map((d) => [fmt.date(d.date), fmt.num(d.ideal, 1), d.remaining === null ? '—' : fmt.num(d.remaining, 1), d.scope === null ? '—' : fmt.num(d.scope, 1), d.done === null ? '—' : fmt.num(d.done, 1)])) : null} />
         <${ChartCard} id="burnup" title=${'Burnup' + (release ? ' de ' + relName(release) : ' del release')} filename=${'burnup_' + fileBase + '.svg'}
-          subtitle=${bu ? 'Al ' + fmt.date(statusDate) + ': ' + fpts(buCut.done, unit) + ' de ' + fpts(buCut.scope, unit) + ' (' + fmt.pct(buCut.pct) + ')' + (hasBaseline(release) ? ' · línea base ' + fpts(num(release.baseline.points, 0), unit) : ' · sin línea base') : null}
+          subtitle=${bu ? 'Al ' + fmt.date(statusDate) + ': ' + fpts(buCut.done, unit) + ' de ' + fpts(buCut.scope, unit) + ' (' + fmt.pct(buCut.pct) + ')' + (A.hasBaseline(release) ? ' · línea base ' + fpts(num(release.baseline.points, 0), unit) : ' · sin línea base') : null}
           empty=${!release ? 'Selecciona un release para ver su burnup.' : !bu.points.length ? 'Define el inicio del release o crea sus iteraciones para ver el burnup.' : null}
-          legend=${html`<${Legend} items=${[{ label: 'Alcance', color: C_SCOPE }, { label: 'Terminado', color: C_REM }, release && hasBaseline(release) ? { label: 'Línea base', color: 'var(--fg-3)' } : null, buProj ? { label: 'Proyección', color: C_REM, kind: 'dash' } : null, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
+          legend=${html`<${Legend} items=${[{ label: 'Alcance', color: C_SCOPE }, { label: 'Terminado', color: C_REM }, release && A.hasBaseline(release) ? { label: 'Línea base', color: 'var(--fg-3)' } : null, buProj ? { label: 'Proyección', color: C_REM, kind: 'dash' } : null, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
           render=${(r) => html`<${BurnupChart} bu=${bu} pts=${buPts} cut=${buCut} proj=${buProj} release=${release} unit=${unit} statusDate=${statusDate} svgRef=${r} />`}
           table=${bu ? tbl('Burnup al inicio, al cierre de cada iteración y a la fecha de corte', [{ label: 'Punto' }, { label: 'Fecha', mono: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], buPts.map((p) => [ptLabel(p, false), fmt.date(p.date), p.scope === null ? '—' : fmt.num(p.scope, 1), p.done === null ? '—' : fmt.num(p.done, 1)])) : null} />
         <${ChartCard} id="velocity" title="Velocidad" filename=${'velocidad_' + fileBase + '.svg'}
@@ -1981,13 +2051,13 @@ td.ags-actions { background: var(--surface); }
           extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} />` : null}
           table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], (relFinished(fc) ? [['Terminación real (último elemento)', fc.finish]] : [
             ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (' + (fc.finish ? 'velocidad media' : fl && fl.finish ? 'ritmo de flujo' : 'sin velocidad') + ')', fcFin], ['Pesimista (velocidad mínima)', fc.finishWorst],
-          ]).map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
+          ]).map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && A.hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
         <${ChartCard} id="agile-evm" span split title="Valor ganado ágil (AgileEVM)" filename=${'agile-evm_' + fileBase + '.svg'}
           subtitle=${release ? 'Release «' + relName(release) + '» frente al valor ganado del proyecto' : null}
           empty=${!release ? 'Selecciona un release para calcular su valor ganado ágil.' : !(ev.bac > 0) ? 'Define el presupuesto (BAC) y las iteraciones planeadas del release para calcular el AgileEVM.' : null}
           legend=${null}
           render=${(r) => html`<${EvmBars} ev=${ev} currency=${currency} svgRef=${r} />`}
-          extra=${release && ev && ev.bac > 0 ? html`<${AgileEvmSection} release=${release} ev=${ev} m=${m} />` : null}
+          extra=${release && ev && ev.bac > 0 ? html`<${AgileEvmSection} release=${release} ev=${ev} m=${m} cost=${costInfo} />` : null}
           table=${ev ? tbl('Valor ganado ágil', [{ label: 'Indicador' }, { label: 'Valor', num: true }], [['BAC', fmt.money(ev.bac, currency)], ['PPC', fmt.pct(ev.ppc, 1)], ['APC', fmt.pct(ev.apc, 1)], ['PV', fmt.money(ev.pv, currency)], ['EV', fmt.money(ev.ev, currency)], ['AC', fmt.money(ev.ac, currency)], ['SV', fmt.money(ev.sv, currency)], ['CV', fmt.money(ev.cv, currency)], ['SPI', fmt.idx(ev.spi)], ['CPI', fmt.idx(ev.cpi)], ['EAC', fmt.money(ev.eac, currency)], ['VAC', fmt.money(ev.vac, currency)]]) : null} />
       </div>
     </div>`;
@@ -2002,7 +2072,7 @@ td.ags-actions { background: var(--surface); }
       </${Callout}>`;
     }
     const late = D.valid(release.end) ? wdDiff(cal, release.end, fin) : null;
-    const bl = hasBaseline(release) && D.valid(release.baseline.end) ? wdDiff(cal, release.baseline.end, fin) : null;
+    const bl = A.hasBaseline(release) && D.valid(release.baseline.end) ? wdDiff(cal, release.baseline.end, fin) : null;
     const tone = late === null ? 'info' : late > 5 ? 'crit' : late > 0 ? 'warn' : 'good';
     const vsPlan = late === null ? 'El release no tiene fecha de fin para comparar.' : late === 0 ? 'Coincide con el fin planeado.' : late > 0 ? wdText(late) + ' después del fin planeado (' + fmt.date(release.end) + ').' : wdText(late) + ' antes del fin planeado (' + fmt.date(release.end) + ').';
     const vsBl = bl === null ? '' : bl === 0 ? ' Coincide con la línea base.' : ' ' + sgn(bl) + wdText(bl) + ' frente a la línea base (' + fmt.date(release.baseline.end) + ').';

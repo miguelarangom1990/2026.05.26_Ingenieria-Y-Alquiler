@@ -719,6 +719,76 @@ const today = (page) => page.evaluate(() => PM.date.today());
   await browser.close();
 }
 
+/* ================================================================= sesión 1c: filtros enviados por otras vistas y WIP del núcleo */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  const pid = await createProject(page, { lifecycle: 'Híbrido' });
+  await seed(page, pid);
+  const nav = async (view, params) => { await page.evaluate(({ view, params }) => PM.navigate(view, params), { view, params }); await sleep(page, 300); };
+  const chips = () => page.$$eval('[data-agb-fchip]', (els) => els.map((e) => e.getAttribute('data-agb-fchip') + '=' + e.textContent.replace(/\s+/g, ' ').trim()));
+  const countTxt = () => page.$eval('[data-agb-count]', (e) => e.textContent.trim());
+
+  await step('backlog: filtros desde parámetros (EDT, releases, épica)', async () => {
+    await nav('backlog', { wbs: 'w3' });
+    await page.waitForSelector('tr[data-agb-row]');
+    ok('params.wbs: filtra el entregable y lo que lo compone (1.3 y 1.3.1)', JSON.stringify(await order(page)) === JSON.stringify(['HU-001', 'HU-002']), await order(page));
+    ok('params.wbs: el selector de entregable muestra el filtro', (await page.$eval('select[aria-label="Filtrar por entregable de la EDT"]', (e) => e.value)) === 'w3');
+    ok('params.wbs: filtro visible con nombre y alcance', JSON.stringify(await chips()) === JSON.stringify(['wbs=Entregable:1.3 Plataforma digital de alquiler y lo que lo compone']), await chips());
+    ok('params.wbs: contador «2 de 10»', (await countTxt()) === '2 de 10 elementos', await countTxt());
+    ok('el distintivo del filtro tiene nombre accesible para quitarlo', (await page.$eval('[data-agb-fchip="wbs"]', (e) => e.getAttribute('aria-label'))) === 'Quitar el filtro entregable: 1.3 Plataforma digital de alquiler y lo que lo compone');
+    await page.click('[data-agb-fchip="wbs"]'); await sleep(page, 150);
+    ok('quitar el filtro desde su distintivo muestra todo el backlog', (await order(page)).length === 10 && !(await chips()).length && (await page.$eval('select[aria-label="Filtrar por entregable de la EDT"]', (e) => e.value)) === '', await order(page));
+    /* con la vista ya abierta: cada navegación con filtro lo aplica (como desde Releases e iteraciones) */
+    await nav('backlog', { release: 'r2' });
+    ok('params.release con la vista abierta: elementos del release', JSON.stringify(await order(page)) === JSON.stringify(['HU-004', 'HU-005']), await order(page));
+    ok('params.release: filtro visible', JSON.stringify(await chips()) === JSON.stringify(['release=Release:Release 2 · Facturación']), await chips());
+    await nav('backlog', { epic: 'e1' });
+    ok('params.epic: la épica y sus elementos (reemplaza el filtro anterior)', JSON.stringify(await order(page)) === JSON.stringify(['EP-001', 'HU-001', 'HU-002', 'HU-003']) && JSON.stringify(await chips()) === JSON.stringify(['epic=Épica:EP-001 Gestión de inventario de andamios']), [await order(page), await chips()]);
+    await nav('backlog', {});
+    ok('sin parámetros se conservan los filtros actuales', (await order(page)).length === 4 && (await chips()).length === 1, await chips());
+    await page.getByRole('button', { name: 'Limpiar filtros' }).first().click(); await sleep(page, 150);
+    ok('«Limpiar filtros» quita todos los distintivos', (await order(page)).length === 10 && !(await page.$('[data-agb-active]')), await chips());
+    /* alta rápida con el filtro de la EDT: el elemento nace en ese entregable */
+    await nav('backlog', { wbs: 'w4' });
+    await page.fill('.agb-quick input', 'Consultar contratos desde el portal'); await page.keyboard.press('Enter'); await sleep(page, 400);
+    const its = await readItems(page, pid);
+    const nw = Object.values(its).find((x) => x.title === 'Consultar contratos desde el portal');
+    ok('alta rápida con el filtro recibido: hereda el entregable', nw && nw.wbsId === 'w4', nw);
+  });
+
+  await step('tablero: parámetros de iteración y release', async () => {
+    await nav('kanban', { release: 'r1' });
+    await page.waitForSelector('[data-agk-board]');
+    const vals = async () => page.evaluate(() => [document.getElementById('agk-f-sprint').value, document.getElementById('agk-f-rel').value]);
+    ok('params.release: todo el flujo del release', JSON.stringify(await vals()) === JSON.stringify(['', 'r1']), await vals());
+    const cards = () => page.$$eval('[data-agk-card]', (els) => els.map((e) => e.getAttribute('data-agk-card')).sort());
+    ok('params.release: solo las tarjetas del release', JSON.stringify(await cards()) === JSON.stringify(['i1', 'i2', 'i3', 'i4']), await cards());
+    await nav('kanban', { sprint: 's2' });
+    ok('params.sprint con la vista abierta: la iteración pedida', JSON.stringify(await vals()) === JSON.stringify(['s2', '']) && JSON.stringify(await cards()) === JSON.stringify(['i2', 'i3', 'i4', 'i7']), [await vals(), await cards()]);
+    /* conteo WIP = PM.agile.wipStatus del núcleo (la misma regla del tablero del proyecto) */
+    const cmp = await page.evaluate(async (pid) => {
+      const ag = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      const items = (await PM.store.list(PM.paths.backlog(pid))).map((d) => ({ id: d.id, ...d.data }));
+      const core = PM.agile.wipStatus(PM.agile.settings(ag), items).map((w) => w.id + ':' + (w.wip ? w.count + ' / ' + w.wip : String(w.count)));
+      const shown = [...document.querySelectorAll('[data-agk-count]')].map((e) => e.getAttribute('data-agk-count') + ':' + e.textContent.trim());
+      return { core, shown };
+    }, pid);
+    ok('conteo WIP de cada columna igual a PM.agile.wipStatus', JSON.stringify(cmp.core) === JSON.stringify(cmp.shown), cmp);
+    ok('columna en su límite: «Límite WIP alcanzado»', /Límite WIP alcanzado/.test(await page.innerText('[data-agk-col="en-curso"] .agk-col-head')));
+  });
+
+  await step('400 px: filtros aplicados sin desborde', async () => {
+    await page.setViewportSize({ width: 400, height: 820 }); await sleep(page, 200);
+    await nav('backlog', { wbs: 'w3', release: 'r1', epic: 'e1' });
+    ok('400 px: tres filtros aplicados visibles', (await chips()).length === 3, await chips());
+    ok('400 px: sin desborde horizontal con los filtros aplicados', (await horizontalOverflow(page)) <= 0, await horizontalOverflow(page));
+    if (shots) await page.screenshot({ path: join(shots, 'backlog-filtros-400.png'), fullPage: false });
+  });
+
+  ok('filtros por parámetros: sin errores de consola ni tarjetas de error', !errors.length && !(await errorCards(page)).length, errors);
+  await browser.close();
+}
+
 /* ================================================================= sesión 2: 300 elementos */
 {
   const { browser, page, errors } = await openApp({ file, width: 1600, height: 900 });
