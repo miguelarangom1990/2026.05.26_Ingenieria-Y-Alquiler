@@ -6,7 +6,8 @@
    aceptación) y alimenta releases e iteraciones. El tablero visualiza el
    flujo (4.3 Dirigir y gestionar el trabajo), limita el trabajo en curso
    (WIP) y mide tiempo de ciclo, tiempo de entrega y rendimiento.
-   Expone PM.agileSettingsDialog(model) y PM.agileItemDialog(model, item).
+   Expone PM.agileSettingsDialog(model) y PM.agileItemDialog(model, item, valoresIniciales): ambos trabajan sobre
+   el proyecto actual con sus propias suscripciones (model se acepta por compatibilidad).
    ========================================================================== */
 (function () {
   'use strict';
@@ -171,6 +172,14 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   const RELEASE_STATUS = Object.fromEntries(AG.RELEASE_STATUS.map((s) => [s.value, s.label]));
   const plural = (n, one, many) => fmt.num(n) + ' ' + (n === 1 ? one : many);
   const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  /* texto de un campo que puede venir con otro tipo en datos importados (n\u00famero, null\u2026) */
+  const str = (v) => (v === null || v === undefined || typeof v === 'object' ? '' : String(v));
+  /* etiquetas: arreglo, o texto separado por comas (datos importados) */
+  const tagList = (t) => (Array.isArray(t) ? t : typeof t === 'string' ? t.split(',') : []).map((x) => str(x).trim()).filter(Boolean);
+  /* l\u00edmite WIP v\u00e1lido (entero positivo) o null: los valores negativos, cero o no num\u00e9ricos de datos importados no limitan */
+  const wipOf = (c) => { const n = c && PM.isNum(c.wip) ? Number(c.wip) : 0; return n > 0 ? Math.max(1, Math.round(n)) : null; };
+  /* quita entradas consecutivas repetidas del historial (conserva la primera de cada tramo) */
+  const collapseHistory = (h) => h.filter((e, i) => i === 0 || !isObj(e) || !isObj(h[i - 1]) || e.status !== h[i - 1].status);
   const hasEst = (it) => !!it && it.estimate !== null && it.estimate !== undefined && it.estimate !== '' && Number.isFinite(Number(it.estimate));
   const hasAcc = (it) => !!String((it && it.acceptance) || '').trim();
   /* refinamiento: trabajo pendiente (no terminado) sin estimación o sin criterios de aceptación */
@@ -193,7 +202,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   const hayCache = new WeakMap();
   const hay = (it) => {
     let s = hayCache.get(it);
-    if (s === undefined) { s = norm([it.code, it.title, it.description, it.acceptance, it.assignee, it.blockedReason, arr(it.tags).join(' ')].join(' ')); hayCache.set(it, s); }
+    if (s === undefined) { s = norm([it.code, it.title, it.description, it.acceptance, it.assignee, it.blockedReason, tagList(it.tags).join(' ')].map(str).join(' ')); hayCache.set(it, s); }
     return s;
   };
   /* fecha de entrada a la columna actual (último tramo continuo del historial en ese estado) */
@@ -284,18 +293,17 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     }, [settings, releases, sprints, tree, approach, epicMap]);
     return { lk, epics };
   }
-  /* Modelo «vivo» para diálogos abiertos desde fuera de las vistas de este módulo. */
-  const liveFromModel = (model) => {
-    const items = arr(model && (model.items || model.agileItems));
-    const settings = (model && model.settings) || A.settings(model && (model.agileData || model.agile));
-    const saveItem = model.saveItem || (() => Promise.resolve());
-    const deleteItem = model.deleteItem || (() => Promise.resolve());
+  /* Modelo «vivo» para el editor abierto desde otras vistas (PM.agileItemDialog): se suscribe al proyecto actual con
+     PM.useAgileModel(), de modo que el código consecutivo se calcula con todos los elementos y el guardado escribe en el
+     almacén aunque la vista que lo abre no tenga saveItem (p. ej. si le pasa el resultado de useProjectModel). */
+  function liveFromAgileModel(m, items) {
+    const saveItem = m.saveItem, deleteItem = m.deleteItem;
     return {
-      model, items, settings, sprints: arr(model.sprints), releases: arr(model.releases),
+      model: m, items, settings: m.settings, sprints: m.sprints, releases: m.releases,
       save: (x) => saveItem(x), saveMany: (l) => Promise.all(arr(l).map((x) => saveItem(x))),
       remove: (id) => deleteItem(id), removeMany: (ids) => Promise.all(arr(ids).map((id) => deleteItem(id))),
     };
-  };
+  }
   /* Elimina elementos y limpia las referencias a las épicas eliminadas (sus hijos quedan sin épica). */
   const deleteItems = (L, ids) => {
     const del = new Set(ids);
@@ -308,14 +316,17 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   /* ---------------------------------------------------------------- editor del elemento */
   const formOf = (it, defaults) => {
     const b = it || { type: 'historia', priority: 'Debería tener', status: BACKLOG, ...(defaults || {}) };
+    /* los textos se convierten con str(): un título o responsable numérico (datos importados) no rompe el guardado */
     return {
-      type: TYPE_LABEL[b.type] ? b.type : 'historia', code: b.code || '', title: b.title || '', description: b.description || '', acceptance: b.acceptance || '',
+      type: TYPE_LABEL[b.type] ? b.type : 'historia', code: str(b.code), title: str(b.title), description: str(b.description), acceptance: str(b.acceptance),
       estimate: hasEst(b) ? Number(b.estimate) : null, priority: AG.PRIORITIES.includes(b.priority) ? b.priority : 'Debería tener',
-      value: PM.isNum(b.value) ? Number(b.value) : null, status: b.status || BACKLOG, wbsId: b.wbsId || '', releaseId: b.releaseId || '',
-      sprintId: b.sprintId || '', epicId: b.epicId || '', assignee: b.assignee || '', blocked: !!b.blocked, blockedReason: b.blockedReason || '',
-      tags: arr(b.tags).join(', '), createdAt: D.valid(b.createdAt) ? b.createdAt : D.today(), requirementId: b.requirementId || '',
+      value: PM.isNum(b.value) ? Number(b.value) : null, status: typeof b.status === 'string' && b.status ? b.status : BACKLOG, wbsId: str(b.wbsId), releaseId: str(b.releaseId),
+      sprintId: str(b.sprintId), epicId: str(b.epicId), assignee: str(b.assignee), blocked: !!b.blocked, blockedReason: str(b.blockedReason),
+      tags: tagList(b.tags).join(', '), createdAt: D.valid(b.createdAt) ? b.createdAt : D.today(), requirementId: str(b.requirementId),
     };
   };
+  /* opción visible para una referencia que ya no existe: así se ve en el editor y se puede quitar eligiendo «Sin …» */
+  const orphanOpt = (id, list, label) => (id && !list.some((o) => o.value === id) ? [{ value: id, label }] : []);
 
   function ItemEditor({ close, getLive, itemId, defaults }) {
     const L0 = useMemo(() => getLive(), []);
@@ -347,21 +358,31 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const sprints = L0.sprints || [];
     const relName = (id) => { const r = releases.find((x) => x.id === id); return r ? r.name : ''; };
     const sprint = f.sprintId ? sprints.find((s) => s.id === f.sprintId) : null;
-    const wbsAp = f.wbsId ? (approach && approach.get(f.wbsId)) || 'predictivo' : null;
+    const wbsKnown = !!f.wbsId && [...wbsOpts.ad, ...wbsOpts.pr].some((o) => o.value === f.wbsId);
+    const wbsAp = wbsKnown ? (approach && approach.get(f.wbsId)) || 'predictivo' : null;
+    /* opciones de release, iteración y épica (con la referencia huérfana, si la hay, para poder verla y quitarla) */
+    const relOpts = releases.map((r) => ({ value: r.id, label: r.name + ' · ' + (RELEASE_STATUS[r.status] || 'Planeado') }));
+    const relOrphan = orphanOpt(f.releaseId, relOpts, 'Release no encontrado (' + f.releaseId + ')');
+    const sprOpts = sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') + (s.releaseId && relName(s.releaseId) ? ' · ' + relName(s.releaseId) : '') }));
+    const sprOrphan = orphanOpt(f.sprintId, sprOpts, 'Iteración no encontrada (' + f.sprintId + ')');
+    const epicOpts = epics.map((e) => ({ value: e.id, label: str(e.code) + ' ' + (str(e.title) || 'Sin título') }));
+    const epicRef = f.epicId ? L0.items.find((x) => x.id === f.epicId) : null;
+    const epicOrphan = orphanOpt(f.epicId, epicOpts, epicRef && epicRef.id !== itemId ? str(epicRef.code) + ' ya no es una épica' : 'Épica no encontrada (' + f.epicId + ')');
+    const kidsOf = (items, id) => items.filter((x) => x.id !== id && x.epicId === id);
     const statusOpts = [{ value: BACKLOG, label: 'Backlog del producto' }, ...st.columns.map((c) => ({ value: c.id, label: c.name + ' · ' + CAT_LABEL[c.category] }))];
     if (f.status !== BACKLOG && !st.columns.some((c) => c.id === f.status)) statusOpts.push({ value: f.status, label: 'Columna que ya no existe (' + f.status + ')' });
     const willBeDone = A.category(st, f.status) === 'terminado';
 
-    const submit = () => {
-      if (ro) return;
-      const L = getLive();
-      const items = L.items;
-      const title = f.title.trim();
-      const codeV = String(codeTouched ? f.code : orig ? orig.code || '' : A.nextCode(items, f.type)).trim();
+    const busy = useRef(false);
+    const submit = async () => {
+      if (ro || busy.current) return;
+      let L = getLive();
+      const title = str(f.title).trim();
+      const codeV = str(codeTouched ? f.code : orig ? orig.code : A.nextCode(L.items, f.type)).trim();
       const e = {};
       if (!title) e.title = 'Escribe el título del elemento.';
       if (!codeV) e.code = 'Escribe un código (p. ej. HU-012).';
-      else if (items.some((x) => x.id !== itemId && String(x.code || '').toLowerCase() === codeV.toLowerCase())) e.code = 'Ya existe otro elemento con el código ' + codeV + '.';
+      else if (L.items.some((x) => x.id !== itemId && str(x.code).toLowerCase() === codeV.toLowerCase())) e.code = 'Ya existe otro elemento con el código ' + codeV + '.';
       if (f.value !== null && (f.value < 1 || f.value > 10)) e.value = 'El valor va de 1 a 10.';
       setErr(e);
       if (Object.keys(e).length) {
@@ -369,20 +390,38 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         setTimeout(() => { const el = document.getElementById(id); if (el) el.focus(); }, 0);
         return;
       }
+      /* una épica que pasa a otro tipo deja a sus elementos sin épica: se confirma, como al eliminarla */
+      const leavesEpic = !!orig && orig.type === 'epica' && f.type !== 'epica';
+      let kids = leavesEpic ? kidsOf(L.items, orig.id) : [];
+      if (kids.length) {
+        busy.current = true;
+        const codes = kids.slice(0, 8).map((x) => str(x.code) || 'sin código').join(', ') + (kids.length > 8 ? '…' : '');
+        const ok = await PM.confirm({
+          title: 'Cambiar el tipo de ' + (str(orig.code) || 'la épica'),
+          body: html`<div class="stack-sm"><p>«${str(orig.title) || 'Sin título'}» dejará de ser una épica. ${kids.length === 1 ? 'Su elemento' : 'Sus ' + plural(kids.length, 'elemento', 'elementos')} (${codes}) ${kids.length === 1 ? 'quedará' : 'quedarán'} sin épica; no se eliminan.</p></div>`,
+          confirmText: 'Cambiar a ' + (TYPE_LABEL[f.type] || 'otro tipo'),
+        });
+        busy.current = false;
+        if (!ok) return;
+        L = getLive();
+        kids = kidsOf(L.items, orig.id);
+      }
+      const items = L.items;
       const today = D.today();
       const cur = orig ? items.find((x) => x.id === orig.id) : null;
       if (orig && !cur) { PM.toast('El elemento se eliminó mientras lo editabas.', { tone: 'crit' }); close(); return; }
       const base = cur ? PM.clone(cur) : { ...A.newItem(items, { type: f.type }), id: PM.uid('bl') };
       const patch = {
-        type: f.type, code: codeV, title, description: f.description.trim(), acceptance: f.acceptance.trim(),
+        type: f.type, code: codeV, title, description: str(f.description).trim(), acceptance: str(f.acceptance).trim(),
         estimate: f.estimate === null || f.estimate === '' ? null : Math.max(0, Number(f.estimate)),
         priority: f.priority, value: f.value === null ? null : PM.clamp(Math.round(Number(f.value)), 1, 10),
         wbsId: f.wbsId || null, releaseId: f.releaseId || null, sprintId: f.sprintId || null, epicId: f.type === 'epica' ? null : f.epicId || null,
-        assignee: f.assignee.trim(), blocked: !!f.blocked, blockedReason: f.blocked ? f.blockedReason.trim() : '',
-        tags: f.tags.split(',').map((t) => t.trim()).filter(Boolean), createdAt: D.valid(f.createdAt) ? f.createdAt : base.createdAt || today,
+        assignee: str(f.assignee).trim(), blocked: !!f.blocked, blockedReason: f.blocked ? str(f.blockedReason).trim() : '',
+        tags: tagList(f.tags), createdAt: D.valid(f.createdAt) ? f.createdAt : base.createdAt || today,
       };
       let next = { ...base, ...patch };
-      if (f.requirementId.trim()) next.requirementId = f.requirementId.trim(); else delete next.requirementId;
+      const req = str(f.requirementId).trim();
+      if (req) next.requirementId = req; else delete next.requirementId;
       /* ingreso a una iteración ya iniciada: se registra la fecha (burndown) */
       if ((base.sprintId || null) !== patch.sprintId) {
         const sp = (L.sprints || []).find((s) => s.id === patch.sprintId);
@@ -390,9 +429,10 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       }
       const target = statusTouched ? f.status : base.status;
       if (target !== base.status) next = A.withStatus(L.settings, { ...next, status: base.status, doneDate: base.doneDate || null }, target, today);
-      L.save(next);
+      if (kids.length) L.saveMany([next, ...kids.map((x) => ({ ...x, epicId: null }))]);
+      else L.save(next);
       close();
-      PM.toast(orig ? 'Elemento ' + codeV + ' actualizado.' : 'Elemento ' + codeV + ' agregado al backlog.');
+      PM.toast((orig ? 'Elemento ' + codeV + ' actualizado.' : 'Elemento ' + codeV + ' agregado al backlog.') + (kids.length ? ' ' + plural(kids.length, 'elemento quedó', 'elementos quedaron') + ' sin épica.' : ''));
     };
     const del = async () => {
       const L = getLive();
@@ -449,21 +489,22 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <${ui.Field} label="Estado" for="agb-f-status" hint=${orig && orig.doneDate && A.isDone(st, orig) && f.status === orig.status ? 'Terminado el ' + fmt.date(orig.doneDate) + '.' : willBeDone && (!orig || !A.isDone(st, orig)) ? 'Al guardar se registra la fecha de terminación (hoy).' : null}>
           <${ui.Select} id="agb-f-status" value=${f.status} options=${statusOpts} onValue=${(v) => { setStatusTouched(true); set('status')(v); }} disabled=${ro} />
         </${ui.Field}>
-        <${ui.Field} label="Release" for="agb-f-rel" hint=${!releases.length ? 'Aún no hay releases: créalos en «Releases e iteraciones».' : null}>
-          <${ui.Select} id="agb-f-rel" value=${f.releaseId} placeholder="Sin release" options=${releases.map((r) => ({ value: r.id, label: r.name + ' · ' + (RELEASE_STATUS[r.status] || 'Planeado') }))} onValue=${set('releaseId')} disabled=${ro} />
+        <${ui.Field} label="Release" for="agb-f-rel" hint=${relOrphan.length ? 'El release asignado ya no existe: elige otro o «Sin release».' : !releases.length ? 'Aún no hay releases: créalos en «Releases e iteraciones».' : null}>
+          <${ui.Select} id="agb-f-rel" value=${f.releaseId} placeholder="Sin release" options=${[...relOpts, ...relOrphan]} onValue=${set('releaseId')} disabled=${ro} />
         </${ui.Field}>
-        <${ui.Field} label="Iteración" for="agb-f-sprint" hint=${sprint && sprint.releaseId && f.releaseId && sprint.releaseId !== f.releaseId ? 'Atención: la iteración pertenece a otro release (' + relName(sprint.releaseId) + ').' : sprint && sprint.status === 'en-curso' && (!orig || orig.sprintId !== sprint.id) ? 'La iteración ya inició: se registra como alcance agregado (burndown).' : null}>
-          <${ui.Select} id="agb-f-sprint" value=${f.sprintId} placeholder="Sin iteración" options=${sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') + (s.releaseId && relName(s.releaseId) ? ' · ' + relName(s.releaseId) : '') }))}
+        <${ui.Field} label="Iteración" for="agb-f-sprint" hint=${sprOrphan.length ? 'La iteración asignada ya no existe: elige otra o «Sin iteración».' : sprint && sprint.releaseId && f.releaseId && sprint.releaseId !== f.releaseId ? 'Atención: la iteración pertenece a otro release (' + relName(sprint.releaseId) + ').' : sprint && sprint.status === 'en-curso' && (!orig || orig.sprintId !== sprint.id) ? 'La iteración ya inició: se registra como alcance agregado (burndown).' : null}>
+          <${ui.Select} id="agb-f-sprint" value=${f.sprintId} placeholder="Sin iteración" options=${[...sprOpts, ...sprOrphan]}
             onValue=${(v) => setF((x) => { const sp = sprints.find((s) => s.id === v); return { ...x, sprintId: v, releaseId: !x.releaseId && sp && sp.releaseId ? sp.releaseId : x.releaseId }; })} disabled=${ro} />
         </${ui.Field}>
-        ${f.type !== 'epica' ? html`<${ui.Field} label="Épica" for="agb-f-epic" hint=${!epics.length ? 'No hay épicas: crea una con el tipo «Épica» para agrupar elementos.' : null}>
-          <${ui.Select} id="agb-f-epic" value=${f.epicId} placeholder="Sin épica" options=${epics.map((e) => ({ value: e.id, label: (e.code || '') + ' ' + (e.title || 'Sin título') }))} onValue=${set('epicId')} disabled=${ro} />
+        ${f.type !== 'epica' ? html`<${ui.Field} label="Épica" for="agb-f-epic" hint=${epicOrphan.length ? 'La épica asignada ya no existe o cambió de tipo: elige otra o «Sin épica».' : !epics.length ? 'No hay épicas: crea una con el tipo «Épica» para agrupar elementos.' : null}>
+          <${ui.Select} id="agb-f-epic" value=${f.epicId} placeholder="Sin épica" options=${[...epicOpts, ...epicOrphan]} onValue=${set('epicId')} disabled=${ro} />
         </${ui.Field}>` : html`<div></div>`}
-        <${ui.Field} label="Entregable de la EDT" for="agb-f-wbs" hint=${!wbsOpts.ad.length && !wbsOpts.pr.length ? 'La EDT no tiene entregables todavía.' : wbsAp === 'adaptativo' ? 'Entregable con enfoque adaptativo (ágil).' : wbsAp === 'predictivo' ? 'Entregable con enfoque predictivo: su avance se controla en el cronograma. El enfoque se cambia en la EDT.' : 'Los entregables con enfoque adaptativo aparecen primero.'}>
+        <${ui.Field} label="Entregable de la EDT" for="agb-f-wbs" hint=${f.wbsId && !wbsKnown ? 'El entregable asignado ya no existe en la EDT: elige otro o «Sin entregable».' : !wbsOpts.ad.length && !wbsOpts.pr.length ? 'La EDT no tiene entregables todavía.' : wbsAp === 'adaptativo' ? 'Entregable con enfoque adaptativo (ágil).' : wbsAp === 'predictivo' ? 'Entregable con enfoque predictivo: su avance se controla en el cronograma. El enfoque se cambia en la EDT.' : 'Los entregables con enfoque adaptativo aparecen primero.'}>
           <select id="agb-f-wbs" class="select" value=${f.wbsId} onChange=${(e) => set('wbsId')(e.currentTarget.value)} disabled=${ro}>
             <option value="">Sin entregable</option>
             ${wbsOpts.ad.length ? html`<optgroup label="Enfoque adaptativo (ágil)">${wbsOpts.ad.map((o) => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}</optgroup>` : null}
             ${wbsOpts.pr.length ? html`<optgroup label="Enfoque predictivo">${wbsOpts.pr.map((o) => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}</optgroup>` : null}
+            ${f.wbsId && !wbsKnown ? html`<option value=${f.wbsId}>${'Entregable no encontrado (' + f.wbsId + ')'}</option>` : null}
           </select>
         </${ui.Field}>
         <${ui.Field} label="Responsable" for="agb-f-who">
@@ -496,7 +537,26 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   }
   const openItemEditor = (getLive, itemId, defaults) => PM.openModal((close) => html`<${ItemEditor} close=${close} getLive=${getLive} itemId=${itemId || null} defaults=${defaults || null} />`);
   /* Editor de un elemento del backlog para otras vistas: PM.agileItemDialog(model, item|null, valoresIniciales) */
-  PM.agileItemDialog = (model, item, defaults) => { const live = liveFromModel(model || {}); return openItemEditor(() => live, item && item.id ? item.id : null, defaults); };
+  /* El editor externo se suscribe al proyecto actual (PM.useAgileModel) y espera a que cargue el backlog: el código se
+     asigna con todos los elementos y el guardado escribe el documento del elemento. */
+  function ExternalItemEditor({ close, itemId, defaults }) {
+    const m = PM.useAgileModel();
+    /* el backlog se lee directamente (la suscripción se comparte con el modelo): también en un proyecto predictivo */
+    const { docs, loading } = PM.useCollection(m.pid ? PM.paths.backlog(m.pid) : null);
+    const items = useMemo(() => docs.filter((d) => isObj(d.data)).map((d) => ({ ...d.data, id: d.id })), [docs]);
+    const live = useRef(null);
+    live.current = liveFromAgileModel(m, items);
+    const getLive = useCallback(() => live.current, []);
+    const ready = useRef(false);
+    if (!m.loading && !loading) ready.current = true;
+    const title = itemId ? 'Elemento del backlog' : 'Nuevo elemento del backlog';
+    if (!ready.current) return html`<${ui.Modal} title=${title} onClose=${close}><${ui.Loading} /></${ui.Modal}>`;
+    if (!m.pid) return html`<${ui.Modal} title=${title} onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}><p>Abre un proyecto para consultar o agregar elementos de su backlog.</p></${ui.Modal}>`;
+    return html`<${ItemEditor} close=${close} getLive=${getLive} itemId=${itemId} defaults=${defaults} />`;
+  }
+  /* PM.agileItemDialog(model, item|null, valoresIniciales): trabaja sobre el proyecto actual; model se acepta por
+     compatibilidad (puede ser el de useProjectModel o el de useAgileModel) y no se usa para guardar. */
+  PM.agileItemDialog = (model, item, defaults) => PM.openModal((close) => html`<${ExternalItemEditor} close=${close} itemId=${item && item.id ? item.id : null} defaults=${defaults || null} />`);
 
   /* ---------------------------------------------------------------- configuración ágil */
   const FRAMEWORK_HINT = {
@@ -504,10 +564,14 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     kanban: 'Flujo continuo con límites WIP. El tablero muestra todo el flujo; se miden tiempo de ciclo y rendimiento.',
     'scrum-kanban': 'Iteraciones de Scrum con tablero Kanban y límites WIP. El tablero muestra por defecto la iteración en curso.',
   };
-  function SettingsDialog({ close, items }) {
+  function SettingsDialog({ close }) {
     const canWrite = PM.useCanWrite();
+    const pid = PM.useAppState().projectId;
     const [data, , meta] = PM.useToolData('agile', PM.EMPTY.agile);
-    if (meta.loading) return html`<${ui.Modal} title="Configuración ágil" onClose=${close}><${ui.Loading} /></${ui.Modal}>`;
+    /* elementos del backlog del proyecto actual (para advertir cuántas estimaciones quedan en la unidad anterior) */
+    const { docs, loading } = PM.useCollection(pid ? PM.paths.backlog(pid) : null);
+    const items = useMemo(() => docs.filter((d) => isObj(d.data)).map((d) => d.data), [docs]);
+    if (meta.loading || loading) return html`<${ui.Modal} title="Configuración ágil" onClose=${close}><${ui.Loading} /></${ui.Modal}>`;
     return html`<${SettingsForm} close=${close} items=${items} data=${data} saveNow=${meta.saveNow} canWrite=${canWrite} />`;
   }
   function SettingsForm({ close, items, data, saveNow, canWrite }) {
@@ -553,7 +617,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     </${ui.Modal}>`;
   }
   /* Abre la configuración ágil (marco, unidad, duración de la iteración y umbral de cambio) desde cualquier vista. */
-  PM.agileSettingsDialog = (model) => PM.openModal((close) => html`<${SettingsDialog} close=${close} items=${arr(model && (model.items || model.agileItems))} />`);
+  PM.agileSettingsDialog = () => PM.openModal((close) => html`<${SettingsDialog} close=${close} />`);
 
   /* ---------------------------------------------------------------- vista: Backlog del producto */
   const NO_FILTERS = Object.freeze({ q: '', type: '', release: '', epic: '', status: '', wbs: '' });
@@ -682,8 +746,10 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 
     /* selección (solo ids que siguen existiendo) */
     const selIds = useMemo(() => [...sel].filter((id) => byId.has(id)), [sel, byId]);
-    const visIds = useMemo(() => visible.map((x) => x.id), [visible]);
+    /* filas realmente dibujadas (al agrupar por épica, las épicas son encabezados y no filas seleccionables) */
+    const visIds = useMemo(() => groups.flatMap((g) => g.rows.map((x) => x.id)), [groups]);
     const nSelVis = useMemo(() => visIds.reduce((n, id) => n + (sel.has(id) ? 1 : 0), 0), [visIds, sel]);
+    const nSelHidden = selIds.length - nSelVis;
 
     const live = useRef(null);
     live.current = { model, items, sorted, groups, byId, settings: st, sprints: model.sprints, releases: model.releases, save: opt.save, saveMany: opt.saveMany, remove: opt.remove, removeMany: opt.removeMany, canWrite, project, unit };
@@ -866,7 +932,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const exportCsv = () => {
       const rows = visible.map((it) => {
         const r = lk.rel.get(it.releaseId), s = lk.spr.get(it.sprintId), w = lk.wbs.get(it.wbsId), e = lk.epics.get(it.epicId);
-        return { pos: posMap.get(it.id), code: it.code || '', type: TYPE_LABEL[it.type] || it.type || '', title: it.title || '', description: it.description || '', acceptance: it.acceptance || '', estimate: hasEst(it) ? Number(it.estimate) : '', priority: it.priority || '', value: PM.isNum(it.value) ? Number(it.value) : '', status: statusName(st, it.status), release: r ? r.name : '', sprint: s ? s.name : '', epic: e ? (e.code + ' ' + e.title).trim() : '', wbs: w ? w.code + ' ' + w.name : '', assignee: it.assignee || '', blocked: !!it.blocked, blockedReason: it.blockedReason || '', tags: arr(it.tags).join(', '), createdAt: it.createdAt || '', doneDate: it.doneDate || '' };
+        return { pos: posMap.get(it.id), code: it.code || '', type: TYPE_LABEL[it.type] || it.type || '', title: it.title || '', description: it.description || '', acceptance: it.acceptance || '', estimate: hasEst(it) ? Number(it.estimate) : '', priority: it.priority || '', value: PM.isNum(it.value) ? Number(it.value) : '', status: statusName(st, it.status), release: r ? r.name : '', sprint: s ? s.name : '', epic: e ? (e.code + ' ' + e.title).trim() : '', wbs: w ? w.code + ' ' + w.name : '', assignee: it.assignee || '', blocked: !!it.blocked, blockedReason: it.blockedReason || '', tags: tagList(it.tags).join(', '), createdAt: it.createdAt || '', doneDate: it.doneDate || '' };
       });
       const cols = [['pos', 'Posición'], ['code', 'Código'], ['type', 'Tipo'], ['title', 'Título'], ['description', 'Descripción'], ['acceptance', 'Criterios de aceptación'], ['estimate', 'Estimación (' + unit + ')'], ['priority', 'Prioridad (MoSCoW)'], ['value', 'Valor'], ['status', 'Estado'], ['release', 'Release'], ['sprint', 'Iteración'], ['epic', 'Épica'], ['wbs', 'Entregable EDT'], ['assignee', 'Responsable'], ['blocked', 'Bloqueado'], ['blockedReason', 'Motivo del bloqueo'], ['tags', 'Etiquetas'], ['createdAt', 'Creado'], ['doneDate', 'Terminado']].map(([key, label]) => ({ key, label }));
       PM.download('backlog-' + (PM.slug((project && (project.code || project.name)) || '') || 'proyecto') + '.csv', PM.toCSV(cols, rows));
@@ -898,7 +964,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       ${header(actions)}
       <section class="card agb-tiles-card" aria-label="Indicadores del backlog">
         <div class="agb-tiles">
-          <${Tile} id="items" label="Elementos" value=${fmt.num(stats.n)} sub=${plural(stats.done, 'terminado', 'terminados') + (stats.epics ? ' · ' + plural(stats.epics, 'épica', 'épicas') : '') + (stats.blocked ? ' · ' + plural(stats.blocked, 'bloqueado', 'bloqueados') : '')} />
+          <${Tile} id="items" label="Elementos (sin épicas)" value=${fmt.num(stats.n)} title="Historias, tareas, defectos, mejoras e investigaciones: las épicas agrupan y no se cuentan" sub=${plural(stats.done, 'terminado', 'terminados') + (stats.blocked ? ' · ' + plural(stats.blocked, 'bloqueado', 'bloqueados') : '') + (stats.epics ? ' · además ' + plural(stats.epics, 'épica', 'épicas') : '')} />
           <${Tile} id="total" label="Total estimado" value=${fmt.num(stats.total, 1) + ' ' + unit} sub=${fmt.num(stats.totalDone, 1) + ' ' + unit + ' terminados'} />
           <${Tile} id="unest" label="Sin estimar" value=${fmt.num(stats.unest)} tone=${stats.unest ? 'warn' : undefined} sub=${stats.unest ? 'Trabajo pendiente por refinar' : 'Todo el trabajo pendiente está estimado'} />
           <${Tile} id="noacc" label="Sin criterios de aceptación" value=${fmt.num(stats.noAcc)} tone=${stats.noAcc ? 'warn' : undefined} sub=${stats.noAcc ? 'Defínelos antes de llevarlos a una iteración' : 'Todos tienen criterios'} />
@@ -934,7 +1000,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <${ui.Select} value=${f.wbs} onValue=${setFilter('wbs')} placeholder="Todos los entregables" options=${wbsOpts} aria-label="Filtrar por entregable de la EDT" />
         <${ui.Button} size="sm" icon="checklist" aria-pressed=${refine ? 'true' : 'false'} onClick=${() => setRefine(!refine)} title="Muestra solo los elementos sin estimar o sin criterios de aceptación">Refinamiento${stats.refine ? ' (' + stats.refine + ')' : ''}</${ui.Button}>
         ${anyFilter ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => { setF(NO_FILTERS); setRefine(false); }}>Limpiar filtros</${ui.Button}>` : null}
-        <span class="xsmall muted agb-count" aria-live="polite">${anyFilter ? fmt.num(visible.length) + ' de ' + fmt.num(items.length) + ' elementos' : plural(items.length, 'elemento', 'elementos')}</span>
+        <span class="xsmall muted agb-count" aria-live="polite" data-agb-count="1">${anyFilter ? fmt.num(visible.length) + ' de ' + fmt.num(items.length) + ' elementos' : plural(items.length, 'elemento', 'elementos') + (stats.epics ? ' (incluye ' + plural(stats.epics, 'épica', 'épicas') + ')' : '')}</span>
       </div>
       ${refine ? html`<${Note} tone="info" icon="checklist">Modo «Refinamiento»: elementos pendientes (no terminados) sin estimar o sin criterios de aceptación. ${canWrite ? 'Escribe la estimación directamente en la tabla (Enter o salir del campo la guarda) y abre el elemento para completar sus criterios.' : ''}</${Note}>` : null}
 
@@ -944,7 +1010,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       </form>` : html`<${Note} icon="lock">Modo de solo lectura: puedes consultar y exportar el backlog, pero no modificarlo.</${Note}>`}
 
       ${canWrite && selIds.length ? html`<div class="agb-bulk" role="region" aria-label="Acciones sobre los elementos seleccionados">
-        <strong class="small">${plural(selIds.length, 'seleccionado', 'seleccionados')}</strong>
+        <strong class="small" data-agb-selcount="1">${plural(selIds.length, 'seleccionado', 'seleccionados')}${nSelHidden > 0 ? ' (' + plural(nSelHidden, 'oculto', 'ocultos') + ' por los filtros o la agrupación)' : ''}</strong>
         <${ui.Select} value="" onValue=${bulkRelease} placeholder="Asignar release…" options=${[{ value: NONE, label: 'Quitar release' }, ...model.releases.map((r) => ({ value: r.id, label: r.name || 'Release' }))]} aria-label="Asignar release a la selección" />
         <${ui.Select} value="" onValue=${bulkSprint} placeholder="Asignar iteración…" options=${[{ value: NONE, label: 'Quitar iteración' }, ...sprintOpts]} aria-label="Asignar iteración a la selección" />
         <${ui.Select} value="" onValue=${bulkPriority} placeholder="Asignar prioridad…" options=${AG.PRIORITIES} aria-label="Asignar prioridad a la selección" />
@@ -986,10 +1052,28 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   }
   function ColumnsForm({ close, getLive, data, saveNow, canWrite }) {
     const st0 = useMemo(() => A.settings(data), []);
-    const [cols, setCols] = useState(() => st0.columns.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: PM.isNum(c.wip) && Number(c.wip) > 0 ? Number(c.wip) : null, orig: true })));
+    const [cols, setCols] = useState(() => st0.columns.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: wipOf(c), orig: true })));
+    /* columnas originales eliminadas: { col, idx (posición al eliminarla), n (elementos actuales), h (elementos con esa columna en su historial), target } */
     const [removed, setRemoved] = useState([]);
     const ro = !canWrite;
-    const counts = useMemo(() => { const m = new Map(); for (const it of getLive().items) m.set(it.status, (m.get(it.status) || 0) + 1); return m; }, []);
+    const { counts, hist } = useMemo(() => {
+      const c = new Map(), h = new Map();
+      for (const it of getLive().items) {
+        c.set(it.status, (c.get(it.status) || 0) + 1);
+        const seen = new Set();
+        for (const e of arr(it.history)) if (isObj(e) && typeof e.status === 'string' && !seen.has(e.status)) { seen.add(e.status); h.set(e.status, (h.get(e.status) || 0) + 1); }
+      }
+      return { counts: c, hist: h };
+    }, []);
+    const origCat = (id) => { const c = st0.columns.find((x) => x.id === id); return c ? c.category : null; };
+    /* a dónde pasan los pasos del historial por una columna eliminada: a la columna destino si es de la misma
+       categoría; si no, a la primera de la misma categoría; si no queda ninguna, a la primera «pendiente» */
+    const histTargetOf = (r, cs) => {
+      const cat = origCat(r.col.id) || r.col.category;
+      const t = r.n ? cs.find((c) => c.id === r.target) : null;
+      if (t && t.category === cat) return t;
+      return cs.find((c) => c.category === cat) || cs.find((c) => c.category === 'pendiente') || cs[0] || null;
+    };
     const setCol = (i, k, v) => setCols((cs) => cs.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
     const move = (i, d) => setCols((cs) => PM.moveItem(cs, i, i + d));
     const add = () => {
@@ -1001,11 +1085,18 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const c = cols[i];
       const rest = cols.filter((_, j) => j !== i);
       if (!rest.length) return;
-      const n = c.orig ? counts.get(c.id) || 0 : 0;
-      if (n) setRemoved((r) => [...r, { col: c, n, target: (rest[Math.max(0, i - 1)] || rest[0]).id }]);
+      if (c.orig) {
+        const n = counts.get(c.id) || 0;
+        setRemoved((r) => [...r, { col: c, idx: i, n, h: hist.get(c.id) || 0, target: (rest[Math.max(0, i - 1)] || rest[0]).id }]);
+      }
       setCols(rest);
     };
-    const restore = (k) => { const r = removed[k]; setRemoved((x) => x.filter((_, j) => j !== k)); setCols((cs) => [...cs, r.col]); };
+    /* restaurar la devuelve a su posición original (no al final: el orden define el flujo y las flechas) */
+    const restore = (k) => {
+      const r = removed[k];
+      setRemoved((x) => x.filter((_, j) => j !== k));
+      setCols((cs) => { const n = cs.slice(); n.splice(Math.min(Math.max(0, r.idx), n.length), 0, r.col); return n; });
+    };
     const problems = useMemo(() => {
       const p = [];
       if (cols.some((c) => !String(c.name || '').trim())) p.push('Escribe el nombre de cada columna.');
@@ -1013,33 +1104,50 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       if (new Set(names).size !== names.length) p.push('Hay columnas con el mismo nombre: usa nombres distintos.');
       if (!cols.some((c) => c.category === 'pendiente')) p.push('Debe quedar al menos una columna en la categoría «Pendiente» (por ahí entran los elementos del backlog).');
       if (!cols.some((c) => c.category === 'terminado')) p.push('Debe quedar al menos una columna en la categoría «Terminado» (registra la fecha de terminación).');
-      for (const r of removed) if (!cols.some((c) => c.id === r.target)) p.push('Elige a qué columna pasan los elementos de «' + r.col.name + '».');
+      for (const r of removed) if (r.n && !cols.some((c) => c.id === r.target)) p.push('Elige a qué columna pasan los elementos de «' + r.col.name + '».');
       return p;
     }, [cols, removed]);
     const submit = () => {
       if (ro || problems.length) return;
-      const columns = cols.map((c) => ({ id: c.id, name: String(c.name).trim(), category: c.category, wip: PM.isNum(c.wip) && Number(c.wip) > 0 ? Math.max(1, Math.round(Number(c.wip))) : null }));
+      const columns = cols.map((c) => ({ id: c.id, name: String(c.name).trim(), category: c.category, wip: wipOf(c) }));
       const stOld = A.settings(data);
       const base = isObj(data.settings) ? PM.clone(data.settings) : {};
       const raw = { ...base, framework: stOld.framework, estimationUnit: stOld.estimationUnit, sprintLength: stOld.sprintLength, scopeChangeThreshold: stOld.scopeChangeThreshold, columns };
       saveNow({ ...PM.clone(data), settings: raw });
-      /* elementos de columnas eliminadas → columna elegida; columnas que cambian de categoría ajustan la fecha de terminación */
+      /* elementos de columnas eliminadas → columna elegida; su historial (y el de todos los elementos que pasaron por
+         ellas) se reescribe a una columna de la misma categoría, para que el tiempo de ciclo y el flujo acumulado no
+         cambien hacia atrás; las columnas que cambian de categoría ajustan la fecha de terminación */
       const nst = A.settings({ settings: raw });
       const L = getLive();
       const today = D.today();
-      const map = new Map(removed.map((r) => [r.col.id, r.target]));
       const kept = new Set(columns.map((c) => c.id));
+      const origCols = [...st0.columns, ...stOld.columns.filter((c) => !st0.columns.some((x) => x.id === c.id))];
+      const gone = origCols.filter((c) => !kept.has(c.id));
+      const curMap = new Map(removed.filter((r) => r.n && kept.has(r.target)).map((r) => [r.col.id, r.target]));
+      const histMap = new Map();
+      for (const c of gone) {
+        const r = removed.find((x) => x.col.id === c.id) || { col: c, n: 0 };
+        const t = histTargetOf(r, nst.columns);
+        if (t) histMap.set(c.id, t.id);
+      }
       const upd = [];
       for (const it of L.items) {
-        if (map.has(it.status)) {
+        let x = it, changed = false;
+        const h = arr(it.history);
+        if (h.some((e) => isObj(e) && histMap.has(e.status))) {
+          x = { ...x, history: collapseHistory(h.map((e) => (isObj(e) && histMap.has(e.status) ? { ...e, status: histMap.get(e.status) } : e))) };
+          changed = true;
+        }
+        if (histMap.has(it.status)) {
           const wasDone = A.isDone(stOld, it);
-          let x = A.withStatus(nst, it, map.get(it.status), today);
+          x = A.withStatus(nst, x, curMap.get(it.status) || histMap.get(it.status), today);
           if (wasDone && A.isDone(nst, x) && D.valid(it.doneDate)) x = { ...x, doneDate: it.doneDate };
-          upd.push(x);
+          changed = true;
         } else if (it.status && it.status !== BACKLOG && kept.has(it.status)) {
           const was = A.isDone(stOld, it), now = A.isDone(nst, it);
-          if (was !== now) upd.push({ ...it, doneDate: now ? (D.valid(it.doneDate) ? it.doneDate : today) : null });
+          if (was !== now) { x = { ...x, doneDate: now ? (D.valid(it.doneDate) ? it.doneDate : today) : null }; changed = true; }
         }
+        if (changed) upd.push(x);
       }
       if (upd.length) L.saveMany(upd);
       close();
@@ -1047,6 +1155,14 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       PM.toast('Columnas del tablero guardadas.' + (moved ? ' ' + plural(moved, 'elemento reasignado', 'elementos reasignados') + '.' : ''));
     };
     const footer = html`<${ui.Button} onClick=${close}>${ro ? 'Cerrar' : 'Cancelar'}</${ui.Button}>${ro ? null : html`<${ui.Button} variant="primary" icon="save" disabled=${!!problems.length} onClick=${submit}>Guardar columnas</${ui.Button}>`}`;
+    const histNote = (r) => {
+      if (!r.h) return null;
+      const t = histTargetOf(r, cols);
+      if (!t) return null;
+      const cat = origCat(r.col.id) || r.col.category;
+      const same = t.category === cat;
+      return html`<span class="small">Historial: los pasos de ${plural(r.h, 'elemento', 'elementos')} por «${r.col.name}» quedan registrados en «${t.name || 'Sin nombre'}»${same ? ', de la misma categoría, para conservar el tiempo de ciclo y el flujo acumulado.' : ': no queda otra columna de la categoría «' + CAT_LABEL[cat] + '».'}</span>`;
+    };
     return html`<${ui.Modal} title="Columnas del tablero" subtitle="Nombre, categoría y límite de trabajo en curso (WIP) de cada columna, en el orden del flujo." onClose=${close} size="wide" footer=${footer}>
       <div class="agk-colrows" data-agk-columns="1">
         ${cols.map((c, i) => html`<div class="agk-colrow" key=${c.id} data-col=${c.id}>
@@ -1070,10 +1186,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       ${ro ? null : html`<div><${ui.Button} size="sm" icon="plus" onClick=${add}>Agregar columna</${ui.Button}></div>`}
       ${removed.length ? html`<div class="stack-sm" data-agk-removed="1">
         <div class="h4">Columnas que se eliminarán</div>
-        ${removed.map((r, k) => html`<${Note} key=${r.col.id} tone="warn" icon="trash"><div class="stack-sm">
-          <span>«${r.col.name}» tiene ${plural(r.n, 'elemento', 'elementos')}. Al guardar pasan a la columna:</span>
-          <div class="row"><${ui.Select} value=${cols.some((c) => c.id === r.target) ? r.target : ''} placeholder=${cols.some((c) => c.id === r.target) ? undefined : 'Elige una columna'} options=${cols.map((c) => ({ value: c.id, label: c.name || 'Sin nombre' }))} aria-label=${'Columna destino de los elementos de «' + r.col.name + '»'} onValue=${(v) => setRemoved((x) => x.map((y, j) => (j === k ? { ...y, target: v } : y)))} style="width:auto" />
-          <${ui.Button} size="sm" icon="undo" onClick=${() => restore(k)}>Restaurar columna</${ui.Button}></div>
+        ${removed.map((r, k) => html`<${Note} key=${r.col.id} tone=${r.n ? 'warn' : undefined} icon="trash"><div class="stack-sm" data-agk-removed-col=${r.col.id}>
+          ${r.n ? html`<span>«${r.col.name}» tiene ${plural(r.n, 'elemento', 'elementos')}. Al guardar pasan a la columna:</span>` : html`<span>«${r.col.name}» no tiene elementos${r.h ? ' actualmente' : ''}.</span>`}
+          ${histNote(r)}
+          <div class="row">${r.n ? html`<${ui.Select} value=${cols.some((c) => c.id === r.target) ? r.target : ''} placeholder=${cols.some((c) => c.id === r.target) ? undefined : 'Elige una columna'} options=${cols.map((c) => ({ value: c.id, label: c.name || 'Sin nombre' }))} aria-label=${'Columna destino de los elementos de «' + r.col.name + '»'} onValue=${(v) => setRemoved((x) => x.map((y, j) => (j === k ? { ...y, target: v } : y)))} style="width:auto" />` : null}
+          <${ui.Button} size="sm" icon="undo" onClick=${() => restore(k)} aria-label=${'Restaurar la columna «' + r.col.name + '»'}>Restaurar columna</${ui.Button}></div>
         </div></${Note}>`)}
       </div>` : null}
       ${problems.length ? html`<${Note} tone="crit" icon="alert" role="alert"><div class="stack-sm">${problems.map((p, i) => html`<span key=${i}>${p}</span>`)}</div></${Note}>` : null}
@@ -1099,9 +1216,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const submit = async () => {
       if (!sel.length) return;
       const L = getLive();
-      const n0 = (L.counts && L.counts.get(first.id)) || 0;
-      if (first.wip && n0 + sel.length > first.wip) {
-        const ok = await PM.confirm({ title: 'Se superará el límite WIP', body: '«' + first.name + '» tiene ' + n0 + ' de ' + first.wip + ' elementos. Pasar ' + sel.length + ' más supera su límite WIP; la política del tablero es terminar antes de empezar. ¿Continuar de todas formas?', confirmText: 'Pasar de todas formas' });
+      /* conteo WIP de todo el tablero (no solo de la iteración o el release filtrados) */
+      const n0 = (L.wipCounts && L.wipCounts.get(first.id)) || 0;
+      const fw = wipOf(first);
+      if (fw && n0 + sel.length > fw) {
+        const ok = await PM.confirm({ title: 'Se superará el límite WIP', body: '«' + first.name + '» tiene ' + n0 + ' de ' + fw + ' elementos en todo el tablero. Pasar ' + sel.length + ' más supera su límite WIP; la política del tablero es terminar antes de empezar. ¿Continuar de todas formas?', confirmText: 'Pasar de todas formas' });
         if (!ok) return;
       }
       const today = D.today();
@@ -1144,7 +1263,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       ${it.blocked ? html`<div class="agk-blocked"><${ui.Icon} name="lock" size=${13} /><span>Bloqueado${it.blockedReason ? ': ' + it.blockedReason : ''}</span></div>` : null}
       <div class="agk-card-meta">
         <span>${it.assignee ? html`<${ui.Icon} name="user" size=${12} /> ${it.assignee}` : html`<span class="faint">Sin responsable</span>`}</span>
-        ${days !== null && days !== undefined ? html`<span title="Días en la columna actual (antigüedad)">${days === 1 ? '1 día' : fmt.num(days) + ' días'} en la columna</span>` : null}
+        ${days !== null && days !== undefined ? html`<span title="Días en la columna actual (antigüedad, a hoy)">${days === 1 ? '1 día' : fmt.num(days) + ' días'} en la columna</span>` : null}
       </div>
       ${canWrite ? html`<div class="agk-card-actions">
         <${ui.IconButton} size="sm" icon="chevron-left" data-act="prev" label=${prev ? 'Mover ' + code + ' a «' + prev.name + '»' : code + ' está en la primera columna'} disabled=${!prev} onClick=${(e) => { e.stopPropagation(); api.move(it.id, prev.id, 'prev'); }} />
@@ -1158,7 +1277,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   function KanbanView({ project }) {
     const model = PM.useAgileModel();
     const canWrite = PM.useCanWrite();
-    const st = model.settings, unit = model.unit, cols = st.columns;
+    const st = model.settings, unit = model.unit;
+    /* columnas con el límite WIP normalizado (un valor negativo, cero o no numérico de datos importados no limita) */
+    const cols = useMemo(() => st.columns.map((c) => ({ ...c, wip: wipOf(c) })), [st.columns]);
     const opt = useOptimistic(model.items, model.saveItem, model.deleteItem);
     const items = useStableItems(opt.items);
     const byId = useMemo(() => new Map(items.map((it) => [it.id, it])), [items]);
@@ -1180,15 +1301,22 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     if (sprintF && !lk.spr.has(sprintF)) sprintF = '';
     const relV = relF && lk.rel.has(relF) ? relF : '';
     const today = D.today();
+    /* fecha de corte del proyecto (como en el tablero del proyecto y en Métricas ágiles): métricas de flujo y días restantes */
+    const cut = D.valid(model.statusDate) ? model.statusDate : today;
     const scope = useMemo(() => items.filter((it) => A.countable(it) && (!sprintF || it.sprintId === sprintF) && (!relV || it.releaseId === relV)), [items, sprintF, relV]);
     const people = useMemo(() => [...new Set(items.filter(A.countable).map((x) => String(x.assignee || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [items]);
+    /* conteo WIP de cada columna sobre todo el tablero: los filtros de iteración, release y responsable solo cambian
+       qué tarjetas se ven, no el trabajo en curso real del equipo */
+    const wipCounts = useMemo(() => {
+      const m = new Map(cols.map((c) => [c.id, 0]));
+      for (const it of items) if (A.countable(it) && m.has(it.status)) m.set(it.status, m.get(it.status) + 1);
+      return m;
+    }, [items, cols]);
     const board = useMemo(() => {
       const byCol = new Map(cols.map((c) => [c.id, []]));
-      const counts = new Map(cols.map((c) => [c.id, 0]));
       for (const it of scope) {
         const l = byCol.get(it.status); if (!l) continue;
-        counts.set(it.status, counts.get(it.status) + 1);
-        const who = String(it.assignee || '').trim();
+        const who = str(it.assignee).trim();
         if (whoF && (whoF === NONE ? !!who : who !== whoF)) continue;
         l.push(it);
       }
@@ -1197,31 +1325,32 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         if (c.category === 'terminado') l.sort((a, b) => String(b.doneDate || '').localeCompare(String(a.doneDate || '')) || num(a.rank, 0) - num(b.rank, 0));
         else l.sort((a, b) => num(a.rank, 0) - num(b.rank, 0) || String(a.code || '').localeCompare(String(b.code || '')));
       }
-      return { byCol, counts };
+      return { byCol };
     }, [scope, cols, whoF]);
-    const colsInfo = useMemo(() => cols.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: c.wip, full: !!(c.wip && board.counts.get(c.id) >= c.wip) })), [cols, board]);
+    const colsInfo = useMemo(() => cols.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: c.wip, full: !!(c.wip && wipCounts.get(c.id) >= c.wip) })), [cols, wipCounts]);
+    /* antigüedad en la columna: a hoy (es la posición actual de la tarjeta) */
     const days = useMemo(() => { const m = new Map(); for (const it of items) m.set(it.id, daysIn(it, today)); return m; }, [items, today]);
-    /* métricas de flujo del alcance filtrado (iteración y release) */
+    /* métricas de flujo del alcance filtrado (iteración y release) hasta la fecha de corte del proyecto */
     const flow = useMemo(() => {
-      const from = D.add(today, -27);
+      const from = D.add(cut, -27);
       const cyc = [], lead = [];
-      let thr = 0, thrEst = 0, blocked = 0, wip = 0;
+      let thr = 0, thrEst = 0, blocked = 0;
       for (const it of scope) {
         const cat = A.category(st, it.status);
         if (cat === 'terminado') {
-          if (!D.valid(it.doneDate)) continue;
+          if (!D.valid(it.doneDate) || it.doneDate > cut) continue;
           const s = firstStart(st, it);
           if (s && s <= it.doneDate) cyc.push(D.diff(s, it.doneDate));
           if (D.valid(it.createdAt) && it.createdAt <= it.doneDate) lead.push(D.diff(it.createdAt, it.doneDate));
-          if (it.doneDate >= from && it.doneDate <= today) { thr++; thrEst += A.estimate(it); }
-        } else if (cat !== 'nuevo') { if (it.blocked) blocked++; if (cat === 'en-curso') wip++; }
+          if (it.doneDate >= from) { thr++; thrEst += A.estimate(it); }
+        } else if (cat !== 'nuevo' && it.blocked) blocked++;
       }
-      return { cycle: mean(cyc), nCycle: cyc.length, lead: mean(lead), nLead: lead.length, thr, thrEst, blocked, wip };
-    }, [scope, st, today]);
+      return { cycle: mean(cyc), nCycle: cyc.length, lead: mean(lead), nLead: lead.length, thr, thrEst, blocked };
+    }, [scope, st, cut]);
     const bringCount = useMemo(() => items.filter((it) => A.countable(it) && A.category(st, it.status) === 'nuevo' && (sprintF ? it.sprintId === sprintF : !relV || it.releaseId === relV)).length, [items, st, sprintF, relV]);
 
     const live = useRef(null);
-    live.current = { model, items, byId, settings: st, sprints: model.sprints, releases: model.releases, save: opt.save, saveMany: opt.saveMany, remove: opt.remove, removeMany: opt.removeMany, canWrite, counts: board.counts, project, sprintF, relF: relV, unit };
+    live.current = { model, items, byId, settings: st, cols, sprints: model.sprints, releases: model.releases, save: opt.save, saveMany: opt.saveMany, remove: opt.remove, removeMany: opt.removeMany, canWrite, wipCounts, project, sprintF, relF: relV, unit };
     const getLive = useCallback(() => live.current, []);
 
     const api = useMemo(() => {
@@ -1237,13 +1366,13 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         async move(id, colId, act) {
           const L = live.current; if (!L.canWrite) return;
           const it = L.byId.get(id);
-          const col = L.settings.columns.find((c) => c.id === colId);
+          const col = L.cols.find((c) => c.id === colId);
           if (!it || !col || it.status === colId) return;
-          const n = L.counts.get(colId) || 0;
+          const n = L.wipCounts.get(colId) || 0;
           if (col.wip && n >= col.wip) {
             const ok = await PM.confirm({
               title: 'Límite WIP de «' + col.name + '»',
-              body: html`<div class="stack-sm"><p>La columna «${col.name}» ya tiene ${n} de ${col.wip} elementos (límite WIP). La política del tablero es terminar antes de empezar trabajo nuevo.</p><p class="small muted">Mueve ${it.code || 'la tarjeta'} solo si el equipo lo acordó; la columna quedará marcada como «Límite WIP superado».</p></div>`,
+              body: html`<div class="stack-sm"><p>La columna «${col.name}» ya tiene ${n} de ${col.wip} elementos en todo el tablero (límite WIP). La política del tablero es terminar antes de empezar trabajo nuevo.</p><p class="small muted">Mueve ${it.code || 'la tarjeta'} solo si el equipo lo acordó; la columna quedará marcada como «Límite WIP superado».</p></div>`,
               confirmText: 'Mover de todas formas',
             });
             if (!ok) return;
@@ -1260,7 +1389,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
           if (k === 'ArrowLeft' || k === 'ArrowRight') {
             if (!live.current.canWrite) return;
             e.preventDefault();
-            const cs = live.current.settings.columns;
+            const cs = live.current.cols;
             const t = cs[ci + (k === 'ArrowRight' ? 1 : -1)];
             if (t) o.move(id, t.id, 'open');
           } else if (k === 'ArrowDown' || k === 'ArrowUp') {
@@ -1339,10 +1468,18 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       <${ui.Button} variant="ghost" icon="backlog" onClick=${() => PM.navigate('backlog')}>Ir al backlog</${ui.Button}>`;
     const sp = sprintF ? lk.spr.get(sprintF) : null;
     const cal = model.sched && model.sched.cal;
-    const left = sp && sp.status === 'en-curso' && cal && D.valid(sp.end) ? cal.countWork(D.add(today, 1), sp.end) : null;
+    /* días hábiles restantes de la iteración desde la fecha de corte (igual que el tablero del proyecto) */
+    let left = null;
+    if (sp && sp.status === 'en-curso' && cal && D.valid(sp.end)) {
+      const from = D.valid(sp.start) && sp.start > cut ? sp.start : D.add(cut, 1);
+      left = cut >= sp.end ? 0 : cal.countWork(from, sp.end);
+    }
+    const atCut = cut !== today ? ' · al corte del ' + fmt.date(cut) : '';
     const sprintOpts = [{ value: '', label: 'Todo el flujo' }, ...model.sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') }))];
     const hasCountable = items.some(A.countable);
-    const boardEmpty = ![...board.counts.values()].some((n) => n > 0);
+    const boardEmpty = ![...board.byCol.values()].some((l) => l.length > 0);
+    /* alguna columna con límite WIP tiene tarjetas que el filtro oculta: su conteo WIP las incluye (se avisa) */
+    const hiddenByFilter = cols.some((c) => c.wip && (board.byCol.get(c.id) || []).length !== (wipCounts.get(c.id) || 0));
 
     return html`<div class="page agk-page">
       ${header(actions)}
@@ -1358,15 +1495,15 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 
       <section class="card agb-tiles-card" aria-label="Métricas de flujo" data-agk-metrics="1">
         <div class="agb-tiles">
-          <${Tile} id="cycle" label="Tiempo de ciclo promedio" value=${flow.cycle === null ? '—' : fmt.days(flow.cycle)} sub=${flow.nCycle ? 'De la primera entrada a «en curso» a terminado · ' + plural(flow.nCycle, 'elemento', 'elementos') : 'Aún no hay elementos terminados con historial'} />
-          <${Tile} id="lead" label="Tiempo de entrega promedio" value=${flow.lead === null ? '—' : fmt.days(flow.lead)} sub=${flow.nLead ? 'De la creación a terminado · ' + plural(flow.nLead, 'elemento', 'elementos') : 'Sin elementos terminados'} />
-          <${Tile} id="thr" label="Rendimiento (últimas 4 semanas)" value=${plural(flow.thr, 'elemento', 'elementos')} sub=${fmt.num(flow.thrEst, 1) + ' ' + unit + ' · ' + fmt.num(flow.thr / 4, 1) + ' por semana'} />
+          <${Tile} id="cycle" label="Tiempo de ciclo promedio" value=${flow.cycle === null ? '—' : fmt.days(flow.cycle)} sub=${(flow.nCycle ? 'De la primera entrada a «en curso» a terminado · ' + plural(flow.nCycle, 'elemento', 'elementos') : 'Aún no hay elementos terminados con historial') + atCut} />
+          <${Tile} id="lead" label="Tiempo de entrega promedio" value=${flow.lead === null ? '—' : fmt.days(flow.lead)} sub=${(flow.nLead ? 'De la creación a terminado · ' + plural(flow.nLead, 'elemento', 'elementos') : 'Sin elementos terminados') + atCut} />
+          <${Tile} id="thr" label="Rendimiento (últimas 4 semanas)" value=${plural(flow.thr, 'elemento', 'elementos')} sub=${fmt.num(flow.thrEst, 1) + ' ' + unit + ' · ' + fmt.num(flow.thr / 4, 1) + ' por semana' + atCut} title=${'Terminados entre el ' + fmt.date(D.add(cut, -27)) + ' y el ' + fmt.date(cut) + (cut !== today ? ' (fecha de corte del proyecto)' : '')} />
           <${Tile} id="blocked" label="Elementos bloqueados" value=${fmt.num(flow.blocked)} tone=${flow.blocked ? 'crit' : undefined} sub=${flow.blocked ? 'Resuélvelos antes de empezar trabajo nuevo' : 'Ningún bloqueo en el flujo'} />
         </div>
       </section>
 
       ${!canWrite ? html`<${Note} icon="lock">Modo de solo lectura: puedes consultar el tablero, pero no mover tarjetas ni editar columnas.</${Note}>` : null}
-      ${whoF ? html`<${Note} icon="filter">Filtrado por responsable: el conteo y el límite WIP de cada columna incluyen a todo el equipo.</${Note}>` : null}
+      ${hiddenByFilter ? html`<${Note} icon="filter"><span data-agk-wipnote="1">El conteo y el límite WIP de cada columna incluyen todas sus tarjetas, también las que el filtro oculta (otras iteraciones, otros releases o el resto del equipo): el WIP es el trabajo en curso real del equipo.</span></${Note}>` : null}
       ${!hasCountable ? html`<${Note} icon="info">El tablero está vacío: crea elementos en el backlog del producto y pásalos a «${A.firstColumn(st).name}» con «Traer del backlog».
         <div style="margin-top:6px"><${ui.Button} size="sm" icon="backlog" onClick=${() => PM.navigate('backlog')}>Ir al backlog</${ui.Button}></div></${Note}>`
         : boardEmpty ? html`<${Note} icon="info">No hay tarjetas en el tablero para este filtro.${canWrite && bringCount ? ' Usa «Traer del backlog» para pasar elementos a «' + A.firstColumn(st).name + '».' : ''}</${Note}>` : null}
@@ -1374,7 +1511,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       <div class="agk-board" ref=${boardRef} data-agk-board="1">
         ${cols.map((c, ci) => {
           const list = board.byCol.get(c.id) || [];
-          const n = board.counts.get(c.id) || 0;
+          const n = wipCounts.get(c.id) || 0;
           const over = !!(c.wip && n > c.wip);
           const full = !!(c.wip && n === c.wip);
           const doneCol = c.category === 'terminado';
@@ -1382,8 +1519,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
           return html`<section key=${c.id} class=${cx('agk-col', over && 'is-over', dropCol === c.id && 'is-drop')} data-agk-col=${c.id} aria-labelledby=${'agk-h-' + c.id}>
             <header class="agk-col-head">
               <div class="row-between" style="flex-wrap:nowrap"><h3 class="agk-col-name" id=${'agk-h-' + c.id}>${c.name}</h3>
-                <span class="agk-count" data-agk-count=${c.id} aria-label=${plural(n, 'elemento', 'elementos') + (c.wip ? ', límite WIP ' + c.wip : ', sin límite WIP')}>${c.wip ? n + ' / ' + c.wip : n}</span></div>
-              <div class="xsmall faint">${CAT_LABEL[c.category]} · ${c.wip ? 'límite WIP ' + c.wip : 'sin límite WIP'}${list.length !== n ? ' · ' + list.length + ' visibles' : ''}</div>
+                <span class="agk-count" data-agk-count=${c.id} aria-label=${plural(n, 'elemento', 'elementos') + ' en la columna' + (c.wip ? ', límite WIP ' + c.wip : ', sin límite WIP')}>${c.wip ? n + ' / ' + c.wip : n}</span></div>
+              <div class="xsmall faint">${CAT_LABEL[c.category]} · ${c.wip ? 'límite WIP ' + c.wip : 'sin límite WIP'}${list.length !== n ? html` · <span data-agk-visible=${c.id}>${list.length === 1 ? '1 visible' : list.length + ' visibles'} con el filtro</span>` : ''}</div>
               ${over ? html`<div class="agk-wip-alert" data-agk-wip=${c.id}><${ui.Icon} name="alert" size=${14} />Límite WIP superado (${n} de ${c.wip})</div>` : full ? html`<div class="agk-wip-full"><${ui.Icon} name="info" size=${14} />Límite WIP alcanzado</div>` : null}
             </header>
             <div class="agk-list">
