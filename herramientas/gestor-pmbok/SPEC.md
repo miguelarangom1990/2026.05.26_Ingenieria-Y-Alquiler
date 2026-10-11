@@ -38,19 +38,25 @@ Colombia**, tono profesional y directo.
 | `src/head.html` | `<title>`, fuentes, CSS completo (tokens + componentes). Núcleo. |
 | `src/00-core.js` | utilidades, formato, fechas/calendario (festivos CO), almacenamiento, sincronización, registros, kit de UI, modales, descargas, Claude. Núcleo. |
 | `src/05-calc.js` | EDT, CPM, valor ganado, líneas base, riesgos, revisiones. Núcleo. |
-| `src/06-model.js` | hooks de modelo compartido. Núcleo. |
+| `src/06-model.js` | hooks de modelo compartido (incluye el avance ágil de los releases vinculados al cronograma). Núcleo. |
+| `src/07-agile-core.js` | capa ágil: contratos de backlog, releases e iteraciones, `PM.agile`, cálculos ágiles en `PM.calc`, `PM.useAgileModel` (§9). Núcleo. |
 | `src/08-shell.js` | riel, selector de proyecto, portafolio, formulario de proyecto. Núcleo. |
 | `src/10-pmbok.js` | base de conocimiento PMBOK (`PM.KB`). |
 | `src/12-templates-a.js` | plantillas: Integración, Alcance, Cronograma. |
 | `src/13-templates-b.js` | plantillas: Costos, Calidad, Recursos, Comunicaciones, Riesgos, Adquisiciones, Interesados. |
+| `src/14-templates-agile.js` | plantillas ágiles (§9.5). |
 | `src/20-docs.js` | vistas `procesos`, `documentos`, `documento` (editor). |
 | `src/30-wbs.js` | vista `edt`. |
 | `src/40-schedule.js` | vistas `cronograma`, `red`, `recursos`. |
+| `src/45-agile-backlog.js` | vistas `backlog`, `kanban` (§9). |
+| `src/46-agile-sprints.js` | vistas `iteraciones`, `metricas-agiles` (§9). |
 | `src/50-evm.js` | vista `valor-ganado`. |
 | `src/60-flow.js` | vista `flujogramas`. |
 | `src/70-matrices.js` | vistas `raci`, `riesgos-matriz`, `interesados-matriz`, `calidad`. |
 | `src/80-dashboard.js` | vistas `tablero`, `lineas-base`, `ficha`. |
 | `src/90-example.js` | constructor del proyecto de ejemplo (`PM.registerExample`). |
+| `src/91–93-example-medellin*.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital). |
+| `src/94-example-erp.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (§9.7). |
 | `src/99-boot.js` | arranque. Núcleo. |
 
 **No modifiques archivos del núcleo.** Si necesitas algo del núcleo que no existe, impleméntalo
@@ -113,7 +119,11 @@ PM.useProjects()                // {projects:[...], loading}
 PM.useToolData(toolId, PM.EMPTY.<tool>)  // [data (normalizada con PM.normalizeTool), save(next) (antirrebote 650 ms), {loading, exists, error, saveNow}]
 PM.useDoc(path)                 // {data, exists, loading, error, save, saveNow}
 PM.useCollection(path)          // {docs:[{id,data}], loading, error}
-PM.useProjectModel()            // {project, pid, schedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency, loading}
+PM.useProjectModel()            // {project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency,
+                                //  agile, saveAgile, agileItems, agileOn, agileMeta, loading}
+                                // effSchedule = schedule con el avance ágil aplicado (§9.3); sched/forecast/evm/rollup se calculan con él.
+                                // Para editar el cronograma usa siempre `schedule` (lo guardado), nunca effSchedule.
+PM.useAgileModel()              // §9.2
                                 // sched: red según lo programado (lo atrasado conserva sus fechas → «vencido»);
                                 // forecast: la misma red actualizada a la fecha de corte (fin, ruta crítica e hitos pronosticados, 6.6)
 PM.useProjectDocs()             // {list, byTemplate, get(templateId), loading}
@@ -148,8 +158,8 @@ PM.selectProject(pid, viewId)
 
 ## 4. Vistas y navegación
 
-Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, parent?, description})` (`parent`: id de la vista visible que se marca como actual mientras se muestra una vista oculta).
-Grupos: `portafolio`, `proyecto`, `planificacion` (Alcance, tiempo y recursos), `costos` (Costos y desempeño), `analisis` (Matrices y análisis).
+Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, parent?, description, when?, unavailable?})` (`parent`: id de la vista visible que se marca como actual mientras se muestra una vista oculta; `when(project)`: la vista solo aparece en el menú si devuelve `true`, y si se abre igual el anfitrión muestra el componente `unavailable` con `{project, view}`).
+Grupos: `portafolio`, `proyecto`, `planificacion` (Alcance, tiempo y recursos), `agil` (Ágil (Scrum y Kanban), lo agrega 07-agile-core), `costos` (Costos y desempeño), `analisis` (Matrices y análisis).
 El componente recibe `{project, params}`. Íconos disponibles: claves de `PM.ICONS` en 00-core.js.
 
 | id | label | grupo | orden | módulo |
@@ -164,6 +174,10 @@ El componente recibe `{project, params}`. Íconos disponibles: claves de `PM.ICO
 | `cronograma` | Cronograma (Gantt) | planificacion | 20 | 40 |
 | `red` | Diagrama de red | planificacion | 30 | 40 |
 | `recursos` | Recursos | planificacion | 40 | 40 |
+| `backlog` | Backlog del producto | agil | 10 | 45 |
+| `kanban` | Tablero Kanban | agil | 20 | 45 |
+| `iteraciones` | Releases e iteraciones | agil | 30 | 46 |
+| `metricas-agiles` | Métricas ágiles | agil | 40 | 46 |
 | `valor-ganado` | Curva S y valor ganado | costos | 10 | 50 |
 | `raci` | Matriz RACI | analisis | 10 | 70 |
 | `riesgos-matriz` | Probabilidad e impacto | analisis | 20 | 70 |
@@ -390,3 +404,151 @@ Todo el contenido de ejemplo describe el MISMO proyecto ficticio, identificado c
   carga en Bogotá; inspección de certificación no aprobada; disponibilidad de grúa/montacargas del cliente.
 - Estado al corte: ingeniería y logística terminadas, montaje niveles 1–5 terminado, niveles 6–10 en curso (~60 %), resto pendiente.
   Un cambio aprobado (plataforma adicional de descargue), SPI ≈ 0,93, CPI ≈ 0,97.
+
+## 9. Capa ágil y enfoque híbrido (Scrum y Kanban)
+
+Objetivo: usar prácticas ágiles cuando el alcance no está claro y requiere iteración, solas (proyecto adaptativo) o
+combinadas con el enfoque predictivo (proyecto híbrido: unos entregables de la EDT en cascada y otros por iteraciones).
+Referencias: PMBOK® 6 (consideraciones para entornos ágiles/adaptativos de cada área), PMBOK® 7 (enfoques de desarrollo
+y ciclo de vida), Guía de prácticas ágiles (PMI y Agile Alliance), Guía de Scrum 2020, método Kanban.
+
+### 9.1 Activación y enfoque
+
+- `project.lifecycle` (`PM.LIFECYCLES`): `Predictivo` → `PM.agile.mode(project) = 'predictivo'`; `Adaptativo (ágil)` → `'adaptativo'`;
+  `Híbrido`, `Iterativo`, `Incremental` → `'hibrido'`. `PM.agile.enabled(project)` = modo ≠ predictivo.
+- Las vistas ágiles se registran con `when: PM.agile.when, unavailable: PM.AgileUnavailable` (grupo `agil`): solo aparecen
+  en el menú con ciclo de vida adaptativo o híbrido; si se abren en un proyecto predictivo, el anfitrión muestra un aviso con
+  el botón «Usar ciclo de vida híbrido».
+- Enfoque por entregable: nodo de la EDT con `approach: 'predictivo' | 'adaptativo'` (opcional; si falta se hereda del padre;
+  en la raíz, `'adaptativo'` si el proyecto es adaptativo, si no `'predictivo'`). `PM.calc.wbsApproach(tree, project)` → `Map(id → enfoque efectivo)`.
+- Unidad de estimación por proyecto: `settings.estimationUnit` = `'puntos'` (por defecto, «pts») o `'horas'` («h»); `PM.agile.unitShort(settings)`.
+
+### 9.2 Datos
+
+| Ruta | Contenido |
+|---|---|
+| `projects/{pid}/tools/agile` | `{settings, releases:[Release], sprints:[Sprint]}` (lee con `PM.useAgileModel()`; `PM.EMPTY.agile`, `PM.TOOL_SHAPES.agile`) |
+| `projects/{pid}/backlog/{itemId}` | un documento por elemento del backlog (`Item`); colección registrada en `PM.PROJECT_COLLECTIONS` (se exporta, importa, duplica y elimina con el proyecto). Rutas: `PM.paths.backlog(pid)`, `PM.paths.backlogItem(pid, id)` |
+
+```js
+settings = { framework: 'scrum'|'kanban'|'scrum-kanban', estimationUnit: 'puntos'|'horas', sprintLength: 10 (días hábiles),
+             columns: [{ id, name, category: 'pendiente'|'en-curso'|'terminado', wip: número|null }], scopeChangeThreshold: 10 (%) }
+             // PM.agile.settings(data) normaliza; columnas por defecto: por-hacer, en-curso (WIP 3), en-revision (WIP 2), terminado
+Release  = { id, name, goal, start, end, status: 'planeado'|'comprometido'|'en-curso'|'cerrado', budget (BAC del release, money),
+             plannedSprints, wbsId|null (entregable adaptativo de la EDT), taskId|null (actividad del cronograma que lo representa),
+             baseline: { date, points, end, budget, sprints, changeRef|null } | null, notes }
+Sprint   = { id, name ('Iteración 3'), releaseId|null, goal, start, end, status: 'planeado'|'en-curso'|'cerrado',
+             capacity (unidades), committed (se fija al iniciar), completed (se fija al cerrar),
+             docs: { planificacion?: docId, revision?: docId, retrospectiva?: docId }, notes }
+Item     = { code ('HU-001'; PM.agile.nextCode), type: 'epica'|'historia'|'tarea'|'defecto'|'mejora'|'investigacion', title, description,
+             acceptance (criterios de aceptación, texto), estimate (número|null), priority (MoSCoW: PM.AGILE.PRIORITIES), value (1–10, opcional),
+             rank (número; menor = más arriba; PM.agile.rankBetween), status ('backlog' = backlog del producto, o id de columna),
+             wbsId|null, releaseId|null, sprintId|null, epicId|null, assignee, blocked: bool, blockedReason, tags: [],
+             createdAt (YYYY-MM-DD), doneDate|null, sprintAddedDate|null (si entra a una iteración ya iniciada),
+             history: [{date, status}] (≤ 60; PM.agile.withStatus lo mantiene), requirementId? }
+```
+- `costs.actuals[]` admite `releaseId` (opcional) para imputar costos reales a un release (AgileEVM).
+- `tools/schedule.tasks[]` admite `releaseId` (opcional): la actividad representa un release (equivalente a `release.taskId`).
+- Las épicas agrupan (`epicId` de los hijos) y no cuentan en las métricas (`PM.agile.countable`).
+- Cambiar de estado SIEMPRE con `PM.agile.withStatus(settings, item, status, fecha)` (o `model.setStatus(item, status)`): registra
+  el historial (flujo acumulado) y `doneDate` (burndown, burnup, velocidad).
+
+`PM.useAgileModel()` → `{...PM.useProjectModel(), agileData, settings, releases, sprints (por inicio), items, saveAgile(next),
+saveItem(item con id) (escribe el documento del elemento), deleteItem(id), setStatus(item, status), currentSprint, velocity,
+approach (Map de la EDT), mode, enabled, unit ('pts'|'h'), agileLoading}`.
+Constantes: `PM.AGILE.{FRAMEWORKS, UNITS, UNIT_SHORT, ITEM_TYPES, CODE_PREFIX, PRIORITIES, BACKLOG, CATEGORIES, DEFAULT_COLUMNS,
+RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nuevos: `backlog`, `kanban`, `sprint`, `burndown`, `release`.
+
+### 9.3 Cálculos (`PM.calc`, `PM.agile` — lee 07-agile-core.js)
+
+- `sprintBurndown({sprint, items, settings, cal, statusDate})` → `{total, done, remaining, committed, days:[{date, ideal, remaining|null, scope|null, done|null}]}` (día 0 = día hábil anterior al inicio; días futuros en `null`).
+- `velocity({sprints, items, settings})` → `{rows:[{id,name,start,end,status,releaseId,committed,completed}], closed, avg3, avgAll, min3, max3}` (promedio de las últimas 3 iteraciones cerradas).
+- `releaseProgress`, `releaseBurnup({release, sprints, items, settings, statusDate})` → `{points:[{date,label,scope,done,future}], total, done, remaining, pct, baselinePoints}`.
+- `releaseForecast({release, sprints, items, settings, cal, statusDate})` → `{velocity, sprintsNeeded, finish, finishBest, finishWorst, …}` (velocidad media, máxima y mínima de las últimas 3).
+- `agileEvm({release, sprints, items, settings, actualCost, statusDate})` → `{bac, plannedSprints, sprintsElapsed, ppc, apc, pv, ev, ac, sv, cv, spi, cpi, eac, vac, expectedSprints}`
+  (AgileEVM: PPC = iteraciones transcurridas / planeadas; APC = terminado / alcance actual; PV = BAC × PPC; EV = BAC × APC).
+  Costo real: `PM.agile.releaseActualCost(release, costs, tree, statusDate)`.
+- `cfd({items, settings, from, to})` → `[{date, nuevo, pendiente, 'en-curso', terminado}]` (semanal si el rango supera 180 días).
+- `releaseVariance({release, items, settings})` → `{hasBaseline, scopePct, dateChange (días), budgetChange, needsChangeControl, …}`.
+- `PM.agile.applyToSchedule(schedule, agileData, items)`: las actividades vinculadas a un release (`release.taskId` o `task.releaseId`)
+  toman `progress` = terminado/alcance × 100 (1 decimal), `actualStart` = inicio de la primera iteración iniciada (si no tenía) y
+  `actualFinish` = última terminación al llegar a 100 %; marca `agileDerived: true`. `useProjectModel` lo aplica antes del CPM:
+  así el trabajo ágil entra a la ruta crítica, la curva S, el valor ganado y el tablero del proyecto. No modifica lo guardado.
+
+### 9.4 Vistas (grupo `agil`)
+
+- `backlog` (45) — Backlog del producto: lista priorizada (rango; subir/bajar y arrastrar), filtros (tipo, release, épica,
+  estado, entregable EDT, texto), alta rápida, editor del elemento (todos los campos de `Item`), épicas con avance, totales
+  estimados por release, MoSCoW, refinamiento (elementos sin estimar o sin criterios de aceptación), asignar a release o iteración,
+  exportar CSV. Reordenar el backlog es libre (no requiere control de cambios).
+- `kanban` (45) — Tablero Kanban: columnas de `settings.columns` (editar nombre, categoría y límite WIP; agregar/quitar con
+  reasignación), tarjetas arrastrables y con teclado (mover a la columna anterior/siguiente), alerta visual y textual al superar el
+  WIP, bloqueados, filtro por iteración (por defecto la actual en Scrum) o todo el flujo (Kanban), tiempo de ciclo y antigüedad
+  en la columna, mover a «Terminado» registra `doneDate`.
+- `iteraciones` (46) — Releases e iteraciones: releases (CRUD, vínculo con entregable EDT y actividad del cronograma, presupuesto,
+  iteraciones planeadas, «Fijar línea base del release», estado), iteraciones (CRUD, generar siguientes por duración,
+  planificación con capacidad y velocidad, iniciar → fija `committed`, cerrar → fija `completed` y devuelve lo no terminado al
+  backlog o a la siguiente iteración), documentos de la iteración (crear y abrir `planificacion-sprint`, `acta-revision-sprint`,
+  `retrospectiva` prellenados; «Enviar a lecciones aprendidas» copia las lecciones de la retrospectiva a `registro-lecciones`),
+  control de cambios en dos niveles: si `releaseVariance.needsChangeControl` → aviso y «Registrar solicitud de cambio» (crea
+  `solicitud-cambio` prellenada y la fila CC-00x en `registro-cambios`); aprobada, «Actualizar línea base del release» guarda la
+  nueva línea base con `changeRef`.
+- `metricas-agiles` (46) — Métricas: burndown de la iteración, burnup del release (con línea base), velocidad (comprometido vs.
+  terminado, promedio), diagrama de flujo acumulado, pronóstico de terminación (optimista/probable/pesimista), AgileEVM por
+  release (PV, EV, AC, SPI, CPI, EAC) comparado con el valor ganado del proyecto, tiempo de ciclo y rendimiento (throughput).
+
+Integraciones en módulos existentes:
+- 30-wbs: selector de enfoque por nodo (Heredado/Predictivo/Adaptativo), distintivo «Ágil» en los entregables adaptativos,
+  acción «Crear release» (crea el release con `wbsId` y abre `iteraciones`), conteo de elementos del backlog por paquete.
+- 40-schedule: en el editor de actividad, «Release vinculado» (`task.releaseId`); si está vinculado, el avance se muestra
+  calculado desde el backlog y no se edita; en el Gantt, distintivo del release y segmentos de sus iteraciones dentro de la barra.
+- 50-evm: los registros de costos admiten «Release» (`releaseId`); sección «Valor ganado ágil (AgileEVM)» por release.
+- 70-matrices: «Agregar roles ágiles» en la RACI (`PM.AGILE.ROLES`) y filas de eventos ágiles (refinamiento, planificación,
+  revisión, retrospectiva, priorización, definición de terminado) con asignación típica.
+- 80-dashboard: tarjeta ágil (iteración actual y días restantes, burndown mínimo, velocidad media, avance del release, SPI/CPI
+  ágiles, alertas de WIP y bloqueados) y ruta sugerida según el enfoque (predictivo, híbrido, adaptativo).
+
+### 9.5 Plantillas ágiles (14-templates-agile.js; ids y claves fijas)
+
+| id | Nombre | Proceso | Área | Grupo | kind | múltiple |
+|---|---|---|---|---|---|---|
+| vision-producto | Visión del producto | 5.2 | alcance | inicio | documento | |
+| definicion-terminado | Definición de listo y de terminado | 8.1 | calidad | planificacion | documento | |
+| plan-release | Plan de releases (hoja de ruta del producto) | 6.5 | cronograma | planificacion | plan | |
+| planificacion-sprint | Planificación de la iteración | 4.3 | integracion | ejecucion | acta | sí |
+| acta-revision-sprint | Acta de revisión de la iteración | 5.5 | alcance | monitoreo | acta | sí |
+| retrospectiva | Retrospectiva de la iteración | 4.4 | integracion | ejecucion | acta | sí |
+
+Claves que otros módulos leen o prellenan (respeta exactamente):
+- `vision-producto`: `producto`, `paraQuien`, `necesidad`, `categoria`, `beneficioClave`, `alternativas`, `diferenciador`
+  (declaración «Para… que… el… es un… que… a diferencia de… nuestro producto…»), `objetivosNegocio` (list), `metricasExito` (table:
+  `metrica`, `lineaBase`, `meta`, `fecha`), `personas` (table: `persona`, `descripcion`, `necesidades`), `restricciones` (list).
+- `definicion-terminado`: `definicionListo` (list), `definicionTerminado` (list), `criteriosRelease` (list), `politicasFlujo` (list: políticas explícitas del tablero y límites WIP).
+- `plan-release`: `visionResumen` (textarea), `velocidadSupuesta` (number), `duracionIteracion` (number, días hábiles),
+  `releases` (table: `release`, `objetivo`, `fechaInicio`, `fechaFin`, `iteraciones` (number), `puntos` (number), `presupuesto` (money), `alcance` (textarea)), `supuestos` (list).
+- `planificacion-sprint`: `iteracion`, `release`, `fechaInicio`, `fechaFin`, `objetivo`, `capacidad` (number), `velocidadReferencia` (number), `compromiso` (number),
+  `elementos` (table: `codigo`, `titulo`, `tipo`, `estimacion` (number), `responsable`, `criterios`), `riesgos` (textarea), `participantes` (list).
+- `acta-revision-sprint`: `iteracion`, `fecha`, `objetivo`, `objetivoCumplido` (select: Sí | Parcialmente | No), `comprometido` (number), `terminado` (number),
+  `elementos` (table: `codigo`, `titulo`, `estimacion` (number), `resultado` (select: Aceptado | Rechazado | No terminado), `observaciones`),
+  `retroalimentacion` (textarea), `cambiosBacklog` (textarea), `asistentes` (list).
+- `retrospectiva`: `iteracion`, `fecha`, `formato` (select: Bien, mejorar y acciones | Empezar, dejar y continuar | 4L), `queFueBien` (list), `queMejorar` (list),
+  `acciones` (table: `accion`, `responsable`, `fechaObjetivo` (date), `estado` (select: Pendiente | En curso | Hecha)),
+  `lecciones` (table: `situacion`, `impacto` (select: Positivo | Negativo), `recomendacion`) → se copian a `registro-lecciones.lecciones`
+  (`id`, `fecha`, `area` = 'Integración', `situacion`, `impacto`, `recomendacion`, `registradoPor` = 'Retrospectiva <iteración>').
+
+### 9.6 Control de cambios en dos niveles
+
+1. Dentro del release (sin control formal): reordenar, refinar, dividir o cambiar elementos del backlog del producto mientras el
+   alcance total del release se mantenga dentro de `scopeChangeThreshold` (%) de su línea base y no cambien fecha ni presupuesto.
+2. Del release (4.6 Realizar el control integrado de cambios): si el alcance supera el umbral o cambian la fecha o el presupuesto
+   del release comprometido → solicitud de cambio, registro de cambios y, aprobada, nueva línea base del release (y, si aplica,
+   nueva línea base del proyecto en `lineas-base`).
+
+### 9.7 Ejemplos
+
+- `erp` (94): «EJEMPLO · Implementación del ERP de Ingeniería y Alquiler» — ciclo de vida Adaptativo (ágil), Scrum con tablero
+  Kanban, iteraciones de 2 semanas, 3 releases (inventario y alquiler de equipos; facturación electrónica y cartera;
+  mantenimiento y tablero gerencial), iteraciones cerradas y una en curso a la fecha de corte, documentos ágiles y PMBOK.
+- `medellin` (91–93): ciclo de vida Híbrido; la obra y la estructuración siguen en cascada y el entregable comercial y digital
+  (sala de ventas virtual, CRM y campañas) se gestiona con Kanban/Scrum. Las cifras financieras del ejemplo no cambian: el avance
+  derivado del backlog coincide con el avance guardado de las actividades vinculadas.

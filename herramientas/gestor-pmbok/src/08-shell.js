@@ -294,6 +294,7 @@
 
   function Rail() {
     const st = PM.useAppState();
+    const { project: railProject } = PM.useCurrentProject();
     const ref = useRef();
     const narrow = useNarrow();
     const [mode, setMode] = useState(readRailMode);
@@ -437,7 +438,8 @@
       return () => document.removeEventListener('keydown', k);
     }, [st.navOpen]);
 
-    const groups = PM.GROUPS.map((g) => ({ ...g, items: PM.views.filter((v) => v.group === g.id && !v.hidden) })).filter((g) => g.items.length);
+    /* when(project): vistas que dependen del proyecto (p. ej. las ágiles, solo con ciclo de vida adaptativo o híbrido) */
+    const groups = PM.GROUPS.map((g) => ({ ...g, items: PM.views.filter((v) => v.group === g.id && !v.hidden && (!v.when || (railProject && v.when(railProject)))) })).filter((g) => g.items.length);
     /* una vista oculta (p. ej. «documento») marca como actual la sección de la que depende: su `parent` o, si no lo
        declara, la vista visible anterior de su grupo («Documentos») */
     const current = (() => {
@@ -511,6 +513,10 @@
       if (!st.projectId) return html`<${NoProject} />`;
       if (loading) return html`<div class="page"><${ui.Loading} rows=${5} /></div>`;
       if (!project) return html`<div class="page"><${ui.Empty} icon="folder" title="El proyecto ya no existe" actions=${html`<${ui.Button} variant="primary" onClick=${() => { PM.setState({ projectId: null }); PM.prefs.set('projectId', null); PM.navigate('portafolio'); }}>Ir al portafolio</${ui.Button}>`}>Puede que otra persona lo haya eliminado.</${ui.Empty}></div>`;
+    }
+    if (view.when && !view.when(project)) {
+      const U = view.unavailable;
+      return U ? html`<${U} project=${project} view=${view} />` : html`<div class="page"><${ui.Empty} icon="info" title="Sección no disponible para este proyecto">Esta sección no aplica a la configuración actual del proyecto.</${ui.Empty}></div>`;
     }
     const C = view.component;
     return html`<${ui.ErrorBoundary} key=${view.id + ':' + st.projectId} label=${view.id}><${C} project=${project} params=${st.params || {}} /></${ui.ErrorBoundary}>`;
