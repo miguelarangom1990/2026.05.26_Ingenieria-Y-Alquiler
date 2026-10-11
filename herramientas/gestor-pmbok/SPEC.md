@@ -475,7 +475,8 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   no tiene ninguno marcado, los de su actividad (`taskId`) o de su paquete EDT y descendientes (`wbsId`) desde `release.start`.
 - `cfd({items, settings, from, to})` → `[{date, nuevo, pendiente, 'en-curso', terminado}]` (semanal si el rango supera 180 días).
 - `releaseVariance({release, items, settings})` → `{hasBaseline, scopePct, dateChange (días), budgetChange, needsChangeControl, …}`.
-- `PM.agile.releaseCosts(releases, costs, tree, statusDate)` → `{byRelease: Map(id → {ac, shared}), total, shared}`: costos reales de
+- `PM.agile.releaseCosts(releases, costs, tree, statusDate, tasks?)` (con `tasks` = `schedule.tasks`, la actividad de cada release
+  sale de `linksOf`, incluido `task.releaseId`; pásalas siempre que las tengas; `releaseActualCost(release, costs, tree, statusDate, tasks?, releases?)` igual) → `{byRelease: Map(id → {ac, shared}), total, shared}`: costos reales de
   varios releases recorriendo los registros una vez (`total` sin duplicar los compartidos por actividad o EDT).
 - WIP: `PM.agile.wipLimit(columna)` (entero ≥ 1 o null), `PM.agile.wipCounts(settings, items)` (conteo por columna sobre todo el
   tablero, sin filtros), `PM.agile.wipStatus(settings, items)` → `[{id, name, category, wip, count, over, full}]`. Úsalos en lugar de copiar la regla.

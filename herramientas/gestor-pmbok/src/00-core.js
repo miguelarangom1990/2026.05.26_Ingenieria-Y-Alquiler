@@ -366,7 +366,18 @@
     async list(col) { return this.listSync(col); }
     notify(path) { this.notifyDoc(path); const col = path.slice(0, path.lastIndexOf('/')); this.notifyCol(col); }
     notifyDoc(path) { const ls = this.docL.get(path); if (ls) { const v = this.snap(path); ls.forEach((fn) => fn(v)); } }
-    notifyCol(col) { const ls = this.colL.get(col); if (ls) { const v = this.listSync(col); ls.forEach((fn) => fn(v)); } }
+    /* los avisos a colecciones se agrupan en una microtarea: una escritura en lote de N documentos lista la colección una vez */
+    notifyCol(col) {
+      if (!this.colL.get(col)) return;
+      (this.pendingCols = this.pendingCols || new Set()).add(col);
+      if (this.colQueued) return;
+      this.colQueued = true;
+      queueMicrotask(() => {
+        this.colQueued = false;
+        const cols = [...this.pendingCols]; this.pendingCols.clear();
+        for (const c of cols) { const ls = this.colL.get(c); if (ls && ls.size) { const v = this.listSync(c); ls.forEach((fn) => fn(v)); } }
+      });
+    }
     subDoc(path, next) { if (!this.docL.has(path)) this.docL.set(path, new Set()); this.docL.get(path).add(next); setTimeout(() => next(this.snap(path)), 0); return () => this.docL.get(path)?.delete(next); }
     subCol(col, next) { if (!this.colL.has(col)) this.colL.set(col, new Set()); this.colL.get(col).add(next); setTimeout(() => next(this.listSync(col)), 0); return () => this.colL.get(col)?.delete(next); }
   }

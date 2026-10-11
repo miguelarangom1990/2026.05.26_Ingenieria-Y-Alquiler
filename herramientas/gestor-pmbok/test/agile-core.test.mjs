@@ -14,6 +14,7 @@ const results = await page.evaluate(() => {
   const st = A.settings(null);
   eq('configuración por defecto', [st.framework, st.estimationUnit, st.sprintLength, st.columns.length, st.scopeChangeThreshold], ['scrum-kanban', 'puntos', 10, 4, 10]);
   eq('columnas sin «terminado» → por defecto', A.settings({ settings: { columns: [{ id: 'x', name: 'X', category: 'pendiente' }] } }).columns.length, 4);
+  eq('columnas con id repetido: se conserva la primera', A.settings({ settings: { columns: [{ id: 'a', name: 'A', category: 'pendiente' }, { id: 'a', name: 'A2', category: 'en-curso' }, { id: 'z', name: 'Z', category: 'terminado' }] } }).columns.map((c) => c.name), ['A', 'Z']);
   eq('unidad horas', [A.unitShort(A.settings({ settings: { estimationUnit: 'horas' } })), A.unitShort(st)], ['h', 'pts']);
   eq('categorías', [A.category(st, 'backlog'), A.category(st, null), A.category(st, 'por-hacer'), A.category(st, 'en-revision'), A.category(st, 'terminado'), A.category(st, 'xx')], ['nuevo', 'nuevo', 'pendiente', 'en-curso', 'terminado', 'nuevo']);
   // Códigos y nuevos elementos
@@ -104,6 +105,8 @@ const results = await page.evaluate(() => {
   const rc = A.releaseCosts([{ id: 'r1', taskId: 'tA' }, { id: 'r2', taskId: 'tA' }, { id: 'r3' }], { actuals: [{ amount: 10, taskId: 'tA', date: '2026-08-01' }, { amount: 5, releaseId: 'r3', date: '2026-08-02' }, { amount: 7, releaseId: 'r1', date: '2026-08-03' }, { amount: 99, releaseId: 'r1', date: '2026-12-01' }, null] }, null, '2026-09-01');
   eq('costos de releases sin duplicar', [rc.total, rc.byRelease.get('r1'), rc.byRelease.get('r2'), rc.byRelease.get('r3'), rc.shared.length], [22, { ac: 7, shared: 0 }, { ac: 10, shared: 0 }, { ac: 5, shared: 0 }, 0]);
   const rc2 = A.releaseCosts([{ id: 'r1', taskId: 'tA' }, { id: 'r2', taskId: 'tA' }], { actuals: [{ amount: 10, taskId: 'tA' }] }, null, null);
+  eq('costo del release por vínculo desde la actividad (task.releaseId)', [A.releaseActualCost({ id: 'r7' }, { actuals: [{ amount: 6, taskId: 'tq' }] }, null, null, [{ id: 'tq', releaseId: 'r7' }]), A.releaseActualCost({ id: 'r7' }, { actuals: [{ amount: 6, taskId: 'tq' }] }, null, null)], [6, 0]);
+  eq('costos de releases con actividades', A.releaseCosts([{ id: 'r7' }, { id: 'r8', taskId: 'tz' }], { actuals: [{ amount: 6, taskId: 'tq' }, { amount: 2, taskId: 'tz' }] }, null, null, [{ id: 'tq', releaseId: 'r7' }, { id: 'tz' }]).total, 8);
   eq('costo compartido entre releases sin marcas', [rc2.total, rc2.byRelease.get('r1'), rc2.shared.length], [10, { ac: 10, shared: 10 }, 1]);
   eq('costo del release: con registros explícitos solo cuentan esos', A.releaseActualCost({ id: 'r1', taskId: 'tA' }, { actuals: [{ amount: 10, taskId: 'tA' }, { amount: 7, releaseId: 'r1' }] }, null, null), 7);
   eq('costo del release: implícitos por actividad desde el inicio del release', A.releaseActualCost({ id: 'r1', taskId: 'tA', start: '2026-08-01' }, { actuals: [{ amount: 10, taskId: 'tA', date: '2026-07-31' }, { amount: 4, taskId: 'tA', date: '2026-08-01' }, { amount: 3, taskId: 'tB', date: '2026-08-02' }] }, null, null), 4);

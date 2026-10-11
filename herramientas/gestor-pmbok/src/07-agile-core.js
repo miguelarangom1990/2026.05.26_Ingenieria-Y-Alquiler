@@ -54,7 +54,8 @@
       { value: 'planeado', label: 'Planeado' }, { value: 'comprometido', label: 'Comprometido (con línea base)' },
       { value: 'en-curso', label: 'En curso' }, { value: 'cerrado', label: 'Cerrado' },
     ],
-    SPRINT_STATUS: [{ value: 'planeado', label: 'Planeado' }, { value: 'en-curso', label: 'En curso' }, { value: 'cerrado', label: 'Cerrado' }],
+    /* etiquetas en femenino: «la iteración» (los valores guardados no cambian) */
+    SPRINT_STATUS: [{ value: 'planeado', label: 'Planeada' }, { value: 'en-curso', label: 'En curso' }, { value: 'cerrado', label: 'Cerrada' }],
     APPROACHES: [{ value: 'predictivo', label: 'Predictivo' }, { value: 'adaptativo', label: 'Adaptativo (ágil)' }],
     ROLES: ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo'],
     DEFAULT_SETTINGS: { framework: 'scrum-kanban', estimationUnit: 'puntos', sprintLength: 10, columns: DEFAULT_COLUMNS, scopeChangeThreshold: 10 },
@@ -91,7 +92,9 @@
   /* configuración con valores por defecto y columnas válidas */
   agile.settings = (data) => {
     const s = isObj(data && data.settings) ? data.settings : {};
-    const cols = arr(s.columns).filter((c) => isObj(c) && c.id && c.name && ['pendiente', 'en-curso', 'terminado'].includes(c.category));
+    const seen = new Set();
+    /* columnas válidas; si un id se repite (datos importados) se conserva la primera */
+    const cols = arr(s.columns).filter((c) => isObj(c) && c.id && c.name && ['pendiente', 'en-curso', 'terminado'].includes(c.category) && !seen.has(c.id) && seen.add(c.id));
     const columns = cols.length && cols.some((c) => c.category === 'terminado') && cols.some((c) => c.category === 'pendiente') ? cols : DEFAULT_COLUMNS;
     return {
       framework: ['scrum', 'kanban', 'scrum-kanban'].includes(s.framework) ? s.framework : 'scrum-kanban',
@@ -309,8 +312,11 @@
      Así, en un paquete donde el release es solo una parte del gasto, basta marcar los registros del release.
      Solo cuenta hasta la fecha de corte.
      releaseCosts → { byRelease: Map(id → {ac, shared}), total (cada registro una sola vez), shared: [{actual, ids, amount}] }. */
-  agile.releaseCosts = function (releases, costs, tree, statusDate) {
-    const rels = arr(releases).filter((r) => isObj(r) && r.id);
+  agile.releaseCosts = function (releases, costs, tree, statusDate, tasks) {
+    /* con las actividades del cronograma, la actividad de cada release sale de PM.agile.linksOf (incluye task.releaseId) */
+    const relsIn = arr(releases).filter((r) => isObj(r) && r.id);
+    const taskOf = Array.isArray(tasks) ? agile.releaseTasks(tasks, { releases: relsIn }) : null;
+    const rels = taskOf ? relsIn.map((r) => (taskOf.get(r.id) === r.taskId ? r : { ...r, taskId: taskOf.get(r.id) || null })) : relsIn;
     const cut = D.valid(statusDate) ? statusDate : null;
     const actuals = arr(costs && costs.actuals).filter((a) => isObj(a) && !(cut && D.valid(a.date) && a.date > cut));
     const explicit = new Set(actuals.filter((a) => a.releaseId).map((a) => a.releaseId));
@@ -339,9 +345,11 @@
     return { byRelease, total, shared };
   };
   /* costo real de un release (misma regla) */
-  agile.releaseActualCost = function (release, costs, tree, statusDate) {
+  agile.releaseActualCost = function (release, costs, tree, statusDate, tasks, releases) {
     if (!isObj(release) || !release.id) return 0;
-    const r = agile.releaseCosts([release], costs, tree, statusDate).byRelease.get(release.id);
+    /* releases (opcional): todos los releases, para resolver los vínculos de actividad con la misma regla que linksOf */
+    const all = Array.isArray(releases) && releases.some((x) => isObj(x) && x.id === release.id) ? releases : [release];
+    const r = agile.releaseCosts(all, costs, tree, statusDate, tasks).byRelease.get(release.id);
     return r ? r.ac : 0;
   };
 
