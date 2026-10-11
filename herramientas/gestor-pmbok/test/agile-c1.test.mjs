@@ -71,6 +71,8 @@ async function seed(page, meta = {}) {
     await PM.store.set(PM.paths.tool(pid, 'schedule'), SCHEDULE);
     await PM.store.set(PM.paths.tool(pid, 'agile'), AGILE);
     for (const it of ITEMS) { const { id, ...body } = it; await PM.store.set(PM.paths.backlogItem(pid, id), body); }
+    /* la página de prueba (30,40) no incluye 46: vista mínima para comprobar la navegación con sus parámetros */
+    if (!PM.getView('iteraciones')) PM.registerView({ id: 'iteraciones', label: 'Releases e iteraciones', group: 'agil', icon: 'sprint', order: 30, needsProject: true, component: ({ params }) => PM.lib.html`<div class="page" data-stub-iteraciones>${(params && params.release) || ''}</div>` });
     PM.selectProject(pid, 'tablero');
     return pid;
   }, { WBS, SCHEDULE, AGILE, ITEMS, meta });
@@ -139,7 +141,8 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     const nr = ag.releases.find((r) => r.wbsId === 'w22');
     check('release creado con el contrato del SPEC', nr && /^rel/.test(nr.id) && nr.name === 'Módulo de facturación' && nr.goal === '' && nr.status === 'planeado' && nr.plannedSprints === 0 && nr.taskId === null && nr.baseline === null && nr.notes === '', nr);
     eq('presupuesto = costo de las actividades del paquete', nr && nr.budget, 70000000);
-    check('fechas del release = las de sus actividades', nr && nr.start === '2026-09-28' && /^2026-1[01]-\d\d$/.test(nr.end), nr && [nr.start, nr.end]);
+    const rollT4 = await page.evaluate(async (pid) => { const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); const p = await PM.store.get(PM.paths.project(pid)); const r = PM.calc.computeSchedule(s, p.start).byId.get('t4'); return [r.startDate, r.finishDate]; }, pid);
+    check('fechas del release = las de sus actividades', nr && nr.start === rollT4[0] && nr.end === rollT4[1], { rel: nr && [nr.start, nr.end], rollT4 });
     check('los releases existentes se conservan', ag.releases.length === 3 && ag.releases[0].id === 'r1' && ag.sprints.length === 4, ag.releases.map((r) => r.id));
     let st = await state(page);
     check('navega a iteraciones con el release', st.view === 'iteraciones' && st.params && st.params.release === nr.id, st);
@@ -288,7 +291,10 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     check('las marcas quedan dentro de la barra', geo.length === 3 && geo.every(Boolean), geo);
     check('la iteración de otro release no se marca en la barra', (await page.$$('.sched-body g.sched-bar[data-id="t4"] .sched-iter')).length === 0, null);
     check('leyenda: release vinculado e inicio de iteración', await page.isVisible('[data-legend="release"]') && await page.isVisible('[data-legend="iteration"]'), null);
-    await page.hover('.sched-body g.sched-bar[data-id="t2"] .sched-bar-main'); await page.waitForTimeout(150);
+    /* la barra empieza debajo de las columnas fijas: se apunta a la parte visible */
+    const bb = await (await page.$('.sched-body g.sched-bar[data-id="t2"] .sched-bar-main')).boundingBox();
+    const gridRight = await page.$eval('.sched-grid', (g) => g.getBoundingClientRect().right);
+    await page.mouse.move(Math.min(bb.x + bb.width - 4, Math.max(bb.x + 8, gridRight + 12)), bb.y + bb.height / 2, { steps: 3 }); await page.waitForTimeout(150);
     const tipText = nb(await page.textContent('.sched-frame .chart-tip').catch(() => ''));
     check('tooltip con release, iteraciones y avance desde el backlog', /Release 1 · Inventario/.test(tipText) && /Iteración 1/.test(tipText) && /desde el backlog/.test(tipText), tipText.slice(0, 300));
     await shot(page, 'gantt-agil');
@@ -414,6 +420,12 @@ for (const variant of [{ name: 'oscuro', dark: true, width: 1360 }, { name: 'mov
     if (variant.name === 'movil') {
       check('móvil: diccionario en modal con enfoque y backlog', await page.isVisible('.modal #wbs-f-approach-m') && await page.isVisible('.modal [data-wbs-backlog-stats]'), null);
       await page.click('.modal-foot >> text=Listo'); await page.waitForTimeout(150);
+      for (const tab of ['Diccionario', 'Diagrama']) {
+        await page.getByRole('tab', { name: new RegExp(tab) }).click(); await page.waitForTimeout(250);
+        check('móvil: pestaña ' + tab + ' sin desborde horizontal de la página', (await horizontalOverflow(page)) <= 0, await horizontalOverflow(page));
+        await shot(page, 'edt-movil-' + tab.toLowerCase());
+      }
+      await page.getByRole('tab', { name: /Árbol/ }).click(); await page.waitForTimeout(150);
     }
     if (variant.dark) {
       const colors = await page.$eval('tr[data-code="1.2"] .wbs-ap', (b) => { const cs = getComputedStyle(b); return [cs.color, cs.backgroundColor]; });

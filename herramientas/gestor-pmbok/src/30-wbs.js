@@ -791,6 +791,10 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const rels = ag.relsOf(id);
     const adaptive = (ag.approach.get(id) || ag.def) === 'adaptativo';
     if (!ag.enabled && !stats.count && !rels.length) return null;
+    /* entregable predictivo sin backlog ni releases: solo la sugerencia (sin secciones vacías) */
+    if (!adaptive && !stats.count && !rels.length) {
+      return canWrite ? html`<p class="xsmall faint" data-wbs-agile-hint>Enfoque predictivo. Si el alcance de este entregable no está claro y requiere iteración, cambia su enfoque a «Adaptativo (ágil)» para gestionarlo con backlog, releases e iteraciones.</p>` : null;
+    }
     const pct = stats.pts > 0 ? stats.done / stats.pts : stats.count ? stats.doneCount / stats.count : 0;
     const byPts = stats.pts > 0;
     const hasBacklog = !!PM.getView('backlog'), hasIter = !!PM.getView('iteraciones');
@@ -814,13 +818,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         ${rels.length ? html`<div class="wbs-rels">${rels.map((r) => html`<div class="wbs-rel" key=${r.id} data-wbs-release=${r.id}>
             <div class="stack-sm" style="gap:1px;min-width:0">
               <span class="wbs-rel-name"><${ui.Icon} name="release" size=${14} />${txt(r.name) || 'Release sin nombre'}</span>
-              <span class="xsmall muted">${relStatus(r.status)}${PM.date.valid(r.start) ? ' · ' + PM.fmt.date(r.start) + (PM.date.valid(r.end) ? ' – ' + PM.fmt.date(r.end) : '') : ''}${num(r.budget) > 0 ? ' · ' + PM.fmt.money(r.budget, currency) : ''}</span>
+              <span class="xsmall muted">${relStatus(r.status)}${PM.date.valid(r.start) ? ' · ' + PM.fmt.date(r.start) + (PM.date.valid(r.end) ? ' – ' + PM.fmt.date(r.end) : '') : ''}${num(r.budget) > 0 ? html` · <span class="nowrap">${PM.fmt.money(r.budget, currency)}</span>` : ''}</span>
             </div>
             ${hasIter ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => actions.viewRelease(r.id)} aria-label=${'Ver release ' + (txt(r.name) || '')}>Ver release</${ui.Button}>` : null}
           </div>`)}</div>`
           : html`<p class="small faint">${adaptive ? 'Este entregable aún no tiene releases.' : 'Los releases se planifican en los entregables con enfoque adaptativo.'}</p>`}
         ${canWrite && ag.enabled && adaptive ? html`<div><${ui.Button} size="sm" icon="release" onClick=${() => actions.createRelease(id, true)} data-wbs-create-release>${rels.length ? 'Crear otro release' : 'Crear release'}</${ui.Button}></div>` : null}
-        ${canWrite && ag.enabled && !adaptive && !rels.length ? html`<p class="xsmall faint">Si el alcance de este entregable no está claro y requiere iteración, cambia su enfoque a «Adaptativo (ágil)» para gestionarlo con backlog e iteraciones.</p>` : null}
       </div>`;
   }
 

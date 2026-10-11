@@ -436,15 +436,24 @@ button.sched-day:hover { border-color: var(--line-strong); }
       PM.toast(head + 'el ' + fmt.date(wanted) + ' no es día hábil (' + why + '), así que la actividad empieza el siguiente día hábil.', { timeout: 7000 });
     }
   }
-  async function deleteTaskFlow(w, sched, id) {
+  /* agileSrc: { agile, saveAgile } o una referencia ({ current }) a los datos ágiles más recientes (opcional): el release
+     que la actividad representaba (release.taskId) queda sin actividad vinculada. */
+  async function deleteTaskFlow(w, sched, id, agileSrc) {
     const t = sched.byId.get(id); if (!t) return false;
     const dependents = sched.tasks.filter((x) => (x.deps || []).some((d) => d.id === id));
+    const AG = () => (agileSrc && 'current' in agileSrc ? agileSrc.current : agileSrc) || null;
+    const relsOf = () => { const a = AG(); return arrOf(a && a.agile && a.agile.releases).filter((r) => isObj(r) && r.taskId === id); };
+    const stored = (w.get().tasks || []).find((x) => x.id === id);
+    const relLinked = relsOf()[0] || (stored && stored.releaseId ? arrOf(AG() && AG().agile && AG().agile.releases).find((r) => isObj(r) && r.id === stored.releaseId) : null);
     const ok = await PM.confirm({
       title: t.milestone ? 'Eliminar hito' : 'Eliminar actividad',
-      body: html`<div class="stack-sm"><p>Se eliminará <strong>${taskName(t)}</strong> del cronograma.</p>${dependents.length ? html`<p class="small muted">También se quitará como predecesora de ${dependents.length === 1 ? '1 actividad' : dependents.length + ' actividades'}: ${dependents.slice(0, 4).map(taskName).join(', ')}${dependents.length > 4 ? '…' : ''}.</p>` : null}</div>`,
+      body: html`<div class="stack-sm"><p>Se eliminará <strong>${taskName(t)}</strong> del cronograma.</p>${dependents.length ? html`<p class="small muted">También se quitará como predecesora de ${dependents.length === 1 ? '1 actividad' : dependents.length + ' actividades'}: ${dependents.slice(0, 4).map(taskName).join(', ')}${dependents.length > 4 ? '…' : ''}.</p>` : null}
+        ${relLinked ? html`<p class="small muted" data-confirm-release>La actividad representa el release «${relName(relLinked)}». El release y su backlog se conservan, sin actividad vinculada en el cronograma.</p>` : null}</div>`,
       confirmText: t.milestone ? 'Eliminar hito' : 'Eliminar actividad', tone: 'danger',
     });
     if (!ok) return false;
+    const a = AG();
+    if (relsOf().length && a && a.saveAgile) { const data = a.agile || {}; a.saveAgile({ ...data, releases: arrOf(data.releases).map((r) => (isObj(r) && r.taskId === id ? { ...r, taskId: null } : r)) }); }
     w.setTasks((ts) => ts.filter((x) => x.id !== id).map((x) => ((x.deps || []).some((d) => d.id === id) ? { ...x, deps: x.deps.filter((d) => d.id !== id) } : x)));
     PM.toast(t.milestone ? 'Hito eliminado.' : 'Actividad eliminada.');
     return true;
@@ -524,7 +533,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const cur = w.get();
       const via = cycleVia(cur.tasks || [], taskId, deps);
       if (via) return setError('La predecesora «' + taskName((cur.tasks || []).find((t) => t.id === via)) + '» ya depende, directa o indirectamente, de esta actividad. Quítala para evitar una dependencia circular.');
-      if (D.valid(d.actualStart) && D.valid(d.actualFinish) && d.actualFinish < d.actualStart) return setError('El fin real no puede ser anterior al inicio real.');
+      if (!derived && D.valid(d.actualStart) && D.valid(d.actualFinish) && d.actualFinish < d.actualStart) return setError('El fin real no puede ser anterior al inicio real.');
       const resources = d.resources.filter((r) => String(r.name || '').trim()).map((r) => ({ name: String(r.name).trim(), units: Math.max(0, num(r.units, 1)) }));
       const base = (cur.tasks || []).find((t) => t.id === taskId);
       if (!base) { close(); PM.toast('La actividad ya no existe.', { tone: 'crit' }); return; }
@@ -564,7 +573,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       }
       if (next.start && next.start !== base.start) explainStart(w.get(), ctx.projectStart, taskId, next.start);
     };
-    const remove = async () => { const ok = await deleteTaskFlow(w, sched, taskId); if (ok) close(); };
+    const remove = async () => { const ok = await deleteTaskFlow(w, sched, taskId, ctx.agileRef); if (ok) close(); };
     const footer = ro ? html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>` : html`
       <${ui.Button} variant="danger" icon="trash" onClick=${remove} style="margin-right:auto">Eliminar</${ui.Button}>
       <${ui.Button} onClick=${close}>Cancelar</${ui.Button}>
@@ -845,7 +854,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
       let n = 0; for (const t of sched.tasks) { const c = t.wbsId && tree.codes.get(t.wbsId); if (c) n = Math.max(n, String(c).length); }
       return Math.max(GCOLS.code.w, Math.ceil(n * 7 + 12));
     }, [sched, tree]);
-    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : k === 'dur' ? durW : k === 'code' ? codeW : GCOLS[k].w);
+    /* «%» con decimales cuando hay avance calculado desde el backlog («38,2 %») */
+    const anyDerived = useMemo(() => sched.tasks.some((t) => t.agileDerived), [sched]);
+    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : k === 'dur' ? durW : k === 'code' ? codeW : k === 'pct' && anyDerived ? 64 : GCOLS[k].w);
     const gridW = cols.reduce((s, k) => s + colW(k), 0);
     const gridTemplate = cols.map((k) => colW(k) + 'px').join(' ');
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
@@ -1066,7 +1077,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} />`;
       else if (k === 'finish') c = html`<div class="sched-ro sched-mono">${fd(t.finishDate)}</div>`;
       else if (k === 'pct') c = t.agileDerived
-        ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + r.num} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} icon=${html`<${ui.Icon} name="release" size=${10} />`} />`
+        ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + r.num} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} />`
         : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} inputMode="decimal" align="right" label=${'% de avance, fila ' + r.num} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`;
       else if (k === 'pred') c = html`<${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + r.num} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} />`;
       return html`<div key=${k} data-col=${k}>${c}</div>`;
@@ -1179,7 +1190,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <${ui.Button} size="sm" variant="primary" icon="plus" onClick=${() => addTask(false)}>Agregar actividad</${ui.Button}>
           <${ui.Button} size="sm" icon="milestone" onClick=${() => addTask(true)}>Agregar hito</${ui.Button}>
           <${ui.Button} size="sm" icon="edit" disabled=${!selTask} onClick=${() => selTask && edit(selTask.id)}>Editar</${ui.Button}>
-          <${ui.Button} size="sm" variant="danger" icon="trash" disabled=${!selTask} onClick=${() => selTask && deleteTaskFlow(w, sched, selTask.id).then((ok) => ok && setSel(null))}>Eliminar</${ui.Button}>
+          <${ui.Button} size="sm" variant="danger" icon="trash" disabled=${!selTask} onClick=${() => selTask && deleteTaskFlow(w, sched, selTask.id, { agile: m.agile, saveAgile: m.saveAgile }).then((ok) => ok && setSel(null))}>Eliminar</${ui.Button}>
           <div class="btn-group">
             <${ui.Button} size="sm" icon="arrow-up" aria-label="Subir actividad" title="Subir actividad" disabled=${!up} onClick=${() => move(-1)} />
             <${ui.Button} size="sm" icon="arrow-down" aria-label="Bajar actividad" title="Bajar actividad" disabled=${!down} onClick=${() => move(1)} />
