@@ -147,6 +147,7 @@ td.ags-actions { background: var(--surface); }
 .ags-key-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .ags-data { max-height: 360px; overflow: auto; }
 .ags-note { font-size: var(--fs-xs); color: var(--fg-3); max-width: 80ch; }
+.ags-shared-list { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); }
 /* estado vacío: ruta para empezar (ocupa el ancho de la vista, como el resto de las vistas) */
 .ags-steps { list-style: none; margin: 0; padding: 14px 16px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
 .ags-step { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); min-width: 0; }
@@ -1909,6 +1910,7 @@ td.ags-actions { background: var(--surface); }
       ${shared ? html`<${Callout} tone="warn" role="evm-shared" title="Costos compartidos con otros releases"
         actions=${PM.getView('valor-ganado') ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('valor-ganado', { tab: 'reales' })}>Ir a costos reales</${ui.Button}>` : null}>
         <span>${(shared.count === 1 ? '1 registro de costos sin release' : shared.count + ' registros de costos sin release') + ' (' + fmt.money(shared.shared, currency) + ') ' + (shared.count === 1 ? 'coincide' : 'coinciden') + ' también con ' + shared.others.map((r) => '«' + relName(r) + '»').join(', ') + ' porque comparten el entregable de la EDT o la actividad: cuenta' + (shared.count === 1 ? '' : 'n') + ' en el AC de este release y en el de ' + (shared.others.length === 1 ? 'ese release' : 'esos releases') + ', pero una sola vez en el total de los releases (' + fmt.money(shared.total, currency) + ', sin duplicar). Imputa cada registro a su release con el selector «Release» de Costos reales para que el CPI del release sea exacto.'}</span>
+        <ul class="ags-shared-list" data-role="evm-shared-records">${shared.recs.slice(0, 5).map((x, i) => html`<li key=${(x.actual.id || '') + i}>${[D.valid(x.actual.date) ? fmt.date(x.actual.date) : null, String(x.actual.description || x.actual.category || 'Registro sin descripción').trim(), fmt.money(x.amount, currency)].filter(Boolean).join(' · ')}</li>`)}${shared.recs.length > 5 ? html`<li>y ${shared.recs.length - 5} más</li>` : null}</ul>
       </${Callout}>` : null}
       <p class="ags-note">${task ? 'Actividad vinculada: «' + (task.name || '') + '» (' + fmt.date(task.startDate) + ' – ' + fmt.date(task.finishDate) + '); su avance se calcula desde el backlog del release, así que el valor ganado del proyecto ya incluye este trabajo.' : 'El release no tiene una actividad del cronograma vinculada: su avance no entra al valor ganado del proyecto. Vincúlala desde «Releases e iteraciones».'} El AgileEVM mide el avance planeado por iteraciones transcurridas (PPC) y el real por estimación terminada (APC).</p>
     </div>`;
@@ -1966,7 +1968,7 @@ td.ags-actions { background: var(--surface); }
       const own = relCosts.byRelease.get(release.id) || { ac: 0, shared: 0 };
       const recs = relCosts.shared.filter((x) => x.ids.includes(release.id));
       const otherIds = new Set(); for (const x of recs) for (const id of x.ids) if (id !== release.id) otherIds.add(id);
-      return { ac: own.ac, shared: own.shared, count: recs.length, others: releases.filter((r) => otherIds.has(r.id)), total: relCosts.total, sharedAll: relCosts.shared.length };
+      return { ac: own.ac, shared: own.shared, count: recs.length, recs, others: releases.filter((r) => otherIds.has(r.id)), total: relCosts.total, sharedAll: relCosts.shared.length };
     }, [release, relCosts, releases]);
     const ev = useMemo(() => (release ? C.agileEvm({ release, sprints, items, settings, actualCost: costInfo ? costInfo.ac : 0, statusDate }) : null), [release, sprints, items, settings, costInfo, statusDate]);
     const fst = useMemo(() => flowStats(scopeItems, settings, statusDate), [scopeItems, settings, statusDate]);

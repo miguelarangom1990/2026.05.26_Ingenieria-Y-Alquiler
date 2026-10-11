@@ -495,7 +495,9 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   estado, entregable EDT, texto), alta rápida, editor del elemento (todos los campos de `Item`), épicas con avance, totales
   estimados por release, MoSCoW, refinamiento (elementos sin estimar o sin criterios de aceptación), asignar a release o iteración,
   exportar CSV. Reordenar el backlog es libre (no requiere control de cambios).
-- `kanban` (45) — Tablero Kanban: columnas de `settings.columns` (editar nombre, categoría y límite WIP; agregar/quitar con
+  Parámetros de navegación: `{wbs, release, epic}` inician los filtros (el entregable incluye lo que lo compone); los filtros
+  aplicados se muestran como botones que se quitan con un clic.
+- `kanban` (45) — Tablero Kanban (parámetros `{sprint, release}`): columnas de `settings.columns` (editar nombre, categoría y límite WIP; agregar/quitar con
   reasignación), tarjetas arrastrables y con teclado (mover a la columna anterior/siguiente), alerta visual y textual al superar el
   WIP, bloqueados, filtro por iteración (por defecto la actual en Scrum) o todo el flujo (Kanban), tiempo de ciclo y antigüedad
   en la columna, mover a «Terminado» registra `doneDate`.
@@ -507,6 +509,7 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   control de cambios en dos niveles: si `releaseVariance.needsChangeControl` → aviso y «Registrar solicitud de cambio» (crea
   `solicitud-cambio` prellenada y la fila CC-00x en `registro-cambios`); aprobada, «Actualizar línea base del release» guarda la
   nueva línea base con `changeRef`.
+  Vacías, `iteraciones` y `metricas-agiles` muestran una tarjeta de ancho completo con los pasos para empezar.
 - `metricas-agiles` (46) — Métricas: burndown de la iteración, burnup del release (con línea base), velocidad (comprometido vs.
   terminado, promedio), diagrama de flujo acumulado, pronóstico de terminación (optimista/probable/pesimista), AgileEVM por
   release (PV, EV, AC, SPI, CPI, EAC) comparado con el valor ganado del proyecto, tiempo de ciclo y rendimiento (throughput).

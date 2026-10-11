@@ -806,6 +806,9 @@ for (const width of [400, 1280, 1360, 1600]) {
       const ms30 = nb(await page.evaluate(() => PM.fmt.moneyShort(30000000, 'COP'))), ms45 = nb(await page.evaluate(() => PM.fmt.moneyShort(45000000, 'COP')));
       assert(acRow.includes(ms30) && acRow.includes(ms45), 'fila AC: release ' + ms30 + ' y proyecto ' + ms45 + ': ' + acRow);
       assert(await page.locator('[data-role="evm-shared"]').getByRole('button', { name: 'Ir a costos reales' }).count() === 1, 'acción hacia los costos reales');
+      const recs = await page.$$eval('[data-role="evm-shared-records"] li', (ls) => ls.map((l) => l.textContent.replace(/[\u00a0\u202f]/g, ' ').trim()));
+      eq(recs.length, 1, 'el aviso lista el registro compartido');
+      assert(/Equipo de desarrollo agosto/.test(recs[0]) && recs[0].includes(nb(m30)), 'registro compartido con descripción y valor: ' + recs[0]);
     });
     await step('Release activo con la regla del núcleo (PM.agile.activeRelease): sin iteración en curso, el comprometido', async () => {
       await page.evaluate(async (pid) => {
