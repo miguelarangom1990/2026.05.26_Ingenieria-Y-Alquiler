@@ -89,8 +89,12 @@ const results = await page.evaluate(() => {
   eq('orden de iteraciones', A.sortSprints([{ id: 'x', start: '2026-02-01' }, null, { id: 'y', start: '2026-01-01' }]).map((s) => s.id), ['y', 'x']);
   // Costos reales de varios releases sin duplicar y WIP
   const rc = A.releaseCosts([{ id: 'r1', taskId: 'tA' }, { id: 'r2', taskId: 'tA' }, { id: 'r3' }], { actuals: [{ amount: 10, taskId: 'tA', date: '2026-08-01' }, { amount: 5, releaseId: 'r3', date: '2026-08-02' }, { amount: 7, releaseId: 'r1', date: '2026-08-03' }, { amount: 99, releaseId: 'r1', date: '2026-12-01' }, null] }, null, '2026-09-01');
-  eq('costos de releases sin duplicar', [rc.total, rc.byRelease.get('r1'), rc.byRelease.get('r2'), rc.byRelease.get('r3'), rc.shared.length], [22, { ac: 17, shared: 10 }, { ac: 10, shared: 10 }, { ac: 5, shared: 0 }, 1]);
-  eq('costo del release = releaseActualCost', A.releaseActualCost({ id: 'r1', taskId: 'tA' }, { actuals: [{ amount: 10, taskId: 'tA' }, { amount: 7, releaseId: 'r1' }] }, null, null), 17);
+  eq('costos de releases sin duplicar', [rc.total, rc.byRelease.get('r1'), rc.byRelease.get('r2'), rc.byRelease.get('r3'), rc.shared.length], [22, { ac: 7, shared: 0 }, { ac: 10, shared: 0 }, { ac: 5, shared: 0 }, 0]);
+  const rc2 = A.releaseCosts([{ id: 'r1', taskId: 'tA' }, { id: 'r2', taskId: 'tA' }], { actuals: [{ amount: 10, taskId: 'tA' }] }, null, null);
+  eq('costo compartido entre releases sin marcas', [rc2.total, rc2.byRelease.get('r1'), rc2.shared.length], [10, { ac: 10, shared: 10 }, 1]);
+  eq('costo del release: con registros explícitos solo cuentan esos', A.releaseActualCost({ id: 'r1', taskId: 'tA' }, { actuals: [{ amount: 10, taskId: 'tA' }, { amount: 7, releaseId: 'r1' }] }, null, null), 7);
+  eq('costo del release: implícitos por actividad desde el inicio del release', A.releaseActualCost({ id: 'r1', taskId: 'tA', start: '2026-08-01' }, { actuals: [{ amount: 10, taskId: 'tA', date: '2026-07-31' }, { amount: 4, taskId: 'tA', date: '2026-08-01' }, { amount: 3, taskId: 'tB', date: '2026-08-02' }] }, null, null), 4);
+  eq('costo del release por EDT y descendientes', A.releaseActualCost({ id: 'r9', wbsId: 'n1' }, { actuals: [{ amount: 2, wbsId: 'n2' }, { amount: 5, wbsId: 'n1' }, { amount: 1, wbsId: 'zz' }] }, { descendants: () => ['n2'] }, null), 7);
   eq('límite WIP', [A.wipLimit({ wip: 3 }), A.wipLimit({ wip: '2.6' }), A.wipLimit({ wip: -1 }), A.wipLimit({ wip: null }), A.wipLimit(null)], [3, 3, null, null, null]);
   const ws = A.wipStatus(settings, [{ status: 'en-curso' }, { status: 'en-curso' }, { status: 'en-curso' }, { status: 'en-curso', type: 'epica' }, { status: 'en-revision' }, null]);
   eq('estado WIP', ws.filter((c) => c.wip).map((c) => [c.id, c.count, c.over, c.full]), [['en-curso', 3, false, true], ['en-revision', 1, false, false]]);

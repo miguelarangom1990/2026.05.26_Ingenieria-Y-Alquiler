@@ -273,29 +273,18 @@
     return { bac, plannedSprints: planned, sprintsElapsed: elapsed, ppc, apc, pv, ev, ac, sv: ev - pv, cv: ev - ac, spi, cpi, eac, vac: eac !== null ? bac - eac : null, expectedSprints: spi ? planned / spi : null, ...prog };
   };
 
-  /* Costo real de un release (para AgileEVM): registros de costos.actuals con releaseId del release, o asignados a su
-     actividad del cronograma (taskId) o a su paquete de la EDT o descendientes (wbsId); hasta la fecha de corte. */
-  agile.releaseActualCost = function (release, costs, tree, statusDate) {
-    if (!isObj(release)) return 0;
-    const cut = D.valid(statusDate) ? statusDate : null;
-    const wbsIds = new Set();
-    if (release.wbsId) { wbsIds.add(release.wbsId); if (tree && tree.descendants) for (const id of tree.descendants(release.wbsId) || []) wbsIds.add(typeof id === 'object' && id ? id.id : id); }
-    let sum = 0;
-    for (const a of arr(costs && costs.actuals)) {
-      if (!isObj(a)) continue;
-      if (cut && D.valid(a.date) && a.date > cut) continue;
-      const hit = a.releaseId ? a.releaseId === release.id : (release.taskId && a.taskId === release.taskId) || (a.wbsId && wbsIds.has(a.wbsId));
-      if (hit) sum += num(a.amount, 0);
-    }
-    return sum;
-  };
-
-  /* Costos reales de varios releases sin duplicar: recorre costs.actuals una vez con las reglas de releaseActualCost.
-     → { byRelease: Map(id → {ac, shared}), total (cada registro una sola vez), shared: [{actual, ids, amount}] }.
-     ac de cada release = releaseActualCost; shared = parte de ese ac imputada también a otros releases (por actividad o EDT). */
+  /* Costos reales de releases (para AgileEVM). Un registro de costs.actuals es de un release si:
+     - trae releaseId de ese release (imputación explícita), o
+     - no trae releaseId, el release no tiene ningún registro explícito, el registro es de su actividad del cronograma
+       (taskId) o de su paquete de la EDT o descendientes (wbsId) y no es anterior al inicio del release.
+     Así, en un paquete donde el release es solo una parte del gasto, basta marcar los registros del release.
+     Solo cuenta hasta la fecha de corte.
+     releaseCosts → { byRelease: Map(id → {ac, shared}), total (cada registro una sola vez), shared: [{actual, ids, amount}] }. */
   agile.releaseCosts = function (releases, costs, tree, statusDate) {
     const rels = arr(releases).filter((r) => isObj(r) && r.id);
     const cut = D.valid(statusDate) ? statusDate : null;
+    const actuals = arr(costs && costs.actuals).filter((a) => isObj(a) && !(cut && D.valid(a.date) && a.date > cut));
+    const explicit = new Set(actuals.filter((a) => a.releaseId).map((a) => a.releaseId));
     const wbsOf = rels.map((r) => {
       const ids = new Set();
       if (r.wbsId) { ids.add(r.wbsId); if (tree && tree.descendants) for (const id of tree.descendants(r.wbsId) || []) ids.add(id && typeof id === 'object' ? id.id : id); }
@@ -304,11 +293,14 @@
     const byRelease = new Map(rels.map((r) => [r.id, { ac: 0, shared: 0 }]));
     const shared = [];
     let total = 0;
-    for (const a of arr(costs && costs.actuals)) {
-      if (!isObj(a)) continue;
-      if (cut && D.valid(a.date) && a.date > cut) continue;
+    for (const a of actuals) {
       const ids = [];
-      rels.forEach((r, k) => { if (a.releaseId ? a.releaseId === r.id : (r.taskId && a.taskId === r.taskId) || (a.wbsId && wbsOf[k].has(a.wbsId))) ids.push(r.id); });
+      rels.forEach((r, k) => {
+        if (a.releaseId) { if (a.releaseId === r.id) ids.push(r.id); return; }
+        if (explicit.has(r.id)) return;
+        if (D.valid(r.start) && D.valid(a.date) && a.date < r.start) return;
+        if ((r.taskId && a.taskId === r.taskId) || (a.wbsId && wbsOf[k].has(a.wbsId))) ids.push(r.id);
+      });
       if (!ids.length) continue;
       const amount = num(a.amount, 0);
       total += amount;
@@ -316,6 +308,12 @@
       if (ids.length > 1) shared.push({ actual: a, ids, amount });
     }
     return { byRelease, total, shared };
+  };
+  /* costo real de un release (misma regla) */
+  agile.releaseActualCost = function (release, costs, tree, statusDate) {
+    if (!isObj(release) || !release.id) return 0;
+    const r = agile.releaseCosts([release], costs, tree, statusDate).byRelease.get(release.id);
+    return r ? r.ac : 0;
   };
 
   /* Límite WIP válido de una columna (entero ≥ 1) o null; conteo por columna sobre todo el tablero (sin filtros). */

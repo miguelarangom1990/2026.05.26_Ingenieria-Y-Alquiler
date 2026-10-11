@@ -18,7 +18,9 @@
    COP 15.000 millones, 416 viviendas en una plataforma con cuatro bloques de 8 pisos,
    ventas por COP 162.122 millones y costo total de COP 141.939 millones (LB0/LB1).
    Proyecto, empresas y cifras son ficticios; se usan roles, no nombres de personas.
-   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92 y 93).
+   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93 y 96).
+   Ciclo de vida híbrido: la capa ágil de los canales digitales de venta (paquete
+   1.4.2) sale de PM.exampleAgile.medellin (archivo 96) y no cambia ninguna cifra.
    ========================================================================== */
 (function () {
   'use strict';
@@ -1119,10 +1121,18 @@
   }
 
   /* ---------------------------------------------------------------- constructor */
+  /* Capa ágil (96-example-medellin-agile.js): ciclo de vida híbrido, enfoque adaptativo del paquete 1.4.2, herramienta
+     «agile», backlog, parte digital de los costos de C02 marcada con el release y roles y eventos ágiles en la RACI.
+     No toca el cronograma ni las líneas base: el valor ganado del proyecto es el mismo con o sin la capa. */
+  const agileLayer = () => (PM.exampleAgile && typeof PM.exampleAgile.medellin === 'function' ? PM.exampleAgile.medellin({ cal, statusDate: STATUS_DATE }) : null);
   function buildExample() {
-    const project = { ...META };
+    const layer = agileLayer();
+    const project = { ...META, ...(layer ? { lifecycle: layer.lifecycle, description: META.description + ' ' + layer.description } : {}) };
     const schedule = currentData();
     const docs = docsData(project);
+    const nodes = wbsNodes(schedule.tasks).map((n) => (layer && layer.wbs[n.id] ? { ...n, ...layer.wbs[n.id] } : n));
+    const costs = costsData();
+    if (layer) costs.actuals = layer.actuals(costs.actuals);
     return {
       format: 'gestor-pmbok',
       version: 1,
@@ -1130,14 +1140,16 @@
       collections: {
         docs,
         tools: [
-          { id: 'wbs', data: { nodes: wbsNodes(schedule.tasks) } },
+          { id: 'wbs', data: { nodes } },
           { id: 'schedule', data: schedule },
-          { id: 'costs', data: costsData() },
-          { id: 'raci', data: raciData() },
+          { id: 'costs', data: costs },
+          { id: 'raci', data: layer ? layer.raci(raciData()) : raciData() },
           { id: 'quality', data: qualityData() },
+          ...(layer ? [{ id: 'agile', data: layer.agile }] : []),
         ],
         baselines: baselinesData(docs.find((d) => d.id === 'enunciado-alcance') || null),
         flows: flowsData(),
+        ...(layer ? { backlog: layer.backlog } : {}),
       },
     };
   }
@@ -1156,7 +1168,7 @@
   PM.registerExample({
     id: 'medellin', icon: 'portfolio',
     name: 'Edificio residencial en Medellín',
-    description: 'Desarrollo inmobiliario completo en un lote de 50.000 m²: estructuración, ventas con encargo fiduciario, diseños y licencias, construcción en dos etapas de 416 viviendas, entrega y cierre.',
+    description: 'Desarrollo inmobiliario completo en un lote de 50.000 m²: estructuración, ventas con encargo fiduciario, diseños y licencias, construcción en dos etapas de 416 viviendas, entrega y cierre. Híbrido: los canales digitales de venta se gestionan con Scrum y Kanban.',
     summary: ['Desarrollo inmobiliario', '4,2 años', 'COP 143.339 M'],
     build: () => buildExample(),
     facts,

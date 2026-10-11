@@ -2,6 +2,7 @@
 // plantillas de Costos, Calidad, Recursos, Comunicaciones, Riesgos, Adquisiciones e Interesados.
 // Uso: node test/example-medellin-docs-b.test.mjs --file <ruta.html> [--shots dir] [--quick]
 //  1. Cada plantilla de 13-templates-b tiene su entrada en PM.exampleDocs.medellin, con la forma del contrato
+//     (las plantillas ágiles de 14-templates-agile se validan en example-medellin-agile.test.mjs)
 //     (estado, revisión, fecha, cajetín, revisiones emitidas, instancias en las plantillas múltiples).
 //  2. Los campos coinciden con la plantilla: claves conocidas, tipos, opciones de las listas, filas con id
 //     único y solo columnas de la plantilla, tablas fijas de SPEC §5 con sus claves, fechas válidas, números
@@ -48,7 +49,9 @@ try {
   const res = await page.evaluate(({ AREAS_B, CUT, FACTS, NC_CAUSES }) => {
     const out = { ids: [], missing: [], problems: [], items: [], anachronisms: [], totals: {} };
     const all = Object.values(PM.templates);
-    const tpls = all.filter((t) => AREAS_B.includes(t.area));
+    /* las plantillas ágiles (14-templates-agile, p. ej. «definicion-terminado», del área de calidad) se validan en
+       example-medellin-agile.test.mjs */
+    const tpls = all.filter((t) => AREAS_B.includes(t.area) && !t.agile);
     const src = (PM.exampleDocs && PM.exampleDocs.medellin) || {};
     const D = PM.date;
     const STATUS = ['aprobado', 'revision', 'borrador'];

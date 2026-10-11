@@ -18,7 +18,7 @@ Fuente única de cifras, fechas, nombres y roles para los documentos del ejemplo
 | Fin pronosticado al corte | 2029-06-29 |
 | Fecha de corte | 2026-09-30 |
 | Presupuesto total (BAC + reservas) | 143.339 M |
-| Estado / ciclo de vida | En ejecución / Predictivo por etapas: estructuración, diseños y licencias, preventas por etapa, construcción por etapa, entrega y cierre. |
+| Estado / ciclo de vida | En ejecución / Híbrido: estructuración, diseños y licencias, preventas por etapa, construcción por etapa, entrega y cierre en cascada (predictivo por etapas); desde marzo de 2026 los canales digitales de venta del paquete 1.4.2 se gestionan con Scrum y tablero Kanban (sección 24). El ciclo fue predictivo hasta la LB1. |
 
 ## 2. Lote y norma (supuestos por verificar con la ficha normativa)
 
@@ -465,7 +465,7 @@ Entregas E1: LB1 2027-07-29 a 2027-10-28; pronóstico 2027-08-20 a 2027-11-19. E
 
 Por qué SPI 0,96 y CPI 0,965: el lote y la compensación VIP (18.000 M, 38 % del valor ganado) están ejecutados al 100 % con CPI 1,0 y diluyen el índice; la obra de la etapa 1 (directos) va al 39,5 % frente al 43,2 % planeado en la LB1 (SPI 0,914) por el deslizamiento y la rotación de oficiales, y cuesta más de lo presupuestado (CPI 0,921) por la mano de obra (+4 a 8 %) y los 600 M de contención del CC-003, que no están en la LB1. Las ventas de la E2 van por debajo del plan (preventas E2 al 62 % del tramo al 60 %). Los intereses del primer tramo van conforme (saldo menor que el previsto a mayor tasa).
 
-Costo real por categoría: Subcontratos 12.824,9 M; Mano de obra 2.914,6 M; Otros 22.802,2 M; Materiales 9.656,9 M; Equipos 394,4 M. 299 registros de costo real (facturas FE-, órdenes de compra OC-, nóminas NOM-, comisiones COM-, fiducia FID-, banco BCO-, pólizas POL-, licencias LIC-, EPM-; ficticios).
+Costo real por categoría: Subcontratos 12.824,9 M; Mano de obra 2.914,6 M; Otros 22.802,2 M; Materiales 9.656,9 M; Equipos 394,4 M. 306 registros de costo real: los 299 del modelo más 7 que salen de dividir en dos los registros mensuales de C02 de marzo a septiembre de 2026 (parte digital marcada con el release; sección 24), sin cambiar ninguna suma (facturas FE-, órdenes de compra OC-, nóminas NOM-, comisiones COM-, fiducia FID-, banco BCO-, pólizas POL-, licencias LIC-, EPM-; ficticios).
 
 ## 13. Estado de la obra al corte
 
@@ -719,7 +719,11 @@ Pareto manual: Jornadas perdidas en la etapa 1 por causa, marzo a septiembre de 
 | licenciaEjecutoriada | 2025-12-15 |
 | creditoE1 | 2026-02-13 |
 | puntoEquilibrioE1 | 2026-02-27 |
+| juntaApruebaEnfoqueHibrido | 2026-02-10 |
+| visionProductoCanalesDigitales | 2026-02-24 |
+| lineaBaseReleaseCanalesDigitales | 2026-02-27 |
 | lanzamientoE2 | 2026-03-02 |
+| inicioIteracion1CanalesDigitales | 2026-03-02 |
 | cc002Aprobado | 2026-03-10 |
 | lb1 | 2026-03-13 |
 | inicioObraE1 | 2026-03-16 |
@@ -772,3 +776,47 @@ Informe de agosto: Con 11 ventas al mes la etapa 2 tarda unos ocho meses en vend
 ## 23. Diagramas de flujo y recursos
 
 «Venta y escrituración con encargo fiduciario» (18 elementos; carriles: Comprador, Sala de ventas (comercializadora), Fiduciaria, Promotor (gerencia del proyecto), Banco o caja de compensación); «Control integrado de cambios (4.6)» (13 elementos; carriles: Solicitante, Gerente de proyecto, Junta directiva (comité de control de cambios), Fiduciaria, banco e interventoría); «Liberación de recursos de la fiducia y desembolsos del crédito constructor» (13 elementos; carriles: Promotor (gerencia del proyecto), Fiduciaria, Interventoría del banco, Banco (crédito constructor)). Límites de recursos: Gerente de proyecto 1; Estructurador financiero 1; Gerente comercial 1; Asesores comerciales 6; Equipo de diseño arquitectónico 1; Equipo de ingeniería de diseño 2; Abogado del proyecto 1; Director de obra 1; Residente de obra 3; Coordinador SST 2; Frente de movimiento de tierras 1; Equipo de perforación de pilas 1; Cuadrilla de cimentación 2; Cuadrilla de estructura 3; Juego de formaleta industrializada 2; Grúa torre 2; Cuadrilla de mampostería 3; Cuadrilla de instalaciones 6; Cuadrilla de acabados 6; Cuadrilla de fachada y ventanería 2; Frente de urbanismo 3; Supervisor técnico independiente 1. Ningún recurso supera su límite diario, ni en el plan vigente ni en el pronóstico al corte. El abogado del proyecto dedica 25 % a la gestión legal (G06) y 75 % a cada escrituración (C12 y C13), con apoyo de un tramitador notarial de la comercializadora: 100 % en esos meses. Asesores comerciales: 4 de 6 en preventas.
+
+## 24. Capa ágil: enfoque híbrido de los canales digitales de venta
+
+Fuente: `src/96-example-medellin-agile.js` (`PM.exampleAgile.medellin`), incorporada por `src/91-example-medellin.js`. Prueba: `test/example-medellin-agile.test.mjs`.
+
+**Regla de oro.** La capa no cambia ninguna cifra del proyecto: cronograma, líneas base LB0 y LB1, costos por actividad y por fecha, reservas y documentos aprobados con cifras son los mismos. El valor ganado del proyecto al corte sigue siendo BAC 139.576 M, PV 48.807,2 M, EV 46.871,4 M, AC 48.593 M, SPI 0,96, CPI 0,965 y EAC 144.702,8 M (la prueba lo compara con el constructor sin la capa).
+
+**Decisión y documentos.** La reunión de arranque (21 de enero de 2025) adoptó un ciclo de vida predictivo por etapas y así quedó el plan para la dirección rev. 0 (LB0). Después del atraso del punto de equilibrio de la etapa 1 (INC-003), la junta aprobó el 10 de febrero de 2026 (COM-008 del registro de comunicaciones) gestionar los canales digitales de venta con un enfoque adaptativo; el plan para la dirección rev. 1 (13 de marzo de 2026, LB1) lo incorpora: ciclo de vida «Híbrido», enfoque de desarrollo, decisión de adaptación (7), proceso simplificado de requisitos del 1.4.2, componentes ágiles en los planes subsidiarios y eventos ágiles en las revisiones. En la EDT solo el paquete 1.4.2 «Mercadeo y publicidad» declara `approach: 'adaptativo'`; el resto hereda predictivo.
+
+| Elemento | Valor |
+|---|---|
+| Marco y unidad | Scrum con tablero Kanban; puntos de historia; umbral de cambio de alcance 10 % |
+| Iteraciones | 20 días hábiles del calendario del proyecto (lunes a sábado con festivos de Colombia), consecutivas; el equipo trabaja de lunes a viernes (17 días por persona) |
+| Columnas (WIP) | Por hacer · En producción (4) · Aprobación comercial y legal (3) · Publicado |
+| Roles | Dueño del producto = gerente comercial; Scrum Master / facilitador = coordinador de mercadeo digital; equipo = equipo digital de la agencia de publicidad (CT-013) y analista de CRM de la comercializadora; el abogado del proyecto aprueba piezas y formularios |
+| Release | «Canales digitales de venta — etapa 2», 2026-03-02 a 2026-12-23, 12 iteraciones, en curso |
+| Presupuesto (BAC del release) | 245 M dentro del rubro de publicidad y mercadeo de C02 (1.459 M); no se agrega costo |
+| Línea base del release | 2026-02-27: 213 pts, fin 2026-12-23, 245 M, 12 iteraciones |
+| Alcance al corte | 232 pts (+8,9 %): HU-032 (+5), DF-001 (+3), HU-033 (+5), IN-003 (+3) y HU-035 (+3, CC-004); dentro del umbral y sin cambio de fecha ni presupuesto → cambio de nivel 1, sin solicitud de cambio |
+| Vínculos | `taskId: null` (C02 sigue por nivel de esfuerzo; vincularla cambiaría el valor ganado del proyecto). `wbsId: null`: el núcleo imputa a un release todos los costos sin marca de su paquete de la EDT y el 1.4.2 tiene gasto que no es del release (medios, eventos y alianzas desde mayo de 2025); los elementos del backlog sí llevan `wbsId: 'w142'` |
+
+| Iteración | Fechas | Comprometido | Terminado | Estado |
+|---|---|---|---|---|
+| 1 | 2026-03-02 a 2026-03-25 | 21 | 13 | Cerrada (HU-001 pasa a la 2) |
+| 2 | 2026-03-26 a 2026-04-20 | 21 | 16 | Cerrada (HU-005 pasa a la 3) |
+| 3 | 2026-04-21 a 2026-05-14 | 18 | 18 | Cerrada |
+| 4 | 2026-05-15 a 2026-06-09 | 23 | 18 | Cerrada (HU-012 pasa a la 5) |
+| 5 | 2026-06-10 a 2026-07-04 | 19 | 19 | Cerrada |
+| 6 | 2026-07-06 a 2026-07-29 | 21 | 21 | Cerrada |
+| 7 | 2026-07-30 a 2026-08-24 | 24 | 16 | Cerrada (HU-025 pasa a la 8) |
+| 8 | 2026-08-25 a 2026-09-16 | 19 | 19 | Cerrada (planificación, revisión y retrospectiva documentadas) |
+| 9 | 2026-09-17 a 2026-10-09 | 23 (+3 agregados) | 10 al corte | En curso (planificación documentada) |
+| 10 a 12 | 2026-10-10 a 2026-12-23 | — | — | Planeadas (capacidad 19) |
+
+**Backlog.** 50 elementos: 7 épicas (sitio web y páginas por tipología VIS y No VIS; recorrido virtual 360° y apartamento modelo digital; CRM y embudo con calificación de prospectos; pauta digital y costo por prospecto y por venta; simulador de crédito y subsidios VIS; separación en línea con el encargo fiduciario; contenidos de avance de obra) y 43 elementos (35 historias, 4 tareas, 3 investigaciones y 1 defecto) con criterios de aceptación que incluyen publicidad de vivienda (Ley 1480 de 2011), datos personales (Ley 1581 de 2012), horario de contacto (Ley 2300 de 2023), tope VIS (Ley 2294 de 2023) y firma electrónica (Ley 527 de 1999 y Decreto 2364 de 2012). Uno fuera del release y sin refinar (HU-034). Al corte: HU-026 bloqueado (servicio de vinculación digital de la fiduciaria), HU-028 y HU-035 en aprobación comercial y legal.
+
+**Métricas al corte (30 de septiembre de 2026).** Avance 150 de 232 pts (64,7 %); velocidad media de las tres últimas iteraciones 18,7 pts (16 a 21); pronóstico de fin 19 de enero de 2027 (5 iteraciones; optimista 23 de diciembre de 2026, pesimista 11 de febrero de 2027). AgileEVM: PPC 66,7 % (8 de 12), APC 64,7 %, PV 163,3 M, EV 158,4 M, AC 164,9 M, SPI 0,97, CPI 0,96, EAC 255,0 M, VAC −10,0 M. La revisión de la iteración 8 propone diferir HU-006, HU-008 y HU-019 (15 pts) para conservar el 23 de diciembre.
+
+**Costos reales del release.** Los registros mensuales de C02 de marzo a septiembre de 2026 se dividen en dos líneas de la misma factura de la agencia (mismo día, actividad, paquete, categoría y documento; misma suma): «canales digitales de venta» (con `releaseId`) y «medios, eventos y alianzas». Parte digital (M): marzo 21,6; abril 23,8; mayo 22,1; junio 24,5; julio 24,9; agosto 22,6; septiembre 25,4; total 164,9.
+
+**RACI.** Tres columnas nuevas (dueño del producto, Scrum Master / facilitador y equipo de desarrollo, con el rol del ejemplo entre paréntesis) y diez filas de eventos del paquete 1.4.2 (refinamiento, priorización, planificación de la iteración, reunión diaria, revisión, retrospectiva, definición de terminado, aceptación de historias, planificación del release y aprobación comercial y legal de piezas y formularios), con una A y al menos una R por fila. En la fila de 1.4.2 se agregan el equipo (R) y el facilitador (C).
+
+**Documentos ágiles.** Visión del producto (rev. 0, 2026-02-24), definición de listo y de terminado (rev. 2, 2026-09-17; rev. 0 del 2026-02-27 y rev. 1 del 2026-08-25), plan de releases (rev. 0, 2026-02-27), planificación de las iteraciones 8 y 9, revisión y retrospectiva de la iteración 8 (2026-09-16). Las dos lecciones de la retrospectiva pasan al registro de lecciones aprendidas como LA-11 y LA-12 (área Integración, «Retrospectiva Iteración 8»).
+

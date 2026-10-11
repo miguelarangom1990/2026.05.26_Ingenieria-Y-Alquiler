@@ -467,7 +467,8 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
 - `releaseForecast({release, sprints, items, settings, cal, statusDate})` → `{velocity, sprintsNeeded, finish, finishBest, finishWorst, …}` (velocidad media, máxima y mínima de las últimas 3).
 - `agileEvm({release, sprints, items, settings, actualCost, statusDate})` → `{bac, plannedSprints, sprintsElapsed, ppc, apc, pv, ev, ac, sv, cv, spi, cpi, eac, vac, expectedSprints}`
   (AgileEVM: PPC = iteraciones transcurridas / planeadas; APC = terminado / alcance actual; PV = BAC × PPC; EV = BAC × APC).
-  Costo real: `PM.agile.releaseActualCost(release, costs, tree, statusDate)`.
+  Costo real: `PM.agile.releaseActualCost(release, costs, tree, statusDate)`: los registros con `releaseId` del release; si el release
+  no tiene ninguno marcado, los de su actividad (`taskId`) o de su paquete EDT y descendientes (`wbsId`) desde `release.start`.
 - `cfd({items, settings, from, to})` → `[{date, nuevo, pendiente, 'en-curso', terminado}]` (semanal si el rango supera 180 días).
 - `releaseVariance({release, items, settings})` → `{hasBaseline, scopePct, dateChange (días), budgetChange, needsChangeControl, …}`.
 - `PM.agile.releaseCosts(releases, costs, tree, statusDate)` → `{byRelease: Map(id → {ac, shared}), total, shared}`: costos reales de

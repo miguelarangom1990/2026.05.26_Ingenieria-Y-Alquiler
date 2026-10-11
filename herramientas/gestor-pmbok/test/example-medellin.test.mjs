@@ -92,6 +92,8 @@ async function validateInPage(page, expect) {
     ok(/\(ficticia\)/.test(meta.client) && meta.sponsor === 'Junta directiva del promotor' && meta.manager === 'Gerente de proyecto', 'cliente ficticio, patrocinador y gerente por rol');
     ok(meta.start === X.start && meta.end === X.end && meta.statusDate === X.statusDate && meta.currency === 'COP', 'fechas y moneda', [meta.start, meta.end, meta.statusDate]);
     ok(meta.status === 'En ejecución' && PM.PROJECT_STATUS.includes(meta.status) && PM.LIFECYCLES.includes(meta.lifecycle), 'estado y ciclo de vida');
+    /* ciclo de vida híbrido: la capa ágil de los canales digitales (96-example-medellin-agile.js) se valida en example-medellin-agile.test.mjs */
+    ok(meta.lifecycle === 'Híbrido' && PM.agile.mode(meta) === 'hibrido', 'ciclo de vida híbrido (obra en cascada y canales digitales de venta con Scrum y Kanban)', meta.lifecycle);
     ok(meta.budget === X.presupuesto, 'presupuesto = línea base de costos + reserva de gestión', meta.budget);
     ok(/Medellín/.test(meta.location) && /50\.000 m²/.test(meta.description) && /Acuerdo 48 de 2014/.test(meta.description), 'ubicación y descripción con lote y norma');
 
@@ -260,6 +262,9 @@ async function validateInPage(page, expect) {
     const raci = await P('/tools/raci');
     const roleNames = raci.roles.map((r) => r.name);
     for (const n of ['Junta directiva / promotor', 'Gerente de proyecto', 'Estructurador financiero', 'Gerente comercial', 'Arquitecto diseñador', 'Ingeniero estructural', 'Constructor / director de obra', 'Interventoría / supervisión técnica independiente', 'Fiduciaria', 'Banco (crédito constructor)', 'Curaduría urbana']) ok(roleNames.includes(n), 'rol de la RACI: ' + n);
+    /* roles ágiles del enfoque híbrido, mapeados a roles del ejemplo, y filas de eventos ágiles del paquete 1.4.2 */
+    for (const n of ['Dueño del producto (gerente comercial)', 'Scrum Master / facilitador (coordinador de mercadeo digital)', 'Equipo de desarrollo (agencia digital y analista de CRM)']) ok(roleNames.includes(n), 'rol ágil de la RACI: ' + n);
+    ok(raci.rows.filter((r) => r.wbsId === 'w142').length === 11, 'fila del paquete 1.4.2 y diez filas de eventos ágiles', raci.rows.filter((r) => r.wbsId === 'w142').map((r) => r.activity));
     const roleIds = new Set(raci.roles.map((r) => r.id));
     const l12 = nodes.filter((n) => (tree.depth.get(n.id) || 9) <= 2);
     ok(l12.every((n) => raci.rows.some((r) => r.wbsId === n.id)) && raci.rows.every((r) => ids.has(r.wbsId) && r.activity), 'una fila por entregable de nivel 1 y 2', l12.filter((n) => !raci.rows.some((r) => r.wbsId === n.id)).map((n) => n.id));
