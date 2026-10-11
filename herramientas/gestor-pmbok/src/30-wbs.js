@@ -774,7 +774,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         <div class="wbs-acts">
           ${tasks.length ? tasks.map((t) => html`<div class="wbs-act" key=${t.id} data-wbs-task=${t.id}>
             <div class="wbs-act-name">${t.name || 'Actividad sin nombre'}</div>
-            <div class="xsmall muted">${t.milestone ? 'Hito · ' + PM.fmt.date(t.startDate) : PM.fmt.date(t.startDate) + ' – ' + PM.fmt.date(t.finishDate) + ' · ' + PM.fmt.days(t.duration)} · avance ${PM.fmt.pct100(t.progress)}${num(t.cost) ? ' · ' + PM.fmt.money(t.cost, d.currency) : ''}</div>
+            <div class="xsmall muted">${t.milestone ? 'Hito · ' + PM.fmt.date(t.startDate) : PM.fmt.date(t.startDate) + ' – ' + PM.fmt.date(t.finishDate) + ' · ' + PM.fmt.days(t.duration)} · avance ${PM.fmt.pct100(t.progress, t.agileDerived ? 1 : 0)}${t.agileDerived ? ' (desde el backlog del release)' : ''}${num(t.cost) ? ' · ' + PM.fmt.money(t.cost, d.currency) : ''}</div>
             ${hasCron ? html`<div><${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('cronograma', { taskId: t.id })}>Ver en el cronograma</${ui.Button}></div>` : null}
           </div>`) : html`<p class="small faint">${isLeaf ? 'Este paquete de trabajo aún no tiene actividades en el cronograma.' : 'Las actividades se vinculan a los paquetes de trabajo, el nivel más bajo de la EDT.'}</p>`}
         </div>

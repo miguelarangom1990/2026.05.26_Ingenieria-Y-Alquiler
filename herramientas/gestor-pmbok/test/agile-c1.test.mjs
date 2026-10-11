@@ -375,6 +375,17 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await page.click('.modal-foot >> text=Cerrar'); await page.waitForTimeout(100);
     await page.evaluate(() => PM.setState({ canWrite: true })); await page.waitForTimeout(150);
 
+    /* --- eliminar una actividad que representa un release limpia release.taskId --- */
+    await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => (r.id === 'r2' ? { ...r, taskId: 't5' } : r)) }); }, pid);
+    await page.waitForTimeout(300);
+    await page.dblclick('.sched-grid .sched-row[data-id="t5"] [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
+    await page.click('.modal-foot button:has-text("Eliminar")');
+    await page.waitForSelector('[data-confirm-release]');
+    check('eliminar: la confirmación avisa del release que representa', /representa el release «Release 2 · Facturación»/.test(nb(await page.textContent('[data-confirm-release]'))), null);
+    await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(900);
+    sch = await tool(page, pid, 'schedule'); const ag5 = await tool(page, pid, 'agile');
+    check('eliminar: actividad eliminada y release sin actividad vinculada', !sch.tasks.some((t) => t.id === 't5') && ag5.releases.find((r) => r.id === 'r2').taskId === null && ag5.releases.length === 2, ag5.releases.map((r) => [r.id, r.taskId]));
+
     /* --- diagrama de red --- */
     await gotoView(page, 'red'); await page.waitForSelector('.sched-net svg');
     check('red: marca de release en el nodo vinculado', (await page.$$('.sched-net g.sched-net-node[data-id="t4"] .sched-net-rel[data-release="r1"]')).length === 1 && (await page.$$('.sched-net g.sched-net-node[data-id="t3"] .sched-net-rel')).length === 0, null);

@@ -72,6 +72,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
 .matrices-import-item input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; flex: none; }
 .matrices-import-item.is-dup { color: var(--fg-3); }
 .matrices-import-name { flex: 1; min-width: 0; }
+.matrices-import-item.matrices-agile-ev { align-items: flex-start; }
+.matrices-agile-ev input { margin-top: 3px; }
+.matrices-agile-assign { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; }
+.matrices-agile-pair { display: inline-flex; gap: 5px; align-items: center; font-size: var(--fs-xs); color: var(--fg-2); }
+.matrices-agile-pair .matrices-letter { min-width: 28px; height: 18px; font-size: 11px; }
 .matrices-load { display: flex; gap: 8px; align-items: center; min-width: 120px; }
 .matrices-load .meter { flex: 1; }
 .matrices-heat-wrap { overflow-x: auto; max-width: 100%; }
@@ -546,6 +551,84 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     </${ui.Modal}>`;
   }
 
+  /* ---------------------------------------------------------------- capa ágil (§9.4): roles y eventos ágiles
+     Roles de PM.AGILE.ROLES y filas de eventos con la asignación típica (Guía de Scrum 2020 y Guía de prácticas ágiles).
+     Un rol ya presente con otro nombre habitual (p. ej. «Product Owner», «Scrum Master») cuenta como presente. */
+  const AGILE_ROLE_KEYS = ['po', 'sm', 'dt'];
+  const agileRoleDefs = () => {
+    const names = (PM.AGILE && PM.AGILE.ROLES) || ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo'];
+    return {
+      po: { name: names[0], short: 'Dueño del producto', re: /^(dueno-del-producto|product-owner|propietario-del-producto)/ },
+      sm: { name: names[1], short: 'Scrum Master', re: /(^|-)(scrum-master|facilitador|agile-coach|coach-agil)(-|$)/ },
+      dt: { name: names[2], short: 'Equipo de desarrollo', re: /^(equipo-de-desarrollo|desarrolladores|developers|equipo-agil|equipo-scrum)/ },
+      dp: { name: 'Director de proyecto', short: 'Director de proyecto', re: /^(director-del?-proyecto|gerente-del?-proyecto|project-manager)/ },
+      pa: { name: 'Patrocinador', short: 'Patrocinador', re: /^patrocinador/ },
+    };
+  };
+  /* id del rol de la matriz que cumple cada papel (coincidencia exacta del nombre o un nombre habitual equivalente) */
+  const resolveAgileRoles = (roles) => {
+    const defs = agileRoleDefs();
+    const out = {};
+    for (const k of Object.keys(defs)) {
+      const exact = roles.find((r) => normKey(r.name) === normKey(defs[k].name));
+      const alt = exact || roles.find((r) => defs[k].re.test(normKey(r.name)) && !Object.values(out).includes(r.id));
+      out[k] = alt ? alt.id : null;
+    }
+    return out;
+  };
+  /* Eventos y prácticas ágiles con su asignación típica: exactamente un A (o R/A) y al menos un R por fila.
+     Dueño del producto: rinde cuentas de la priorización y la aceptación, y refina el backlog; Scrum Master / facilitador:
+     facilita los eventos; Equipo de desarrollo: planifica, se sincroniza a diario y aplica la definición de terminado;
+     Director de proyecto: consultado o informado (integra con el plan del proyecto); Patrocinador: informado. */
+  const AGILE_EVENTS = [
+    { name: 'Refinamiento del backlog', desc: 'Detallar, dividir y estimar los elementos del backlog del producto.', cells: { po: 'RA', sm: 'C', dt: 'C', dp: 'I' } },
+    { name: 'Priorización del backlog', desc: 'Ordenar el backlog por valor, riesgo y dependencias (MoSCoW).', cells: { po: 'A', sm: 'R', dt: 'C', dp: 'C' } },
+    { name: 'Planificación de la iteración', desc: 'Objetivo de la iteración y elementos que el equipo se compromete a terminar.', cells: { po: 'C', sm: 'R', dt: 'RA', dp: 'I' } },
+    { name: 'Reunión diaria', desc: 'Sincronización de 15 minutos del equipo e impedimentos.', cells: { sm: 'R', dt: 'RA', dp: 'I' } },
+    { name: 'Revisión de la iteración', desc: 'Demostración del incremento a los interesados y ajuste del backlog.', cells: { po: 'A', sm: 'R', dt: 'R', dp: 'C', pa: 'I' } },
+    { name: 'Retrospectiva', desc: 'Mejoras del equipo, del proceso y lecciones aprendidas.', cells: { po: 'C', sm: 'RA', dt: 'R', dp: 'I' } },
+    { name: 'Definición de terminado', desc: 'Criterios de calidad que todo incremento debe cumplir.', cells: { po: 'A', sm: 'C', dt: 'R', dp: 'C' } },
+    { name: 'Aceptación de historias de usuario', desc: 'Verificar los criterios de aceptación y aceptar o rechazar cada historia.', cells: { po: 'A', sm: 'I', dt: 'R', dp: 'I' } },
+    { name: 'Planificación del release', desc: 'Alcance, fechas, iteraciones y presupuesto del release.', cells: { po: 'A', sm: 'R', dt: 'R', dp: 'C', pa: 'I' } },
+  ];
+
+  function AgileEventsModal({ close, roles, rows, onConfirm }) {
+    const defs = agileRoleDefs();
+    const res = resolveAgileRoles(roles);
+    const have = new Set(rows.map((r) => normKey(r.activity)));
+    const fresh = AGILE_EVENTS.filter((e) => !have.has(normKey(e.name)));
+    const [picked, setPicked] = useState(() => new Set(fresh.map((e) => e.name)));
+    const missingAgile = AGILE_ROLE_KEYS.filter((k) => !res[k]);
+    const missingOther = ['dp', 'pa'].filter((k) => !res[k]);
+    const [withOther, setWithOther] = useState(true);
+    const roleName = (k) => { const id = res[k]; const r = id ? roles.find((x) => x.id === id) : null; return r ? r.name : defs[k].name; };
+    const shown = (k) => !!res[k] || AGILE_ROLE_KEYS.includes(k) || withOther;
+    const count = fresh.filter((e) => picked.has(e.name)).length;
+    const toggle = (name, on) => setPicked((s) => { const n = new Set(s); if (on) n.add(name); else n.delete(name); return n; });
+    const footer = html`<${ui.Button} onClick=${close}>${fresh.length ? 'Cancelar' : 'Cerrar'}</${ui.Button}>
+      ${fresh.length ? html`<${ui.Button} variant="primary" icon="plus" disabled=${!count} onClick=${() => { onConfirm(fresh.filter((e) => picked.has(e.name)), withOther); close(); }}>${count === 1 ? 'Agregar 1 evento' : 'Agregar ' + count + ' eventos'}</${ui.Button}>` : null}`;
+    return html`<${ui.Modal} title="Agregar eventos ágiles" subtitle="Filas de la matriz con la asignación RACI típica de Scrum y Kanban. Luego puedes ajustar cada celda." onClose=${close} footer=${footer} size="wide">
+      <div class="stack-sm" data-role="agile-events">
+        ${missingAgile.length ? html`<${Note} icon="info">También se agregarán los roles ágiles que faltan en la matriz: ${missingAgile.map((k) => defs[k].name).join(', ')}.</${Note}>` : null}
+        ${missingOther.length ? html`<${ui.Check} checked=${withOther} onValue=${setWithOther} label=${'Agregar también ' + (missingOther.length === 2 ? 'los roles «Director de proyecto» y «Patrocinador»' : 'el rol «' + defs[missingOther[0]].name + '»') + ', que no están en la matriz'} />` : null}
+        ${fresh.length > 1 ? html`<div class="row"><${ui.Button} size="sm" variant="ghost" icon="check" onClick=${() => setPicked(new Set(fresh.map((e) => e.name)))}>Seleccionar todos</${ui.Button}><${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => setPicked(new Set())}>Quitar selección</${ui.Button}></div>` : null}
+        <div class="matrices-import-list">${AGILE_EVENTS.map((e) => {
+          const dup = have.has(normKey(e.name));
+          const parts = Object.keys(e.cells).filter(shown);
+          return html`<label key=${e.name} class=${cx('matrices-import-item matrices-agile-ev', dup && 'is-dup')} data-agile-event=${e.name}>
+            <input type="checkbox" disabled=${dup} checked=${dup || picked.has(e.name)} onChange=${(ev) => toggle(e.name, ev.currentTarget.checked)} />
+            <span class="matrices-import-name"><strong>${e.name}</strong><span class="xsmall faint"> · ${e.desc}</span>
+              <span class="matrices-agile-assign">${parts.map((k) => html`<span key=${k} class="matrices-agile-pair"><${RaciLetter} v=${e.cells[k]} decorative /><span>${roleName(k)}</span></span>`)}</span>
+              <span class="sr-only">${parts.map((k) => roleName(k) + ': ' + RACI_INFO[normRaci(e.cells[k])].short).join('; ')}</span>
+            </span>
+            ${dup ? html`<span class="chip">Ya está en la matriz</span>` : null}
+          </label>`;
+        })}</div>
+        ${!fresh.length ? html`<p class="small muted">Todos los eventos ágiles ya están en la matriz.</p>` : null}
+      </div>
+    </${ui.Modal}>`;
+  }
+
   function RaciView({ project }) {
     const canWrite = PM.useCanWrite();
     const [raci, save, meta] = PM.useToolData('raci', PM.EMPTY.raci);
@@ -620,6 +703,47 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         PM.toast(plural(list.length, 'fila importada', 'filas importadas') + ' de la EDT.');
       }} />`);
     };
+    /* capa ágil activa (ciclo de vida adaptativo o híbrido, o releases existentes) */
+    const agileOn = !!(model.agileOn && PM.AGILE);
+    const addAgileRoles = () => {
+      const res = resolveAgileRoles(latest.current.roles || []);
+      const defs = agileRoleDefs();
+      const missing = AGILE_ROLE_KEYS.filter((k) => !res[k]).map((k) => defs[k].name);
+      if (!missing.length) { PM.toast('Los roles ágiles (dueño del producto, Scrum Master / facilitador y equipo de desarrollo) ya están en la matriz.'); return; }
+      addRoles(missing);
+      PM.toast(missing.length === 1 ? 'Rol ágil agregado: ' + missing[0] + '.' : plural(missing.length, 'rol ágil agregado', 'roles ágiles agregados') + ': ' + missing.join(', ') + '.');
+    };
+    const addAgileEvents = (events, withOther) => {
+      if (!events.length) return;
+      let added = 0, newRoles = [];
+      update(({ roles, rows }) => {
+        const defs = agileRoleDefs();
+        const res = resolveAgileRoles(roles);
+        const nextRoles = [...roles];
+        for (const k of Object.keys(defs)) {
+          if (res[k] || (!AGILE_ROLE_KEYS.includes(k) && !withOther)) continue;
+          const id = PM.uid('rol');
+          nextRoles.push({ id, name: defs[k].name }); res[k] = id; newRoles.push(defs[k].name);
+        }
+        /* sin duplicar filas: una fila con el mismo nombre ya presente se omite */
+        const have = new Set(rows.map((r) => normKey(r.activity)));
+        const add = [];
+        for (const e of events) {
+          if (have.has(normKey(e.name))) continue;
+          have.add(normKey(e.name));
+          const cells = {};
+          for (const [k, v] of Object.entries(e.cells)) if (res[k]) cells[res[k]] = v;
+          add.push({ id: PM.uid('ra'), wbsId: null, activity: e.name, cells });
+        }
+        added = add.length;
+        return { roles: nextRoles, rows: [...rows, ...add] };
+      });
+      PM.toast(plural(added, 'evento ágil agregado', 'eventos ágiles agregados') + ' con la asignación RACI típica' + (newRoles.length ? ' y ' + plural(newRoles.length, 'rol nuevo', 'roles nuevos') + ' (' + newRoles.join(', ') + ')' : '') + '. Ajusta las celdas según el equipo.');
+    };
+    const openAgileEvents = () => {
+      const cur = latest.current;
+      PM.openModal((close) => html`<${AgileEventsModal} close=${close} roles=${cur.roles || []} rows=${cur.rows || []} onConfirm=${addAgileEvents} />`);
+    };
     const openRoleImport = (source) => {
       const have = new Set((latest.current.roles || []).map((r) => normKey(r.name)));
       const onConfirm = (names) => { addRoles(names); PM.toast(plural(names.length, 'rol agregado', 'roles agregados') + ' a la matriz.'); };
@@ -669,8 +793,9 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         <${ui.Empty} icon="raci" title="La matriz RACI está vacía" actions=${canWrite ? html`
           <${ui.Button} variant="primary" icon="wbs" onClick=${openWbsImport} disabled=${model.loading}>Importar de la EDT</${ui.Button}>
           <${ui.Button} icon="resources" onClick=${() => openRoleImport('example')}>Agregar roles de ejemplo</${ui.Button}>
-          <${ui.Button} icon="plus" onClick=${addRole}>Agregar rol</${ui.Button}>` : null}>
-          Las filas son actividades o entregables (puedes traerlos de la EDT) y las columnas son roles del equipo y de los interesados. ${canWrite ? 'Empieza importando la EDT o agregando los roles.' : 'Todavía no se ha diligenciado.'}
+          <${ui.Button} icon="plus" onClick=${addRole}>Agregar rol</${ui.Button}>
+          ${agileOn ? html`<${ui.Button} icon="sprint" onClick=${addAgileRoles}>Agregar roles ágiles</${ui.Button}><${ui.Button} icon="release" onClick=${openAgileEvents}>Agregar eventos ágiles</${ui.Button}>` : null}` : null}>
+          Las filas son actividades o entregables (puedes traerlos de la EDT) y las columnas son roles del equipo y de los interesados. ${canWrite ? (agileOn ? 'Empieza importando la EDT o agregando los roles; con el enfoque ágil puedes agregar los roles y los eventos de Scrum y Kanban con su asignación típica.' : 'Empieza importando la EDT o agregando los roles.') : 'Todavía no se ha diligenciado.'}
         </${ui.Empty}>
         <${ui.Card} title="Cómo se lee la matriz">${legend}</${ui.Card}>
       </div>`;
@@ -714,6 +839,9 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
         ${canWrite ? html`<div class="toolbar">
           <${ui.Button} size="sm" icon="plus" onClick=${addRole}>Agregar rol</${ui.Button}>
           <${ui.Dropdown} variant="" size="sm" icon="upload" buttonLabel="Importar" label="Importar filas o roles" align="left" items=${importItems} />
+          ${agileOn ? html`<span class="toolbar-sep" aria-hidden="true"></span>
+            <${ui.Button} size="sm" icon="sprint" onClick=${addAgileRoles} title="Agrega las columnas Dueño del producto, Scrum Master / facilitador y Equipo de desarrollo que falten">Agregar roles ágiles</${ui.Button}>
+            <${ui.Button} size="sm" icon="release" onClick=${openAgileEvents} title="Agrega filas de eventos de Scrum y Kanban con la asignación RACI típica">Agregar eventos ágiles</${ui.Button}>` : null}
           <div class="spacer"></div>
           <span class="xsmall faint">${plural(rows.length, 'fila', 'filas')} · ${plural(roles.length, 'rol', 'roles')}</span>
         </div>` : null}

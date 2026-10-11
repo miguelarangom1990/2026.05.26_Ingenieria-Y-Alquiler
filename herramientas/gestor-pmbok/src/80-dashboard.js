@@ -140,6 +140,24 @@
 .dashboard-danger-row > div { flex: 1 1 200px; min-width: 0; }
 .dashboard-scope-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
 .dashboard-scope-list li { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.dashboard-agile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); overflow: hidden; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.dashboard-agile-sec { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; min-width: 0; box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line); }
+.dashboard-agile-sec > h4 { margin: 0; }
+.dashboard-agile-big { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-xl); line-height: 1.2; color: var(--fg); overflow-wrap: anywhere; }
+.dashboard-agile-big small { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; color: var(--fg-2); margin-left: 4px; }
+.dashboard-agile-goal { font-size: var(--fs-sm); color: var(--fg); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dashboard-burn { min-height: 0; }
+.dashboard-burn svg { display: block; }
+.dashboard-key-dash { width: 16px; height: 2px; display: inline-block; background: repeating-linear-gradient(90deg, var(--fg-3) 0 4px, transparent 4px 7px); }
+.dashboard-alerts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dashboard-alert { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); line-height: 1.4; color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
+.dashboard-alert > .icon { flex: none; margin-top: 2px; }
+.dashboard-alert[data-tone="crit"] > .icon { color: var(--crit); }
+.dashboard-alert[data-tone="warn"] > .icon { color: var(--warn); }
+.dashboard-alert[data-tone="good"] > .icon { color: var(--good); }
+.dashboard-agile-kv { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: baseline; font-size: var(--fs-xs); color: var(--fg-2); }
+.dashboard-agile-kv strong { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--fg); }
+.dashboard-mode-chip { margin-left: 2px; }
 `;
   if (!document.getElementById('css-dashboard')) {
     const s = document.createElement('style'); s.id = 'css-dashboard'; s.textContent = CSS; document.head.appendChild(s);
@@ -694,6 +712,203 @@
     </${Panel}>`;
   }
 
+  /* ---------------------------------------------------------------- tablero: capa ágil (§9.4)
+     Lee model.agile y model.agileItems (los mismos datos de PM.useProjectModel que ya usa el tablero; no abre otra
+     suscripción) y calcula con PM.calc / PM.agile del núcleo. */
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const agileReleases = (data) => (data && Array.isArray(data.releases) ? data.releases.filter((r) => isObj(r) && r.id) : []);
+  const agileSprints = (data) => (data && Array.isArray(data.sprints) ? data.sprints.filter((s) => isObj(s) && s.id) : [])
+    .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+  const fpts = (v, unit) => fmt.num(v, Number.isInteger(v) ? 0 : 1) + ' ' + unit;
+  const FRAMEWORK_LABEL = { scrum: 'Scrum', kanban: 'Kanban (flujo continuo)', 'scrum-kanban': 'Scrum con tablero Kanban' };
+  const MODE_LABEL = { hibrido: 'Enfoque híbrido', adaptativo: 'Enfoque adaptativo' };
+  /* Release que se sigue en el tablero: el de la iteración en curso; si no, el primero en curso, comprometido o sin cerrar. */
+  const activeReleaseOf = (releases, current) => (current && current.releaseId && releases.find((r) => r.id === current.releaseId))
+    || releases.find((r) => r.status === 'en-curso') || releases.find((r) => r.status === 'comprometido') || releases.find((r) => r.status !== 'cerrado') || null;
+  function agileSummary(model) {
+    const A = PM.agile, C = PM.calc;
+    const data = model.agile || {};
+    const settings = A.settings(data);
+    const items = Array.isArray(model.agileItems) ? model.agileItems : [];
+    const releases = agileReleases(data);
+    const sprints = agileSprints(data);
+    const statusDate = model.statusDate, cal = model.sched.cal;
+    const current = sprints.find((s) => s.status === 'en-curso') || null;
+    const next = current ? null : sprints.find((s) => s.status === 'planeado') || null;
+    const burndown = current ? C.sprintBurndown({ sprint: current, items, settings, cal, statusDate }) : null;
+    let left = null, sprintDays = null;
+    if (current && D.valid(current.end)) {
+      const from = D.valid(current.start) && current.start > statusDate ? current.start : D.add(statusDate, 1);
+      left = statusDate >= current.end ? 0 : cal.countWork(from, current.end);
+      sprintDays = D.valid(current.start) && current.start <= current.end ? cal.countWork(current.start, current.end) : null;
+    }
+    const vel = C.velocity({ sprints, items, settings });
+    const active = activeReleaseOf(releases, current);
+    let rel = null;
+    if (active) {
+      const prog = C.releaseProgress({ release: active, items, settings });
+      const ac = A.releaseActualCost(active, model.costs, model.tree, statusDate);
+      const ev = C.agileEvm({ release: active, sprints, items, settings, actualCost: ac, statusDate });
+      const fc = C.releaseForecast({ release: active, sprints, items, settings, cal, statusDate });
+      rel = { r: active, prog, ev, fc };
+    }
+    /* alertas con el mismo alcance del tablero Kanban: la iteración en curso en Scrum; todo el flujo en Kanban */
+    const scopeSprint = settings.framework !== 'kanban' && current ? current.id : null;
+    const counts = new Map();
+    let wip = 0, thr = 0;
+    const from28 = D.add(statusDate, -27);
+    for (const it of items) {
+      if (!A.countable(it)) continue;
+      const cat = A.category(settings, it.status);
+      if (cat === 'terminado' && D.valid(it.doneDate) && it.doneDate >= from28 && it.doneDate <= statusDate) thr++;
+      if (scopeSprint && it.sprintId !== scopeSprint) continue;
+      counts.set(it.status, (counts.get(it.status) || 0) + 1);
+      if (cat === 'en-curso') wip++;
+    }
+    const wipOver = settings.columns.filter((c) => PM.isNum(c.wip) && c.wip > 0 && (counts.get(c.id) || 0) > c.wip).map((c) => ({ id: c.id, name: c.name, n: counts.get(c.id), wip: c.wip }));
+    const blocked = A.sortByRank(items.filter((it) => A.countable(it) && it.blocked && !A.isDone(settings, it)));
+    return { settings, unit: A.unitShort(settings), items, releases, sprints, current, next, burndown, left, sprintDays, vel, rel, wipOver, blocked, scopeSprint, wip, thr };
+  }
+
+  /* Burndown mínimo de la iteración en curso: ideal (discontinua) y restante (hasta la fecha de corte). */
+  function MiniBurndown({ bd, unit, name }) {
+    const ref = useRef();
+    const width = useWidth(ref, 260);
+    const H = 118;
+    const days = bd.days;
+    const geo = useMemo(() => {
+      if (days.length < 2) return null;
+      const n = days.length - 1;
+      const maxV = Math.max(1, num(bd.committed), ...days.map((d) => Math.max(num(d.ideal), num(d.remaining), num(d.scope))));
+      const yLabel = fmt.num(maxV, Number.isInteger(maxV) ? 0 : 1);
+      const M = { l: Math.max(22, yLabel.length * 6.4 + 10), r: 8, t: 10, b: 20 };
+      const iw = Math.max(60, width - M.l - M.r), ih = H - M.t - M.b;
+      const x = (i) => M.l + (i / n) * iw;
+      const y = (v) => M.t + ih - (num(v) / maxV) * ih;
+      const ideal = days.map((d, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(d.ideal).toFixed(1)).join('');
+      let rem = '', last = null;
+      days.forEach((d, i) => { if (!isNum(d.remaining)) return; rem += (rem ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(d.remaining).toFixed(1); last = { x: x(i), y: y(d.remaining), d, i }; });
+      return { M, iw, ih, ideal, rem, last, yLabel, first: days[1] ? days[1].date : days[0].date, end: days[n].date };
+    }, [days, width, bd.committed]);
+    if (!geo) return null;
+    const { M } = geo;
+    const last = geo.last;
+    const lastIdeal = last ? last.d.ideal : null;
+    const aria = 'Burndown de ' + (name || 'la iteración') + ': ' + (last ? 'restan ' + fpts(last.d.remaining, unit) + ' al ' + fmt.date(last.d.date) + ' frente a ' + fpts(Math.round(lastIdeal * 10) / 10, unit) + ' de la línea ideal' : 'la iteración aún no empieza') + '; compromiso ' + fpts(num(bd.committed), unit) + '.';
+    return html`<div class="stack-sm" style="gap:4px">
+      <div class="chart dashboard-burn" ref=${ref}>
+        <svg width=${width} height=${H} viewBox=${'0 0 ' + width + ' ' + H} role="img" aria-label=${aria} data-chart="burndown">
+          <line class="grid-line" x1=${M.l} x2=${M.l + geo.iw} y1=${M.t} y2=${M.t} />
+          <text x=${M.l - 6} y=${M.t + 3.5} text-anchor="end">${geo.yLabel}</text>
+          <text x=${M.l - 6} y=${M.t + geo.ih + 3.5} text-anchor="end">0</text>
+          <line class="axis-line" x1=${M.l} x2=${M.l + geo.iw} y1=${M.t + geo.ih} y2=${M.t + geo.ih} />
+          <text x=${M.l} y=${H - 5} text-anchor="start">${fmt.date(geo.first, 'dm')}</text>
+          <text x=${M.l + geo.iw} y=${H - 5} text-anchor="end">${fmt.date(geo.end, 'dm')}</text>
+          <path data-series="ideal" d=${geo.ideal} style="fill:none;stroke:var(--fg-3);stroke-width:1.5;stroke-dasharray:5 4" />
+          ${geo.rem ? html`<path data-series="restante" d=${geo.rem} style="fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round" />` : null}
+          ${last ? html`<circle cx=${last.x} cy=${last.y} r="4" style="fill:var(--accent);stroke:var(--surface);stroke-width:2" />` : null}
+        </svg>
+      </div>
+      <div class="legend" style="font-size:var(--fs-xs)"><span class="legend-item"><span class="dashboard-key-dash"></span>Ideal</span><span class="legend-item"><span class="legend-line" style="background:var(--accent)"></span>Restante${last ? html` <span class="dashboard-legend-v">${fpts(last.d.remaining, unit)}</span>` : null}</span></div>
+    </div>`;
+  }
+
+  const idxWord = (v, hi, mid, lo) => (!isNum(v) ? null : v > IDX_HIGH ? hi : v >= IDX_LOW ? mid : lo);
+  function AgileCard({ model, project }) {
+    const s = useMemo(() => agileSummary(model), [model.agile, model.agileItems, model.costs, model.tree, model.statusDate, model.sched]);
+    const { unit, current, next, burndown, vel, rel, wipOver, blocked, settings } = s;
+    const statusDate = model.statusDate;
+    const cal = model.sched.cal;
+    const currency = model.currency;
+    const mode = PM.agile.mode(project);
+    const links = html`<${ViewBtn} label="Backlog" view="backlog" /><${ViewBtn} label="Kanban" view="kanban" /><${ViewBtn} label="Iteraciones" view="iteraciones" /><${ViewBtn} label="Métricas" view="metricas-agiles" />`;
+    const subtitle = (MODE_LABEL[mode] || 'Capa ágil') + ' · ' + (FRAMEWORK_LABEL[settings.framework] || 'Scrum') + ' · al ' + fmt.date(model.statusDate);
+    if (!s.items.length && !s.releases.length && !s.sprints.length) {
+      return html`<${Panel} title="Seguimiento ágil" subtitle=${subtitle} actions=${links} data-card="agile">
+        <div class="dashboard-blank" data-agile-empty>
+          <div>La capa ágil está activa, pero aún no hay backlog, releases ni iteraciones. Empieza por el backlog del producto (historias de usuario con criterios de aceptación) y luego planifica los releases y las iteraciones.</div>
+          <div class="row"><${ui.Button} size="sm" variant="primary" icon="backlog" onClick=${() => go('backlog')}>Crear el backlog</${ui.Button}><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>Planificar releases e iteraciones</${ui.Button}></div>
+        </div>
+      </${Panel}>`;
+    }
+
+    /* 1. iteración actual */
+    let iter;
+    if (current) {
+      const over = D.valid(current.end) && statusDate > current.end;
+      iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
+        <h4 class="label-caps">Iteración actual</h4>
+        <div class="row" style="gap:6px"><strong data-agile-sprint-name>${current.name || 'Iteración sin nombre'}</strong><${ui.Chip} tone="accent" icon="sprint">En curso</${ui.Chip}></div>
+        ${current.goal ? html`<div class="dashboard-agile-goal" title=${current.goal}><span class="faint">Objetivo: </span>${current.goal}</div>` : html`<div class="xsmall faint">Sin objetivo de iteración registrado.</div>`}
+        ${over ? html`<div class="dashboard-alert" data-tone="warn" data-agile-overdue><${ui.Icon} name="alert" size=${15} /><span>Terminó el ${fmt.date(current.end)} y sigue en curso: ciérrala en Releases e iteraciones para fijar lo terminado.</span></div>`
+          : html`<div class="dashboard-agile-big" data-agile-left=${s.left}>${s.left === null ? '—' : fmt.num(s.left)}<small>${s.left === 1 ? 'día hábil restante' : 'días hábiles restantes'}</small></div>
+            <div class="xsmall faint">${D.valid(current.start) ? fmt.date(current.start, 'dm') + ' – ' : ''}${D.valid(current.end) ? fmt.date(current.end, 'dm') : 'sin fecha de fin'}${s.sprintDays ? ' · ' + s.sprintDays + ' días hábiles' : ''}</div>`}
+        ${burndown && burndown.days.length > 1 ? html`<${MiniBurndown} bd=${burndown} unit=${unit} name=${current.name} />` : null}
+        <div class="dashboard-agile-kv">${burndown ? html`<span>Terminado <strong data-agile-done>${fpts(burndown.done, unit)}</strong></span><span>Restante <strong>${fpts(burndown.remaining, unit)}</strong></span><span>Compromiso <strong>${fpts(num(burndown.committed), unit)}</strong></span>` : null}</div>
+      </div>`;
+    } else if (settings.framework === 'kanban') {
+      iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
+        <h4 class="label-caps">Flujo continuo</h4>
+        <div class="dashboard-agile-big">${fmt.num(s.wip)}<small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
+        <div class="xsmall faint">Rendimiento: ${s.thr === 1 ? '1 elemento terminado' : fmt.num(s.thr) + ' elementos terminados'} en las últimas 4 semanas.</div>
+      </div>`;
+    } else {
+      iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
+        <h4 class="label-caps">Iteración actual</h4>
+        <div class="small">${next ? html`Ninguna iteración en curso. Próxima: <strong>${next.name || 'Iteración'}</strong>${D.valid(next.start) ? ', inicia el ' + fmt.date(next.start) : ''}.` : 'Ninguna iteración en curso ni planeada.'}</div>
+        <div><${ui.Button} size="sm" icon="sprint" onClick=${() => go('iteraciones')}>${next ? 'Iniciar la iteración' : 'Planificar la siguiente iteración'}</${ui.Button}></div>
+      </div>`;
+    }
+
+    /* 2. velocidad */
+    const velSec = html`<div class="dashboard-agile-sec" data-agile="velocity">
+      <h4 class="label-caps">Velocidad media</h4>
+      <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'}<small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
+      <div class="xsmall faint">${vel.closed ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + (Math.min(3, vel.closed) === 1 ? ' iteración cerrada' : ' iteraciones cerradas') + (vel.closed > 1 ? ' (mín. ' + fpts(vel.min3, unit) + ', máx. ' + fpts(vel.max3, unit) + ')' : '') + '.' : 'Aparece al cerrar la primera iteración (terminado al cierre).'}</div>
+      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${isNum(vel.avg3) ? html`<span>${num(burndown.committed) > vel.avg3 * 1.2 ? 'Supera la velocidad media en más de 20 %' : 'Dentro de la velocidad media'}</span>` : null}</div>` : null}
+    </div>`;
+
+    /* 3. release activo: avance, SPI y CPI ágiles, pronóstico */
+    let relSec;
+    if (!rel) {
+      relSec = html`<div class="dashboard-agile-sec" data-agile="release"><h4 class="label-caps">Release activo</h4><div class="small">${s.releases.length ? 'Todos los releases están cerrados.' : 'Aún no hay releases: agrúpalos en la hoja de ruta para seguir su avance, su valor ganado ágil y su pronóstico.'}</div><div><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>${s.releases.length ? 'Ver releases' : 'Crear release'}</${ui.Button}></div></div>`;
+    } else {
+      const { r, prog, ev, fc } = rel;
+      const spiT = PM.calc.indexTone(ev.spi), cpiT = PM.calc.indexTone(ev.cpi);
+      const fv = fc.finish && D.valid(r.end) ? wdDiff(cal, r.end, fc.finish) : null;
+      const fcText = prog.total > 0 && !prog.remaining ? 'Alcance terminado' + (D.valid(prog.lastDone) ? ' el ' + fmt.date(prog.lastDone) : '') + '.'
+        : !fc.finish ? (prog.total > 0 ? 'Sin velocidad todavía: el pronóstico aparece al cerrar la primera iteración.' : 'Sin alcance estimado en el release.')
+        : 'Terminación probable: ' + fmt.date(fc.finish) + (fc.sprintsNeeded ? ' (' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración más' : ' iteraciones más') + ')' : '') + (fv === null ? '.' : fv === 0 ? ', en la fecha del release.' : ', ' + fmt.num(Math.abs(fv)) + ' ' + wdUnit(fv) + (fv > 0 ? ' después' : ' antes') + ' del fin del release (' + fmt.date(r.end) + ').');
+      const fcTone = fv === null ? null : fv > 0 ? 'warn' : 'good';
+      relSec = html`<div class="dashboard-agile-sec" data-agile="release">
+        <h4 class="label-caps">Release activo</h4>
+        <div class="row" style="gap:6px"><strong data-agile-release=${r.id}>${r.name || 'Release sin nombre'}</strong>${r.baseline ? html`<${ui.Chip} tone="outline" icon="layers" title=${'Línea base del release: ' + fpts(num(r.baseline.points), unit) + (D.valid(r.baseline.end) ? ', fin ' + fmt.date(r.baseline.end) : '')}>Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}</div>
+        <div class="dashboard-agile-kv"><span>Terminado <strong data-agile-progress>${fpts(prog.done, unit)} de ${fpts(prog.total, unit)}</strong></span><span><strong>${fmt.pct(prog.pct, 1)}</strong></span></div>
+        <${ui.Meter} value=${prog.pct} tone=${prog.pct >= 1 ? 'good' : undefined} label=${'Avance del release ' + (r.name || '') + ': ' + fmt.pct(prog.pct, 1)} />
+        <div class="dashboard-pair" style="margin-top:4px">
+          <div data-index="spi-agil"><div class="dashboard-pair-k" title="SPI ágil = EV / PV (PV = BAC × iteraciones transcurridas / planeadas)">SPI ágil</div><div class="stat-value" style=${toneStyle(spiT)}>${idx(ev.spi)}</div><div class="stat-sub">${idxWord(ev.spi, 'Adelantado', 'Al día', 'Atrasado') || (ev.bac > 0 ? 'Sin iteraciones transcurridas' : 'Sin presupuesto (BAC)')}</div></div>
+          <div data-index="cpi-agil"><div class="dashboard-pair-k" title="CPI ágil = EV / AC (costos reales imputados al release)">CPI ágil</div><div class="stat-value" style=${toneStyle(cpiT)}>${idx(ev.cpi)}</div><div class="stat-sub">${idxWord(ev.cpi, 'Por debajo del presupuesto', 'Dentro del presupuesto', 'Por encima del presupuesto') || (ev.bac > 0 ? 'Sin costos imputados' : 'Sin presupuesto (BAC)')}</div></div>
+        </div>
+        <div class="dashboard-alert" data-tone=${fcTone || undefined} data-agile-forecast=${fc.finish || ''}><${ui.Icon} name=${fcTone === 'warn' ? 'alert' : 'calendar'} size=${15} /><span>${fcText}${fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst && prog.remaining ? ' Rango: ' + fmt.date(fc.finishBest) + ' a ' + fmt.date(fc.finishWorst) + '.' : ''}</span></div>
+        ${ev.bac > 0 ? html`<div class="xsmall faint">BAC ${moneyShort(ev.bac, currency)} · EV ${moneyShort(ev.ev, currency)} · AC ${moneyShort(ev.ac, currency)}</div>` : null}
+      </div>`;
+    }
+
+    /* 4. alertas */
+    const alerts = [];
+    for (const w of wipOver) alerts.push(html`<li key=${'wip-' + w.id} class="dashboard-alert" data-tone="crit" data-agile-alert="wip"><${ui.Icon} name="alert" size=${15} /><span>Límite WIP superado en «${w.name}»: ${w.n} elementos para un límite de ${w.wip}.</span></li>`);
+    if (blocked.length) alerts.push(html`<li key="blocked" class="dashboard-alert" data-tone="crit" data-agile-alert="blocked"><${ui.Icon} name="lock" size=${15} /><span>${blocked.length === 1 ? '1 elemento bloqueado' : blocked.length + ' elementos bloqueados'}: ${blocked.slice(0, 3).map((it) => (it.code || '') + (it.title ? ' ' + trunc(it.title, 40) : '')).join('; ')}${blocked.length > 3 ? ' y ' + (blocked.length - 3) + ' más' : ''}.</span></li>`);
+    const alertSec = html`<div class="dashboard-agile-sec" data-agile="alerts">
+      <h4 class="label-caps">Alertas del flujo${s.scopeSprint ? ' · iteración actual' : ''}</h4>
+      ${alerts.length ? html`<ul class="dashboard-alerts">${alerts}</ul>` : html`<div class="dashboard-alert" data-tone="good" data-agile-alert="none"><${ui.Icon} name="check-circle" size=${15} /><span>Sin alertas: ninguna columna supera su límite WIP y no hay elementos bloqueados.</span></div>`}
+      ${alerts.length ? html`<div><${LinkBtn} label="Ver tablero Kanban" onClick=${() => go('kanban')} /></div>` : null}
+    </div>`;
+
+    return html`<${Panel} title="Seguimiento ágil" subtitle=${subtitle} actions=${links} data-card="agile">
+      <div class="dashboard-agile-grid">${iter}${relSec}${velSec}${alertSec}</div>
+    </${Panel}>`;
+  }
+
   /* ---------------------------------------------------------------- tablero: líneas base y ruta sugerida */
   const partDetail = (id, bl, cur) => {
     if (id === 'scope') return ((bl.scope && bl.scope.wbs) || []).length + ' elementos de la EDT';
@@ -742,7 +957,7 @@
     { id: 'control', label: 'Ejecución, monitoreo y cierre' },
   ];
 
-  function buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite }) {
+  function buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode = 'predictivo' }) {
     const acta = docs.get('acta-constitucion');
     const inter = docs.get('registro-interesados');
     const nInter = inter && inter.fields && Array.isArray(inter.fields.interesados) ? inter.fields.interesados.filter((r) => r && String(r.nombre || r.cargo || r.organizacion || '').trim()).length : 0;
@@ -802,7 +1017,76 @@
         note: blockers.length ? (isApproved(acie) ? 'Se aprobó con pendientes: ' : 'Antes de aprobarla: ') + blockers.join(', ') + '.' : null, showNote: !!(acie || ifin),
         action: () => openDoc('acta-cierre') },
     ];
-    return steps.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
+    let route = steps;
+    if ((mode === 'hibrido' || mode === 'adaptativo') && PM.agile) {
+      const ag = agileSteps({ model, docs, nodes });
+      const byId = Object.fromEntries(steps.map((s) => [s.id, s]));
+      if (mode === 'hibrido') {
+        /* híbrido: la ruta predictiva completa más el enfoque ágil después del alcance (EDT), la línea base del release junto
+           a la del proyecto y, al empezar la ejecución, la primera iteración y la revisión y retrospectiva de cada iteración */
+        route = [];
+        for (const s of steps) {
+          if (s.id === 'avance') route.push(ag.iteracion);
+          route.push(s);
+          if (s.id === 'edt') route.push(ag.enfoque, ag.vision, ag.backlog, ag.terminado, ag.releases);
+          if (s.id === 'lineabase') route.push(ag.lbRelease);
+          if (s.id === 'avance') route.push(ag.revision);
+        }
+      } else {
+        /* adaptativo: los pasos predictivos esenciales (acta, interesados, riesgos, plan de gestión de cambios) y los ágiles */
+        const planCambios = docs.get('plan-gestion-cambios');
+        route = [byId.acta, byId.interesados, byId.riesgos,
+          { phase: 'plan', id: 'plan-cambios', label: 'Plan de gestión de cambios', desc: '4.2 · Control de cambios en dos niveles: el backlog se ajusta libremente; el alcance, la fecha o el presupuesto del release, con solicitud de cambio.', done: isApproved(planCambios), partial: !!planCambios, stateLabel: docStateLabel(planCambios, 'Aprobado'), action: () => openDoc('plan-gestion-cambios') },
+          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, ag.iteracion, ag.revision];
+      }
+    }
+    return route.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
+  }
+  /* Pasos ágiles de la ruta sugerida (§9): cada uno se da por hecho con los datos del proyecto. */
+  function agileSteps({ model, docs, nodes }) {
+    const A = PM.agile;
+    const data = model.agile || {};
+    const settings = A.settings(data);
+    const unit = A.unitShort(settings);
+    const items = Array.isArray(model.agileItems) ? model.agileItems : [];
+    const countable = items.filter(A.countable);
+    const releases = agileReleases(data);
+    const sprints = agileSprints(data);
+    /* enfoque por entregable (nodos de la EDT con approach) */
+    const nAdapt = nodes.filter((n) => n && n.approach === 'adaptativo').length;
+    const nSet = nodes.filter((n) => n && (n.approach === 'adaptativo' || n.approach === 'predictivo')).length;
+    const vision = docs.get('vision-producto');
+    const ddt = docs.get('definicion-terminado');
+    const ddtList = ddt && ddt.fields && Array.isArray(ddt.fields.definicionTerminado) ? ddt.fields.definicionTerminado.filter((x) => String(x || '').trim()) : [];
+    const planRel = docs.get('plan-release');
+    const est = countable.reduce((t, i) => t + A.estimate(i), 0);
+    const withBl = releases.filter((r) => isObj(r.baseline));
+    const committed = releases.filter((r) => r.status === 'comprometido' || r.status === 'en-curso');
+    const started = sprints.filter((sp) => sp.status === 'en-curso' || sp.status === 'cerrado');
+    const cur = sprints.find((sp) => sp.status === 'en-curso');
+    const closed = sprints.filter((sp) => sp.status === 'cerrado');
+    /* revisión y retrospectiva de una iteración: el documento enlazado en la iteración o uno de esa plantilla con su nombre */
+    const ids = new Set(docs.list.map((d) => d.id));
+    const hasDoc = (sp, kind, tid) => !!(sp.docs && sp.docs[kind] && ids.has(sp.docs[kind])) || (docs.byTemplate[tid] || []).some((d) => d.fields && norm(d.fields.iteracion) && norm(d.fields.iteracion) === norm(sp.name));
+    const covered = closed.filter((sp) => hasDoc(sp, 'revision', 'acta-revision-sprint') && hasDoc(sp, 'retrospectiva', 'retrospectiva'));
+    const anyEventDoc = (docs.byTemplate['acta-revision-sprint'] || []).length + (docs.byTemplate.retrospectiva || []).length > 0;
+    return {
+      enfoque: { phase: 'plan', id: 'enfoque', label: 'Definir el enfoque por entregable en la EDT', desc: 'PMBOK® 7 · Qué entregables siguen en cascada y cuáles se desarrollan por iteraciones.', done: nAdapt > 0, partial: nSet > 0,
+        stateLabel: nAdapt ? nAdapt + (nAdapt === 1 ? ' entregable adaptativo' : ' entregables adaptativos') : nodes.length ? 'Sin entregables adaptativos' : 'Pendiente (sin EDT)', action: () => go('edt') },
+      vision: { phase: 'plan', id: 'vision', label: 'Visión del producto', desc: '5.2 · Para quién es el producto, qué necesidad resuelve y cómo se medirá el éxito.', done: !!vision, stateLabel: vision ? PM.docStatus(vision.status).label : 'Pendiente', action: () => openDoc('vision-producto') },
+      backlog: { phase: 'plan', id: 'backlog', label: 'Backlog inicial', desc: '5.2 / 5.3 · Historias de usuario priorizadas con criterios de aceptación y estimación.', done: countable.length > 0, partial: items.length > 0,
+        stateLabel: countable.length ? countable.length + (countable.length === 1 ? ' elemento' : ' elementos') + (est > 0 ? ' · ' + fpts(est, unit) : ' sin estimar') : items.length ? 'Solo épicas' : 'Pendiente', action: () => go('backlog') },
+      terminado: { phase: 'plan', id: 'terminado', label: 'Definición de listo y de terminado', desc: '8.1 · Cuándo un elemento puede entrar a una iteración y cuándo se da por terminado.', done: !!ddt && ddtList.length > 0, partial: !!ddt,
+        stateLabel: ddt ? (ddtList.length ? PM.docStatus(ddt.status).label + ' · ' + ddtList.length + (ddtList.length === 1 ? ' criterio' : ' criterios') : 'Sin criterios de terminado') : 'Pendiente', action: () => openDoc('definicion-terminado') },
+      releases: { phase: 'plan', id: 'releases', label: 'Plan de releases', desc: '6.5 · Hoja de ruta: releases con objetivo, fechas, iteraciones y presupuesto.', done: releases.length > 0, partial: !!planRel,
+        stateLabel: releases.length ? releases.length + (releases.length === 1 ? ' release' : ' releases') : planRel ? 'Plan sin releases creados' : 'Pendiente', action: () => go('iteraciones') },
+      lbRelease: { phase: 'plan', id: 'linea-base-release', label: 'Fijar la línea base del release', desc: '4.6 · Congela alcance, fecha y presupuesto del release comprometido; cambiarlos requiere control de cambios.', done: withBl.length > 0 && committed.every((r) => isObj(r.baseline)), partial: withBl.length > 0,
+        stateLabel: releases.length ? withBl.length + ' de ' + releases.length + (releases.length === 1 ? ' release con línea base' : ' releases con línea base') : 'Pendiente', action: () => go('iteraciones') },
+      iteracion: { phase: 'control', id: 'primera-iteracion', label: 'Planificar la primera iteración', desc: '4.3 · Objetivo, capacidad y elementos comprometidos; al iniciarla se fija el compromiso.', done: started.length > 0, partial: sprints.length > 0,
+        stateLabel: cur ? (cur.name || 'Iteración') + ' en curso' : closed.length ? closed.length + (closed.length === 1 ? ' iteración cerrada' : ' iteraciones cerradas') : sprints.length ? 'Planeada: ' + (sprints[0].name || 'iteración') : 'Pendiente', action: () => go('iteraciones') },
+      revision: { phase: 'control', id: 'revision-retro', label: 'Revisión y retrospectiva de cada iteración', desc: '5.5 / 4.4 · Acta de revisión del incremento y retrospectiva con acciones y lecciones aprendidas.', done: closed.length > 0 && covered.length === closed.length, partial: closed.length > 0 || anyEventDoc,
+        stateLabel: closed.length ? covered.length + ' de ' + closed.length + (closed.length === 1 ? ' iteración cerrada documentada' : ' iteraciones cerradas documentadas') : 'Sin iteraciones cerradas', action: () => go('iteraciones') },
+    };
   }
   function RouteStep({ s, i, next }) {
     return html`<li><button type="button" class="dashboard-step" data-step=${s.id} data-state=${s.state} data-next=${next ? 'true' : undefined} onClick=${s.action}>
@@ -815,19 +1099,20 @@
       </span>
     </button></li>`;
   }
-  function RouteCard({ route, prominent }) {
+  function RouteCard({ route, prominent, mode = 'predictivo' }) {
     const [open, setOpen] = useState(!!prominent);
     const done = route.filter((r) => r.done).length;
     const nextIdx = route.findIndex((r) => !r.done);
     const complete = done === route.length;
     const planDone = route.filter((r) => r.phase === 'plan').every((r) => r.done);
-    const summary = complete ? 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®, del acta de constitución al acta de cierre.'
-      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: sigue monitorear, controlar y cerrar.'
-      : done + ' de ' + route.length + ' pasos completados · iniciar, planificar, establecer la línea base, controlar y cerrar.';
-    return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'}>
+    const ad = mode === 'adaptativo', hy = mode === 'hibrido';
+    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución a la revisión y retrospectiva de las iteraciones.' : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
+      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? 'sigue iterar con revisión y retrospectiva.' : hy ? 'sigue iterar, monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
+      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, e iterar.' : hy ? 'iniciar, planificar (en cascada y por iteraciones), establecer las líneas base, iterar, controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
+    return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'} data-mode=${mode}>
       <div class="dashboard-panel-head">
         <div class="stack-sm" style="gap:2px;min-width:0">
-          <h3 class="h3">${prominent ? 'Ruta sugerida para arrancar el proyecto' : 'Ruta sugerida'}</h3>
+          <h3 class="h3">${prominent ? 'Ruta sugerida para arrancar el proyecto' : 'Ruta sugerida'}${MODE_LABEL[mode] ? html` <${ui.Chip} tone="info" icon="sprint" class="dashboard-mode-chip">${MODE_LABEL[mode]}</${ui.Chip}>` : null}</h3>
           <div class="xsmall faint" data-route-summary>${summary}</div>
         </div>
         <div class="row">
@@ -835,19 +1120,22 @@
           ${!prominent ? html`<${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ocultar pasos' : 'Mostrar pasos'}</${ui.Button}>` : null}
         </div>
       </div>
-      ${open ? html`<${RouteSteps} route=${route} nextIdx=${nextIdx} />` : null}
+      ${open ? html`<${RouteSteps} route=${route} nextIdx=${nextIdx} mode=${mode} />` : null}
     </section>`;
   }
   /* Pasos por fase en filas parejas que llegan al borde derecho: con el ancho disponible caben hasta `max` columnas de
      230 px; cada fase usa las filas necesarias y reparte sus pasos entre ellas (8 pasos en 7 columnas → 4 + 4; 6 pasos en
      9 columnas → 6). Sin medida (primer cuadro) rige la regla CSS auto-fit. */
   const STEP_MIN = 230, STEP_GAP = 8;
-  function RouteSteps({ route, nextIdx }) {
+  const PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución por iteraciones' }, hibrido: { plan: 'Inicio y planificación (en cascada y ágil)' } };
+  function RouteSteps({ route, nextIdx, mode }) {
     const ref = useRef();
     const w = useWidth(ref, 0);
     const max = w > 0 ? Math.max(1, Math.floor((w + STEP_GAP) / (STEP_MIN + STEP_GAP))) : 0;
+    const labels = PHASE_LABELS[mode] || {};
     return html`<div class="card-body"><div class="stack" ref=${ref}>
-      ${PHASES.map((ph) => {
+      ${PHASES.map((p0) => {
+        const ph = labels[p0.id] ? { ...p0, label: labels[p0.id] } : p0;
         const items = route.map((s, i) => ({ s, i })).filter((x) => x.s.phase === ph.id);
         if (!items.length) return null;
         const n = items.filter((x) => x.s.done).length;
@@ -900,16 +1188,19 @@
     const canWrite = PM.useCanWrite();
     const p = model.project || project;
     if (model.loading || docs.loading || rMeta.loading || iMeta.loading || cMeta.loading || !p) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
-    const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite });
+    const mode = PM.agile ? PM.agile.mode(p) : 'predictivo';
+    const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode });
     const prominent = route.filter((r) => r.done).length < 5;
+    const agileOn = !!(PM.agile && PM.agile.enabled(p));
     return html`<div class="page dashboard-page">
       <${ui.PageHeader} eyebrow="Tablero del proyecto · 4.5 Monitorear y controlar el trabajo del proyecto" title=${p.name}
         description=${p.description ? trunc(p.description, 260) : null}
         actions=${html`<${ui.Button} size="sm" icon=${canWrite ? 'edit' : 'eye'} onClick=${() => go('ficha')}>${canWrite ? 'Editar ficha' : 'Ver ficha'}</${ui.Button}>`} />
       <${TitleBlock} project=${p} />
       ${canWrite ? html`<${StatusHint} project=${p} model=${model} docs=${docs} />` : null}
-      ${prominent ? html`<${RouteCard} route=${route} prominent />` : null}
+      ${prominent ? html`<${RouteCard} route=${route} prominent mode=${mode} />` : null}
       <${KpiRow} model=${model} />
+      ${agileOn ? html`<${AgileCard} model=${model} project=${p} />` : null}
       <div class="dashboard-two">
         <${SCurveCard} model=${model} />
         <${MilestonesCard} model=${model} />
@@ -925,7 +1216,7 @@
         <${DocsCard} docs=${docs} />
         <${BaselinesCard} model=${model} canWrite=${canWrite} />
       </div>
-      ${!prominent ? html`<${RouteCard} route=${route} />` : null}
+      ${!prominent ? html`<${RouteCard} route=${route} mode=${mode} />` : null}
     </div>`;
   }
 

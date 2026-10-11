@@ -496,14 +496,16 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [relSel, setRelSel] = useState(() => (curRel ? curRel.id : ''));
     if (!d) return html`<${ui.Modal} title="Actividad no encontrada" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}><p>La actividad ya no existe; puede que otra persona la haya eliminado.</p></${ui.Modal}>`;
     const comp = sched.byId.get(taskId);
-    const staleRel = !!(orig.releaseId && !links.relById.has(orig.releaseId));
-    const showRel = !!((ag0 && ag0.agileOn) || curRel || orig.releaseId);
+    /* la actividad puede desaparecer mientras el editor sigue abierto (p. ej. al confirmar su eliminación) */
+    const baseT = orig || d;
+    const staleRel = !!(baseT.releaseId && !links.relById.has(baseT.releaseId));
+    const showRel = !!((ag0 && ag0.agileOn) || curRel || baseT.releaseId);
     const selRel = relSel ? links.relById.get(relSel) || null : null;
     const selProg = selRel ? links.progressOf(selRel) : null;
     const derived = !!(selProg && selProg.total > 0);
     const sameLink = !!(selRel && curRel && selRel.id === curRel.id);
     /* vista previa con la misma regla del núcleo (PM.agile.applyToSchedule) aplicada a lo guardado */
-    const preview = derived && PM.agile ? (PM.agile.applyToSchedule({ settings: {}, tasks: [{ ...orig, releaseId: selRel.id }] }, { ...((ag0 && ag0.agile) || {}), releases: [{ ...selRel, taskId }] }, (ag0 && ag0.items) || []).tasks[0] || null) : null;
+    const preview = derived && PM.agile ? (PM.agile.applyToSchedule({ settings: {}, tasks: [{ ...baseT, releaseId: selRel.id }] }, { ...((ag0 && ag0.agile) || {}), releases: [{ ...selRel, taskId }] }, (ag0 && ag0.items) || []).tasks[0] || null) : null;
     const otherTaskId = selRel ? links.taskByRel.get(selRel.id) : null;
     const otherTask = otherTaskId && otherTaskId !== taskId ? liveTasks.find((t) => t.id === otherTaskId) : null;
     const relOptions = links.releases.map((r) => { const tid = links.taskByRel.get(r.id); const other = tid && tid !== taskId ? liveTasks.find((t) => t.id === tid) : null; return { value: r.id, label: relName(r) + (other ? ' (vinculado a «' + taskName(other) + '»)' : '') }; });
