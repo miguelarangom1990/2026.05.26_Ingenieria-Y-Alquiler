@@ -337,6 +337,8 @@ async function setRegistryState(page, pid, code, estado) {
       const r2 = rel(a, 'r2');
       eq([r2.baseline.points, r2.baseline.end, r2.baseline.budget, r2.baseline.sprints, r2.baseline.changeRef, r2.baseline.date, r2.status], [29, '2026-11-20', 80000000, 4, null, '2026-09-04', 'comprometido'], 'línea base del release 2');
       await page.waitForSelector('[data-role="change-level1"]');
+      /* menos iteraciones creadas que las de la línea base no es un cambio: se crean a medida que se planifica */
+      assert(/Iteraciones: 0 creadas de 4 de la línea base/.test(await page.locator('[data-role="change-level1"]').innerText().then(nb)), 'iteraciones aún no creadas: nivel 1');
     });
 
     await step('Planificar: capacidad, objetivo, agregar con teclado, llenar hasta la capacidad y quitar', async () => {
@@ -357,13 +359,13 @@ async function setRegistryState(page, pid, code, estado) {
       await page.waitForFunction(() => { const a = document.activeElement; const tr = a && a.closest('[data-role="candidates"] tr[data-item-id]'); return tr && tr.dataset.itemId === 'j2'; }, null, { timeout: 4000 });
       await page.locator('[data-role="candidates"] tr[data-item-id="j2"]').getByRole('button', { name: /Agregar HU-021/ }).click();
       await until(page, async () => (await getItem(page, pid, 'j2')).sprintId === r2s.id, 'j2 agregado');
-      await page.waitForFunction(() => /Compromiso: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
+      await page.waitForFunction(() => /Pronóstico: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
       await page.getByRole('button', { name: 'Llenar hasta la capacidad' }).click();
       await until(page, async () => (await getItem(page, pid, 'j3')).sprintId === r2s.id, 'j3 agregado al llenar');
       eq((await getItem(page, pid, 'j4')).sprintId, null, 'j4 no cabe');
       await page.locator('[data-role="sprint-items"] tr[data-item-id="j2"]').getByRole('button', { name: /Quitar HU-021/ }).click();
       await until(page, async () => (await getItem(page, pid, 'j2')).sprintId === null, 'j2 quitado');
-      await page.waitForFunction(() => /Compromiso: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
+      await page.waitForFunction(() => /Pronóstico: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
       eq((await getItem(page, pid, 'j2')).status, 'backlog', 'un elemento quitado antes de iniciar sigue en el backlog');
       await page.fill(`#ags-cap-${r2s.id}`, '10');
       await page.press(`#ags-cap-${r2s.id}`, 'Enter');
@@ -455,7 +457,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st2 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'abre el acta de revisión');
       const rev = await getDoc(page, pid, st2.params.docId);
-      eq([rev.fields.objetivoCumplido, rev.fields.comprometido, rev.fields.terminado, rev.fields.elementos.map((e) => [e.codigo, e.resultado])], ['Parcialmente', 13, 8, [['HU-020', 'Aceptado'], ['HU-022', 'No terminado'], ['HU-023', 'No terminado']]], 'acta de revisión con lo no terminado');
+      eq([rev.fields.objetivoCumplido || null, rev.fields.objetivo, rev.fields.comprometido, rev.fields.terminado, rev.fields.elementos.map((e) => [e.codigo, e.resultado])], [null, 'Emitir la primera factura electrónica', 13, 8, [['HU-020', 'Aceptado'], ['HU-022', 'No terminado'], ['HU-023', 'No terminado']]], 'acta de revisión con lo no terminado y sin veredicto prellenado (lo decide el dueño del producto)');
       await page.evaluate((sid) => PM.navigate('iteraciones', { release: 'r2', sprint: sid }), r2s.id);
       await page.locator('[data-doc-kind="retrospectiva"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st3 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^retrospectiva--/.test(s.params.docId || '') ? s : null; }, 'abre la retrospectiva');
@@ -537,6 +539,11 @@ async function setRegistryState(page, pid, code, estado) {
       const capDisabled = await page.locator('[data-role="planner"] input.num').first().isDisabled();
       assert(capDisabled, 'capacidad deshabilitada');
       eq(await page.locator('[data-role="candidates"] button:has-text("Agregar")').count(), 0, 'sin botones para agregar');
+      /* las pistas de edición no aparecen en solo lectura */
+      const pl = await page.locator('[data-role="planner"]').innerText().then(nb);
+      assert(!/Se guarda al salir del campo|Disponibilidad real del equipo|Agrégalos desde los candidatos/.test(pl), 'sin pistas de edición en solo lectura: ' + pl.slice(0, 300));
+      const docsTxt = await page.locator('[data-role="sprint-docs"]').innerText().then(nb);
+      assert(/Aún no hay retrospectiva\./.test(docsTxt) && !/Crea la retrospectiva/.test(docsTxt), 'solo lectura: «Aún no hay retrospectiva» en lugar de invitar a crearla: ' + docsTxt);
       await page.evaluate(() => PM.setState({ canWrite: true }));
     });
 
@@ -676,7 +683,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.sprints = a.sprints.filter((s) => s.id !== 'sx'); await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
     });
 
-    await step('Acta de revisión: sin veredicto en curso; en una cerrada usa lo terminado al cierre', async () => {
+    await step('Acta de revisión: sin veredicto prellenado; en una cerrada usa lo terminado al cierre', async () => {
       await page.evaluate((tpls) => { if (!PM.templates['acta-revision-sprint']) PM.registerTemplates(tpls); }, STUB_TEMPLATES);
       await page.evaluate(() => { PM.navigate('metricas-agiles'); PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }); });
       await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"] [data-doc-kind="revision"] button:not([disabled])');
@@ -690,7 +697,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st2 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && s.params.docId !== st.params.docId && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'acta de la iteración cerrada');
       const f2 = (await getDoc(page, pid, st2.params.docId)).fields;
-      eq([f2.objetivoCumplido, f2.comprometido, f2.terminado], ['Sí', 12, 12], 'iteración cerrada: terminado fijado al cierre (no el actual, 9)');
+      eq([f2.objetivoCumplido || null, f2.comprometido, f2.terminado], [null, 12, 12], 'iteración cerrada: sin veredicto prellenado (el objetivo lo evalúa el dueño del producto) y terminado fijado al cierre (no el actual, 9)');
       await until(page, async () => { const x = await getAgile(page, pid); return spr(x, 's2').docs && spr(x, 's2').docs.revision === st2.params.docId; }, 'docId del acta guardado en la iteración');
     });
 
@@ -712,6 +719,252 @@ async function setRegistryState(page, pid, code, estado) {
     });
 
     await step('Regresiones: sin errores de consola ni tarjetas de error', async () => {
+      eq(await errorCards(page), [], 'tarjetas de error');
+      eq(errors, [], 'errores de consola');
+    });
+  } finally { await browser.close(); onFail = null; }
+}
+
+/* ================================================================== revisión integral (iteraciones-46) */
+{
+  const agile = JSON.parse(JSON.stringify(SEED.agile));
+  /* iteración planeada del release 2 (sin objetivo) y un elemento agregado a la iteración en curso después de iniciarla */
+  agile.sprints.push({ id: 's4', name: 'Iteración 4', releaseId: 'r2', goal: '', start: '2026-09-28', end: '2026-10-09', status: 'planeado', capacity: 14, committed: null, completed: null, docs: {} });
+  const items = [...ITEMS, it('i15', 'HU-014', 'Agregado durante la iteración', 2, { sprintId: 's3', sprintAddedDate: '2026-09-03', status: 'por-hacer', history: H([['2026-07-28', 'backlog'], ['2026-09-03', 'por-hacer']]) })];
+  const { browser, page, errors, pid } = await newApp({ width: 1360, height: 950, seedOpts: { agile, items } });
+  onFail = async () => { for (let k = 0; k < 3; k++) { if (!(await page.locator('.modal-backdrop').count())) break; await page.keyboard.press('Escape'); await page.waitForTimeout(150); } };
+  const calOf = (fn, arg) => page.evaluate(({ fn, arg }) => { const cal = PM.cal.make({ workweek: 5, holidaysCO: true }, '2026-08-03'); return new Function('cal', 'D', 'arg', fn)(cal, PM.date, arg); }, { fn, arg });
+  const focusInfo = () => page.evaluate(() => { const a = document.activeElement; return { tag: a ? a.tagName : null, role: a ? a.getAttribute('data-role') : null, inPlanner: !!(a && a.closest('[data-role="planner"]')), inView: !!(a && a.closest('[data-view="iteraciones"]')) }; });
+  try {
+    await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1' }));
+    await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"]');
+
+    await step('Planificador: compromiso al iniciar separado del alcance actual con lo agregado después del inicio', async () => {
+      const t = nb(await page.locator('[data-role="commitment"]').innerText());
+      assert(/Compromiso al iniciar: 14 pts de 14 pts de capacidad \(100\s*%\)/.test(t), 'compromiso fijado al iniciar: ' + t);
+      assert(/Alcance actual: 16 pts en 4 elementos \(\+2 pts agregados durante la iteración en 1 elemento\)/.test(t), 'alcance actual con lo agregado: ' + t);
+      assert(!/Compromiso: 14 pts en 4 elementos/.test(t), 'no mezcla el compromiso con el conteo actual');
+      eq(await page.locator('[data-role="commitment"] [data-role="commit-added"]').count(), 1, 'segmento de alcance agregado en la barra');
+      assert(/Agregado durante la iteración/.test(t), 'leyenda del segmento agregado');
+      assert(/Velocidad del equipo: 11,5 pts \(promedio de las últimas 2 iteraciones cerradas del proyecto/.test(t), 'velocidad del equipo con su base: ' + t);
+      assert(/agregado durante la iteración 2 pts/.test(nb(await page.getAttribute('[data-role="commitment"] .ags-commit-track', 'aria-label'))), 'la barra lo dice en su nombre accesible');
+    });
+
+    await step('Tarjetas de release: iteraciones cerradas frente a las planeadas', async () => {
+      eq(nb(await page.locator('.ags-rel[data-release-id="r1"] [data-role="release-card-summary"]').innerText()), '28 pts de 51 pts · 2 de 4 iteraciones cerradas', 'release 1');
+      eq(nb(await page.locator('.ags-rel[data-release-id="r2"] [data-role="release-card-summary"]').innerText()), '0 pts de 29 pts · 0 de 4 iteraciones cerradas', 'release 2');
+      const tiles = nb(await page.locator('[data-role="release-stats"]').innerText());
+      assert(/Iteraciones cerradas\s+2 de 4/.test(tiles) && /3 creadas · 4 planeadas · línea base: 4/.test(tiles), 'tile de iteraciones: ' + tiles);
+      assert(/Velocidad media del release[\s\S]*Promedio de las últimas 2 iteraciones cerradas del release/.test(tiles), 'velocidad media del release: ' + tiles);
+      assert(/velocidad media del release/.test(tiles), 'el pronóstico dice qué velocidad usa: ' + tiles);
+    });
+
+    await step('Encabezados: solo los procesos PMBOK, con el nombre oficial de 4.6', async () => {
+      const eb = await page.locator('.page-head .eyebrow').textContent();
+      eq(nb(eb), '6.5 Desarrollar el cronograma · 4.6 Realizar el control integrado de cambios', 'iteraciones');
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector('svg[data-chart="velocity"]');
+      eq(nb(await page.locator('.page-head .eyebrow').textContent()), '4.5 Monitorear y controlar el trabajo del proyecto · 7.4 Controlar los costos', 'métricas ágiles');
+    });
+
+    await step('Métricas: la velocidad dice cuántas iteraciones promedia y de qué alcance; lo planificado tiene su propio estilo', async () => {
+      const head = nb(await page.locator('[data-chart-card="velocity"] .card-head').innerText());
+      assert(/Promedio de las últimas 2 iteraciones cerradas del release: 11,5 pts · rango 11–12/.test(head), 'subtítulo con N: ' + head);
+      const legend = nb(await page.locator('[data-chart-card="velocity"] [data-role="legend"]').innerText());
+      assert(/Promedio \(últimas 2 cerradas\)/.test(legend) && !/últimas 3/.test(legend), 'leyenda con N: ' + legend);
+      const aria = nb(await page.getAttribute('svg[data-chart="velocity"]', 'aria-label'));
+      assert(/Promedio de las últimas 2 iteraciones cerradas del release: 11,5 pts/.test(aria) && !/últimas 3/.test(aria), 'resumen accesible con N: ' + aria);
+      const fct = nb(await page.locator('[data-role="forecast-text"]').innerText());
+      assert(/Con la velocidad media del release \(11,5 pts, promedio de las últimas 2 iteraciones cerradas del release\)/.test(fct), 'pronóstico con la velocidad del release: ' + fct);
+      await page.locator('[data-role="metrics-filters"] button', { hasText: 'Todo el proyecto' }).click();
+      await page.waitForFunction(() => /del proyecto/.test(document.querySelector('[data-chart-card="velocity"] .card-head').innerText));
+      eq(await page.locator('svg[data-chart="velocity"] [data-series="planned"]').count(), 1, 'la iteración planeada se dibuja con contorno (no como «Comprometido»)');
+      eq(await page.locator('svg[data-chart="velocity"] [data-sprint="s4"] [data-series="committed"]').count(), 0, 'sin barra de comprometido para la planeada');
+      const lg2 = nb(await page.locator('[data-chart-card="velocity"] [data-role="legend"]').innerText());
+      assert(/Planificado \(sin iniciar\)/.test(lg2) && /Comprometido/.test(lg2), 'leyenda con lo planificado: ' + lg2);
+      const tiles = nb(await page.locator('[data-role="evm-tiles"]').innerText());
+      assert(!/En línea|Sobre el presupuesto|Bajo el presupuesto/.test(tiles), 'sin el vocabulario anterior: ' + tiles);
+      assert(/SPI\s+[\d,—]+\s+(Adelantado|Al día|Atrasado|—)/.test(tiles), 'SPI con el vocabulario del tablero: ' + tiles);
+      await page.locator('#ags-m-rel').selectOption('r2');
+      await page.waitForFunction(() => /Release 2/.test(document.querySelector('[data-chart-card="burnup"] .h3').textContent));
+      const fc2 = nb(await page.locator('[data-role="forecast-text"]').innerText());
+      assert(/Con la velocidad del equipo \(11,5 pts, promedio de las últimas 2 iteraciones cerradas del proyecto\)/.test(fc2), 'release sin iteraciones cerradas: velocidad del equipo: ' + fc2);
+    });
+
+    let s5;
+    await step('Agregar iteración: empieza después de la última iteración del proyecto, avisa que pasa del fin y exige control de cambios', async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r1"]');
+      await page.click('[data-role="sprint-add"]');
+      const dlg = dialog(page);
+      await dlg.locator('[data-role="add-confirm"]').waitFor();
+      const t = nb(await dlg.innerText());
+      assert(/Iteración 5 iría del 13 oct 2026 al 26 oct 2026, después de la última iteración del proyecto/.test(t), 'fechas sin cruzarse con la iteración 4 del release 2: ' + t);
+      assert(/Iteración 5 termina después del fin del release \(25 sep 2026\)/.test(t) && /Requiere control de cambios \(nivel 2\)/.test(t), 'aviso de fin y de control de cambios: ' + t);
+      await dlg.getByRole('button', { name: 'Agregar iteración' }).click();
+      const a = await until(page, async () => { const x = await getAgile(page, pid); return x && x.sprints.length === 5 ? x : null; }, 'iteración agregada');
+      s5 = a.sprints.find((s) => s.name === 'Iteración 5');
+      eq([s5.releaseId, s5.start, s5.end], ['r1', '2026-10-13', '2026-10-26'], 'iteración 5 después de la iteración 4 (12 oct festivo)');
+      await page.waitForSelector('[data-role="change-needed"]');
+      const cc = nb(await page.locator('[data-role="change-needed"]').innerText());
+      assert(/Iteración que termina después del fin del release \(25 sep 2026\): Iteración 5 \(termina el 26 oct 2026\)/.test(cc), 'la variación lista la iteración que pasa del fin: ' + cc);
+      assert(/Iteraciones: 4, igual que la línea base/.test(cc), 'número de iteraciones igual a la línea base: ' + cc);
+      eq(await page.locator(`tr[data-sprint-id="${s5.id}"] [data-role="sprint-late"]`).count(), 1, 'la fila dice que pasa del fin del release');
+      eq(await page.locator('[data-role="sprint-overlap"]').count(), 0, 'ninguna iteración se cruza');
+    });
+
+    await step('Agregar otra iteración: supera la línea base (5 frente a 4) y se puede cancelar', async () => {
+      await page.click('[data-role="sprint-add"]');
+      const dlg = dialog(page);
+      await dlg.locator('[data-role="add-confirm"]').waitFor();
+      assert(/El release pasaría a 5 iteraciones frente a 4 de su línea base/.test(nb(await dlg.innerText())), 'aviso de la línea base');
+      await dlg.getByRole('button', { name: 'Cancelar' }).click();
+      await page.waitForTimeout(300);
+      eq((await getAgile(page, pid)).sprints.length, 5, 'no se agregó');
+    });
+
+    await step('Solicitud de cambio: el impacto en el cronograma incluye la iteración que pasa del fin', async () => {
+      await page.click('[data-role="change-register"]');
+      const dlg = dialog(page);
+      assert(/Iteración 5 \(termina el 26 oct 2026\)/.test(nb(await dlg.innerText())), 'el diálogo lista la iteración');
+      await dlg.getByRole('button', { name: 'Registrar solicitud' }).click();
+      const a = await until(page, async () => { const x = await getAgile(page, pid); return x && rel(x, 'r1').pendingChange ? x : null; }, 'solicitud');
+      const f = (await getDoc(page, pid, rel(a, 'r1').pendingChange.docId)).fields;
+      const wd = await calOf('return cal.countWork(D.add("2026-09-25", 1), "2026-10-26");');
+      eq(f.diasCronograma, wd, 'días hábiles hasta el fin de la última iteración');
+      assert(/el trabajo se extiende hasta el 26 de octubre de 2026/.test(f.impactoCronograma) && /Iteración 5 \(13 oct 2026 – 26 oct 2026\)/.test(f.impactoCronograma), 'impacto en el cronograma: ' + f.impactoCronograma);
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.releases.find((r) => r.id === 'r1').pendingChange = null; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+    });
+
+    await step('Generar iteraciones: la vista previa sigue a la última del proyecto y marca las que pasan del fin', async () => {
+      await page.click('.ags-rel[data-release-id="r2"]');
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r2"]');
+      await page.click('[data-role="sprint-generate"]');
+      const dlg = dialog(page);
+      const rows = await dlg.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => [tr.cells[0].textContent.replace(/[  ]/g, ' ').trim(), tr.dataset.late]));
+      eq(rows.length, 3, 'tres por generar (4 planeadas, 1 creada)');
+      assert(rows[0][0].startsWith('Iteración 6'), 'numeración: ' + rows[0][0]);
+      const first = await dlg.locator('tbody tr').first().locator('td').nth(1).innerText().then(nb);
+      eq(first, '27 oct 2026', 'empieza después de la iteración 5 (no se cruza)');
+      assert(rows.some((r) => r[1] === 'true'), 'marca las que terminan después del 20 nov: ' + JSON.stringify(rows));
+      assert(/El release se alarga/.test(nb(await dlg.locator('[data-role="add-risk"]').innerText())), 'aviso sin línea base');
+      await dlg.getByRole('button', { name: 'Cancelar' }).click();
+    });
+
+    await step('Cerrar iteración con el teclado: el foco queda en el planificador, no en <body>', async () => {
+      await page.click('.ags-rel[data-release-id="r1"]');
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"]');
+      await page.focus('[data-role="sprint-close"]');
+      await page.keyboard.press('Enter');
+      const dlg = dialog(page);
+      await dlg.getByRole('button', { name: 'Cerrar iteración' }).focus();
+      await page.keyboard.press('Enter');
+      await until(page, async () => (spr(await getAgile(page, pid), 's3') || {}).status === 'cerrado', 's3 cerrada');
+      const f = await until(page, async () => { const x = await focusInfo(); return x.tag !== 'BODY' && x.inPlanner ? x : null; }, 'foco en el planificador');
+      assert(f.role === 'sprint-start' || f.tag === 'H2', 'foco en el botón principal o el título: ' + JSON.stringify(f));
+    });
+
+    await step('Iniciar iteración: pide el objetivo (compromiso), habla del pronóstico y ofrece ajustar las fechas desde hoy', async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r2', sprint: 's4' }));
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s4"]');
+      assert(/Sin objetivo: escríbelo antes de iniciar/.test(nb(await page.locator('[data-role="no-goal"]').innerText())), 'el planificador advierte la falta de objetivo');
+      await page.locator('[data-role="candidates"] tr[data-item-id="j1"]').getByRole('button', { name: /Agregar HU-020/ }).click();
+      await until(page, async () => (await getItem(page, pid, 'j1')).sprintId === 's4', 'j1 en s4');
+      /* fechas planeadas tres semanas después de hoy: hoy queda antes del inicio */
+      const plan = await calOf('const s = cal.addWork(D.add(D.today(), 21), 0); return { start: s, end: cal.addWork(s, 9), today: D.today(), adj: cal.addWork(D.today(), 0) };');
+      await page.evaluate(async ({ pid, plan }) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); const x = a.sprints.find((s) => s.id === 's4'); x.start = plan.start; x.end = plan.end; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, { pid, plan });
+      await page.waitForTimeout(250);
+      await page.click('[data-role="sprint-start"]');
+      const dlg = dialog(page);
+      const t = nb(await dlg.innerText());
+      assert(/Pronóstico: 8 pts en 1 elemento \(capacidad 14 pts\)/.test(t) && /compromiso del equipo/.test(t), 'objetivo como compromiso y total como pronóstico: ' + t);
+      assert(/es anterior al inicio planeado/.test(t), 'avisa que hoy está fuera de las fechas: ' + t);
+      await dlg.locator('[data-role="start-confirm"]').click();
+      assert(/Escribe el objetivo de la iteración/.test(nb(await dlg.innerText())), 'sin objetivo no inicia');
+      eq((spr(await getAgile(page, pid), 's4') || {}).status, 'planeado', 'sigue planeada');
+      await dlg.locator('#ags-start-goal').fill('Emitir la primera factura electrónica');
+      await dlg.locator('input[name="ags-start-dates"][value="adjust"]').check();
+      await dlg.locator('[data-role="start-confirm"]').focus();
+      await page.keyboard.press('Enter');
+      const a = await until(page, async () => { const x = await getAgile(page, pid); return x && spr(x, 's4').status === 'en-curso' ? x : null; }, 's4 en curso');
+      const s4 = spr(a, 's4');
+      const end = await calOf('return cal.addWork(arg, 9);', plan.adj);
+      eq([s4.goal, s4.start, s4.end, s4.committed], ['Emitir la primera factura electrónica', plan.adj, end, 8], 'objetivo guardado y fechas desde hoy con la misma duración');
+      const f = await until(page, async () => { const x = await focusInfo(); return x.role === 'sprint-close' ? x : null; }, 'foco en «Cerrar iteración»');
+      eq(f.inPlanner, true, 'foco en el planificador');
+    });
+
+    await step('Velocidad 0: el pronóstico lo dice en lugar de pedir cerrar una iteración', async () => {
+      await page.evaluate(async (pid) => {
+        const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile')));
+        a.releases.push({ id: 'r9', name: 'Release 9 · Piloto', start: '2026-06-01', end: '2026-12-18', status: 'en-curso', budget: 1000000, plannedSprints: 2 });
+        a.sprints.push({ id: 's9', name: 'Iteración 9', releaseId: 'r9', start: '2026-06-01', end: '2026-06-12', status: 'cerrado', capacity: 5, committed: 5, completed: 0, docs: {} });
+        await PM.store.set(PM.paths.tool(pid, 'agile'), a);
+        await PM.store.set(PM.paths.backlogItem(pid, 'z1'), { code: 'HU-090', type: 'historia', title: 'Piloto', estimate: 5, rank: 99000, status: 'backlog', releaseId: 'r9', sprintId: null, createdAt: '2026-05-20', history: [] });
+      }, pid);
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r9' }));
+      await page.waitForSelector('[data-chart-card="forecast"] [data-role="forecast-none"]');
+      const t = nb(await page.locator('[data-role="forecast-none"]').innerText());
+      assert(/La velocidad de las iteraciones cerradas es 0: no se puede pronosticar/.test(t) && !/Cierra una iteración/.test(t), 'velocidad 0: ' + t);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r9' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r9"]');
+      assert(/La velocidad de las iteraciones cerradas es 0/.test(nb(await page.locator('[data-role="release-stats"]').innerText())), 'tarjeta del release');
+    });
+
+    let expected;
+    await step('Cambiar la actividad del release: la anterior conserva el avance calculado desde el backlog', async () => {
+      expected = await page.evaluate(async (pid) => {
+        const g = (t) => PM.store.get(PM.paths.tool(pid, t));
+        const items = (await PM.store.list(PM.paths.backlog(pid))).map((d) => ({ ...d.data, id: d.id }));
+        const eff = PM.agile.applyToSchedule(await g('schedule'), await g('agile'), items, {});
+        const t = eff.tasks.find((x) => x.id === 't2');
+        return { progress: t.progress, actualStart: t.actualStart, derived: !!t.agileDerived };
+      }, pid);
+      eq([expected.derived, expected.progress > 0, expected.actualStart], [true, true, '2026-08-03'], 't2 calcula su avance desde el backlog');
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r1"]');
+      await page.getByRole('button', { name: 'Editar release' }).click();
+      await dialog(page).locator('#ags-rel-task').selectOption('t4');
+      await dialog(page).getByRole('button', { name: 'Guardar release' }).click();
+      const t2 = await until(page, async () => { const s = await page.evaluate((pid) => PM.store.get(PM.paths.tool(pid, 'schedule')), pid); const t = s.tasks.find((x) => x.id === 't2'); return t.progress > 0 ? t : null; }, 't2 con avance guardado');
+      eq([t2.progress, t2.actualStart, t2.releaseId || null], [expected.progress, '2026-08-03', null], 'avance e inicio real conservados');
+      eq(rel(await getAgile(page, pid), 'r1').taskId, 't4', 'el release representa la nueva actividad');
+      await page.waitForFunction(() => /Facturación electrónica/.test(document.querySelector('[data-role="release-detail"] .ags-kv').textContent));
+    });
+
+    await step('Eliminar release: la actividad vinculada conserva el avance y el diálogo lo dice', async () => {
+      await page.getByRole('button', { name: /Más acciones de Release 1/ }).click();
+      await page.getByRole('menuitem', { name: 'Eliminar release' }).click();
+      const dlg = dialog(page);
+      const keep = nb(await dlg.locator('[data-role="delete-keep-progress"]').innerText());
+      assert(/«Facturación electrónica» conserva el avance calculado desde el backlog/.test(keep) && keep.includes(nb(await page.evaluate((v) => PM.fmt.pct100(v, 1), expected.progress))), 'texto del diálogo: ' + keep);
+      await dlg.getByRole('button', { name: 'Eliminar release' }).click();
+      const t4 = await until(page, async () => { const s = await page.evaluate((pid) => PM.store.get(PM.paths.tool(pid, 'schedule')), pid); const t = s.tasks.find((x) => x.id === 't4'); return t.progress > 0 ? t : null; }, 't4 con avance guardado');
+      eq([t4.progress, t4.actualStart], [expected.progress, '2026-08-03'], 'avance e inicio real de la actividad');
+      eq((await getAgile(page, pid)).releases.some((r) => r.id === 'r1'), false, 'release eliminado');
+      const f = await until(page, async () => { const x = await focusInfo(); return x.tag !== 'BODY' ? x : null; }, 'foco después de eliminar');
+      assert(f.inView && f.tag === 'H2', 'el foco pasa a un título de la vista: ' + JSON.stringify(f));
+    });
+
+    await step('Datos con nombre, objetivo y notas numéricos: los editores guardan sin error', async () => {
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); const r = a.releases.find((x) => x.id === 'r2'); Object.assign(r, { name: 7, goal: 9, notes: 3 }); const s = a.sprints.find((x) => x.id === 's4'); Object.assign(s, { name: 12, goal: 5, notes: 4 }); await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r2', sprint: 's4' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r2"]');
+      await page.getByRole('button', { name: 'Editar release' }).click();
+      await dialog(page).getByRole('button', { name: 'Guardar release' }).click();
+      await page.waitForTimeout(300);
+      eq(await page.locator('.modal-backdrop').count(), 0, 'el editor de release se cierra');
+      const r2 = await until(page, async () => { const x = await getAgile(page, pid); const r = rel(x, 'r2'); return r.name === '7' ? r : null; }, 'release guardado');
+      eq([r2.name, r2.goal, r2.notes], ['7', '9', '3'], 'textos guardados como cadena');
+      await page.locator('[data-role="planner"]').getByRole('button', { name: 'Editar 12' }).click();
+      await dialog(page).getByRole('button', { name: 'Guardar iteración' }).click();
+      await page.waitForTimeout(300);
+      eq(await page.locator('.modal-backdrop').count(), 0, 'el editor de iteración se cierra');
+      const s4 = await until(page, async () => { const s = spr(await getAgile(page, pid), 's4'); return s.name === '12' ? s : null; }, 'iteración guardada');
+      eq([s4.name, s4.goal, s4.notes], ['12', '5', '4'], 'textos de la iteración guardados como cadena');
+    });
+
+    await step('Revisión integral: sin errores de consola ni tarjetas de error', async () => {
       eq(await errorCards(page), [], 'tarjetas de error');
       eq(errors, [], 'errores de consola');
     });

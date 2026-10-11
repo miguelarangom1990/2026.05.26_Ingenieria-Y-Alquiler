@@ -1,10 +1,12 @@
 // Pruebas de interacción de 45-agile-backlog: Backlog del producto y Tablero Kanban (§9.4).
 // Uso: node test/agile-backlog.test.mjs --file <página con --include 45> [--shots dir]
-// Cubre: indicadores, alta rápida, editor (crear, validar, editar, estado con historial), reordenar con botones,
-// teclado y arrastre (una sola escritura), filtros, refinamiento, agrupación por épica, selección múltiple,
+// Cubre: indicadores, alta rápida, editor (crear, validar, editar, estado con historial), reordenar con el menú
+// «Ordenar», teclado y arrastre (una sola escritura), filtros, refinamiento, agrupación por épica, selección múltiple,
 // exportación CSV, configuración ágil, tablero (WIP, confirmación, botones, teclado, «Mover a…», editor),
-// traer del backlog, editor de columnas con reasignación, métricas de flujo, solo lectura, proyecto predictivo,
-// 300 elementos, tema oscuro, 1920 px y 400 px sin desborde.
+// traer del backlog, editor de columnas con reasignación, métricas de flujo (todo el flujo o el release, no la
+// iteración), solo lectura, proyecto predictivo, tabla sin desplazamiento lateral a 1280/1360/1920 px y tarjetas en
+// pantallas angostas, iteraciones cerradas, terminado después de la fecha de corte, 300 elementos, tema oscuro,
+// 1920 px y 400 px sin desborde.
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openApp, createProject, gotoView, errorCards, horizontalOverflow, root } from './harness.mjs';
@@ -101,7 +103,7 @@ const today = (page) => page.evaluate(() => PM.date.today());
     ok('total por release', /Release 1 · Inventario En curso · 4 elementos 18 pts 5 terminados/.test(rel) && /Release 2 · Facturación .*5 pts/.test(rel) && /Sin release 2 elementos 4 pts/.test(rel), rel);
     const ep = await page.$eval('[data-epic-progress="e1"]', (e) => e.innerText);
     ok('épica con avance (terminados / total de sus hijos)', /1 de 3 terminados \(33 %\) · 5 \/ 16 pts/.test(ep), ep);
-    ok('fila muestra entregable EDT con código y distintivo ágil', /1\.3\.1 Portal de clientes Ágil/.test(await page.$eval('tr[data-agb-row="i1"] .agb-c-wbs', (e) => e.innerText.replace(/\s+/g, ' '))));
+    ok('fila muestra entregable EDT con código y enfoque ágil (bajo el release a 1360 px)', /EDT 1\.3\.1 Portal de clientes · Ágil/.test(await page.$eval('tr[data-agb-row="i1"] [data-sub="wbs-cell"]', (e) => e.innerText.replace(/\s+/g, ' '))));
     ok('fila muestra bloqueado con texto', /Bloqueado Falta API del ERP/.test(await page.$eval('tr[data-agb-row="i3"]', (e) => e.innerText.replace(/\s+/g, ' '))));
     ok('nota: reordenar no requiere control de cambios', /no requiere control de cambios/.test(await page.innerText('.agb-page')));
   });
@@ -167,27 +169,39 @@ const today = (page) => page.evaluate(() => PM.date.today());
     ok('editor: estado con historial y fecha de terminación (withStatus)', d.status === 'terminado' && d.doneDate === T && d.history[d.history.length - 1].status === 'terminado', d);
   });
 
-  await step('reordenar con botones', async () => {
+  /* «Ordenar» (menú de cada fila): subir, bajar, al inicio y al final; el asa queda para arrastrar y para el teclado */
+  const orderMenu = async (code, item) => {
+    await page.click('button[aria-label="Ordenar ' + code + '"]');
+    await page.waitForSelector('.menu[role="menu"]');
+    if (item) await page.click('.menu [role="menuitem"]:has-text("' + item + '")');
+  };
+  await step('reordenar con el menú «Ordenar»', async () => {
     await spy(page);
-    await page.click('button[aria-label="Subir HU-002"]');
+    await orderMenu('HU-002', 'Subir una posición');
     await sleep(page, 250);
     const o = await order(page);
     ok('subir: HU-002 queda antes de HU-001', o.indexOf('HU-002') === o.indexOf('HU-001') - 1, o);
     const s = await sets(page);
     ok('subir: guarda solo el elemento movido', JSON.stringify(s) === '["i2"]', s);
     ok('subir: rango entre vecinos', (await readItems(page, pid)).i2.rank === 800);
-    ok('subir: el foco sigue en el botón', (await activeLabel(page)) === 'Subir HU-002', await activeLabel(page));
+    ok('subir: el foco vuelve al botón «Ordenar» de la fila', (await activeLabel(page)) === 'Ordenar HU-002', await activeLabel(page));
     await spy(page);
-    await page.click('button[aria-label="Mover HU-005 al inicio del backlog"]');
+    await orderMenu('HU-005', 'Llevar al inicio del backlog');
     await sleep(page, 250);
     ok('al inicio: HU-005 primero', (await order(page))[0] === 'HU-005' && JSON.stringify(await sets(page)) === '["i6"]', [await order(page), await sets(page)]);
     await spy(page);
-    await page.click('button[aria-label="Mover EP-001 al final del backlog"]');
+    await orderMenu('EP-001', 'Llevar al final del backlog');
     await sleep(page, 250);
     const o2 = await order(page);
     ok('al final: EP-001 último', o2[o2.length - 1] === 'EP-001' && JSON.stringify(await sets(page)) === '["e1"]', [o2, await sets(page)]);
-    ok('al final: botón deshabilitado y foco en el asa', (await page.$eval('button[aria-label="Mover EP-001 al final del backlog"]', (b) => b.disabled)) && /^Reordenar EP-001/.test(await activeLabel(page)), await activeLabel(page));
-    await page.click('button[aria-label="Bajar HU-005"]');
+    ok('al final: el foco vuelve al botón «Ordenar»', (await activeLabel(page)) === 'Ordenar EP-001', await activeLabel(page));
+    await orderMenu('EP-001');
+    const dis = await page.$$eval('.menu [role="menuitem"]', (els) => els.map((e) => e.textContent.trim() + (e.disabled ? ':no' : ':sí')));
+    ok('menú del último: «Bajar» y «al final» deshabilitados', JSON.stringify(dis) === JSON.stringify(['Subir una posición:sí', 'Bajar una posición:no', 'Llevar al inicio del backlog:sí', 'Llevar al final del backlog:no']), dis);
+    await page.keyboard.press('Escape');
+    await sleep(page, 100);
+    ok('Escape cierra el menú y devuelve el foco', !(await page.$('.menu[role="menu"]')) && (await activeLabel(page)) === 'Ordenar EP-001', await activeLabel(page));
+    await orderMenu('HU-005', 'Bajar una posición');
     await sleep(page, 250);
     ok('bajar: HU-005 en segunda posición', (await order(page))[1] === 'HU-005', await order(page));
   });
@@ -274,7 +288,7 @@ const today = (page) => page.evaluate(() => PM.date.today());
     await spy(page);
     const before = await page.$$eval('tbody', (bs) => bs.map((b) => [...b.querySelectorAll('tr[data-agb-row] .code-tag')].map((x) => x.textContent)));
     const g0 = before.find((l) => l.includes('HU-002'));
-    await page.click('button[aria-label="Bajar ' + g0[0] + '"]');
+    await orderMenu(g0[0], 'Bajar una posición');
     await sleep(page, 250);
     const after = await page.$$eval('tbody', (bs) => bs.map((b) => [...b.querySelectorAll('tr[data-agb-row] .code-tag')].map((x) => x.textContent)));
     const g1 = after.find((l) => l.includes(g0[0]));
@@ -424,13 +438,21 @@ const today = (page) => page.evaluate(() => PM.date.today());
 
   await step('tablero: métricas de flujo', async () => {
     const cyc = await tileText(page, 'cycle'), lead = await tileText(page, 'lead'), thr = await tileText(page, 'thr'), bl = await tileText(page, 'blocked');
-    ok('tiempo de ciclo (primer «en curso» → terminado, contando ambos días; PM.agile.flowTimes)', /3 días/.test(cyc), cyc);
-    ok('tiempo de entrega (creación → terminado, contando ambos días)', /11 días/.test(lead), lead);
-    ok('rendimiento de 4 semanas', /1 elemento/.test(thr) && /2 h/.test(thr), thr);
+    /* con el filtro de la iteración en curso, las métricas siguen siendo las de todo el flujo (i1 de la iteración 1, i4 e
+       IN-001 sin iteración): una iteración dura menos que la ventana de 4 semanas del rendimiento */
+    ok('tiempo de ciclo de todo el flujo (primer «en curso» → terminado, contando ambos días; PM.agile.flowTimes)', /3,3 días/.test(cyc) && /3 elementos/.test(cyc), cyc);
+    ok('tiempo de entrega de todo el flujo (creación → terminado, contando ambos días)', /12 días/.test(lead), lead);
+    ok('rendimiento de 4 semanas de todo el flujo (3 de 4 semanas = 0,8 por semana)', /^Rendimiento \(últimas 4 semanas\) 3 elementos/.test(thr) && /10 h/.test(thr) && /0,8 por semana/.test(thr), thr);
     ok('elementos bloqueados', /bloqueados 1/.test(bl), bl);
+    const scopeTxt = await page.$eval('[data-agk-scope]', (e) => e.textContent.trim());
+    ok('el tablero dice sobre qué se calculan las métricas', /^Métricas de todo el flujo del equipo: el filtro de iteración y el de responsable solo eligen las tarjetas visibles/.test(scopeTxt), scopeTxt);
+    const tiles = async () => JSON.stringify(await page.$$eval('[data-agk-metrics] [data-tile]', (els) => els.map((e) => e.innerText.replace(/\s+/g, ' '))));
+    const withSprint = await tiles();
     await page.selectOption('#agk-f-sprint', '');
     await sleep(page, 200);
     ok('«Todo el flujo» incluye otras iteraciones', (await colOf('i1')) === 'terminado' && /3,3 días/.test(await tileText(page, 'cycle')), await tileText(page, 'cycle'));
+    ok('quitar el filtro de iteración no cambia las métricas de flujo', (await tiles()) === withSprint, [withSprint, await tiles()]);
+    ok('sin filtros: el alcance se nombra sin aclaraciones', (await page.$eval('[data-agk-scope]', (e) => e.textContent.trim())) === 'Métricas de todo el flujo del equipo.');
     await page.selectOption('#agk-f-who', 'Analista');
     await sleep(page, 150);
     const cards = await page.$$eval('[data-agk-card]', (e) => e.map((x) => x.dataset.agkCard).sort().join(','));
@@ -789,6 +811,186 @@ const today = (page) => page.evaluate(() => PM.date.today());
   await browser.close();
 }
 
+/* ================================================================= sesión 1d: regresiones de la revisión integral */
+/* tabla del backlog sin desplazamiento lateral (las columnas secundarias pasan a otras líneas y, en pantallas angostas,
+   cada elemento es una tarjeta), épica no repetida al agrupar, iteraciones cerradas (no reciben ni entregan elementos),
+   estados de la iteración en femenino, métricas de flujo de todo el flujo o del release (no de la iteración) y elementos
+   terminados después de la fecha de corte */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  const pid = await createProject(page, { lifecycle: 'Híbrido' });
+  await seed(page, pid);
+  const T = await today(page);
+  await gotoView(page, 'backlog');
+  await page.waitForSelector('tr[data-agb-row]');
+  const layout = () => page.evaluate(() => {
+    const w = document.querySelector('.agb-twrap'); const vis = (el) => !!el && el.getClientRects().length > 0;
+    const ths = [...w.querySelectorAll('thead th')].filter(vis).map((th) => (th.className.match(/agb-c-([a-z]+)/) || [])[1]);
+    const t = w.querySelector('th.agb-c-title');
+    const wr = w.getBoundingClientRect();
+    const rows = [...w.querySelectorAll('tr[data-agb-row]')].map((tr) => { const b = tr.querySelector('.agb-title').getBoundingClientRect(); const g = tr.querySelector('[data-act="grip"]'); const m = tr.querySelector('[data-act="menu"] button'); return { id: tr.dataset.agbRow, in: b.left >= wr.left - 1 && b.right <= wr.right + 1 && b.width > 100, grip: vis(g), menu: vis(m) && m.getBoundingClientRect().right <= wr.right + 1 }; });
+    return { client: w.clientWidth, scroll: w.scrollWidth, ths, title: vis(t) ? Math.round(t.getBoundingClientRect().width) : 0, rows };
+  });
+  const shown = (sel) => page.evaluate((sel) => { const e = document.querySelector(sel); return e && e.getClientRects().length ? e.innerText.replace(/\s+/g, ' ').trim() : null; }, sel);
+
+  await step('backlog: la tabla cabe a 1360, 1920 y 1280 px', async () => {
+    let l = await layout();
+    ok('1360: la tabla cabe en su contenedor (sin desplazamiento lateral)', l.scroll <= l.client + 1, [l.scroll, l.client]);
+    ok('1360: columnas visibles (valor, entregable, responsable y bloqueo pasan a otras líneas)', JSON.stringify(l.ths) === JSON.stringify(['check', 'pos', 'move', 'id', 'title', 'est', 'prio', 'rel', 'status']), l.ths);
+    ok('1360: el título ocupa el espacio sobrante (≥ 300 px): ' + l.title, l.title >= 300, l.title);
+    ok('1360: valor bajo la prioridad', (await shown('tr[data-agb-row="i1"] [data-sub="value"]')) === 'Valor 8', await shown('tr[data-agb-row="i1"] [data-sub="value"]'));
+    ok('1360: responsable bajo el estado', /Equipo de desarrollo/.test(await shown('tr[data-agb-row="i1"] [data-sub="who"]')), await shown('tr[data-agb-row="i1"] [data-sub="who"]'));
+    ok('1360: entregable bajo el release y la iteración', /^EDT 1\.3\.1 Portal de clientes · Ágil$/.test(await shown('tr[data-agb-row="i1"] [data-sub="wbs-cell"]')), await shown('tr[data-agb-row="i1"] [data-sub="wbs-cell"]'));
+    ok('1360: bloqueo con su motivo bajo el título', (await shown('tr[data-agb-row="i3"] [data-sub="blocked"]')) === 'Bloqueado Falta API del ERP', await shown('tr[data-agb-row="i3"] [data-sub="blocked"]'));
+    ok('1360: cada fila tiene solo el asa y el menú «Ordenar»', l.rows.every((r) => r.grip && r.menu) && !(await page.$('button[aria-label^="Subir "]')), l.rows.filter((r) => !r.grip || !r.menu));
+    await page.setViewportSize({ width: 1920, height: 1000 }); await sleep(page, 250);
+    l = await layout();
+    ok('1920: todas las columnas, sin desplazamiento lateral', l.scroll <= l.client + 1 && JSON.stringify(l.ths) === JSON.stringify(['check', 'pos', 'move', 'id', 'title', 'est', 'prio', 'value', 'rel', 'wbs', 'status', 'who', 'block']), l);
+    ok('1920: título de al menos 260 px: ' + l.title, l.title >= 260, l.title);
+    ok('1920: el valor no se repite bajo la prioridad', (await shown('tr[data-agb-row="i1"] [data-sub="value"]')) === null);
+    await page.setViewportSize({ width: 1280, height: 900 }); await sleep(page, 250);
+    l = await layout();
+    ok('1280: sin desplazamiento lateral; release e iteración bajo el título', l.scroll <= l.client + 1 && !l.ths.includes('rel') && /Release 1 · Inventario/.test(await shown('tr[data-agb-row="i2"] [data-sub="rel"]')) && /Iteración 2/.test(await shown('tr[data-agb-row="i2"] [data-sub="sprint"]')), [l.ths, await shown('tr[data-agb-row="i2"] [data-sub="rel"]')]);
+  });
+
+  await step('backlog: tarjetas en pantallas angostas', async () => {
+    for (const w of [1100, 400]) {
+      await page.setViewportSize({ width: w, height: 900 }); await sleep(page, 250);
+      const l = await layout();
+      ok(w + ': lista de tarjetas (sin encabezados de columna, salvo «Seleccionar todos»)', JSON.stringify(l.ths) === '["check"]' && l.scroll <= l.client + 1, l.ths);
+      ok(w + ': el título de cada elemento se ve dentro del contenedor', l.rows.every((r) => r.in), l.rows.filter((r) => !r.in));
+      ok(w + ': controles de orden visibles en cada tarjeta', l.rows.every((r) => r.grip && r.menu), l.rows.filter((r) => !r.grip || !r.menu));
+      ok(w + ': sin desborde horizontal de la página', (await horizontalOverflow(page)) <= 0, await horizontalOverflow(page));
+      const card = await shown('tr[data-agb-row="i3"]');
+      ok(w + ': la tarjeta muestra código, tipo, estimación, título, estado y posición', /HU-003/.test(card) && /Historia/.test(card) && /8 pts/.test(card) && /Reservar equipos desde el portal/.test(card) && /En curso/.test(card) && /#5\b/.test(card) && /Bloqueado Falta API del ERP/.test(card), card);
+    }
+    if (shots) await page.screenshot({ path: join(shots, 'backlog-tarjetas-400.png'), fullPage: false });
+    await spy(page);
+    await page.click('button[aria-label="Ordenar HU-004"]');
+    await page.click('.menu [role="menuitem"]:has-text("Subir una posición")');
+    await sleep(page, 250);
+    const o = await order(page);
+    ok('400: reordenar desde la tarjeta (menú «Ordenar»)', o.indexOf('HU-004') === o.indexOf('DF-001') - 1 && JSON.stringify(await sets(page)) === '["i5"]', [o, await sets(page)]);
+    await page.setViewportSize({ width: 1360, height: 900 }); await sleep(page, 250);
+  });
+
+  await step('backlog: al agrupar por épica no se repite la épica en cada fila', async () => {
+    ok('sin agrupar: la épica aparece bajo el título', /^Épica EP-001 · Gestión de inventario de andamios$/.test(await shown('tr[data-agb-row="i2"] [data-sub="epic"]')), await shown('tr[data-agb-row="i2"] [data-sub="epic"]'));
+    await page.check('label.check:has-text("Agrupar por épica") input');
+    await sleep(page, 150);
+    ok('agrupado: las filas del grupo no repiten su épica', (await page.$$('tr.agb-group')).length === 3 && !(await page.$('tr[data-agb-row="i2"] [data-sub="epic"]')) && !(await page.$('tr[data-agb-row="i5"] [data-sub="epic"]')));
+    await page.uncheck('label.check:has-text("Agrupar por épica") input');
+  });
+
+  await step('backlog: las iteraciones cerradas no reciben ni entregan elementos', async () => {
+    await page.check('input[aria-label="Seleccionar HU-001"]');
+    await page.check('input[aria-label="Seleccionar TA-001"]');
+    const opts = await page.$$eval('select[aria-label="Asignar iteración a la selección"] option', (os) => os.filter((o) => o.value).map((o) => o.value + '=' + o.textContent));
+    ok('asignación en lote: sin iteraciones cerradas, estados en femenino', JSON.stringify(opts) === JSON.stringify(['__none=Quitar iteración', 's2=Iteración 2 · En curso']), opts);
+    await page.selectOption('select[aria-label="Asignar iteración a la selección"]', '__none');
+    await sleep(page, 350);
+    let it = await readItems(page, pid);
+    ok('quitar iteración: el elemento de la iteración cerrada no sale de ella', it.i1.sprintId === 's1' && it.i7.sprintId === null, [it.i1.sprintId, it.i7.sprintId]);
+    ok('aviso: explica por qué no cambió', /Se quitó la iteración de 1 elemento\. 1 elemento sigue en su iteración cerrada/.test(await page.innerText('.toasts')), await page.innerText('.toasts'));
+    await page.uncheck('input[aria-label="Seleccionar HU-001"]');
+    await page.selectOption('select[aria-label="Asignar iteración a la selección"]', 's2');
+    await sleep(page, 350);
+    it = await readItems(page, pid);
+    ok('asignar a la iteración en curso sigue funcionando', it.i7.sprintId === 's2' && it.i7.sprintAddedDate === T, it.i7);
+    await page.click('.agb-bulk button:has-text("Quitar selección")');
+    await page.click('tr[data-agb-row="i1"] [data-act="open"]');
+    await page.waitForSelector('.modal [data-agb-editor]');
+    const ed = await page.evaluate(() => { const el = document.getElementById('agb-f-sprint'); return { disabled: el.disabled, value: el.value, opts: [...el.options].filter((o) => o.value).map((o) => o.value + '=' + o.textContent) }; });
+    ok('editor: el elemento de una iteración cerrada no cambia de iteración', ed.disabled && ed.value === 's1' && JSON.stringify(ed.opts) === JSON.stringify(['s1=Iteración 1 · Cerrada · Release 1 · Inventario', 's2=Iteración 2 · En curso · Release 1 · Inventario']), ed);
+    ok('editor: lo explica', /La iteración está cerrada: el elemento permanece en ella/.test(await page.innerText('.modal')));
+    await page.keyboard.press('Escape'); await sleep(page, 150);
+    await page.click('tr[data-agb-row="i8"] [data-act="open"]');
+    await page.waitForSelector('.modal [data-agb-editor]');
+    const ed2 = await page.evaluate(() => { const el = document.getElementById('agb-f-sprint'); return { disabled: el.disabled, opts: [...el.options].filter((o) => o.value).map((o) => o.value) }; });
+    ok('editor: las iteraciones cerradas no se ofrecen a otros elementos', !ed2.disabled && JSON.stringify(ed2.opts) === '["s2"]', ed2);
+    await page.keyboard.press('Escape'); await sleep(page, 150);
+  });
+
+  await step('backlog: terminado después de la fecha de corte (editor)', async () => {
+    await page.evaluate(async (pid) => { await PM.projectOps.update(pid, { statusDate: PM.date.add(PM.date.today(), -1) }); }, pid);
+    await sleep(page, 400);
+    await page.click('tr[data-agb-row="i8"] [data-act="open"]');
+    await page.waitForSelector('#agb-f-status');
+    await page.selectOption('#agb-f-status', 'terminado');
+    ok('editor: avisa que la fecha de hoy queda después del corte', /posterior a la fecha de corte del proyecto/.test(await page.innerText('.modal')));
+    await page.click('.modal-foot button:has-text("Guardar cambios")');
+    await sleep(page, 350);
+    ok('al guardar: el aviso explica que las métricas al corte no lo incluyen', /Elemento IN-001 actualizado\. Terminado el .*después de la fecha de corte del proyecto .*Usar hoy/.test(await page.innerText('.toasts')), await page.innerText('.toasts'));
+  });
+
+  await gotoView(page, 'kanban');
+  await page.waitForSelector('[data-agk-col]');
+  await step('tablero: estados de la iteración en femenino e iteración cerrada', async () => {
+    const opts = await page.$$eval('#agk-f-sprint option', (os) => os.map((o) => o.textContent));
+    ok('filtro de iteración: «Cerrada», «En curso»', JSON.stringify(opts) === JSON.stringify(['Todo el flujo', 'Iteración 1 · Cerrada', 'Iteración 2 · En curso']), opts);
+    ok('chip de la iteración en curso', /En curso/.test(await page.innerText('[data-agk-sprint]')));
+    await page.selectOption('#agk-f-sprint', 's1');
+    await sleep(page, 150);
+    ok('chip de la iteración cerrada: «Cerrada»', /Cerrada/.test(await page.innerText('[data-agk-sprint]')), await page.innerText('[data-agk-sprint]'));
+    await page.click('.page-actions button:has-text("Traer del backlog")');
+    await page.waitForSelector('.modal:has-text("Traer del backlog")');
+    const m = await page.innerText('.modal');
+    ok('traer del backlog con una iteración cerrada: no ofrece agregarle elementos y lo explica', !/Incluir elementos sin iteración/.test(m) && /La iteración está cerrada y no recibe elementos nuevos/.test(m), m);
+    await page.keyboard.press('Escape'); await sleep(page, 150);
+    await page.selectOption('#agk-f-sprint', 's2');
+    await sleep(page, 150);
+  });
+
+  await step('tablero: rendimiento del release filtrado sobre las semanas reales', async () => {
+    await page.evaluate(async (pid) => {
+      const add = (n) => PM.date.add(PM.date.today(), n);
+      const ag = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...ag, releases: ag.releases.map((r) => (r.id === 'r2' ? { ...r, start: add(-6), status: 'en-curso' } : r)) });
+      const it = await PM.store.get(PM.paths.backlogItem(pid, 'i6'));
+      await PM.store.set(PM.paths.backlogItem(pid, 'i6'), { ...it, status: 'terminado', doneDate: add(-2), history: [{ date: add(-5), status: 'backlog' }, { date: add(-4), status: 'en-curso' }, { date: add(-2), status: 'terminado' }] });
+    }, pid);
+    await sleep(page, 400);
+    await page.selectOption('#agk-f-rel', 'r2');
+    await sleep(page, 200);
+    const fromDm = await page.evaluate(() => PM.fmt.date(PM.date.add(PM.date.today(), -6), 'dm'));
+    const thr = await tileText(page, 'thr');
+    ok('release iniciado hace menos de 4 semanas: rendimiento desde su inicio, promedio sobre las semanas reales', thr.startsWith('Rendimiento (desde el ' + fromDm + ') 1 elemento') && /5 pts · 1 por semana/.test(thr), thr);
+    ok('alcance de las métricas: el release filtrado', /^Métricas del release «Release 2 · Facturación»: el filtro de iteración/.test(await page.$eval('[data-agk-scope]', (e) => e.textContent.trim())), await page.$eval('[data-agk-scope]', (e) => e.textContent));
+    await page.selectOption('#agk-f-rel', '');
+    await sleep(page, 200);
+  });
+
+  await step('tablero: terminado después de la fecha de corte', async () => {
+    const thr0 = await tileText(page, 'thr');
+    let note = await page.innerText('[data-agk-late]');
+    ok('nota: lo terminado después del corte no cuenta (IN-001 del editor)', /^1 elemento terminado después de la fecha de corte \(.+\) no cuenta en estas métricas/.test(note), note);
+    await page.click('button[aria-label="Mover TA-001 a otra columna"]');
+    await page.click('.menu [role="menuitem"]:has-text("Terminado")');
+    await sleep(page, 400);
+    const toast = await page.innerText('.toasts');
+    ok('mover a «Terminado» después del corte: el aviso lo explica', /TA-001 pasó a «Terminado»\. Terminado el .*\. Quedó después de la fecha de corte del proyecto/.test(toast), toast);
+    ok('se registra la fecha de hoy', (await readItems(page, pid)).i7.doneDate === T);
+    ok('las métricas al corte no cambian', (await tileText(page, 'thr')) === thr0, [thr0, await tileText(page, 'thr')]);
+    note = await page.innerText('[data-agk-late]');
+    ok('nota: 2 elementos terminados después del corte', /^2 elementos terminados después de la fecha de corte .* no cuentan/.test(note), note);
+    await page.click('[data-agk-late] button:has-text("Usar hoy como fecha de corte")');
+    await sleep(page, 500);
+    const sd = await page.evaluate((pid) => PM.store.get(PM.paths.project(pid)).then((p) => p && p.statusDate), pid);
+    ok('«Usar hoy como fecha de corte» actualiza el proyecto', sd === T, sd);
+    ok('con la fecha de corte de hoy: sin nota y el rendimiento los incluye', !(await page.$('[data-agk-late]')) && /^Rendimiento \(últimas 4 semanas\) 4 elementos/.test(await tileText(page, 'thr')), await tileText(page, 'thr'));
+  });
+
+  await step('tablero: solo lectura sin el botón de la fecha de corte', async () => {
+    await page.evaluate(async (pid) => { await PM.projectOps.update(pid, { statusDate: PM.date.add(PM.date.today(), -1) }); PM.setState({ canWrite: false }); }, pid);
+    await sleep(page, 400);
+    ok('solo lectura: la nota remite a la ficha, sin botón', /se actualiza en la Ficha del proyecto/.test(await page.innerText('[data-agk-late]')) && !(await page.$('[data-agk-late] button')));
+    await page.evaluate(() => PM.setState({ canWrite: true }));
+  });
+
+  ok('regresiones de la revisión integral: sin errores de consola ni tarjetas de error', !errors.length && !(await errorCards(page)).length, errors);
+  await browser.close();
+}
+
 /* ================================================================= sesión 2: 300 elementos */
 {
   const { browser, page, errors } = await openApp({ file, width: 1600, height: 900 });
@@ -805,7 +1007,7 @@ const today = (page) => page.evaluate(() => PM.date.today());
   ok('300 elementos: backlog completo en tiempo razonable (< 4 s): ' + Math.round(t1) + ' ms', t1 < 4000, t1);
   await spy(page);
   const t2 = await page.evaluate(async () => {
-    const t0 = performance.now(); document.querySelector('button[aria-label="Subir HU-150"]').click();
+    const t0 = performance.now(); document.querySelector('button[aria-label^="Reordenar HU-150"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     await waitFor(() => [...document.querySelectorAll('tr[data-agb-row] .code-tag')].map((e) => e.textContent).indexOf('HU-150') === 148);
     return performance.now() - t0;
   });

@@ -108,6 +108,9 @@ td.ags-actions { background: var(--surface); }
 .ags-commit-key > i { width: 12px; height: 8px; border-radius: 2px; background: var(--accent); display: inline-block; }
 .ags-commit-key > i.is-light { opacity: 0.35; }
 .ags-commit-key > i.is-cap { width: 2px; height: 12px; background: var(--fg); border-radius: 1px; }
+/* alcance agregado después del inicio: trama (no solo color) */
+.ags-commit-added { position: absolute; top: 0; bottom: 0; border-radius: 0 6px 6px 0; background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--accent); }
+.ags-commit-key > i.is-added { background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px var(--accent); }
 .ags-commit-cap { position: absolute; top: -4px; width: 2px; height: 20px; margin-left: -1px; background: var(--fg); border-radius: 1px; box-shadow: 0 0 0 1px var(--surface); }
 .ags-commit-text { font-size: var(--fs-xs); color: var(--fg-2); display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .ags-commit-text strong { color: var(--fg); font-weight: 600; }
@@ -145,6 +148,7 @@ td.ags-actions { background: var(--surface); }
 .ags-key-sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 .ags-key-cut { width: 2px; height: 12px; display: inline-block; background: var(--signal); border-radius: 1px; flex: none; }
 .ags-key-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.ags-key-out { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; border: 1.5px dashed var(--k, var(--fg-3)); background: transparent; box-sizing: border-box; }
 .ags-data { max-height: 360px; overflow: auto; }
 .ags-note { font-size: var(--fs-xs); color: var(--fg-3); max-width: 80ch; }
 .ags-shared-list { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); }
@@ -211,8 +215,9 @@ td.ags-actions { background: var(--surface); }
   /* Iteraciones de la línea base del release: las planeadas o, si son menos, las ya creadas (así la línea base no queda
      por debajo de lo que el equipo ya tiene en el calendario). */
   const baselineSprints = (release, relSprints) => Math.max(Math.round(num(release && release.plannedSprints, 0)), arr(relSprints).length);
-  /* Iteraciones que se cruzan en el calendario (el equipo trabaja una iteración a la vez). */
-  const overlapsOf = (s, all) => (D.valid(s.start) && D.valid(s.end) ? arr(all).filter((o) => o.id !== s.id && D.valid(o.start) && D.valid(o.end) && o.start <= s.end && o.end >= s.start) : []);
+  /* Iteraciones que se cruzan en el calendario (el equipo trabaja una iteración a la vez). Las cerradas no cuentan: una
+     iteración que se cerró antes de su fin planeado conserva sus fechas y la siguiente puede empezar antes. */
+  const overlapsOf = (s, all) => (s.status !== 'cerrado' && D.valid(s.start) && D.valid(s.end) ? arr(all).filter((o) => o.id !== s.id && o.status !== 'cerrado' && D.valid(o.start) && D.valid(o.end) && o.start <= s.end && o.end >= s.start) : []);
   /* Variación frente a la línea base (PM.calc.releaseVariance con las iteraciones: número frente a la línea base e
      iteraciones que terminan después del fin) más un caso que el núcleo no cubre: si la línea base tiene fecha de fin y
      el release ya no la tiene, la fecha cambió y requiere control de cambios (§9.6). */
@@ -246,6 +251,8 @@ td.ags-actions { background: var(--surface); }
   const lastClosed = (n) => (n === 1 ? 'la última iteración cerrada' : 'las últimas ' + n + ' iteraciones cerradas');
   const velName = (b) => (b.scope === 'release' ? 'velocidad media del release' : 'velocidad del equipo');
   const velWhere = (b) => lastClosed(b.n) + (b.scope === 'release' ? ' del release' : ' del proyecto');
+  /* leyenda de la línea de promedio de la velocidad con el número real de iteraciones promediadas */
+  const avgLabel = (closed) => { const n = Math.min(3, closed); return 'Promedio (' + (n === 1 ? 'última cerrada' : 'últimas ' + n + ' cerradas') + ')'; };
   /* Alcance y terminado del release a una fecha, con los mismos filtros del burnup del núcleo (releaseBurnup). */
   function burnupAt(release, items, settings, day) {
     let scope = 0, done = 0;
@@ -395,7 +402,8 @@ td.ags-actions { background: var(--surface); }
     const bs = Math.round(num(b.sprints, 0));
     if (bs > 0) {
       const n = bs + (v.sprintChange || 0);
-      lines.push(v.sprintChange ? { id: 'sprints', flag: true, text: 'Iteraciones: ' + fmt.num(n) + ' frente a ' + fmt.num(bs) + ' de la línea base (' + sgn(v.sprintChange) + fmt.num(Math.abs(v.sprintChange)) + ').' }
+      lines.push(v.sprintChange > 0 ? { id: 'sprints', flag: true, text: 'Iteraciones: ' + fmt.num(n) + ' frente a ' + fmt.num(bs) + ' de la línea base (+' + fmt.num(v.sprintChange) + ').' }
+        : v.sprintChange < 0 ? { id: 'sprints', flag: false, text: 'Iteraciones: ' + fmt.num(n) + ' creadas de ' + fmt.num(bs) + ' de la línea base.' }
         : { id: 'sprints', flag: false, text: 'Iteraciones: ' + fmt.num(bs) + ', igual que la línea base.' });
     }
     if (after.length) {
@@ -555,15 +563,15 @@ td.ags-actions { background: var(--surface); }
     const lateSet = new Set(risk.afterEnd.map((p) => p.name));
     return html`<${ui.Modal} title="Generar iteraciones" subtitle=${relName(release)} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="sprint" disabled=${!n} onClick=${() => { onConfirm(preview); close(); }}>${n === 1 ? 'Generar 1 iteración' : 'Generar ' + n + ' iteraciones'}</${ui.Button}>`}>
-      <p class="small muted">El release tiene ${existing} de ${planned || 0} iteraciones planeadas. Cada iteración empieza el día hábil siguiente a la última iteración del proyecto (el equipo trabaja una a la vez) y dura lo configurado en la capa ágil, según el calendario del proyecto.</p>
+      <p class="small muted">El release tiene ${countLabel(existing, 'iteración creada', 'iteraciones creadas')}${planned ? ' de ' + planned + ' planeadas' : ' y ninguna planeada'}. Cada iteración empieza el día hábil siguiente a la última iteración del proyecto (el equipo trabaja una a la vez) y dura lo configurado en la capa ágil, según el calendario del proyecto.</p>
       <${ui.Field} label="Número de iteraciones" for="ags-gen-n"><${ui.NumberInput} id="ags-gen-n" value=${count} min=${0} max=${52} onValue=${setCount} /></${ui.Field}>
       ${preview.length ? html`<div class="table-wrap ags-data"><table class="table table-tight"><caption class="sr-only">Iteraciones que se crearán</caption><thead><tr><th>Iteración</th><th>Inicio</th><th>Fin</th></tr></thead>
         <tbody>${preview.map((p) => html`<tr key=${p.name} data-late=${lateSet.has(p.name) ? 'true' : 'false'}><td>${p.name}${lateSet.has(p.name) ? html`<div class="ags-flag"><${ui.Icon} name="alert" size=${13} />Después del fin del release</div>` : null}</td><td class="mono nowrap">${fmt.date(p.start)}</td><td class="mono nowrap">${fmt.date(p.end)}</td></tr>`)}</tbody></table></div>` : null}
-      <${AddRiskNote} risk=${risk} release=${release} />
+      <${AddRiskNote} risk=${risk} release=${release} count=${preview.length} />
     </${ui.Modal}>`;
   }
   /* Aviso al agregar iteraciones que alargan el release o superan su línea base (control de cambios de nivel 2). */
-  function AddRiskNote({ risk, release }) {
+  function AddRiskNote({ risk, release, count = 1 }) {
     if (!risk.afterEnd.length && !risk.overBaseline && !risk.overPlanned) return null;
     const bl = A.hasBaseline(release);
     const lines = [];
@@ -572,7 +580,7 @@ td.ags-actions { background: var(--surface); }
     else if (risk.overPlanned) lines.push('El release pasaría a ' + fmt.num(risk.total) + ' iteraciones frente a ' + fmt.num(risk.planned) + ' planeadas.');
     return html`<${Callout} tone="warn" role="add-risk" title=${bl ? 'Requiere control de cambios (nivel 2)' : 'El release se alarga'}>
       <ul>${lines.map((l) => html`<li key=${l}>${l}</li>`)}</ul>
-      <span>${bl ? 'El release tiene línea base: después de crearlas, registra la solicitud de cambio (4.6 Realizar el control integrado de cambios) y, aprobada, actualiza la línea base del release.' : 'Ajusta la fecha de fin o las iteraciones planeadas del release para que el plan las incluya.'}</span>
+      <span>${bl ? 'El release tiene línea base: después de ' + (count === 1 ? 'crearla' : 'crearlas') + ', registra la solicitud de cambio (4.6 Realizar el control integrado de cambios) y, aprobada, actualiza la línea base del release.' : 'Ajusta la fecha de fin o las iteraciones planeadas del release para que el plan las incluya.'}</span>
     </${Callout}>`;
   }
 
@@ -883,13 +891,23 @@ td.ags-actions { background: var(--surface); }
         PM.toast('Línea base del release actualizada con ' + code + '.');
       },
       releaseDiscardChange: (r) => { if (guard()) commitAgile((d) => { const x = d.releases.find((y) => y.id === r.id); if (x) x.pendingChange = null; }); },
-      sprintAdd: (release) => {
+      sprintAdd: async (release) => {
         if (!guard()) return;
         const p = planSprints(release, 1)[0];
+        /* una iteración que termina después del fin del release o que supera su línea base alarga el release: se avisa
+           antes de crearla (control de cambios de nivel 2 si el release tiene línea base) */
+        const risk = addRisks(release, release ? sprintsOfRel(release.id).length : 0, [p]);
+        if (risk.afterEnd.length || risk.overBaseline) {
+          const ok = await PM.confirm({ title: 'Agregar ' + p.name + ' a «' + relName(release) + '»', confirmText: 'Agregar iteración', body: html`<div class="stack-sm small" data-role="add-confirm">
+            <p>${p.name} iría del ${fmt.date(p.start)} al ${fmt.date(p.end)}, después de la última iteración del proyecto (el equipo trabaja una iteración a la vez).</p>
+            <${AddRiskNote} risk=${risk} release=${release} count=${1} /></div>` });
+          if (!ok) return;
+        }
         const s = newSprint(p, release, lastCapacity(release ? release.id : null));
         commitAgile((d) => { d.sprints.push(s); });
         S().select(release ? release.id : NONE, s.id);
-        PM.toast(spName(s) + ' creada: ' + fmt.date(s.start) + ' – ' + fmt.date(s.end) + '.');
+        /* sin línea base, superar las iteraciones planeadas no exige control de cambios, pero se dice */
+        PM.toast(spName(s) + ' creada: ' + fmt.date(s.start) + ' – ' + fmt.date(s.end) + '.' + (risk.overPlanned && !risk.afterEnd.length ? ' El release queda con ' + risk.total + ' iteraciones frente a ' + risk.planned + ' planeadas: actualiza las planeadas en «Editar release».' : ''));
       },
       sprintGenerate: (release) => {
         if (!guard() || !release) return;
@@ -907,7 +925,7 @@ td.ags-actions { background: var(--surface); }
       sprintEdit: (s) => {
         if (!guard()) return;
         const opts = S().releases.map((r) => ({ value: r.id, label: relName(r) }));
-        PM.openModal((close) => html`<${SprintEditor} close=${close} sprint=${s} releaseOptions=${opts} onSave=${(f) => {
+        PM.openModal((close) => html`<${SprintEditor} close=${close} sprint=${s} releaseOptions=${opts} releases=${S().releases} sprints=${S().m.sprints} onSave=${(f) => {
           commitAgile((d) => { const x = d.sprints.find((y) => y.id === s.id); if (x) Object.assign(x, { name: f.name, releaseId: f.releaseId, goal: f.goal, start: f.start, end: f.end, capacity: f.capacity, notes: f.notes }); });
           S().select(f.releaseId || NONE, s.id);
           PM.toast(spName(f) + ' actualizada.');
@@ -920,6 +938,8 @@ td.ags-actions { background: var(--surface); }
         const ok = await PM.confirm({ title: 'Eliminar ' + spName(s), tone: 'danger', confirmText: 'Eliminar iteración', body: (list.length ? list.length + (list.length === 1 ? ' elemento queda' : ' elementos quedan') + ' sin iteración (conservan su release y su estado). ' : '') + 'Los documentos de la iteración se conservan en la lista de documentos.' });
         if (!ok) return;
         commitAgile((d) => { d.sprints = d.sprints.filter((x) => x.id !== s.id); });
+        /* el botón que abrió la confirmación desaparece con la fila: el foco pasa al planificador o a la tabla */
+        S().requestFocus({ test: (mm) => !mm.sprints.some((x) => x.id === s.id), targets: ['[data-role="planner"] [data-role="sprint-close"]', '[data-role="planner"] [data-role="sprint-start"]:not([disabled])', '[data-role="planner"] h2', '[data-role="sprints"] h2'] });
         await saveItems(S().m.items.filter((it) => it.sprintId === s.id).map((it) => ({ ...it, sprintId: null, sprintAddedDate: null })));
         PM.toast(spName(s) + ' eliminada.');
       },
@@ -949,29 +969,32 @@ td.ags-actions { background: var(--surface); }
         await Promise.all(pick.map((it) => api.itemAdd(it, s)));
         PM.toast(pick.length === 1 ? 'Se agregó 1 elemento.' : 'Se agregaron ' + pick.length + ' elementos.');
       },
-      sprintStart: async (s) => {
+      sprintStart: (s) => {
         if (!guard()) return;
-        const { m } = S();
+        const { m, cal } = S();
         const other = m.sprints.find((x) => x.status === 'en-curso' && x.id !== s.id);
         if (other) { PM.toast('Ya hay una iteración en curso (' + spName(other) + '). Ciérrala antes de iniciar otra.', { tone: 'crit' }); return; }
         const list = m.items.filter((it) => A.countable(it) && it.sprintId === s.id);
         const total = sumEst(list), unest = list.filter((it) => !PM.isNum(it.estimate)).length;
-        const ok = await PM.confirm({ title: 'Iniciar ' + spName(s), confirmText: 'Iniciar iteración', body: html`<div class="stack-sm small">
-          <p>El equipo se compromete con <strong>${fpts(total, m.unit)}</strong> en ${list.length} ${list.length === 1 ? 'elemento' : 'elementos'}${PM.isNum(s.capacity) ? ' (capacidad ' + fpts(Number(s.capacity), m.unit) + ')' : ''}. El compromiso queda fijo para la velocidad y el burndown.</p>
-          ${unest ? html`<p class="ags-flag"><${ui.Icon} name="alert" size=${14} />${unest === 1 ? '1 elemento no está estimado y cuenta como 0.' : unest + ' elementos no están estimados y cuentan como 0.'}</p>` : null}
-          <p>Los elementos que están en el backlog del producto pasan a «${A.firstColumn(m.settings).name}» del tablero.</p></div>` });
-        if (!ok) return;
-        const cur = S().m, st = cur.settings, first = A.firstColumn(st).id, d0 = today();
-        const now = cur.items.filter((it) => A.countable(it) && it.sprintId === s.id);
-        const committed = sumEst(now);
-        await saveItems(now.filter((it) => A.category(st, it.status) === 'nuevo').map((it) => A.withStatus(st, it, first, d0)));
-        commitAgile((d) => {
-          const x = d.sprints.find((y) => y.id === s.id); if (!x) return;
-          x.status = 'en-curso'; x.committed = committed;
-          const r = x.releaseId ? d.releases.find((y) => y.id === x.releaseId) : null;
-          if (r && (r.status === 'planeado' || r.status === 'comprometido' || !r.status)) r.status = 'en-curso';
-        });
-        PM.toast(spName(s) + ' iniciada: ' + fpts(committed, cur.unit) + ' comprometidos.');
+        PM.openModal((close) => html`<${StartSprintDialog} close=${close} sprint=${s} unit=${m.unit} total=${total} count=${list.length} unest=${unest} firstColumn=${A.firstColumn(m.settings).name}
+          requireGoal=${m.settings.framework !== 'kanban'} cal=${cal} todayIso=${today()} sprints=${m.sprints}
+          onConfirm=${async ({ goal, dates }) => {
+            const cur = S().m, st = cur.settings, first = A.firstColumn(st).id, d0 = today();
+            const now = cur.items.filter((it) => A.countable(it) && it.sprintId === s.id);
+            const committed = sumEst(now);
+            /* el foco vuelve al botón «Cerrar iteración» que reemplaza a «Iniciar iteración» */
+            S().requestFocus({ test: (mm) => mm.sprints.some((x) => x.id === s.id && x.status === 'en-curso'), targets: ['[data-role="planner"][data-sprint-id="' + s.id + '"] [data-role="sprint-close"]', '[data-role="planner"] h2'] });
+            await saveItems(now.filter((it) => A.category(st, it.status) === 'nuevo').map((it) => A.withStatus(st, it, first, d0)));
+            commitAgile((d) => {
+              const x = d.sprints.find((y) => y.id === s.id); if (!x) return;
+              x.status = 'en-curso'; x.committed = committed;
+              if (goal !== str(x.goal).trim()) x.goal = goal;
+              if (dates) { x.start = dates.start; x.end = dates.end; }
+              const r = x.releaseId ? d.releases.find((y) => y.id === x.releaseId) : null;
+              if (r && (r.status === 'planeado' || r.status === 'comprometido' || !r.status)) r.status = 'en-curso';
+            });
+            PM.toast(spName(s) + ' iniciada: ' + fpts(committed, cur.unit) + ' comprometidos' + (dates ? '; fechas ajustadas al ' + fmt.date(dates.start) + ' – ' + fmt.date(dates.end) : '') + '.');
+          }} />`);
       },
       sprintClose: (s) => {
         if (!guard()) return;
@@ -985,9 +1008,14 @@ td.ags-actions { background: var(--surface); }
         const later = sprintsOfRel(s.releaseId && rel ? s.releaseId : null).filter((x) => x.id !== s.id && x.status === 'planeado' && String(x.start || '') >= String(s.start || ''));
         const next = later[0] || null;
         const nextName = next ? spName(next) : 'Iteración ' + sprintNumber(m.sprints);
-        PM.openModal((close) => html`<${CloseSprintDialog} close=${close} sprint=${s} unit=${m.unit} done=${done} committed=${committed} pending=${pending} nextName=${nextName} nextExists=${!!next}
+        /* la iteración nueva va después de la última del proyecto: puede terminar después del fin del release */
+        const plan0 = !next && pending.length ? planSprints(rel, 1)[0] : null;
+        const nextLate = plan0 && rel && D.valid(rel.end) && plan0.end > rel.end ? 'Iría del ' + fmt.date(plan0.start) + ' al ' + fmt.date(plan0.end) + ', después del fin del release (' + fmt.date(rel.end) + ')' + (A.hasBaseline(rel) ? ': requiere una solicitud de cambio (nivel 2).' : '.') : null;
+        PM.openModal((close) => html`<${CloseSprintDialog} close=${close} sprint=${s} unit=${m.unit} done=${done} committed=${committed} pending=${pending} nextName=${nextName} nextExists=${!!next} nextLate=${nextLate}
           onConfirm=${async (choice) => {
             const cur = S().m, st2 = cur.settings, d0 = today();
+            /* el botón «Cerrar iteración» desaparece: el foco pasa al botón principal del planificador o a su título */
+            S().requestFocus({ test: (mm) => mm.sprints.some((x) => x.id === s.id && x.status === 'cerrado'), targets: ['[data-role="planner"] [data-role="sprint-close"]', '[data-role="planner"] [data-role="sprint-start"]:not([disabled])', '[data-role="planner"] h2'] });
             const now = cur.items.filter((it) => A.countable(it) && it.sprintId === s.id);
             const completed = sumEst(now.filter((it) => A.isDone(st2, it)));
             const rest = now.filter((it) => !A.isDone(st2, it));
@@ -1025,7 +1053,7 @@ td.ags-actions { background: var(--surface); }
         if (kind === 'planificacion') {
           const blocked = list.filter((it) => it.blocked);
           values = {
-            iteracion: spName(s), release: rel ? relName(rel) : '', fechaInicio: s.start, fechaFin: s.end, objetivo: s.goal || '',
+            iteracion: spName(s), release: rel ? relName(rel) : '', fechaInicio: s.start, fechaFin: s.end, objetivo: str(s.goal),
             capacidad: nOr(s.capacity), velocidadReferencia: round1(m.velocity.avg3), compromiso: committed,
             elementos: [
               ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', tipo: TYPE_LABEL[it.type] || it.type || '', estimacion: nOr(it.estimate), responsable: it.assignee || '', criterios: it.acceptance || '' })),
@@ -1036,9 +1064,10 @@ td.ags-actions { background: var(--surface); }
           };
         } else if (kind === 'revision') {
           values = {
-            iteracion: spName(s), fecha: endDate, objetivo: s.goal || '',
-            /* el veredicto solo se prellena al cerrar; en una iteración cerrada vale lo terminado que se fijó al cierre */
-            objetivoCumplido: s.status === 'cerrado' ? (committed > 0 && finished >= committed ? 'Sí' : finished > 0 ? 'Parcialmente' : 'No') : undefined,
+            /* «¿Se cumplió el objetivo?» no se prellena: el objetivo es el compromiso de la iteración y lo decide el dueño
+               del producto en la revisión (los puntos terminados son el pronóstico, no el veredicto). En una iteración
+               cerrada, lo terminado es lo que se fijó al cierre. */
+            iteracion: spName(s), fecha: endDate, objetivo: str(s.goal),
             comprometido: committed, terminado: finished,
             elementos: [
               ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', estimacion: nOr(it.estimate), resultado: A.isDone(st, it) ? 'Aceptado' : 'No terminado', observaciones: '' })),
@@ -1085,12 +1114,15 @@ td.ags-actions { background: var(--surface); }
   function ReleaseCard({ r, info, selected, onSelect, unit }) {
     const st = REL_STATUS[r.status] || REL_STATUS.planeado;
     const planned = Math.max(info.sprints.length, Math.round(num(r.plannedSprints, 0)));
+    const closedN = info.sprints.filter((s) => s.status === 'cerrado').length;
     const cc = info.v.hasBaseline && info.v.needsChangeControl;
+    /* cerradas frente al total (planeadas o creadas, lo mayor): «3 de 3 iteraciones» se leía como si estuvieran hechas */
+    const sprTxt = planned ? closedN + ' de ' + planned + (planned === 1 ? ' iteración cerrada' : ' iteraciones cerradas') : 'sin iteraciones planeadas';
     return html`<button type="button" class="ags-rel" aria-pressed=${selected ? 'true' : 'false'} data-release-id=${r.id} onClick=${() => onSelect(r.id)}>
       <span class="ags-rel-top"><span class="ags-rel-name">${relName(r)}</span><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}></span>
       <span class="ags-rel-meta">${dateRange(r.start, r.end)}</span>
       <span class="ags-rel-prog"><span class="ags-bar" aria-hidden="true"><span style=${'width:' + Math.round(info.prog.pct * 1000) / 10 + '%'}></span></span><span class="num">${fmt.pct(info.prog.pct)}</span></span>
-      <span class="xsmall muted">${fpts(info.prog.done, unit)} de ${fpts(info.prog.total, unit)} · ${info.sprints.length} de ${planned} ${planned === 1 ? 'iteración' : 'iteraciones'}</span>
+      <span class="xsmall muted" data-role="release-card-summary">${fpts(info.prog.done, unit)} de ${fpts(info.prog.total, unit)} · ${sprTxt}</span>
       <span class="ags-chips">
         ${A.hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}
         ${cc ? html`<${ui.Chip} tone="warn" icon="alert">Requiere control de cambios</${ui.Chip}>` : null}
@@ -1098,13 +1130,18 @@ td.ags-actions { background: var(--surface); }
     </button>`;
   }
 
+  /* Sin pronóstico: distingue la falta de iteraciones cerradas de una velocidad de 0 (iteraciones cerradas sin nada
+     terminado), que no permite pronosticar. */
+  const noForecastText = (fc, long) => (fc.velocity === 0
+    ? 'La velocidad de las iteraciones cerradas es 0: no se puede pronosticar' + (long ? '. Revisa en la retrospectiva por qué no se terminó trabajo, o termina elementos del release (el ritmo de flujo usa lo terminado en las últimas 6 semanas).' : '.')
+    : 'Sin velocidad: aún no hay pronóstico. Cierra una iteración o termina elementos del release' + (long ? ' (el ritmo de flujo usa lo terminado en las últimas 6 semanas).' : '.'));
   function ForecastStat({ r, info, unit, cal }) {
     const fc = info.fc, fl = info.fl;
     if (info.prog.total > 0 && info.prog.remaining <= 0) return html`<${ui.Stat} label="Pronóstico" value="Terminado" sub=${info.prog.lastDone ? 'Último elemento el ' + fmt.date(info.prog.lastDone) : null} tone="good" />`;
     const fin = fc.finish || (fl && fl.finish);
-    if (!fin) return html`<${ui.Stat} label="Pronóstico" value="—" sub=${info.prog.total ? 'Sin velocidad: cierra una iteración o termina elementos para estimarlo.' : 'Agrega y estima elementos del release.'} />`;
+    if (!fin) return html`<${ui.Stat} label="Pronóstico" value="—" sub=${info.prog.total ? noForecastText(fc, false) : 'Agrega y estima elementos del release.'} />`;
     const late = D.valid(r.end) ? wdDiff(cal, r.end, fin) : 0;
-    const how = fc.finish ? fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ' a ' + fpts(fc.velocity, unit) : 'Por flujo: ' + fpts(fl.perWeek, unit) + ' por semana';
+    const how = fc.finish ? fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ' a ' + fpts(fc.velocity, unit) + ' (' + velName(info.vb) + ')' : 'Por flujo: ' + fpts(fl.perWeek, unit) + ' por semana';
     const vs = !D.valid(r.end) ? '' : late > 0 ? '; ' + wdText(late) + ' después del fin' : late < 0 ? '; ' + wdText(late) + ' antes del fin' : '; en la fecha de fin';
     return html`<${ui.Stat} label="Pronóstico de terminación" value=${fmt.date(fin)} sub=${how + vs} tone=${late > 0 ? (late > 5 ? 'crit' : 'warn') : D.valid(r.end) ? 'good' : null} />`;
   }
@@ -1116,12 +1153,12 @@ td.ags-actions { background: var(--surface); }
     if (!v.hasBaseline) {
       return html`<${Callout} tone="info" icon="lock" role="baseline-none" title="Sin línea base"
         actions=${canWrite ? html`<${ui.Button} size="sm" variant="primary" icon="lock" disabled=${!info.prog.total || !D.valid(r.end)} onClick=${() => act.releaseBaseline(r)}>Fijar línea base del release</${ui.Button}>` : null}>
-        <span>Fija la línea base cuando el equipo y el dueño del producto acuerden alcance, fecha y presupuesto. Después, los ajustes del backlog dentro de ±${fmt.num(thr, 1)} % del alcance se gestionan en el release; si lo superan, o si cambian la fecha o el presupuesto, pasan por el control integrado de cambios (4.6).</span>
+        <span>Fija la línea base cuando el equipo y el dueño del producto acuerden alcance, fecha, presupuesto e iteraciones. Después, los ajustes del backlog dentro de ±${fmt.num(thr, 1)} % del alcance se gestionan en el release; si lo superan, o si cambian la fecha, el presupuesto o el número de iteraciones, pasan por el control integrado de cambios (4.6).</span>
         ${canWrite && (!info.prog.total || !D.valid(r.end)) ? html`<span class="xsmall muted">${!D.valid(r.end) ? 'Define la fecha de fin del release' : 'Asigna y estima elementos del release'} para poder fijar la línea base.</span>` : null}
       </${Callout}>`;
     }
     const b = r.baseline;
-    const det = varianceDetail(r, v, settings, unit, currency, cal);
+    const det = varianceDetail(r, v, settings, unit, currency, cal, info.sprints);
     const pc = isObj(r.pendingChange) && r.pendingChange.code ? r.pendingChange : null;
     const base = html`<div class="xsmall muted" data-role="baseline-summary">Línea base del ${fmt.date(b.date)}: ${fpts(num(b.points, 0), unit)} · fin ${fmt.date(b.end)} · ${fmt.money(b.budget, currency)} · ${fmt.num(b.sprints || 0)} ${num(b.sprints, 0) === 1 ? 'iteración' : 'iteraciones'}${b.changeRef ? ' · actualizada con ' + b.changeRef : ''}</div>`;
     const list = html`<ul>${det.lines.map((l) => html`<li key=${l.id} data-flag=${l.flag ? 'true' : 'false'}>${l.flag ? html`<strong>${l.text}</strong>` : l.text}</li>`)}</ul>`;
@@ -1158,7 +1195,7 @@ td.ags-actions { background: var(--surface); }
           <span>Frente a la línea base cambió algo más allá de lo que el equipo puede ajustar dentro del release:</span>${list}${!pc ? noTpl : null}
         </${Callout}>`
       : html`<${Callout} tone="good" role="change-level1" title="Cambios dentro del release (nivel 1)">
-          <span>Los ajustes del backlog se mantienen dentro del umbral y no cambian la fecha ni el presupuesto: no requieren solicitud de cambio.</span>${list}
+          <span>Los ajustes del backlog se mantienen dentro del umbral y no cambian la fecha, el presupuesto ni el número de iteraciones: no requieren solicitud de cambio.</span>${list}
         </${Callout}>`;
     return html`<div class="stack-sm" data-role="change-control">${base}${status}${pending}</div>`;
   }
@@ -1176,7 +1213,7 @@ td.ags-actions { background: var(--surface); }
     return html`<section class="card" data-role="release-detail" data-release-id=${r.id}>
       <div class="card-head">
         <div class="stack-sm" style="gap:4px;min-width:0">
-          <h2 class="h3">${relName(r)}</h2>
+          <h2 class="h3" tabindex="-1">${relName(r)}</h2>
           <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${dateRange(r.start, r.end)}</span>${A.hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : null}</div>
         </div>
         <div class="row">
@@ -1198,8 +1235,8 @@ td.ags-actions { background: var(--surface); }
           <${ForecastStat} r=${r} info=${info} unit=${unit} cal=${cal} />
           <${ui.Stat} label="Fin planeado" value=${fmt.date(r.end)} sub=${A.hasBaseline(r) ? 'Línea base: ' + fmt.date(r.baseline.end) : 'Sin línea base'} />
           <${ui.Stat} label="Presupuesto (BAC)" value=${fmt.moneyShort(num(r.budget, 0), currency)} sub=${A.hasBaseline(r) ? 'Línea base: ' + fmt.moneyShort(num(r.baseline.budget, 0), currency) : 'Base del AgileEVM'} />
-          <${ui.Stat} label="Iteraciones" value=${info.sprints.length + ' de ' + planned} sub=${info.sprints.filter((s) => s.status === 'cerrado').length + ' cerradas · ' + settings.sprintLength + ' días hábiles c/u'} />
-          <${ui.Stat} label="Velocidad del release" value=${relVel.avg3 !== null ? fpts(relVel.avg3, unit) : '—'} sub=${relVel.closed ? 'Promedio de las últimas ' + Math.min(3, relVel.closed) + ' cerradas' : 'Sin iteraciones cerradas'} />
+          <${ui.Stat} label="Iteraciones cerradas" value=${info.sprints.filter((s) => s.status === 'cerrado').length + ' de ' + planned} sub=${info.sprints.length + (info.sprints.length === 1 ? ' creada' : ' creadas') + ' · ' + Math.round(num(r.plannedSprints, 0)) + ' planeadas' + (A.hasBaseline(r) && num(r.baseline.sprints, 0) > 0 ? ' · línea base: ' + Math.round(num(r.baseline.sprints, 0)) : '') + ' · ' + settings.sprintLength + ' días hábiles c/u'} />
+          <${ui.Stat} label="Velocidad media del release" value=${relVel.avg3 !== null ? fpts(relVel.avg3, unit) : '—'} sub=${relVel.closed ? 'Promedio de ' + lastClosed(Math.min(3, relVel.closed)) + ' del release' : 'Sin iteraciones cerradas en el release'} />
         </div>
         <dl class="ags-kv">
           <dt>Entregable de la EDT</dt><dd>${node ? html`<span class="code-tag">${m.tree.codes.get(node.id) || ''}</span> ${node.name || 'Sin nombre'} ${approach ? html`<${ui.Chip} tone=${approach === 'adaptativo' ? 'accent' : 'outline'}>${approach === 'adaptativo' ? 'Adaptativo' : 'Predictivo'}</${ui.Chip}>` : null}` : html`<span class="faint">Sin entregable vinculado</span>`}</dd>
@@ -1212,11 +1249,13 @@ td.ags-actions { background: var(--surface); }
 
   function SprintsCard({ release, list, velRows, selId, onSelect, canWrite, act, m, kanban }) {
     const unit = m.unit;
-    const planned = release ? Math.max(list.length, Math.round(num(release.plannedSprints, 0))) : list.length;
+    const plannedN = release ? Math.round(num(release.plannedSprints, 0)) : 0;
+    const countTxt = release ? countLabel(list.length, 'iteración creada', 'iteraciones creadas') + (plannedN ? ' de ' + plannedN + ' planeadas' : ' · sin iteraciones planeadas en el release') : countLabel(list.length, 'iteración', 'iteraciones');
+    const relEnd = release && D.valid(release.end) ? release.end : null;
     return html`<section class="card" data-role="sprints">
       <div class="card-head">
-        <div class="stack-sm" style="gap:2px;min-width:0"><h2 class="h3">${release ? 'Iteraciones del release' : 'Iteraciones sin release'}</h2>
-          <div class="xsmall faint">${list.length} de ${planned} ${planned === 1 ? 'iteración' : 'iteraciones'} · ${m.settings.sprintLength} días hábiles cada una · calendario del proyecto</div></div>
+        <div class="stack-sm" style="gap:2px;min-width:0"><h2 class="h3" tabindex="-1">${release ? 'Iteraciones del release' : 'Iteraciones sin release'}</h2>
+          <div class="xsmall faint">${countTxt} · ${m.settings.sprintLength} días hábiles cada una · calendario del proyecto</div></div>
         ${canWrite ? html`<div class="row">
           <${ui.Button} size="sm" icon="plus" data-role="sprint-add" onClick=${() => act.sprintAdd(release)}>Agregar iteración</${ui.Button}>
           ${release ? html`<${ui.Button} size="sm" icon="sprint" data-role="sprint-generate" onClick=${() => act.sprintGenerate(release)}>Generar iteraciones</${ui.Button}>` : null}
@@ -1233,8 +1272,13 @@ td.ags-actions { background: var(--surface); }
             const st = SPR_STATUS[s.status] || SPR_STATUS.planeado;
             const vr = velRows.get(s.id) || { committed: 0, completed: 0 };
             const sel = s.id === selId;
+            /* señales con ícono y texto: la iteración termina después del fin del release o se cruza con otra */
+            const late = relEnd && D.valid(s.end) && s.end > relEnd;
+            const cross = overlapsOf(s, m.sprints);
             return html`<tr key=${s.id} class=${sel ? 'is-sel' : ''} data-sprint-id=${s.id}>
-              <td><button type="button" class="ags-link" aria-pressed=${sel ? 'true' : 'false'} onClick=${() => onSelect(s.id)}>${spName(s)}</button>${s.goal ? html`<div class="xsmall faint" style="max-width:46ch">${s.goal}</div>` : null}</td>
+              <td><button type="button" class="ags-link" aria-pressed=${sel ? 'true' : 'false'} onClick=${() => onSelect(s.id)}>${spName(s)}</button>${s.goal ? html`<div class="xsmall faint" style="max-width:46ch">${str(s.goal)}</div>` : null}
+                ${late ? html`<div class="ags-flag" data-role="sprint-late"><${ui.Icon} name="alert" size=${13} />Después del fin del release (${fmt.date(relEnd)})</div>` : null}
+                ${cross.length ? html`<div class="ags-flag" data-role="sprint-overlap"><${ui.Icon} name="alert" size=${13} />Se cruza con ${cross.map((o) => spName(o)).join(', ')}</div>` : null}</td>
               <td class="mono small"><span class="nowrap">${fmt.date(s.start, 'dm')} –</span> <span class="nowrap">${fmt.date(s.end)}</span></td>
               <td><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}></td>
               <td class="num">${PM.isNum(s.capacity) ? fpts(Number(s.capacity), unit) : '—'}</td>
@@ -1247,7 +1291,7 @@ td.ags-actions { background: var(--surface); }
             </tr>`;
           })}</tbody>
         </table></${ScrollWrap}>` : html`<${ui.Empty} icon="sprint" title="Sin iteraciones" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => act.sprintAdd(release)}>Agregar iteración</${ui.Button}>${release ? html`<${ui.Button} icon="sprint" onClick=${() => act.sprintGenerate(release)}>Generar iteraciones</${ui.Button}>` : null}` : null}>
-          ${kanban ? 'Opcional en Kanban. ' : ''}Cada iteración dura ${m.settings.sprintLength} días hábiles y empieza el día hábil siguiente a la anterior.
+          ${kanban ? 'Opcional en Kanban. ' : ''}Cada iteración dura ${m.settings.sprintLength} días hábiles y empieza el día hábil siguiente a la última iteración del proyecto.
         </${ui.Empty}>`}
       </div>
     </section>`;
@@ -1273,9 +1317,17 @@ td.ags-actions { background: var(--surface); }
     const list = idx.bySprint.get(s.id) || [];
     const st = SPR_STATUS[s.status] || SPR_STATUS.planeado;
     const closed = s.status === 'cerrado', planned = s.status === 'planeado';
-    const total = sumEst(list), done = sumEst(list.filter((it) => A.isDone(settings, it)));
+    const total = sumEst(list);
     const cap = nOr(s.capacity);
-    const committed = planned ? total : PM.isNum(s.committed) ? Number(s.committed) : total;
+    /* Alcance de la iteración: los elementos actuales y, en una cerrada, los no terminados que salieron al cerrar.
+       Lo agregado después del inicio (sprintAddedDate) no es parte del compromiso fijado al iniciar. */
+    const unf = closed ? arr(s.unfinished).filter((u) => u.id && !list.some((it) => it.id === u.id)) : [];
+    const est = (x) => Math.max(0, num(x && x.estimate, 0));
+    const scope = total + unf.reduce((a, u) => a + est(u), 0), scopeCount = list.length + unf.length;
+    const addedList = [...list.filter((it) => D.valid(it.sprintAddedDate)), ...unf.filter((u) => D.valid(u.sprintAddedDate))];
+    const added = planned ? 0 : addedList.reduce((a, u) => a + est(u), 0);
+    const committed = planned ? total : PM.isNum(s.committed) ? Number(s.committed) : scope - added;
+    const done = closed && PM.isNum(s.completed) ? Number(s.completed) : sumEst(list.filter((it) => A.isDone(settings, it)));
     const [q, setQ] = useState('');
     const [all, setAll] = useState(false);
     const sprintIds = useMemo(() => new Set(m.sprints.map((x) => x.id)), [m.sprints]);
@@ -1306,7 +1358,8 @@ td.ags-actions { background: var(--surface); }
     const other = m.sprints.find((x) => x.status === 'en-curso' && x.id !== s.id);
     const vel = m.velocity;
     const over = cap !== null && committed > cap + 1e-9;
-    const refMax = Math.max(cap || 0, committed, 1);
+    const refMax = Math.max(cap || 0, committed + added, scope, 1);
+    const noGoal = !closed && !str(s.goal).trim();
     const unest = list.filter((it) => !PM.isNum(it.estimate)).length;
     const capId = 'ags-cap-' + s.id, goalId = 'ags-goal-' + s.id;
     const startBlock = !canWrite ? null : other ? 'Ya hay una iteración en curso (' + spName(other) + '). Ciérrala antes de iniciar esta.' : !list.length ? 'Agrega elementos a la iteración antes de iniciarla.' : null;
@@ -1314,7 +1367,7 @@ td.ags-actions { background: var(--surface); }
     return html`<section class="card" data-role="planner" data-sprint-id=${s.id}>
       <div class="card-head">
         <div class="stack-sm" style="gap:4px;min-width:0">
-          <h2 class="h3">${(planned ? 'Planificación de ' : '') + spName(s)}</h2>
+          <h2 class="h3" tabindex="-1">${(planned ? 'Planificación de ' : '') + spName(s)}</h2>
           <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${fmt.date(s.start, 'dow')} – ${fmt.date(s.end, 'dow')} ${D.valid(s.end) ? s.end.slice(0, 4) : ''}</span><span class="xsmall faint">· ${relLabel}</span></div>
         </div>
         <div class="row">
@@ -1326,25 +1379,31 @@ td.ags-actions { background: var(--surface); }
       <div class="card-body stack">
         ${startBlock && planned ? html`<div class="ags-flag" data-role="start-hint"><${ui.Icon} name="info" size=${14} />${startBlock}</div>` : null}
         <div class="ags-plan-form">
-          <${ui.Field} label="Objetivo de la iteración" for=${goalId} hint=${closed ? null : 'Se guarda al salir del campo.'}><${DraftText} id=${goalId} multiline value=${s.goal || ''} disabled=${!canWrite || closed} placeholder="Qué valor entrega el equipo al terminar la iteración" onCommit=${(v) => act.sprintPatch(s, { goal: v.trim() })} /></${ui.Field}>
-          <${ui.Field} label=${'Capacidad (' + unit + ')'} for=${capId} hint=${closed ? null : 'Disponibilidad real del equipo.'}><${DraftNumber} id=${capId} value=${s.capacity} min=${0} disabled=${!canWrite || closed} onCommit=${(v) => act.sprintPatch(s, { capacity: v })} /></${ui.Field}>
+          <${ui.Field} label="Objetivo de la iteración" for=${goalId} hint=${closed || !canWrite ? null : 'Compromiso del equipo para la iteración. Se guarda al salir del campo.'}><${DraftText} id=${goalId} multiline value=${s.goal} disabled=${!canWrite || closed} placeholder=${canWrite && !closed ? 'Qué valor entrega el equipo al terminar la iteración' : undefined} onCommit=${(v) => act.sprintPatch(s, { goal: v.trim() })} /></${ui.Field}>
+          <${ui.Field} label=${'Capacidad (' + unit + ')'} for=${capId} hint=${closed || !canWrite ? null : 'Disponibilidad real del equipo.'}><${DraftNumber} id=${capId} value=${s.capacity} min=${0} disabled=${!canWrite || closed} onCommit=${(v) => act.sprintPatch(s, { capacity: v })} /></${ui.Field}>
         </div>
+        ${noGoal ? html`<div class="ags-flag" data-role="no-goal"><${ui.Icon} name="alert" size=${14} />${canWrite ? (planned ? 'Sin objetivo: escríbelo antes de iniciar; es el compromiso del equipo para la iteración.' : 'Sin objetivo de iteración registrado: es el compromiso del equipo; escríbelo arriba.') : 'Sin objetivo de iteración registrado.'}</div>` : null}
         <div class="ags-commit" data-role="commitment">
           <div class="ags-commit-text">
-            <span>Compromiso: <strong>${fpts(committed, unit)}</strong> en ${list.length} ${list.length === 1 ? 'elemento' : 'elementos'}${cap !== null ? ' de ' + fpts(cap, unit) + ' de capacidad (' + fmt.pct(cap > 0 ? committed / cap : 0) + ')' : ' · sin capacidad definida'}</span>
-            <span>Velocidad de referencia: <strong>${vel.avg3 !== null ? fpts(vel.avg3, unit) : '—'}</strong>${vel.avg3 !== null ? ' (promedio de las últimas ' + Math.min(3, vel.closed) + ' cerradas; rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) + ')' : ' (sin iteraciones cerradas)'}</span>
-            ${!planned ? html`<span>Terminado: <strong>${fpts(done, unit)}</strong> (${fmt.pct(committed > 0 ? done / committed : 0)} del compromiso)</span>` : null}
+            ${planned
+              ? html`<span data-role="commit-forecast">Pronóstico: <strong>${fpts(committed, unit)}</strong> en ${list.length} ${list.length === 1 ? 'elemento' : 'elementos'}${cap !== null ? ' de ' + fpts(cap, unit) + ' de capacidad (' + fmt.pct(cap > 0 ? committed / cap : 0) + ')' : ' · sin capacidad definida'}</span>`
+              : html`<span data-role="commit-start">Compromiso al iniciar: <strong>${fpts(committed, unit)}</strong>${cap !== null ? ' de ' + fpts(cap, unit) + ' de capacidad (' + fmt.pct(cap > 0 ? committed / cap : 0) + ')' : ' · sin capacidad definida'}</span>
+                <span data-role="commit-scope">${closed ? 'Alcance al cerrar' : 'Alcance actual'}: <strong>${fpts(scope, unit)}</strong> en ${scopeCount} ${scopeCount === 1 ? 'elemento' : 'elementos'}${added > 0 ? ' (+' + fpts(added, unit) + ' agregados durante la iteración en ' + countLabel(addedList.length, 'elemento', 'elementos') + ')' : ''}</span>`}
+            <span data-role="team-velocity">Velocidad del equipo: <strong>${vel.avg3 !== null ? fpts(vel.avg3, unit) : '—'}</strong>${vel.avg3 !== null ? ' (promedio de ' + lastClosed(Math.min(3, vel.closed)) + ' del proyecto; rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) + ')' : ' (sin iteraciones cerradas)'}</span>
+            ${!planned ? html`<span>${closed ? 'Terminado al cerrar' : 'Terminado'}: <strong>${fpts(done, unit)}</strong> (${fmt.pct(committed > 0 ? done / committed : 0)} del compromiso)</span>` : null}
           </div>
-          <div class="ags-commit-track" role="img" aria-label=${'Compromiso ' + fpts(committed, unit) + (cap !== null ? ' frente a una capacidad de ' + fpts(cap, unit) : '') + (!planned ? '; terminado ' + fpts(done, unit) : '')}>
+          <div class="ags-commit-track" role="img" aria-label=${(planned ? 'Pronóstico ' : 'Compromiso al iniciar ') + fpts(committed, unit) + (added > 0 ? '; agregado durante la iteración ' + fpts(added, unit) : '') + (cap !== null ? '; capacidad ' + fpts(cap, unit) : '') + (!planned ? '; terminado ' + fpts(done, unit) : '')}>
             <div class="ags-commit-fill" data-over=${over ? 'true' : 'false'} data-started=${planned ? 'false' : 'true'} style=${'width:' + (committed / refMax) * 100 + '%'}></div>
+            ${added > 0 ? html`<div class="ags-commit-added" data-role="commit-added" style=${'left:' + (committed / refMax) * 100 + '%;width:' + (added / refMax) * 100 + '%'}></div>` : null}
             ${!planned && done > 0 ? html`<div class="ags-commit-done" style=${'width:' + Math.min(refMax, done) / refMax * 100 + '%'}></div>` : null}
             ${cap !== null ? html`<div class="ags-commit-cap" style=${'left:' + (cap / refMax) * 100 + '%'}></div>` : null}
           </div>
           <div class="row ags-commit-text" style="gap:6px 14px">
-            ${!planned ? html`<span class="ags-commit-key"><i></i>Terminado</span><span class="ags-commit-key"><i class="is-light"></i>Comprometido</span>` : null}
+            ${!planned ? html`<span class="ags-commit-key"><i></i>Terminado</span><span class="ags-commit-key"><i class="is-light"></i>Comprometido al iniciar</span>` : null}
+            ${added > 0 ? html`<span class="ags-commit-key"><i class="is-added"></i>Agregado durante la iteración</span>` : null}
             ${cap !== null ? html`<span class="ags-commit-key"><i class="is-cap"></i>Capacidad</span>` : null}
             ${over ? html`<span class="ags-flag" data-role="over-capacity"><${ui.Icon} name="alert" size=${14} />Supera la capacidad en ${fpts(committed - cap, unit)}.</span>` : null}
-            ${vel.avg3 !== null && committed > vel.avg3 * 1.15 ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />El compromiso supera en más de 15 % la velocidad de referencia.</span>` : null}
+            ${vel.avg3 !== null && committed > vel.avg3 * 1.15 ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />${planned ? 'El pronóstico' : 'El compromiso'} supera en más de 15 % la velocidad del equipo.</span>` : null}
             ${unest ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />${unest === 1 ? '1 elemento sin estimar.' : unest + ' elementos sin estimar.'}</span>` : null}
           </div>
         </div>
@@ -1354,7 +1413,7 @@ td.ags-actions { background: var(--surface); }
             ${list.length ? html`<${ScrollWrap} class="ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Elementos de ${spName(s)}</caption>
               <thead><tr><th>Código</th><th>Título</th><th>Estado</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
               <tbody>${list.map((it) => { const cat = A.category(settings, it.status); const isDone = cat === 'terminado'; return html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="remove" statusText=${statusName(settings, it.status)} statusTone=${CAT_TONE[cat]} unit=${unit} canAct=${canWrite && !closed && !isDone} onAct=${onRemove} sprintName=${spName(s)} />`; })}</tbody></table></${ScrollWrap}>`
-              : html`<p class="small muted">Aún no hay elementos. ${closed ? '' : 'Agrégalos desde los candidatos, en el orden del backlog.'}</p>`}
+              : html`<p class="small muted">Aún no hay elementos.${closed || !canWrite ? '' : ' Agrégalos desde los candidatos, en el orden del backlog.'}</p>`}
             ${closed && arr(s.unfinished).length ? html`<p class="small muted" data-role="unfinished">${'Al cerrar quedaron sin terminar ' + arr(s.unfinished).length + (arr(s.unfinished).length === 1 ? ' elemento (' : ' elementos (') + fpts(arr(s.unfinished).reduce((a, u) => a + Math.max(0, num(u.estimate, 0)), 0), unit) + '): ' + arr(s.unfinished).map((u) => u.code).filter(Boolean).join(', ') + '. Pasaron al backlog del producto o a la iteración siguiente; el burndown y el acta de revisión los conservan.'}</p>` : null}
           </div>
           ${!closed ? html`<div class="stack-sm" data-role="candidates" ref=${candRef}>
@@ -1365,7 +1424,7 @@ td.ags-actions { background: var(--surface); }
               <thead><tr><th>Código</th><th>Título</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
               <tbody>${(all ? shownCand : shownCand.slice(0, CAND_LIMIT)).map((it) => html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="add" unit=${unit} canAct=${canWrite} onAct=${onAdd} sprintName=${spName(s)} />`)}</tbody></table></${ScrollWrap}>
               ${!all && shownCand.length > CAND_LIMIT ? html`<div><${ui.Button} size="sm" variant="ghost" icon="chevron-down" onClick=${() => setAll(true)}>Mostrar los ${shownCand.length} candidatos</${ui.Button}></div>` : null}`
-              : html`<p class="small muted">${candidates.length ? 'Ningún candidato coincide con la búsqueda.' : release ? 'No quedan elementos del release sin iteración. Agrega o asigna elementos desde el backlog del producto.' : 'No hay elementos sin iteración en el backlog.'}</p>`}
+              : html`<p class="small muted">${candidates.length ? 'Ningún candidato coincide con la búsqueda.' : release ? 'No quedan elementos del release sin iteración.' + (canWrite ? ' Agrega o asigna elementos desde el backlog del producto.' : '') : 'No hay elementos sin iteración en el backlog.'}</p>`}
           </div>` : null}
         </div>
         <${SprintDocs} s=${s} canWrite=${canWrite} act=${act} docsIdx=${docsIdx} lessonRows=${lessonRows} />
@@ -1396,7 +1455,7 @@ td.ags-actions { background: var(--surface); }
       })}</div>
       <div class="row">
         ${canWrite ? html`<${ui.Button} size="sm" icon="book" data-role="lessons-send" disabled=${!retro || !lessonsTpl} onClick=${() => act.lessonsSend(s)}>Enviar a lecciones aprendidas</${ui.Button}>` : null}
-        <span class="xsmall muted">${!retro ? 'Crea la retrospectiva y registra sus lecciones para enviarlas al registro de lecciones aprendidas (4.4).' : !lessonsTpl ? 'La plantilla del registro de lecciones aprendidas no está disponible.' : lessons.length ? sent + ' de ' + lessons.length + (lessons.length === 1 ? ' lección enviada' : ' lecciones enviadas') + ' al registro de lecciones aprendidas.' : 'La retrospectiva aún no tiene lecciones registradas.'}</span>
+        <span class="xsmall muted">${!retro ? (canWrite ? 'Crea la retrospectiva y registra sus lecciones para enviarlas al registro de lecciones aprendidas (4.4).' : 'Aún no hay retrospectiva.') : !lessonsTpl ? 'La plantilla del registro de lecciones aprendidas no está disponible.' : lessons.length ? sent + ' de ' + lessons.length + (lessons.length === 1 ? ' lección enviada' : ' lecciones enviadas') + ' al registro de lecciones aprendidas.' : 'La retrospectiva aún no tiene lecciones registradas.'}</span>
       </div>
     </div>`;
   }
@@ -1444,7 +1503,7 @@ td.ags-actions { background: var(--surface); }
         const prog = C.releaseProgress({ release: r, items: its, settings });
         const fc = C.releaseForecast({ release: r, sprints, items, settings, cal, statusDate });
         const fl = !fc.finish && prog.remaining > 0 ? flowForecast(its, settings, statusDate, cal) : null;
-        out.set(r.id, { prog, fc, fl, v: relVariance(r, its, settings), sprints: C.sprintsOfRelease(sprints, r.id) });
+        out.set(r.id, { prog, fc, fl, v: relVariance(r, its, settings, sprints), sprints: C.sprintsOfRelease(sprints, r.id), vb: velBasis(r, sprints, items, settings) });
       }
       return out;
     }, [releases, idx, sprints, items, settings, cal, statusDate]);
@@ -1461,14 +1520,35 @@ td.ags-actions { background: var(--surface); }
     const release = selRel && selRel !== NONE ? releases.find((r) => r.id === selRel) : null;
     const group = selRel === NONE ? orphans : release ? relInfo.get(release.id).sprints : [];
     const selSprint = group.find((s) => s.id === spSel) || group.find((s) => s.status === 'en-curso') || group.find((s) => s.status === 'planeado') || group[group.length - 1] || null;
+    /* Foco después de una acción que hace desaparecer el botón que la abrió (iniciar, cerrar o eliminar): cuando los
+       datos guardados reflejan el cambio, el foco pasa al primer destino que exista (botón principal del planificador o
+       un título con tabindex=-1). No se lo quita a quien ya movió el foco fuera de la vista. */
+    const focusReq = useRef(null);
+    useEffect(() => {
+      const rq = focusReq.current; if (!rq) return;
+      if (Date.now() - rq.t > 10000) { focusReq.current = null; return; }
+      if (!rq.test(m)) return;
+      focusReq.current = null;
+      const view = document.querySelector('[data-view="iteraciones"]');
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && document.contains(ae) && !(view && view.contains(ae))) return;
+      for (const sel of rq.targets) {
+        const el = view && view.querySelector(sel);
+        if (!el) continue;
+        if (/^H\d$/.test(el.tagName) && !el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+        el.focus();
+        return;
+      }
+    });
     const ref = useRef(null);
-    ref.current = { m, project, canWrite, docsIdx, changeRows, saveChangeRows, lessonRows, saveLessonRows, releases, idx, relInfo, cal, select: (r, s) => { setRelSel(r); setSpSel(s || null); } };
+    ref.current = { m, project, canWrite, docsIdx, changeRows, saveChangeRows, lessonRows, saveLessonRows, releases, idx, relInfo, cal, select: (r, s) => { setRelSel(r); setSpSel(s || null); }, requestFocus: (rq) => { focusReq.current = { ...rq, t: Date.now() }; } };
     const act = useMemo(() => makeActions(ref), []);
     const selectRel = useCallback((id) => { setRelSel(id); setSpSel(null); }, []);
     if (m.loading) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
     const kanban = settings.framework === 'kanban';
     const fw = (PM.AGILE.FRAMEWORKS.find((f) => f.value === settings.framework) || {}).label || '';
-    const header = html`<${ui.PageHeader} eyebrow=${html`<span>Ágil</span><span>·</span><span>6.5 Desarrollar el cronograma · 4.6 Control integrado de cambios</span>`} title="Releases e iteraciones"
+    /* el grupo «Ágil» ya se ve en el riel: el encabezado lleva solo los procesos PMBOK, con su nombre oficial */
+    const header = html`<${ui.PageHeader} eyebrow="6.5 Desarrollar el cronograma · 4.6 Realizar el control integrado de cambios" title="Releases e iteraciones"
       description=${'Planifica releases con línea base y presupuesto, genera iteraciones de ' + settings.sprintLength + ' días hábiles, planifica la capacidad, inicia y cierra cada iteración con sus documentos. Marco: ' + fw + '.'}
       actions=${html`
         ${!canWrite ? html`<${ui.Chip} tone="outline" icon="eye">Solo lectura</${ui.Chip}>` : null}
@@ -1495,7 +1575,7 @@ td.ags-actions { background: var(--surface); }
       ${header}
       <div class="ags-layout">
         <aside class="ags-side" aria-label="Releases del proyecto">
-          <div class="ags-side-head"><h2 class="h3">Releases</h2><span class="xsmall faint">${releases.length}</span></div>
+          <div class="ags-side-head"><h2 class="h3" tabindex="-1">Releases</h2><span class="xsmall faint">${releases.length}</span></div>
           <ul class="ags-rel-list">
             ${releases.map((r) => html`<li key=${r.id}><${ReleaseCard} r=${r} info=${relInfo.get(r.id)} selected=${selRel === r.id} onSelect=${selectRel} unit=${m.unit} /></li>`)}
             ${orphans.length ? html`<li><button type="button" class="ags-rel" aria-pressed=${selRel === NONE ? 'true' : 'false'} data-release-id=${NONE} onClick=${() => selectRel(NONE)}>
@@ -1597,6 +1677,7 @@ td.ags-actions { background: var(--surface); }
     if (it.kind === 'sw') return html`<span class="ags-key-sw" style=${'background:' + it.color + (it.opacity ? ';opacity:' + it.opacity : '')}></span>`;
     if (it.kind === 'cut') return html`<span class="ags-key-cut"></span>`;
     if (it.kind === 'dot') return html`<span class="ags-key-dot" style=${'background:' + it.color}></span>`;
+    if (it.kind === 'out') return html`<span class="ags-key-out" style=${'--k:' + it.color}></span>`;
     return html`<span class="ags-key" style=${'background:' + it.color}></span>`;
   }
   function Legend({ items }) {
@@ -1765,7 +1846,7 @@ td.ags-actions { background: var(--surface); }
   }
 
   /* ---------- velocidad */
-  function VelocityChart({ vel, unit, svgRef }) {
+  function VelocityChart({ vel, unit, svgRef, where = '' }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
     const rows = vel.rows;
@@ -1788,14 +1869,16 @@ td.ags-actions { background: var(--surface); }
     const nav = useNav(tip, svgRef, rows.length, g ? g.defIdx : 0, (i) => ({ x: g.cxs[i], y: g.M.t + 4 }), (i) => {
       const r = rows[i]; const st = SPR_STATUS[r.status] || SPR_STATUS.planeado;
       return html`<${Tip} head=${spName(r) + ' · ' + st[0]} rows=${[
-        { label: r.status === 'planeado' ? 'Planificado' : 'Comprometido', value: fpts(r.committed, unit), color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 },
+        r.status === 'planeado' ? { label: 'Planificado (sin iniciar)', value: fpts(r.committed, unit), color: 'var(--fg-3)', kind: 'out' } : { label: 'Comprometido', value: fpts(r.committed, unit), color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 },
         { label: r.status === 'cerrado' ? 'Terminado' : 'Terminado hasta hoy', value: fpts(r.completed, unit), color: C_REM, kind: 'sw' },
         r.committed > 0 && r.status !== 'planeado' ? { label: 'Cumplimiento', value: fmt.pct(r.completed / r.committed) } : null]} foot=${fmt.date(r.start) + ' – ' + fmt.date(r.end)} />`;
     });
     useEffect(() => { nav.leave(); }, [g]);
     if (!g) return null;
     const closedRows = rows.filter((r) => r.status === 'cerrado');
-    const aria = 'Velocidad por iteración' + (closedRows.length ? ' (terminado de comprometido): ' + closedRows.map((r) => spName(r) + ' ' + fmt.num(r.completed, 1) + ' de ' + fmt.num(r.committed, 1)).join(', ') + '. Promedio de las últimas 3 cerradas: ' + fpts(vel.avg3, unit) + '.' : ': aún no hay iteraciones cerradas; ' + rows.length + (rows.length === 1 ? ' iteración planeada o en curso.' : ' iteraciones planeadas o en curso.'));
+    const plannedRows = rows.filter((r) => r.status === 'planeado');
+    const aria = 'Velocidad por iteración' + (closedRows.length ? ' (terminado de comprometido): ' + closedRows.map((r) => spName(r) + ' ' + fmt.num(r.completed, 1) + ' de ' + fmt.num(r.committed, 1)).join(', ') + '. Promedio de ' + lastClosed(Math.min(3, vel.closed)) + where + ': ' + fpts(vel.avg3, unit) + '.' : ': aún no hay iteraciones cerradas; ' + rows.length + (rows.length === 1 ? ' iteración planeada o en curso.' : ' iteraciones planeadas o en curso.'))
+      + (plannedRows.length && closedRows.length ? ' ' + (plannedRows.length === 1 ? 'Planificada sin iniciar: ' : 'Planificadas sin iniciar: ') + plannedRows.map((r) => spName(r) + ' ' + fmt.num(r.committed, 1)).join(', ') + '.' : '');
     const onMove = (e) => { const px = svgX(svgRef, e); if (px !== null) nav.show(nearestIdx(g.cxs, px), e.clientX); };
     const base = g.M.t + g.ih;
     return html`<${ChartFrame} tip=${tip} nav=${nav} svgRef=${svgRef} g=${g} aria=${aria} id="velocity" onMove=${onMove}>
@@ -1804,11 +1887,13 @@ td.ags-actions { background: var(--surface); }
       ${rows.map((r, i) => {
         const hc = base - g.y(r.committed), hd = base - g.y(r.completed);
         return html`<g key=${r.id} data-sprint=${r.id}>
-          <path data-series="committed" d=${barPath(g.cxs[i] - 1 - g.bw, base - hc, g.bw, hc)} style="fill:var(--fg-3);opacity:0.45" />
+          ${r.status === 'planeado'
+            ? html`<path data-series="planned" d=${barPath(g.cxs[i] - 1 - g.bw + 0.75, base - hc + 0.75, g.bw - 1.5, Math.max(0, hc - 0.75))} style="fill:none;stroke:var(--fg-3);stroke-width:1.5;stroke-dasharray:3 2" />`
+            : html`<path data-series="committed" d=${barPath(g.cxs[i] - 1 - g.bw, base - hc, g.bw, hc)} style="fill:var(--fg-3);opacity:0.45" />`}
           <path data-series="completed" d=${barPath(g.cxs[i] + 1, base - hd, g.bw, hd)} style=${'fill:' + C_REM + (r.status === 'en-curso' ? ';opacity:0.6' : '')} />
         </g>`;
       })}
-      ${g.avgY !== null ? html`<g data-role="average"><line x1=${g.M.l} x2=${g.M.l + g.iw} y1=${g.avgY} y2=${g.avgY} style="stroke:var(--fg);stroke-width:1.5;stroke-dasharray:6 4" /><text x=${g.M.l + g.iw - 4} y=${g.avgY - 6} text-anchor="end" style="fill:var(--fg);font-weight:600">Promedio ${fpts(vel.avg3, unit)}</text></g>` : null}
+      ${g.avgY !== null ? html`<g data-role="average"><line x1=${g.M.l} x2=${g.M.l + g.iw} y1=${g.avgY} y2=${g.avgY} style="stroke:var(--fg);stroke-width:1.5;stroke-dasharray:6 4" /><text x=${g.M.l + g.iw - 4} y=${g.avgY - 6} text-anchor="end" style="fill:var(--fg);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round">Promedio ${fpts(vel.avg3, unit)}</text></g>` : null}
     </${ChartFrame}>`;
   }
 
@@ -1861,7 +1946,7 @@ td.ags-actions { background: var(--surface); }
   /* ---------- pronóstico de terminación (línea de tiempo) */
   /* Release con alcance y sin trabajo pendiente: el «pronóstico» del núcleo es la fecha real de terminación. */
   const relFinished = (fc) => !!fc && fc.total > 0 && !(fc.remaining > 0);
-  function ForecastChart({ fc, fl, release, statusDate, unit, svgRef }) {
+  function ForecastChart({ fc, fl, release, statusDate, unit, svgRef, vb }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
     const bl = A.hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
@@ -1901,7 +1986,7 @@ td.ags-actions { background: var(--surface); }
         { label: 'Probable', value: fmt.date(l.date), color: C_REM, kind: 'dot' },
         D.valid(l.best) ? { label: 'Optimista', value: fmt.date(l.best) } : null,
         D.valid(l.worst) ? { label: 'Pesimista', value: fmt.date(l.worst) } : null]}
-        foot=${fc.finish ? fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ' a ' + fpts(fc.velocity, unit) + ' por iteración (máx. y mín. de las últimas 3 para el rango).' : 'Ritmo de ' + fpts(fl.perWeek, unit) + ' por semana en las últimas 6 semanas.'} />`;
+        foot=${fc.finish ? fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ' a ' + fpts(fc.velocity, unit) + ' por iteración (' + (vb ? velName(vb) : 'velocidad media') + '; el rango usa la máxima y la mínima de ' + (vb ? velWhere(vb) : 'las últimas iteraciones cerradas') + ').' : 'Ritmo de ' + fpts(fl.perWeek, unit) + ' por semana en las últimas 6 semanas.'} />`;
       return html`<${Tip} head=${l.label} rows=${[{ label: 'Fecha', value: fmt.date(l.date) }]} />`;
     });
     useEffect(() => { nav.leave(); }, [g]);
@@ -2065,7 +2150,9 @@ td.ags-actions { background: var(--surface); }
     const planned = task ? C.plannedFraction(m.sched.cal, task.startDate, task.finishDate, task.milestone, m.statusDate) : null;
     const tSpi = task && planned > 0 ? num(task.progress, 0) / 100 / planned : null;
     const tone = (v) => C.indexTone(v);
-    const word = (v, a, b) => (v === null || !Number.isFinite(v) ? '—' : v > 1.02 ? a : v >= 0.98 ? 'En línea' : b);
+    /* mismo vocabulario y bandas que el tablero (80) y el valor ganado ágil (50): de 0,98 a 1,02 es «al día» o «dentro del
+       presupuesto» */
+    const word = (v, a, mid, b) => (v === null || !Number.isFinite(v) ? '—' : v > 1.02 ? a : v >= 0.98 ? mid : b);
     return html`<div class="stack" data-role="agile-evm">
       <div class="ags-tiles" data-role="evm-tiles">
         <${ui.Stat} label="BAC del release" value=${fmt.moneyShort(ev.bac, currency)} sub=${fmt.money(ev.bac, currency)} />
@@ -2076,8 +2163,8 @@ td.ags-actions { background: var(--surface); }
         <${ui.Stat} label="AC (costo real)" value=${fmt.moneyShort(ev.ac, currency)} sub=${ev.ac > 0 ? (shared ? 'Incluye ' + fmt.moneyShort(shared.shared, currency) + ' compartidos con otro release' : 'Costos imputados al release') : 'Sin costos imputados'} />
         <${ui.Stat} label="SV" value=${(ev.sv > 0 ? '+' : '') + fmt.moneyShort(ev.sv, currency)} sub="EV − PV" tone=${ev.sv < 0 ? 'warn' : null} />
         <${ui.Stat} label="CV" value=${ev.ac > 0 ? (ev.cv > 0 ? '+' : '') + fmt.moneyShort(ev.cv, currency) : '—'} sub="EV − AC" tone=${ev.ac > 0 && ev.cv < 0 ? 'warn' : null} />
-        <${ui.Stat} label="SPI" value=${fmt.idx(ev.spi)} sub=${word(ev.spi, 'Adelantado', 'Atrasado')} tone=${tone(ev.spi)} />
-        <${ui.Stat} label="CPI" value=${fmt.idx(ev.cpi)} sub=${word(ev.cpi, 'Bajo el presupuesto', 'Sobre el presupuesto')} tone=${tone(ev.cpi)} />
+        <${ui.Stat} label="SPI" value=${fmt.idx(ev.spi)} sub=${word(ev.spi, 'Adelantado', 'Al día', 'Atrasado')} tone=${tone(ev.spi)} />
+        <${ui.Stat} label="CPI" value=${fmt.idx(ev.cpi)} sub=${word(ev.cpi, 'Por debajo del presupuesto', 'Dentro del presupuesto', 'Por encima del presupuesto')} tone=${tone(ev.cpi)} />
         <${ui.Stat} label="EAC" value=${ev.eac !== null ? fmt.moneyShort(ev.eac, currency) : '—'} sub="BAC / CPI" />
         <${ui.Stat} label="VAC" value=${ev.vac !== null ? (ev.vac > 0 ? '+' : '') + fmt.moneyShort(ev.vac, currency) : '—'} sub="BAC − EAC" tone=${ev.vac !== null && ev.vac < 0 ? 'warn' : null} />
       </div>
@@ -2131,6 +2218,7 @@ td.ags-actions { background: var(--surface); }
       const lk = known[known.length - 1];
       return lk && fc.finish > lk.date && lk.scope - lk.done > 0 ? fc.finish : null;
     }, [bu, fc, buPts]);
+    const vb = useMemo(() => (release ? velBasis(release, sprints, items, settings) : null), [release, sprints, items, settings]);
     const fl = useMemo(() => (release && fc && !fc.finish ? flowForecast(items.filter((it) => A.countable(it) && it.releaseId === release.id), settings, statusDate, cal) : null), [release, fc, items, settings, statusDate, cal]);
     const vel = useMemo(() => C.velocity({ sprints: flowScope === 'release' ? spList : sprints, items, settings }), [flowScope, spList, sprints, items, settings]);
     const cfdRange = useMemo(() => {
@@ -2145,7 +2233,8 @@ td.ags-actions { background: var(--surface); }
     const cfdRows = useMemo(() => (cfdRange ? C.cfd({ items: scopeItems, settings, from: cfdRange.from, to: cfdRange.to }) : []), [cfdRange, scopeItems, settings]);
     /* costos reales de todos los releases en una pasada (PM.agile.releaseCosts, la regla de 50-evm): el AC de cada release
        y los registros sin release que comparten entregable o actividad con otro release (cuentan una vez en el total) */
-    const relCosts = useMemo(() => A.releaseCosts(releases, m.costs, m.tree, statusDate), [releases, m.costs, m.tree, statusDate]);
+    /* con las actividades del cronograma, el núcleo resuelve también el vínculo desde la actividad (task.releaseId) */
+    const relCosts = useMemo(() => A.releaseCosts(releases, m.costs, m.tree, statusDate, arr(m.schedule && m.schedule.tasks)), [releases, m.costs, m.tree, statusDate, m.schedule]);
     const costInfo = useMemo(() => {
       if (!release) return null;
       const own = relCosts.byRelease.get(release.id) || { ac: 0, shared: 0 };
@@ -2156,7 +2245,7 @@ td.ags-actions { background: var(--surface); }
     const ev = useMemo(() => (release ? C.agileEvm({ release, sprints, items, settings, actualCost: costInfo ? costInfo.ac : 0, statusDate }) : null), [release, sprints, items, settings, costInfo, statusDate]);
     const fst = useMemo(() => flowStats(scopeItems, settings, statusDate), [scopeItems, settings, statusDate]);
     if (m.loading) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
-    const header = html`<${ui.PageHeader} eyebrow=${html`<span>Ágil</span><span>·</span><span>4.5 Monitorear y controlar el trabajo · 7.4 Controlar los costos</span>`} title="Métricas ágiles"
+    const header = html`<${ui.PageHeader} eyebrow="4.5 Monitorear y controlar el trabajo del proyecto · 7.4 Controlar los costos" title="Métricas ágiles"
       description=${'Burndown, burnup, velocidad, flujo acumulado, pronóstico, valor ganado ágil y tiempos de ciclo, con datos a la fecha de corte (' + fmt.date(statusDate, 'long') + ').'}
       actions=${html`<${ui.Button} icon="sprint" onClick=${() => PM.navigate('iteraciones', release ? { release: release.id } : {})}>Releases e iteraciones</${ui.Button}>`} />`;
     if (!releases.length && !sprints.length && !items.length) {
@@ -2201,11 +2290,11 @@ td.ags-actions { background: var(--surface); }
           render=${(r) => html`<${BurnupChart} bu=${bu} pts=${buPts} cut=${buCut} proj=${buProj} release=${release} unit=${unit} statusDate=${statusDate} svgRef=${r} />`}
           table=${bu ? tbl('Burnup al inicio, al cierre de cada iteración y a la fecha de corte', [{ label: 'Punto' }, { label: 'Fecha', mono: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], buPts.map((p) => [ptLabel(p, false), fmt.date(p.date), p.scope === null ? '—' : fmt.num(p.scope, 1), p.done === null ? '—' : fmt.num(p.done, 1)])) : null} />
         <${ChartCard} id="velocity" title="Velocidad" filename=${'velocidad_' + fileBase + '.svg'}
-          subtitle=${vel.avg3 !== null ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + ' cerradas: ' + fpts(vel.avg3, unit) + ' · rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) : 'Sin iteraciones cerradas todavía'}
+          subtitle=${vel.avg3 !== null ? 'Promedio de ' + lastClosed(Math.min(3, vel.closed)) + (flowScope === 'release' ? ' del release' : ' del proyecto') + ': ' + fpts(vel.avg3, unit) + (vel.closed > 1 ? ' · rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) : '') : 'Sin iteraciones cerradas todavía'}
           empty=${!vel.rows.length ? (settings.framework === 'kanban' ? 'En Kanban sin iteraciones, usa el rendimiento semanal como medida de capacidad.' : 'Crea iteraciones para medir la velocidad.') : null}
-          legend=${html`<${Legend} items=${[{ label: 'Comprometido', color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 }, { label: 'Terminado', color: C_REM, kind: 'sw' }, vel.rows.some((rw) => rw.status === 'en-curso') ? { label: 'Terminado hasta hoy (iteración en curso)', color: C_REM, kind: 'sw', opacity: 0.6 } : null, vel.avg3 !== null ? { label: 'Promedio (últimas 3)', color: 'var(--fg)', kind: 'dash' } : null]} />`}
-          render=${(r) => html`<${VelocityChart} vel=${vel} unit=${unit} svgRef=${r} />`}
-          table=${tbl('Velocidad por iteración', [{ label: 'Iteración' }, { label: 'Estado' }, { label: 'Inicio', mono: true }, { label: 'Fin', mono: true }, { label: 'Comprometido', num: true }, { label: 'Terminado', num: true }, { label: 'Cumplimiento', num: true }], vel.rows.map((rw) => [spName(rw), (SPR_STATUS[rw.status] || SPR_STATUS.planeado)[0], fmt.date(rw.start), fmt.date(rw.end), fmt.num(rw.committed, 1), fmt.num(rw.completed, 1), rw.committed > 0 && rw.status !== 'planeado' ? fmt.pct(rw.completed / rw.committed) : '—']))} />
+          legend=${html`<${Legend} items=${[vel.rows.some((rw) => rw.status !== 'planeado') ? { label: 'Comprometido', color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 } : null, vel.rows.some((rw) => rw.status === 'planeado') ? { label: 'Planificado (sin iniciar)', color: 'var(--fg-3)', kind: 'out' } : null, { label: 'Terminado', color: C_REM, kind: 'sw' }, vel.rows.some((rw) => rw.status === 'en-curso') ? { label: 'Terminado hasta hoy (iteración en curso)', color: C_REM, kind: 'sw', opacity: 0.6 } : null, vel.avg3 !== null ? { label: avgLabel(vel.closed), color: 'var(--fg)', kind: 'dash' } : null]} />`}
+          render=${(r) => html`<${VelocityChart} vel=${vel} unit=${unit} svgRef=${r} where=${flowScope === 'release' ? ' del release' : ' del proyecto'} />`}
+          table=${tbl('Velocidad por iteración', [{ label: 'Iteración' }, { label: 'Estado' }, { label: 'Inicio', mono: true }, { label: 'Fin', mono: true }, { label: 'Comprometido o planificado', num: true }, { label: 'Terminado', num: true }, { label: 'Cumplimiento', num: true }], vel.rows.map((rw) => [spName(rw), (SPR_STATUS[rw.status] || SPR_STATUS.planeado)[0], fmt.date(rw.start), fmt.date(rw.end), fmt.num(rw.committed, 1) + (rw.status === 'planeado' ? ' (planificado)' : ''), fmt.num(rw.completed, 1), rw.committed > 0 && rw.status !== 'planeado' ? fmt.pct(rw.completed / rw.committed) : '—']))} />
         <${ChartCard} id="cfd" title="Diagrama de flujo acumulado" filename=${'flujo-acumulado_' + fileBase + '.svg'}
           subtitle=${cfdRange ? 'Del ' + fmt.date(cfdRange.from) + ' al ' + fmt.date(cfdRange.to) + (cfdRows.length && D.diff(cfdRange.from, cfdRange.to) > 180 ? ' · semanal' : ' · diario') + ' · elementos (sin épicas)' : null}
           empty=${cfdRows.length < 2 ? 'Se necesitan elementos con fecha de creación y al menos dos días de historia hasta la fecha de corte.' : null}
@@ -2225,17 +2314,17 @@ td.ags-actions { background: var(--surface); }
           render=${(r) => html`<${ThroughputChart} stats=${fst} svgRef=${r} />`}
           table=${tbl('Elementos terminados por semana', [{ label: 'Semana', mono: true }, { label: 'Elementos', num: true }, { label: 'Estimación', num: true }], fst.weeks.map((w) => [fmt.date(w.start) + (w.partial ? ' (en curso)' : ''), fmt.num(w.count), fmt.num(w.points, 1)]))} />
         <${ChartCard} id="forecast" span split title="Pronóstico de terminación" filename=${'pronostico_' + fileBase + '.svg'}
-          subtitle=${relFinished(fc) ? 'Release terminado' : fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : release ? 'Sin velocidad ni ritmo de flujo todavía' : null}
-          empty=${!release ? 'Selecciona un release para ver su pronóstico.' : !(fc.finish || (fl && fl.finish)) && !D.valid(release.end) ? (fc.total && !fc.remaining ? 'El release está terminado.' : 'Sin velocidad ni fecha de fin no hay pronóstico: cierra una iteración o termina elementos del release.') : null}
+          subtitle=${relFinished(fc) ? 'Release terminado' : fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración (' + velName(vb) + ')' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : release ? (fc && fc.velocity === 0 ? 'Velocidad de 0 en las iteraciones cerradas' : 'Sin velocidad ni ritmo de flujo todavía') : null}
+          empty=${!release ? 'Selecciona un release para ver su pronóstico.' : !(fc.finish || (fl && fl.finish)) && !D.valid(release.end) ? (fc.total && !fc.remaining ? 'El release está terminado.' : fc.velocity === 0 ? 'La velocidad de las iteraciones cerradas es 0 y el release no tiene fecha de fin: no hay pronóstico.' : 'Sin velocidad ni fecha de fin no hay pronóstico: cierra una iteración o termina elementos del release.') : null}
           legend=${html`<${Legend} items=${[
             fcFin ? { label: relFinished(fc) ? 'Terminación real' : 'Probable', color: C_REM, kind: 'dot' } : null,
             fcFin && !relFinished(fc) && fc.finish && fc.finishBest ? { label: 'Rango optimista–pesimista', color: C_REM, kind: 'sw', opacity: 0.3 } : null,
             release && D.valid(release.end) ? { label: 'Fin planeado', color: 'var(--fg-2)', kind: 'sw' } : null,
             { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
-          render=${(r) => html`<${ForecastChart} fc=${fc} fl=${fl} release=${release} statusDate=${statusDate} unit=${unit} svgRef=${r} />`}
-          extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} />` : null}
+          render=${(r) => html`<${ForecastChart} fc=${fc} fl=${fl} release=${release} statusDate=${statusDate} unit=${unit} svgRef=${r} vb=${vb} />`}
+          extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} vb=${vb} />` : null}
           table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], (relFinished(fc) ? [['Terminación real (último elemento)', fc.finish]] : [
-            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (' + (fc.finish ? 'velocidad media' : fl && fl.finish ? 'ritmo de flujo' : 'sin velocidad') + ')', fcFin], ['Pesimista (velocidad mínima)', fc.finishWorst],
+            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (' + (fc.finish ? velName(vb) : fl && fl.finish ? 'ritmo de flujo' : 'sin velocidad') + ')', fcFin], ['Pesimista (velocidad mínima)', fc.finishWorst],
           ]).map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && A.hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
         <${ChartCard} id="agile-evm" span split title="Valor ganado ágil (AgileEVM)" filename=${'agile-evm_' + fileBase + '.svg'}
           subtitle=${release ? 'Release «' + relName(release) + '» frente al valor ganado del proyecto' : null}
@@ -2248,12 +2337,12 @@ td.ags-actions { background: var(--surface); }
     </div>`;
   }
 
-  function ForecastText({ release, fc, fl, unit, cal }) {
+  function ForecastText({ release, fc, fl, unit, cal, vb }) {
     const done = relFinished(fc);
     const fin = done ? fc.finish : fc.finish || (fl && fl.finish);
     if (!fin) {
       return html`<${Callout} tone="info" role="forecast-none" title=${done ? 'Release terminado' : 'Aún no hay pronóstico'}>
-        <span>${done ? 'Todos los elementos del release están terminados.' : !fc.total ? 'El release no tiene elementos estimados: asígnalos y estímalos en el backlog para pronosticar su terminación.' : 'Sin velocidad: aún no hay pronóstico. Cierra una iteración o termina elementos del release (el ritmo de flujo usa lo terminado en las últimas 6 semanas).'}</span>
+        <span>${done ? 'Todos los elementos del release están terminados.' : !fc.total ? 'El release no tiene elementos estimados: asígnalos y estímalos en el backlog para pronosticar su terminación.' : noForecastText(fc, true)}</span>
       </${Callout}>`;
     }
     const late = D.valid(release.end) ? wdDiff(cal, release.end, fin) : null;
@@ -2262,7 +2351,7 @@ td.ags-actions { background: var(--surface); }
     const vsPlan = late === null ? 'El release no tiene fecha de fin para comparar.' : late === 0 ? 'Coincide con el fin planeado.' : late > 0 ? wdText(late) + ' después del fin planeado (' + fmt.date(release.end) + ').' : wdText(late) + ' antes del fin planeado (' + fmt.date(release.end) + ').';
     const vsBl = bl === null ? '' : bl === 0 ? ' Coincide con la línea base.' : ' ' + sgn(bl) + wdText(bl) + ' frente a la línea base (' + fmt.date(release.baseline.end) + ').';
     return html`<${Callout} tone=${tone} role="forecast-text">
-      <span>${done ? 'El release está terminado: el último elemento se terminó el ' + fmt.date(fin, 'long') + '. ' : fc.finish ? 'Con la velocidad media de ' + fpts(fc.velocity, unit) + ' faltan ' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ': terminaría el ' + fmt.date(fin, 'long') + (fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst ? ' (entre el ' + fmt.date(fc.finishBest) + ' y el ' + fmt.date(fc.finishWorst) + ')' : '') + '. ' : 'Al ritmo de ' + fpts(fl.perWeek, unit) + ' por semana terminaría el ' + fmt.date(fin, 'long') + '. '}${vsPlan}${vsBl}</span>
+      <span>${done ? 'El release está terminado: el último elemento se terminó el ' + fmt.date(fin, 'long') + '. ' : fc.finish ? 'Con la ' + velName(vb) + ' (' + fpts(fc.velocity, unit) + ', promedio de ' + velWhere(vb) + ') faltan ' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ': terminaría el ' + fmt.date(fin, 'long') + (fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst ? ' (entre el ' + fmt.date(fc.finishBest) + ' y el ' + fmt.date(fc.finishWorst) + ')' : '') + '. ' : 'Al ritmo de ' + fpts(fl.perWeek, unit) + ' por semana terminaría el ' + fmt.date(fin, 'long') + '. '}${vsPlan}${vsBl}</span>
     </${Callout}>`;
   }
 

@@ -76,14 +76,36 @@
 .agb-bulk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--accent); background: var(--accent-wash); border-radius: var(--r-md); color: var(--fg); }
 .agb-bulk > .select { width: auto; max-width: 240px; flex: 0 1 auto; background-color: var(--surface); }
 @media (max-width: 680px) { .agb-bulk > .select { flex: 1 1 100%; max-width: none; width: 100%; } }
+/* tabla del backlog: el título ocupa el espacio sobrante y las columnas secundarias pasan a la línea bajo el título a
+   medida que el contenedor se estrecha (consultas de contenedor «agbt»): ≥ 1600 px todo en columnas; < 1600 valor,
+   entregable y bloqueo bajo el título; < 1150 también el responsable; < 1000 también el release y la iteración;
+   < 860 cada elemento es una tarjeta (código, tipo, estimación, posición y controles de orden; título; estado y prioridad). */
+.agb-twrap { container: agbt / inline-size; }
 .agb-table td { vertical-align: middle; }
-.agb-table td.agb-c-title { min-width: 240px; max-width: 460px; white-space: normal; }
-.agb-table .agb-c-tight { width: 1%; white-space: nowrap; }
-.agb-table td.agb-c-wbs { min-width: 150px; max-width: 240px; white-space: normal; font-size: var(--fs-xs); }
-.agb-trunc { display: block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agb-table th.agb-c-check, .agb-table td.agb-c-check, .agb-table .agb-c-pos, .agb-table .agb-c-move, .agb-table .agb-c-est, .agb-table .agb-c-value, .agb-table .agb-c-block { width: 1%; white-space: nowrap; }
+.agb-table .agb-c-check, .agb-table .agb-c-pos, .agb-table .agb-c-move { padding-left: 6px; padding-right: 6px; }
+.agb-table .agb-c-id { width: 1%; }
+.agb-table .agb-c-title { min-width: 260px; white-space: normal; }
+.agb-table .agb-c-prio { width: 96px; }
+.agb-table .agb-c-rel { width: 168px; }
+.agb-table .agb-c-wbs { width: 190px; }
+.agb-table .agb-c-status { width: 128px; }
+.agb-table .agb-c-who { width: 140px; }
+.agb-table td.agb-c-wbs { white-space: normal; font-size: var(--fs-xs); }
+.agb-table td.agb-c-status .chip { white-space: normal; border-radius: var(--r-md); line-height: 1.35; padding-top: 2px; padding-bottom: 2px; }
+.agb-table td.agb-c-who { overflow-wrap: anywhere; }
+.agb-id { display: flex; flex-direction: row; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.agb-trunc { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agb-cell-sub { font-size: var(--fs-xs); color: var(--fg-2); margin-top: 2px; line-height: 1.35; }
+.agb-cell-sub > .icon { color: var(--fg-3); vertical-align: -2px; }
+.agb-ellip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.agb-sub .agb-ellip { max-width: 240px; }
+.agb-sub .icon { color: var(--fg-3); vertical-align: -2px; }
+.agb-c-rel .agb-ellip { display: inline; }
 .agb-title { border: 0; background: transparent; padding: 0; margin: 0; text-align: left; color: var(--fg); font: inherit; font-weight: 500; cursor: pointer; line-height: 1.35; overflow-wrap: anywhere; }
 .agb-title:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .agb-check { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; vertical-align: middle; cursor: pointer; }
+.agb-all { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .agb-move { display: flex; gap: 0; flex-wrap: nowrap; align-items: center; }
 .agb-grip { cursor: grab; touch-action: none; color: var(--fg-3); }
 .agb-row.is-dragging > td { opacity: 0.45; }
@@ -91,12 +113,64 @@
 .agb-row.agb-drop-after > td { box-shadow: inset 0 -3px 0 var(--accent); }
 .agb-table tbody tr.agb-row.is-sel > td { background: var(--accent-wash); }
 .agb-row.is-epic .agb-title { font-weight: 650; }
-.agb-sub { font-size: var(--fs-xs); color: var(--fg-3); margin-top: 2px; }
-.agb-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.agb-reason { font-size: var(--fs-xs); color: var(--fg-2); margin-top: 2px; max-width: 200px; white-space: normal; }
+.agb-sub { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--fg-3); margin-top: 2px; }
+.agb-sub:empty { display: none; }
+.agb-badges { display: flex; gap: 4px 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.agb-reason { font-size: var(--fs-xs); color: var(--fg-2); margin-top: 2px; width: 150px; white-space: normal; }
+/* textos largos en celdas angostas: hasta tres líneas (el texto completo queda en el título emergente) */
+.agb-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; max-width: 150px; white-space: normal; overflow-wrap: anywhere; }
+.agb-c-rel > .agb-clamp { -webkit-line-clamp: 2; }
+.agb-blk { font-size: var(--fs-xs); color: var(--fg-2); margin-top: 4px; line-height: 1.6; }
+.agb-n, .agb-nm, .agb-nr, .agb-card-k, .agb-card-only { display: none; }
 .agb-table tr.agb-group > th { position: static; background: var(--surface-3); color: var(--fg); font-size: var(--fs-sm); font-weight: 600; text-align: left; white-space: normal; padding: 8px 10px; }
 .agb-table td.agb-none { padding: 14px 12px; color: var(--fg-3); }
 .agb-est-input { width: 84px; min-height: 28px; padding: 3px 6px; text-align: right; }
+@container agbt (max-width: 1599.98px) {
+  .agb-table .agb-w { display: none; }
+  .agb-table div.agb-n { display: block; }
+  .agb-table span.agb-n { display: inline; }
+  .agb-table div.agb-blk.agb-n { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .agb-id { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+@container agbt (max-width: 1149.98px) {
+  .agb-table .agb-m { display: none; }
+  .agb-table div.agb-nm { display: block; }
+  .agb-table span.agb-nm { display: inline; }
+}
+@container agbt (max-width: 999.98px) {
+  .agb-table .agb-r { display: none; }
+  .agb-table div.agb-nr { display: block; }
+  .agb-table span.agb-nr { display: inline; }
+}
+@container agbt (max-width: 859.98px) {
+  .agb-table, .agb-table > tbody, .agb-table > thead { display: block; width: 100%; }
+  .agb-table > thead > tr { display: flex; align-items: center; }
+  .agb-table > thead > tr > th { display: none; }
+  .agb-table > thead > tr > th.agb-c-check { display: block; width: 100%; padding: 8px 12px; white-space: normal; font-weight: 500; }
+  .agb-card-only { display: inline; }
+  .agb-table tr.agb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .agb-table tr.agb-row:last-child { border-bottom: 0; }
+  .agb-table tr.agb-row > td { display: block; width: auto; min-width: 0; padding: 0; border: 0; white-space: normal; }
+  .agb-table tr.agb-row > td.agb-w, .agb-table tr.agb-row > td.agb-m, .agb-table tr.agb-row > td.agb-r { display: none; }
+  .agb-table tr.agb-row > td.agb-c-check { order: 1; }
+  .agb-table tr.agb-row > td.agb-c-id { order: 2; flex: 1 1 auto; }
+  .agb-table tr.agb-row .agb-id { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .agb-table tr.agb-row > td.agb-c-est { order: 3; margin-left: auto; }
+  .agb-table tr.agb-row > td.agb-c-pos { order: 4; font-size: var(--fs-xs); color: var(--fg-3); }
+  .agb-table tr.agb-row > td.agb-c-move { order: 5; margin: -4px 0; }
+  .agb-table tr.agb-row > td.agb-c-title { order: 6; flex: 1 1 100%; }
+  .agb-table tr.agb-row > td.agb-c-status { order: 7; }
+  .agb-table tr.agb-row > td.agb-c-prio { order: 8; font-size: var(--fs-xs); color: var(--fg-2); }
+  .agb-card-k { display: inline; }
+  .agb-table tbody tr.agb-row:hover > td, .agb-table tbody tr.agb-row.is-sel > td { background: transparent; }
+  .agb-table tbody tr.agb-row:hover { background: var(--surface-2); }
+  .agb-table tbody tr.agb-row.is-sel { background: var(--accent-wash); }
+  .agb-row.agb-drop-before > td, .agb-row.agb-drop-after > td { box-shadow: none; }
+  .agb-row.agb-drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+  .agb-row.agb-drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
+  .agb-table tr.agb-group, .agb-table tr.agb-group > th, .agb-table tbody > tr:not(.agb-row) > td { display: block; }
+  .agb-table tr.agb-group > th { padding: 8px 12px; }
+}
 body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-select: none !important; }
 .agb-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
 .agb-form > .span-all { grid-column: 1 / -1; }
@@ -660,42 +734,55 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />`;
   }
 
+  /* Fila del backlog. Las columnas secundarias se repiten en la línea bajo el título y se muestran en uno u otro lugar
+     según el ancho del contenedor (clases agb-w/agb-n, agb-m/agb-nm y agb-r/agb-nr; ver el CSS «agbt»). */
   const BacklogRow = PM.memo(function BacklogRow({ it, pos, lk, sel, canWrite, first, last, top, bottom, drop, dragging, refine, group, api }) {
     const unit = lk.unit;
     const rel = it.releaseId ? lk.rel.get(it.releaseId) : null;
     const spr = it.sprintId ? lk.spr.get(it.sprintId) : null;
     const wbs = it.wbsId ? lk.wbs.get(it.wbsId) : null;
     const epic = it.epicId ? lk.epics.get(it.epicId) : null;
+    /* agrupado por épica: el encabezado del grupo ya la nombra */
+    const showEpic = !!epic && group !== it.epicId;
     const cat = A.category(lk.st, it.status);
     const code = it.code || 'elemento';
     const missing = html`<span class="faint" title="La referencia ya no existe">No encontrado</span>`;
+    const dash = html`<span class="faint">—</span>`;
+    const relTxt = it.releaseId ? (rel ? rel.name || 'Release sin nombre' : missing) : null;
+    const sprTxt = it.sprintId ? (spr ? spr.name || 'Iteración' : missing) : null;
+    const wbsTxt = it.wbsId ? (wbs ? html`<span class="mono">${wbs.code}</span> ${wbs.name}${wbs.approach === 'adaptativo' ? html` <${ui.Chip} tone="accent">Ágil</${ui.Chip}>` : null}` : missing) : null;
+    /* entregable en una línea secundaria: código, nombre recortado y enfoque en texto */
+    const wbsLine = it.wbsId ? html`<span title=${wbs ? 'Entregable de la EDT: ' + wbs.code + ' ' + wbs.name + (wbs.approach === 'adaptativo' ? ' (enfoque adaptativo)' : '') : 'El entregable ya no existe'}>EDT ${wbs ? html`<span class="mono">${wbs.code}</span> <span class="agb-ellip">${wbs.name}</span>${wbs.approach === 'adaptativo' ? ' · Ágil' : ''}` : missing}</span>` : null;
+    const refineChips = refine && needsRefine(it, lk.st);
+    const order = [
+      { label: 'Subir una posición', icon: 'chevron-up', disabled: first, onClick: () => api.moveBy(it.id, -1, 'menu') },
+      { label: 'Bajar una posición', icon: 'chevron-down', disabled: last, onClick: () => api.moveBy(it.id, 1, 'menu') },
+      { label: 'Llevar al inicio del backlog', icon: 'agb-top', disabled: top, onClick: () => api.moveEdge(it.id, true, 'menu') },
+      { label: 'Llevar al final del backlog', icon: 'agb-bottom', disabled: bottom, onClick: () => api.moveEdge(it.id, false, 'menu') },
+    ];
     return html`<tr data-agb-row=${it.id} data-group=${group} class=${cx('agb-row', drop && 'agb-drop-' + drop, dragging && 'is-dragging', it.type === 'epica' && 'is-epic', sel && 'is-sel')}>
-      ${canWrite ? html`<td class="agb-c-tight"><input type="checkbox" class="agb-check" checked=${sel} aria-label=${'Seleccionar ' + code} onChange=${(e) => api.toggle(it.id, e.currentTarget.checked)} /></td>` : null}
-      <td class="num mono agb-c-tight">${pos}</td>
-      ${canWrite ? html`<td class="agb-c-tight"><div class="agb-move">
+      ${canWrite ? html`<td class="agb-c-check"><input type="checkbox" class="agb-check" checked=${sel} aria-label=${'Seleccionar ' + code} onChange=${(e) => api.toggle(it.id, e.currentTarget.checked)} /></td>` : null}
+      <td class="num mono agb-c-pos" title="Posición en el backlog"><span class="agb-card-k">#</span>${pos}</td>
+      ${canWrite ? html`<td class="agb-c-move"><div class="agb-move">
         <button type="button" class="btn btn-ghost btn-sm btn-icon agb-grip" data-act="grip" aria-label=${'Reordenar ' + code + ': arrastra o usa las flechas arriba y abajo (Inicio y Fin lo llevan a los extremos)'} title="Arrastra para reordenar o usa las flechas del teclado"
           onPointerDown=${(e) => api.dragStart(e, it.id)} onKeyDown=${(e) => api.gripKey(e, it.id)}><${ui.Icon} name="grip" size=${14} /></button>
-        <${ui.IconButton} size="sm" icon="chevron-up" data-act="up" label=${'Subir ' + code} disabled=${first} onClick=${() => api.moveBy(it.id, -1, 'up')} />
-        <${ui.IconButton} size="sm" icon="chevron-down" data-act="down" label=${'Bajar ' + code} disabled=${last} onClick=${() => api.moveBy(it.id, 1, 'down')} />
-        <${ui.IconButton} size="sm" icon="agb-top" data-act="top" label=${'Mover ' + code + ' al inicio del backlog'} disabled=${top} onClick=${() => api.moveEdge(it.id, true, 'top')} />
-        <${ui.IconButton} size="sm" icon="agb-bottom" data-act="bottom" label=${'Mover ' + code + ' al final del backlog'} disabled=${bottom} onClick=${() => api.moveEdge(it.id, false, 'bottom')} />
+        <span data-act="menu"><${ui.Dropdown} label=${'Ordenar ' + code} icon="more" align="left" items=${order} /></span>
       </div></td>` : null}
-      <td class="agb-c-tight"><span class="code-tag">${it.code || '—'}</span></td>
-      <td class="agb-c-tight"><${TypeChip} type=${it.type} /></td>
+      <td class="agb-c-id"><div class="agb-id"><span class="code-tag">${it.code || '—'}</span><${TypeChip} type=${it.type} /></div></td>
       <td class="agb-c-title">
         <button type="button" class="agb-title" data-act="open" onClick=${() => api.open(it.id)}>${it.title || html`<span class="faint">Sin título</span>`}</button>
-        ${epic ? html`<div class="agb-sub">Épica <span class="mono">${epic.code}</span> · ${epic.title}</div>` : null}
-        ${refine && needsRefine(it, lk.st) ? html`<div class="agb-badges">${!hasEst(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin estimar</${ui.Chip}>` : null}${!hasAcc(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin criterios de aceptación</${ui.Chip}>` : null}</div>` : null}
+        <div class="agb-sub">${showEpic ? html`<span data-sub="epic">Épica <span class="mono">${epic.code}</span> · ${epic.title}</span>` : null}${relTxt ? html`<span class="agb-nr" data-sub="rel"><span class="sr-only">Release: </span><${ui.Icon} name="release" size=${12} /> ${relTxt}</span>` : null}${sprTxt ? html`<span class="agb-nr" data-sub="sprint"><span class="sr-only">Iteración: </span><${ui.Icon} name="sprint" size=${12} /> ${sprTxt}</span>` : null}${wbsLine ? html`<span class="agb-nr" data-sub="wbs">${wbsLine}</span>` : null}</div>
+        ${refineChips ? html`<div class="agb-badges">${!hasEst(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin estimar</${ui.Chip}>` : null}${!hasAcc(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin criterios de aceptación</${ui.Chip}>` : null}</div>` : null}
+        ${it.blocked ? html`<div class="agb-n agb-blk" data-sub="blocked" title=${it.blockedReason ? 'Bloqueado: ' + it.blockedReason : undefined}><${ui.Chip} tone="crit" icon="lock">Bloqueado</${ui.Chip}>${it.blockedReason ? ' ' + it.blockedReason : ''}</div>` : null}
       </td>
-      <td class="num agb-c-tight">${refine && canWrite && needsRefine(it, lk.st) ? html`<${EstInput} it=${it} unit=${unit} api=${api} />` : fmtEst(it.estimate, unit)}</td>
-      <td class="agb-c-tight">${it.priority || '—'}</td>
-      <td class="num agb-c-tight">${PM.isNum(it.value) ? fmt.num(Number(it.value)) : '—'}</td>
-      <td><span class="agb-trunc" title=${rel ? rel.name : ''}>${it.releaseId ? (rel ? rel.name : missing) : html`<span class="faint">—</span>`}</span></td>
-      <td><span class="agb-trunc" title=${spr ? spr.name : ''}>${it.sprintId ? (spr ? spr.name : missing) : html`<span class="faint">—</span>`}</span></td>
-      <td class="agb-c-wbs">${it.wbsId ? (wbs ? html`<span class="mono">${wbs.code}</span> ${wbs.name}${wbs.approach === 'adaptativo' ? html` <${ui.Chip} tone="accent">Ágil</${ui.Chip}>` : null}` : missing) : html`<span class="faint">—</span>`}</td>
-      <td class="agb-c-tight"><${ui.Chip} tone=${CAT_TONE[cat]}>${statusName(lk.st, it.status)}</${ui.Chip}></td>
-      <td><span class="agb-trunc" title=${it.assignee || ''}>${it.assignee || html`<span class="faint">—</span>`}</span></td>
-      <td class="agb-c-tight">${it.blocked ? html`<${ui.Chip} tone="crit" icon="lock">Bloqueado</${ui.Chip}>${it.blockedReason ? html`<div class="agb-reason">${it.blockedReason}</div>` : null}` : html`<span class="faint">—</span>`}</td>
+      <td class="num agb-c-est">${refine && canWrite && needsRefine(it, lk.st) ? html`<${EstInput} it=${it} unit=${unit} api=${api} />` : fmtEst(it.estimate, unit)}</td>
+      <td class="agb-c-prio">${it.priority || '—'}${PM.isNum(it.value) ? html`<div class="agb-n agb-cell-sub" data-sub="value">Valor ${fmt.num(Number(it.value))}</div>` : null}</td>
+      <td class="num agb-c-value agb-w">${PM.isNum(it.value) ? fmt.num(Number(it.value)) : '—'}</td>
+      <td class="agb-c-rel agb-r"><span class="agb-clamp" title=${rel ? rel.name : ''}>${relTxt || dash}</span>${sprTxt ? html`<span class="agb-trunc agb-cell-sub" title=${spr ? spr.name : ''}>${sprTxt}</span>` : null}${wbsLine ? html`<div class="agb-n agb-cell-sub agb-trunc" data-sub="wbs-cell">${wbsLine}</div>` : null}</td>
+      <td class="agb-c-wbs agb-w">${wbsTxt || dash}</td>
+      <td class="agb-c-status"><${ui.Chip} tone=${CAT_TONE[cat]}>${statusName(lk.st, it.status)}</${ui.Chip}>${it.assignee ? html`<div class="agb-nm agb-cell-sub" data-sub="who"><span class="sr-only">Responsable: </span><${ui.Icon} name="user" size=${12} /> ${it.assignee}</div>` : null}</td>
+      <td class="agb-c-who agb-m">${it.assignee || dash}</td>
+      <td class="agb-c-block agb-w">${it.blocked ? html`<${ui.Chip} tone="crit" icon="lock">Bloqueado</${ui.Chip}>${it.blockedReason ? html`<div class="agb-reason agb-clamp" title=${it.blockedReason}>${it.blockedReason}</div>` : null}` : dash}</td>
     </tr>`;
   });
 
@@ -900,6 +987,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const ae = document.activeElement;
       if (ae && ae !== document.body && !row.contains(ae)) { pending.current = null; return; }
       let b = row.querySelector('[data-act="' + p.act + '"]');
+      /* el menú «Ordenar» envuelve su botón */
+      if (b && b.tagName !== 'BUTTON') b = b.querySelector('button');
       if (!b || b.disabled) b = row.querySelector('[data-act="grip"]');
       if (b && ae !== b) b.focus();
     });
@@ -1000,7 +1089,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       <${ui.Button} icon="settings" onClick=${() => PM.agileSettingsDialog(live.current)}>Configuración ágil</${ui.Button}>
       <${ui.Button} icon="download" onClick=${exportCsv} disabled=${!visible.length}>Exportar CSV</${ui.Button}>
       ${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => openItemEditor(getLive, null, defaultsFromFilters())}>Nuevo elemento</${ui.Button}>` : null}`;
-    const colCount = 13 + (canWrite ? 2 : 0);
+    const colCount = 11 + (canWrite ? 2 : 0);
     const relOpts = [{ value: NONE, label: 'Sin release' }, ...model.releases.map((r) => ({ value: r.id, label: r.name || 'Release' }))];
     const epicOpts = [{ value: NONE, label: 'Sin épica' }, ...epics.map((e) => ({ value: e.id, label: (e.code || '') + ' ' + (e.title || '') }))];
     const statusOpts = [{ value: BACKLOG, label: 'Backlog del producto' }, ...st.columns.map((c) => ({ value: c.id, label: c.name }))];
@@ -1088,15 +1177,15 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       ${!items.length ? html`<${ui.Empty} icon="backlog" title="El backlog del producto está vacío"
           actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => openItemEditor(getLive, null, defaultsFromFilters())}>Nuevo elemento</${ui.Button}><${ui.Button} icon="layers" onClick=${() => openItemEditor(getLive, null, { type: 'epica' })}>Nueva épica</${ui.Button}>` : null}>
           Aquí aparecerán las historias de usuario, defectos, mejoras y tareas del producto, ordenados por prioridad. Empieza con las épicas o escribe una historia en el alta rápida.
-        </${ui.Empty}>` : html`<div class="table-wrap">
+        </${ui.Empty}>` : html`<div class="table-wrap agb-twrap">
         <table class="table agb-table" aria-label="Backlog del producto en orden de prioridad">
           <thead><tr>
-            ${canWrite ? html`<th class="agb-c-tight"><input type="checkbox" ref=${allRef} class="agb-check" aria-label="Seleccionar todos los elementos visibles" disabled=${!visIds.length} checked=${visIds.length > 0 && nSelVis === visIds.length}
-              onChange=${(e) => { const on = e.currentTarget.checked; setSel((prev) => { const n = new Set(prev); for (const id of visIds) { if (on) n.add(id); else n.delete(id); } return n; }); }} /></th>` : null}
-            <th class="num" title="Posición en el backlog">#</th>
-            ${canWrite ? html`<th><span class="sr-only">Reordenar</span></th>` : null}
-            <th>Código</th><th>Tipo</th><th>Título</th><th class="num">Estimación</th><th>Prioridad</th><th class="num">Valor</th>
-            <th>Release</th><th>Iteración</th><th>Entregable EDT</th><th>Estado</th><th>Responsable</th><th>Bloqueado</th>
+            ${canWrite ? html`<th class="agb-c-check"><label class="agb-all"><input type="checkbox" ref=${allRef} class="agb-check" aria-label="Seleccionar todos los elementos visibles" disabled=${!visIds.length} checked=${visIds.length > 0 && nSelVis === visIds.length}
+              onChange=${(e) => { const on = e.currentTarget.checked; setSel((prev) => { const n = new Set(prev); for (const id of visIds) { if (on) n.add(id); else n.delete(id); } return n; }); }} /><span class="agb-card-only">Seleccionar todos los visibles</span></label></th>` : null}
+            <th class="num agb-c-pos" title="Posición en el backlog">#</th>
+            ${canWrite ? html`<th class="agb-c-move"><span class="sr-only">Reordenar</span></th>` : null}
+            <th class="agb-c-id">Código y tipo</th><th class="agb-c-title">Título</th><th class="num agb-c-est">Estimación</th><th class="agb-c-prio">Prioridad</th><th class="num agb-c-value agb-w">Valor</th>
+            <th class="agb-c-rel agb-r">Release e iteración</th><th class="agb-c-wbs agb-w">Entregable EDT</th><th class="agb-c-status">Estado</th><th class="agb-c-who agb-m">Responsable</th><th class="agb-c-block agb-w">Bloqueado</th>
           </tr></thead>
           ${groups.map((g) => html`<tbody key=${g.key}>
             ${grouped ? html`<tr class="agb-group"><th colspan=${colCount} scope="colgroup">${groupHead(g)}</th></tr>` : null}
@@ -1596,7 +1685,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
           <${Tile} id="blocked" label="Elementos bloqueados" value=${fmt.num(flow.blocked)} tone=${flow.blocked ? 'crit' : undefined} sub=${flow.blocked ? 'Resuélvelos antes de empezar trabajo nuevo' : 'Ningún bloqueo en el flujo'} />
         </div>
       </section>
-      ${flow.late ? html`<${Note} tone="warn" icon="calendar"><div class="stack-sm" data-agk-late="1"><span>${flow.late === 1 ? '1 elemento terminado después de la fecha de corte (' + fmt.date(cut) + ') no cuenta' : flow.late + ' elementos terminados después de la fecha de corte (' + fmt.date(cut) + ') no cuentan'} en estas métricas ni en el burndown, la velocidad y el tablero del proyecto, que se calculan al corte: «Terminado» registra la fecha de hoy. Actualiza la fecha de corte para incluirlos.</span>
+      ${flow.late ? html`<${Note} tone="warn" icon="calendar"><div class="stack-sm" data-agk-late="1"><span>${flow.late === 1 ? '1 elemento terminado después de la fecha de corte (' + fmt.date(cut) + ') no cuenta' : flow.late + ' elementos terminados después de la fecha de corte (' + fmt.date(cut) + ') no cuentan'} en estas métricas ni en el burndown, que se calculan a la fecha de corte: «Terminado» registra la fecha de hoy. Actualiza la fecha de corte para ${flow.late === 1 ? 'incluirlo' : 'incluirlos'}.</span>
         ${canWrite ? html`<div><${ui.Button} size="sm" icon="calendar" onClick=${() => { const pid = model.pid || (project && project.id); if (pid) PM.projectOps.update(pid, { statusDate: today }).then(() => PM.toast('Fecha de corte: ' + fmt.date(today, 'long') + '.'), () => {}); }}>Usar hoy como fecha de corte</${ui.Button}></div>` : html`<span class="small">La fecha de corte se actualiza en la Ficha del proyecto.</span>`}</div></${Note}>` : null}
 
       ${!canWrite ? html`<${Note} icon="lock">Modo de solo lectura: puedes consultar el tablero, pero no mover tarjetas ni editar columnas.</${Note}>` : null}
