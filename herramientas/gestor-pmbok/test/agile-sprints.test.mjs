@@ -571,6 +571,196 @@ async function setRegistryState(page, pid, code, estado) {
   } finally { await browser.close(); }
 }
 
+/* ================================================================== regresiones de la revisión independiente */
+{
+  const { browser, page, errors, pid } = await newApp({ width: 1360, height: 950 });
+  onFail = async () => { for (let k = 0; k < 3; k++) { if (!(await page.locator('.modal-backdrop').count())) break; await page.keyboard.press('Escape'); await page.waitForTimeout(150); } };
+  try {
+    await step('Burnup: el punto de corte usa los valores a la fecha de corte (tabla, resumen, tooltip y proyección)', async () => {
+      await page.evaluate(async (pid) => {
+        const st = PM.agile.settings(await PM.store.get(PM.paths.tool(pid, 'agile')));
+        const x = await PM.store.get(PM.paths.backlogItem(pid, 'i8'));
+        await PM.store.set(PM.paths.backlogItem(pid, 'i8'), PM.agile.withStatus(st, x, 'terminado', '2026-10-01'));
+        await PM.store.set(PM.paths.backlogItem(pid, 'i200'), { code: 'HU-200', type: 'historia', title: 'Trabajo creado después del corte', estimate: 13, rank: 99000, status: 'backlog', releaseId: 'r1', sprintId: null, createdAt: '2026-10-05', history: [{ date: '2026-10-05', status: 'backlog' }] });
+      }, pid);
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector('svg[data-chart="burnup"] [data-pt="cut"]');
+      const aria = nb(await page.getAttribute('svg[data-chart="burnup"]', 'aria-label'));
+      assert(/al 4 de septiembre de 2026 \(fecha de corte\), terminado 28 pts de un alcance de 49 pts \(57\s*%\)/.test(aria), 'resumen accesible al corte: ' + aria);
+      const sub = nb(await page.locator('[data-chart-card="burnup"] .card-head .xsmall').innerText());
+      assert(/Al 04 sep 2026: 28 pts de 49 pts/.test(sub), 'subtítulo al corte: ' + sub);
+      await page.locator('[data-chart-card="burnup"] [data-role="toggle-data"]').click();
+      const rows = await page.locator('[data-chart-card="burnup"] [data-role="chart-data"] tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.replace(/[  ]/g, ' ').trim())));
+      eq(rows.find((r) => r[0] === 'Corte'), ['Corte', '04 sep 2026', '49', '28'], 'fila «Corte» en la tabla de datos');
+      eq(rows.map((r) => r[0]), ['Inicio', 'Iteración 1', 'Iteración 2', 'Corte', 'Iteración 3'], 'puntos del burnup en orden');
+      await page.locator('[data-chart-card="burnup"] .ags-chart').focus();
+      await page.keyboard.press('End');
+      await page.waitForSelector('[data-chart-card="burnup"] .chart-tip');
+      const tip = nb(await page.locator('[data-chart-card="burnup"] .chart-tip').innerText()).replace(/\s+/g, ' ');
+      assert(/Fecha de corte · 04 sep 2026/.test(tip) && /Alcance 49 pts/.test(tip) && /Terminado 28 pts/.test(tip), 'tooltip del corte: ' + tip);
+      await page.keyboard.press('Escape');
+      const geo = await page.evaluate(() => {
+        const svg = document.querySelector('svg[data-chart="burnup"]');
+        const pr = svg.querySelector('[data-series="projection"]');
+        const sc = svg.querySelector('[data-pt="cut"] [data-series="scope-point"]'), dn = svg.querySelector('[data-pt="cut"] [data-series="done-point"]');
+        return pr ? [+pr.getAttribute('x1') - +dn.getAttribute('cx'), +pr.getAttribute('y1') - +dn.getAttribute('cy'), +pr.getAttribute('y2') - +sc.getAttribute('cy')].map((v) => Math.abs(v) < 0.6) : null;
+      });
+      eq(geo, [true, true, true], 'la proyección parte de lo terminado al corte y llega al alcance al corte');
+      await page.evaluate(async (pid) => {
+        const st = PM.agile.settings(await PM.store.get(PM.paths.tool(pid, 'agile')));
+        const x = await PM.store.get(PM.paths.backlogItem(pid, 'i8'));
+        await PM.store.set(PM.paths.backlogItem(pid, 'i8'), { ...PM.agile.withStatus(st, x, 'en-curso', '2026-10-02'), doneDate: null });
+        await PM.store.delete(PM.paths.backlogItem(pid, 'i200'));
+      }, pid);
+    });
+
+    await step('Editor de release: «Comprometido» solo con línea base', async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r2' }));
+      await page.waitForSelector('.ags-rel[data-release-id="r2"][aria-pressed="true"]');
+      await page.getByRole('button', { name: 'Editar release' }).click();
+      let opts = await dialog(page).locator('#ags-rel-status option').evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+      eq(opts, ['planeado', 'en-curso', 'cerrado'], 'sin línea base no se ofrece «Comprometido»');
+      assert(/fija la línea base/i.test(await dialog(page).innerText().then(nb)), 'la pista explica cómo comprometerlo');
+      await dialog(page).getByRole('button', { name: 'Cancelar' }).click();
+      await page.click('[data-role="release-new"]');
+      opts = await dialog(page).locator('#ags-rel-status option').evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+      assert(!opts.includes('comprometido'), 'un release nuevo no puede nacer comprometido: ' + opts);
+      await dialog(page).getByRole('button', { name: 'Cancelar' }).click();
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); const r = a.releases.find((x) => x.id === 'r2'); r.baseline = { date: '2026-09-01', points: 29, end: '2026-11-20', budget: 80000000, sprints: 4, changeRef: null }; r.status = 'comprometido'; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+      await page.waitForSelector('[data-role="change-level1"]');
+      await page.getByRole('button', { name: 'Editar release' }).click();
+      opts = await dialog(page).locator('#ags-rel-status option').evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+      eq(opts, ['planeado', 'comprometido', 'en-curso', 'cerrado'], 'con línea base sí se ofrece');
+    });
+
+    await step('Release con línea base: no se puede quitar la fecha de fin en el editor', async () => {
+      const dlg = dialog(page);
+      await dlg.locator('#ags-rel-end').fill('');
+      await dlg.getByRole('button', { name: 'Guardar release' }).click();
+      assert(/la fecha de fin no se puede quitar/.test(await dlg.innerText().then(nb)), 'error que explica el control de cambios');
+      await page.waitForTimeout(250);
+      eq(rel(await getAgile(page, pid), 'r2').end, '2026-11-20', 'la fecha de fin no cambió');
+      await dlg.getByRole('button', { name: 'Cancelar' }).click();
+    });
+
+    await step('Fecha de fin quitada fuera del editor (datos importados): requiere control de cambios', async () => {
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.releases.find((x) => x.id === 'r2').end = null; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+      await page.waitForSelector('[data-role="change-needed"]');
+      const t = await page.locator('[data-role="change-needed"]').innerText().then(nb);
+      assert(/Fecha de fin: se quitó \(línea base: 20 nov 2026\)/.test(t), 'detalle del cambio de fecha: ' + t);
+      assert(!/Fecha de fin: sin cambio/.test(t), 'no dice «sin cambio»');
+      assert(/Requiere control de cambios/.test(await page.locator('.ags-rel[data-release-id="r2"]').innerText().then(nb)), 'distintivo en la tarjeta');
+      await page.click('[data-role="change-register"]');
+      await dialog(page).getByRole('button', { name: 'Registrar solicitud' }).click();
+      const a = await until(page, async () => { const x = await getAgile(page, pid); return x && rel(x, 'r2').pendingChange ? x : null; }, 'solicitud registrada');
+      const doc = await getDoc(page, pid, rel(a, 'r2').pendingChange.docId);
+      assert(/Se quitó la fecha de fin del release/.test(doc.fields.impactoCronograma) && /se quitó/.test(doc.fields.descripcionCambio), 'impacto en el cronograma: ' + doc.fields.impactoCronograma);
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); const r = a.releases.find((x) => x.id === 'r2'); r.end = '2026-11-20'; r.pendingChange = null; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+      await page.waitForSelector('[data-role="change-level1"]');
+    });
+
+    await step('Iteraciones sin nombre: respaldo «Iteración sin nombre» en títulos, botones y diálogos', async () => {
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.sprints.push({ id: 'sx', name: null, releaseId: 'r2', start: '2026-09-28', end: '2026-10-09', status: 'planeado', capacity: 10, docs: {} }, { id: 'sy', releaseId: 'r2', start: '2026-10-13', end: '2026-10-26', status: 'planeado', docs: {} }); await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r2', sprint: 'sx' }));
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="sx"]');
+      eq(nb(await page.locator('[data-role="planner"] h2').innerText()), 'Planificación de Iteración sin nombre', 'título del planificador');
+      const text = await page.locator('[data-view="iteraciones"]').innerText();
+      assert(!/\bnull\b|\bundefined\b/.test(text), 'sin «null» ni «undefined» en la vista');
+      const labels = await page.locator('[data-view="iteraciones"] button[aria-label]').evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label')));
+      assert(labels.length && !labels.some((l) => /null|undefined/.test(l)), 'nombres accesibles sin «null»: ' + labels.filter((l) => /null|undefined/.test(l)).join(' | '));
+      assert(labels.some((l) => /^Agregar HU-020 «Factura electrónica DIAN» a Iteración sin nombre$/.test(nb(l))), 'botón de agregar con el respaldo');
+      await page.locator('tr[data-sprint-id="sy"]').getByRole('button', { name: 'Eliminar Iteración sin nombre' }).click();
+      assert(/Eliminar Iteración sin nombre/.test(await dialog(page).innerText().then(nb)), 'confirmación con el respaldo');
+      await dialog(page).getByRole('button', { name: 'Eliminar iteración' }).click();
+      await until(page, async () => !(await getAgile(page, pid)).sprints.some((s) => s.id === 'sy'), 'iteración sin nombre eliminada');
+      await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.sprints = a.sprints.filter((s) => s.id !== 'sx'); await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
+    });
+
+    await step('Acta de revisión: sin veredicto en curso; en una cerrada usa lo terminado al cierre', async () => {
+      await page.evaluate((tpls) => { if (!PM.templates['acta-revision-sprint']) PM.registerTemplates(tpls); }, STUB_TEMPLATES);
+      await page.evaluate(() => { PM.navigate('metricas-agiles'); PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }); });
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"] [data-doc-kind="revision"] button:not([disabled])');
+      await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
+      const st = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'acta de la iteración en curso');
+      const f = (await getDoc(page, pid, st.params.docId)).fields;
+      eq([f.objetivoCumplido, f.comprometido, f.terminado], [undefined, 14, 5], 'iteración en curso: sin veredicto prellenado');
+      await page.evaluate(async (pid) => { const st = PM.agile.settings(await PM.store.get(PM.paths.tool(pid, 'agile'))); const x = await PM.store.get(PM.paths.backlogItem(pid, 'i6')); await PM.store.set(PM.paths.backlogItem(pid, 'i6'), PM.agile.withStatus(st, x, 'en-curso', '2026-09-03')); }, pid);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's2' }));
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s2"] [data-doc-kind="revision"] button:not([disabled])');
+      await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
+      const st2 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && s.params.docId !== st.params.docId && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'acta de la iteración cerrada');
+      const f2 = (await getDoc(page, pid, st2.params.docId)).fields;
+      eq([f2.objetivoCumplido, f2.comprometido, f2.terminado], ['Sí', 12, 12], 'iteración cerrada: terminado fijado al cierre (no el actual, 9)');
+    });
+
+    await step('Pronóstico sin velocidad: la leyenda no anuncia «Probable» y se explica con texto', async () => {
+      await page.evaluate(async (pid) => {
+        const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile')));
+        a.sprints = a.sprints.map((s) => ({ ...s, status: 'planeado', committed: null, completed: null }));
+        await PM.store.set(PM.paths.tool(pid, 'agile'), a);
+      }, pid);
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r2' }));
+      await page.waitForSelector('[data-chart-card="forecast"] svg[data-chart="forecast"]');
+      const lanes = await page.locator('svg[data-chart="forecast"] [data-lane]').evaluateAll((els) => els.map((e) => e.dataset.lane));
+      eq(lanes, ['plan', 'bl'], 'solo el fin planeado y la línea base');
+      const legend = nb(await page.locator('[data-chart-card="forecast"] [data-role="legend"]').innerText());
+      assert(!/Probable|optimista/.test(legend) && /Fin planeado/.test(legend), 'leyenda sin series ausentes: ' + legend);
+      assert(/Sin velocidad: aún no hay pronóstico/.test(await page.locator('[data-chart-card="forecast"] [data-role="forecast-none"]').innerText().then(nb)), 'nota de texto en la tarjeta');
+      assert(!/Probable/.test(nb(await page.getAttribute('svg[data-chart="forecast"]', 'aria-label'))), 'resumen accesible sin «probable»');
+    });
+
+    await step('Regresiones: sin errores de consola ni tarjetas de error', async () => {
+      eq(await errorCards(page), [], 'tarjetas de error');
+      eq(errors, [], 'errores de consola');
+    });
+  } finally { await browser.close(); onFail = null; }
+}
+
+/* ================================================================== acciones visibles en anchos intermedios */
+for (const width of [400, 1280, 1360, 1600]) {
+  const { browser, page, errors } = await newApp({ width, height: 900 });
+  try {
+    await step(`${width} px: las acciones de las tablas quedan dentro del área visible`, async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"] [data-role="candidates"] tr[data-item-id]');
+      await page.waitForTimeout(300);
+      const out = await page.evaluate(() => {
+        const res = [];
+        for (const [name, sel] of [['iteraciones', '[data-role="sprints"]'], ['elementos', '[data-role="sprint-items"]'], ['candidatos', '[data-role="candidates"]']]) {
+          const wrap = document.querySelector(sel + ' .table-wrap'); const wr = wrap.getBoundingClientRect();
+          const btns = [...wrap.querySelectorAll('td.ags-actions button')];
+          const bad = btns.filter((b) => { const r = b.getBoundingClientRect(); return r.left < wr.left - 1 || r.right > wr.right + 1; }).map((b) => b.getAttribute('aria-label'));
+          res.push([name, btns.length > 0, bad, wrap.scrollWidth > wrap.clientWidth + 1 ? !!wrap.parentElement.querySelector('[data-role="scroll-hint"]') : true]);
+        }
+        return res;
+      });
+      for (const [name, has, bad, hint] of out) {
+        assert(has, name + ': sin botones de acción');
+        eq(bad, [], name + ': botones fuera del área visible');
+        assert(hint, name + ': la tabla se desplaza y no lo indica');
+      }
+      if (width >= 1280) {
+        const sw = await page.evaluate(() => { const w = document.querySelector('[data-role="sprints"] .table-wrap'); return w.scrollWidth - w.clientWidth; });
+        assert(sw <= 1, 'en escritorio la tabla de iteraciones no necesita desplazamiento: ' + sw);
+      }
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector('[data-role="evm-compare"]');
+      await page.waitForTimeout(200);
+      if (width >= 1280) {
+        const d = await page.evaluate(() => { const w = document.querySelector('[data-role="evm-compare"]').closest('.table-wrap'); return w.scrollWidth - w.clientWidth; });
+        assert(d <= 1, 'la comparación AgileEVM cabe sin desplazamiento: ' + d);
+      }
+      if (shots) {
+        await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+        await page.waitForSelector('[data-role="planner"]');
+        await page.waitForTimeout(250);
+        await page.screenshot({ path: join(shots, `acciones-${width}.png`), fullPage: true });
+      }
+      eq(errors, [], 'errores de consola');
+    });
+  } finally { await browser.close(); }
+}
+
 /* ================================================================== proyecto predictivo */
 {
   const { browser, page, errors } = await newApp({ meta: { lifecycle: 'Predictivo' }, seed: false });

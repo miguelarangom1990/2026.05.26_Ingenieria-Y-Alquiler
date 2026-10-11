@@ -33,13 +33,15 @@
 
   /* ---------------------------------------------------------------- estilos del módulo */
   const CSS = `
+.ags-root { container: agsroot / inline-size; }
 .ags-layout { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .ags-layout > * { min-width: 0; }
-@media (max-width: 1100px) { .ags-layout { grid-template-columns: minmax(0, 1fr); } }
+/* la lista lateral de releases solo cuando la columna principal tiene espacio para las tablas de iteraciones */
+@container agsroot (max-width: 1179.98px) { .ags-layout { grid-template-columns: minmax(0, 1fr); } }
 .ags-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ags-side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 2px; }
 .ags-rel-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
-@media (max-width: 1100px) { .ags-rel-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); } }
+@container agsroot (max-width: 1179.98px) { .ags-rel-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); } }
 .ags-rel { display: flex; flex-direction: column; gap: 6px; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; box-shadow: var(--shadow-card); }
 .ags-rel:hover { border-color: var(--line-strong); }
 .ags-rel[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-card); }
@@ -77,10 +79,18 @@
 .ags-tbl tr.is-sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .ags-title-cell { min-width: 180px; overflow-wrap: anywhere; }
 .ags-actions { white-space: nowrap; text-align: right; width: 1%; }
+/* columna de acciones fija a la derecha: siempre visible aunque la tabla se desplace horizontalmente */
+.ags-scroll .ags-tbl .ags-actions { position: sticky; right: 0; }
+td.ags-actions { background: var(--surface); }
+.ags-scroll .ags-tbl td.ags-actions { z-index: 1; }
+.ags-scroll .ags-tbl th.ags-actions { z-index: 2; }
+.ags-scroll[data-overflow="true"] .ags-tbl .ags-actions { box-shadow: inset 1px 0 0 var(--line-strong); }
+.ags-scroll-hint { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--fg-3); }
+.ags-scroll-hint > .icon { color: var(--fg-3); }
 .ags-link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left; font-weight: 600; }
 .ags-link:hover { text-decoration: underline; }
 .ags-link[aria-pressed="true"] { color: var(--fg); }
-.ags-plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; align-items: start; }
+.ags-plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 16px; align-items: start; }
 .ags-plan-grid > * { min-width: 0; }
 .ags-list-wrap { max-height: 460px; overflow: auto; }
 .ags-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -137,7 +147,8 @@
 .ags-key-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .ags-data { max-height: 360px; overflow: auto; }
 .ags-note { font-size: var(--fs-xs); color: var(--fg-3); max-width: 80ch; }
-.ags-cmp td, .ags-cmp th { white-space: nowrap; }
+.ags-cmp td { white-space: nowrap; }
+.ags-cmp th { white-space: normal; min-width: 8ch; vertical-align: bottom; }
 .ags-empty-chart { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); color: var(--fg-2); padding: 8px 0; max-width: 70ch; }
 .ags-empty-chart > .icon { color: var(--fg-3); margin-top: 2px; }
 `;
@@ -173,9 +184,31 @@
   /* Consecutivo libre del tipo «CC-004» / «LA-012». */
   const nextCode = (codes, prefix) => { let max = 0; const re = new RegExp('^' + prefix + '-(\\d+)$', 'i'); for (const c of codes) { const mm = re.exec(String(c ?? '').trim()); if (mm) max = Math.max(max, Number(mm[1])); } return prefix + '-' + String(max + 1).padStart(3, '0'); };
 
+  /* Nombres para mostrar: los datos importados pueden traer iteraciones o releases sin nombre. */
+  const spName = (s) => (s && String(s.name ?? '').trim()) || 'Iteración sin nombre';
+  const relName = (r) => (r && String(r.name ?? '').trim()) || 'Release sin nombre';
+
   /* La normalización de la herramienta convierte `baseline: null` en `{}`: solo hay línea base si tiene datos. */
   const hasBaseline = (r) => { const b = r && r.baseline; return isObj(b) && (D.valid(b.date) || PM.isNum(b.points) || D.valid(b.end)); };
   const normRelease = (r) => (r.baseline == null || hasBaseline(r) ? r : { ...r, baseline: null });
+  /* Variación frente a la línea base (PM.calc.releaseVariance) más un caso que el núcleo no cubre: si la línea base
+     tiene fecha de fin y el release ya no la tiene, la fecha cambió y requiere control de cambios (§9.6). */
+  function relVariance(release, items, settings) {
+    const v = C.releaseVariance({ release, items, settings });
+    if (v.hasBaseline && D.valid(release.baseline.end) && !D.valid(release.end)) return { ...v, endRemoved: true, needsChangeControl: true };
+    return v;
+  }
+  /* Alcance y terminado del release a una fecha, con los mismos filtros del burnup del núcleo (releaseBurnup). */
+  function burnupAt(release, items, settings, day) {
+    let scope = 0, done = 0;
+    for (const it of items) {
+      if (!A.countable(it) || it.releaseId !== release.id) continue;
+      const e = A.estimate(it);
+      if (!D.valid(it.createdAt) || it.createdAt <= day) scope += e;
+      if (A.isDone(settings, it) && D.valid(it.doneDate) && it.doneDate <= day) done += e;
+    }
+    return { scope, done, remaining: scope - done, pct: scope > 0 ? done / scope : 0 };
+  }
 
   /* Elementos contables agrupados por iteración y por release (ordenados por rango). */
   function indexItems(items) {
@@ -288,7 +321,9 @@
     const wd = wdDiff(cal, b.end, r.end);
     const lines = [];
     lines.push({ id: 'scope', flag: scopeOver, text: 'Alcance: ' + fpts(v.total, unit) + ' frente a ' + fpts(v.baselinePoints, unit) + ' de la línea base (' + signedPct(v.scopePct) + (scopeOver ? '; supera el umbral de ±' + fmt.num(thr, 1) + ' %' : '; dentro del umbral de ±' + fmt.num(thr, 1) + ' %') + ').' });
-    lines.push(v.dateChange ? { id: 'date', flag: true, text: 'Fecha de fin: del ' + fmt.date(b.end) + ' al ' + fmt.date(r.end) + ' (' + sgn(v.dateChange) + daysText(v.dateChange) + ' calendario, ' + sgn(wd) + wdText(wd) + ').' } : { id: 'date', flag: false, text: 'Fecha de fin: sin cambio (' + fmt.date(b.end) + ').' });
+    lines.push(v.endRemoved ? { id: 'date', flag: true, text: 'Fecha de fin: se quitó (línea base: ' + fmt.date(b.end) + ').' }
+      : v.dateChange ? { id: 'date', flag: true, text: 'Fecha de fin: del ' + fmt.date(b.end) + ' al ' + fmt.date(r.end) + ' (' + sgn(v.dateChange) + daysText(v.dateChange) + ' calendario, ' + sgn(wd) + wdText(wd) + ').' }
+      : { id: 'date', flag: false, text: 'Fecha de fin: sin cambio (' + fmt.date(b.end) + ').' });
     lines.push(Math.abs(v.budgetChange) > 0.5 ? { id: 'budget', flag: true, text: 'Presupuesto: de ' + fmt.money(b.budget, currency) + ' a ' + fmt.money(r.budget, currency) + ' (' + signedMoney(v.budgetChange, currency) + ').' } : { id: 'budget', flag: false, text: 'Presupuesto: sin cambio (' + fmt.money(b.budget, currency) + ').' });
     return { lines, scopeOver, wd, thr };
   }
@@ -321,6 +356,25 @@
     </div>`;
   }
 
+  /* Contenedor de tabla con desplazamiento horizontal: marca si el contenido no cabe (la columna de acciones queda fija y
+     se avisa con texto que la tabla se desplaza). */
+  function ScrollWrap({ class: cls, children }) {
+    const ref = useRef(null);
+    const [over, setOver] = useState(false);
+    useLayoutEffect(() => {
+      const el = ref.current; if (!el) return undefined;
+      const upd = () => { const o = el.scrollWidth > el.clientWidth + 1; setOver((prev) => (prev === o ? prev : o)); };
+      upd();
+      let ro = null;
+      try { ro = new ResizeObserver(upd); ro.observe(el); if (el.firstElementChild) ro.observe(el.firstElementChild); } catch (e) { window.addEventListener('resize', upd); }
+      return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', upd); };
+    }, []);
+    return html`<div class="stack-sm" style="gap:4px;min-width:0">
+      <div class=${cx('table-wrap ags-scroll', cls)} ref=${ref} data-overflow=${over ? 'true' : 'false'}>${children}</div>
+      ${over ? html`<div class="ags-scroll-hint" data-role="scroll-hint"><${ui.Icon} name="chevron-right" size=${13} />Desplaza la tabla hacia los lados para ver todas las columnas; las acciones quedan fijas a la derecha.</div>` : null}
+    </div>`;
+  }
+
   /* ==================================================================== DIÁLOGOS */
   function ReleaseEditor({ close, release, isNew, wbsGroups, taskOptions, currency, onSave }) {
     const [f, setF] = useState(() => ({
@@ -330,10 +384,16 @@
     const [err, setErr] = useState({});
     const set = (k) => (v) => setF((o) => ({ ...o, [k]: v }));
     const bl = hasBaseline(release);
+    /* «Comprometido» se alcanza al fijar la línea base; sin ella no se ofrece (salvo datos anteriores que ya lo tengan). */
+    const keepCommitted = release.status === 'comprometido';
+    const statusOpts = bl || keepCommitted ? PM.AGILE.RELEASE_STATUS : PM.AGILE.RELEASE_STATUS.filter((o) => o.value !== 'comprometido');
+    const statusHint = bl ? 'Tiene línea base.' : keepCommitted ? 'Comprometido sin línea base: fíjala desde el release para controlar los cambios.' : 'Para comprometerlo, fija la línea base desde el release (pasa a «Comprometido»).';
     const submit = () => {
       const e = {};
       if (!f.name.trim()) e.name = 'Escribe el nombre del release.';
-      if (f.start && f.end && f.end < f.start) e.end = 'La fecha de fin debe ser igual o posterior a la de inicio.';
+      if (bl && !D.valid(f.end)) e.end = 'El release tiene línea base: la fecha de fin no se puede quitar. Si cambia, guarda la nueva fecha y registra la solicitud de cambio.';
+      else if (f.start && f.end && f.end < f.start) e.end = 'La fecha de fin debe ser igual o posterior a la de inicio.';
+      if (f.status === 'comprometido' && !bl && !keepCommitted) e.status = 'Fija la línea base del release para comprometerlo.';
       if (f.plannedSprints !== null && (f.plannedSprints < 0 || f.plannedSprints > 200 || Math.round(f.plannedSprints) !== f.plannedSprints)) e.plannedSprints = 'Usa un número entero entre 0 y 200.';
       if (f.budget !== null && f.budget < 0) e.budget = 'El presupuesto no puede ser negativo.';
       setErr(e);
@@ -341,14 +401,14 @@
       onSave({ ...f, name: f.name.trim(), goal: f.goal.trim(), notes: f.notes.trim(), start: D.valid(f.start) ? f.start : null, end: D.valid(f.end) ? f.end : null, wbsId: f.wbsId || null, taskId: f.taskId || null });
       close();
     };
-    return html`<${ui.Modal} title=${isNew ? 'Nuevo release' : 'Editar release'} subtitle=${isNew ? 'Un release agrupa los elementos del backlog que se entregan juntos.' : release.name} size="wide" onClose=${close}
+    return html`<${ui.Modal} title=${isNew ? 'Nuevo release' : 'Editar release'} subtitle=${isNew ? 'Un release agrupa los elementos del backlog que se entregan juntos.' : relName(release)} size="wide" onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="save" onClick=${submit}>${isNew ? 'Crear release' : 'Guardar release'}</${ui.Button}>`}>
       <form class="ags-form" data-role="release-form" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
         <${ui.Field} label="Nombre" for="ags-rel-name" required error=${err.name}><${ui.Input} id="ags-rel-name" value=${f.name} onValue=${set('name')} placeholder="Release 1 · Inventario y alquiler" autoFocus /></${ui.Field}>
-        <${ui.Field} label="Estado" for="ags-rel-status" hint=${bl ? 'Tiene línea base.' : 'Fija la línea base desde el release para comprometerlo.'}><${ui.Select} id="ags-rel-status" value=${f.status} options=${PM.AGILE.RELEASE_STATUS} onValue=${set('status')} /></${ui.Field}>
+        <${ui.Field} label="Estado" for="ags-rel-status" error=${err.status} hint=${statusHint}><${ui.Select} id="ags-rel-status" value=${f.status} options=${statusOpts} onValue=${set('status')} /></${ui.Field}>
         <${ui.Field} class="span-all" label="Objetivo del release" for="ags-rel-goal" hint="Resultado de negocio que se entrega, en una o dos frases."><${ui.TextArea} id="ags-rel-goal" value=${f.goal} onValue=${set('goal')} rows=${2} /></${ui.Field}>
         <${ui.Field} label="Inicio" for="ags-rel-start"><${ui.DateInput} id="ags-rel-start" value=${f.start} onValue=${(v) => set('start')(v || '')} /></${ui.Field}>
-        <${ui.Field} label="Fin" for="ags-rel-end" error=${err.end} hint=${bl ? 'Cambiarla requiere control de cambios.' : null}><${ui.DateInput} id="ags-rel-end" value=${f.end} onValue=${(v) => set('end')(v || '')} /></${ui.Field}>
+        <${ui.Field} label="Fin" for="ags-rel-end" required=${bl} error=${err.end} hint=${bl ? 'Cambiarla requiere control de cambios.' : null}><${ui.DateInput} id="ags-rel-end" value=${f.end} onValue=${(v) => set('end')(v || '')} /></${ui.Field}>
         <${ui.Field} label=${'Presupuesto (BAC del release, ' + currency + ')'} for="ags-rel-budget" error=${err.budget} hint=${bl ? 'Cambiarlo requiere control de cambios.' : 'Base del valor ganado ágil (AgileEVM).'}><${ui.NumberInput} id="ags-rel-budget" money currency=${currency} value=${f.budget} min=${0} onValue=${set('budget')} /></${ui.Field}>
         <${ui.Field} label="Iteraciones planeadas" for="ags-rel-sprints" error=${err.plannedSprints} hint="Base del avance planificado del AgileEVM."><${ui.NumberInput} id="ags-rel-sprints" value=${f.plannedSprints} min=${0} max=${200} onValue=${set('plannedSprints')} /></${ui.Field}>
         <${ui.Field} label="Entregable de la EDT" for="ags-rel-wbs" hint="Se recomiendan los entregables con enfoque adaptativo.">
@@ -384,7 +444,7 @@
       close();
     };
     const st = SPR_STATUS[sprint.status] || SPR_STATUS.planeado;
-    return html`<${ui.Modal} title="Editar iteración" subtitle=${sprint.name + ' · ' + st[0]} size="wide" onClose=${close}
+    return html`<${ui.Modal} title="Editar iteración" subtitle=${spName(sprint) + ' · ' + st[0]} size="wide" onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="save" onClick=${submit}>Guardar iteración</${ui.Button}>`}>
       <form class="ags-form" data-role="sprint-form" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
         <${ui.Field} label="Nombre" for="ags-sp-name" required error=${err.name}><${ui.Input} id="ags-sp-name" value=${f.name} onValue=${set('name')} autoFocus /></${ui.Field}>
@@ -403,7 +463,7 @@
     const [count, setCount] = useState(() => Math.max(1, planned - existing));
     const n = Math.max(0, Math.min(52, Math.round(num(count, 0))));
     const preview = useMemo(() => plan(n), [n]);
-    return html`<${ui.Modal} title="Generar iteraciones" subtitle=${release.name} onClose=${close}
+    return html`<${ui.Modal} title="Generar iteraciones" subtitle=${relName(release)} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="sprint" disabled=${!n} onClick=${() => { onConfirm(preview); close(); }}>${n === 1 ? 'Generar 1 iteración' : 'Generar ' + n + ' iteraciones'}</${ui.Button}>`}>
       <p class="small muted">El release tiene ${existing} de ${planned || 0} iteraciones planeadas. Cada iteración empieza el día hábil siguiente al fin de la anterior y dura lo configurado en la capa ágil, según el calendario del proyecto.</p>
       <${ui.Field} label="Número de iteraciones" for="ags-gen-n"><${ui.NumberInput} id="ags-gen-n" value=${count} min=${0} max=${52} onValue=${setCount} /></${ui.Field}>
@@ -415,7 +475,7 @@
   function CloseSprintDialog({ close, sprint, unit, done, committed, pending, nextName, nextExists, onConfirm }) {
     const [choice, setChoice] = useState('backlog');
     const pendingPts = sumEst(pending);
-    return html`<${ui.Modal} title=${'Cerrar ' + sprint.name} onClose=${close}
+    return html`<${ui.Modal} title=${'Cerrar ' + spName(sprint)} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="check" onClick=${() => { onConfirm(choice); close(); }}>Cerrar iteración</${ui.Button}>`}>
       <p class="small">Se registran <strong>${fpts(done, unit)}</strong> terminados frente a ${fpts(committed, unit)} comprometidos. La velocidad de esta iteración queda fija desde ahora.</p>
       ${pending.length ? html`<fieldset class="ags-radio-group" data-role="close-choice">
@@ -429,7 +489,7 @@
 
   function DeleteReleaseDialog({ close, release, sprintCount, itemCount, onConfirm }) {
     const [choice, setChoice] = useState('keep');
-    return html`<${ui.Modal} title=${'Eliminar «' + (release.name || 'release') + '»'} onClose=${close}
+    return html`<${ui.Modal} title=${'Eliminar «' + relName(release) + '»'} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="danger-solid" icon="trash" onClick=${() => { onConfirm(choice); close(); }}>Eliminar release</${ui.Button}>`}>
       <p class="small">${itemCount ? itemCount + (itemCount === 1 ? ' elemento del backlog queda' : ' elementos del backlog quedan') + ' sin release (no se eliminan). ' : ''}Se quita también el vínculo con la actividad del cronograma y con los costos reales imputados al release.</p>
       ${sprintCount ? html`<fieldset class="ags-radio-group" data-role="delete-choice">
@@ -530,14 +590,14 @@
           if (arr(cur.costs.actuals).some((a) => a.releaseId === r.id)) { const next = PM.clone(cur.costs); next.actuals = next.actuals.map((a) => (a && a.releaseId === r.id ? { ...a, releaseId: null } : a)); cur.saveCosts(next); }
           S().select(null, null);
           await saveItems(changed);
-          PM.toast('Release «' + (r.name || '') + '» eliminado.');
+          PM.toast('Release «' + relName(r) + '» eliminado.');
         }} />`);
       },
       releaseBaseline: async (r) => {
         if (!guard()) return;
         const { m, relInfo } = S();
         const info = relInfo.get(r.id); if (!info) return;
-        const ok = await PM.confirm({ title: 'Fijar línea base de «' + r.name + '»', confirmText: 'Fijar línea base', body: html`<div class="stack-sm small">
+        const ok = await PM.confirm({ title: 'Fijar línea base de «' + relName(r) + '»', confirmText: 'Fijar línea base', body: html`<div class="stack-sm small">
           <p>La línea base compromete el release con el dueño del producto y los interesados:</p>
           <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)} (${info.prog.count} elementos)</li><li>Fin: ${fmt.date(r.end)}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones planeadas: ${fmt.num(r.plannedSprints || 0)}</li></ul>
           <p>Después, los cambios de alcance de más de ±${fmt.num(m.settings.scopeChangeThreshold, 1)} % o cualquier cambio de fecha o presupuesto requieren una solicitud de cambio (4.6).</p></div>` });
@@ -562,7 +622,7 @@
         const info0 = s0.relInfo.get(r.id);
         const det0 = varianceDetail(r, info0.v, s0.m.settings, s0.m.unit, s0.m.currency, s0.cal);
         const ok = await PM.confirm({ title: 'Registrar solicitud de cambio ' + code, confirmText: 'Registrar solicitud', body: html`<div class="stack-sm small">
-          <p>Se crea la solicitud de cambio ${code} prellenada con el impacto del release «${r.name}» y se agrega al registro de cambios con estado «Registrada»:</p>
+          <p>Se crea la solicitud de cambio ${code} prellenada con el impacto del release «${relName(r)}» y se agrega al registro de cambios con estado «Registrada»:</p>
           <ul style="margin:0;padding-left:18px">${det0.lines.filter((l) => l.flag).map((l) => html`<li key=${l.id}>${l.text}</li>`)}</ul>
           <p>Cuando el comité de control de cambios la apruebe en el registro de cambios, podrás actualizar la línea base del release.</p></div>` });
         if (!ok) return;
@@ -574,28 +634,29 @@
         const added = (S().idx.byRelease.get(rel.id) || []).filter((it) => D.valid(it.createdAt) && D.valid(b.date) && it.createdAt > b.date);
         const addedText = added.length ? ' Elementos agregados después de la línea base: ' + added.slice(0, 12).map((it) => it.code + ' ' + (it.title || '') + ' (' + fpts(A.estimate(it), m.unit) + ')').join('; ') + (added.length > 12 ? '; y ' + (added.length - 12) + ' más' : '') + '.' : '';
         const changed = det.lines.filter((l) => l.flag);
-        const scopeText = 'Release «' + rel.name + '»: ' + fpts(v.total, m.unit) + ' frente a ' + fpts(v.baselinePoints, m.unit) + ' de la línea base (' + signedPts(v.total - v.baselinePoints, m.unit) + ', ' + signedPct(v.scopePct) + ').' + addedText;
+        const scopeText = 'Release «' + relName(rel) + '»: ' + fpts(v.total, m.unit) + ' frente a ' + fpts(v.baselinePoints, m.unit) + ' de la línea base (' + signedPts(v.total - v.baselinePoints, m.unit) + ', ' + signedPct(v.scopePct) + ').' + addedText;
         const node = rel.wbsId ? m.tree.byId.get(rel.wbsId) : null;
         const taskId = currentTaskOf(rel);
         const task = taskId ? arr(m.schedule.tasks).find((t) => t.id === taskId) : null;
-        const affected = ['Línea base del release «' + rel.name + '»', 'Backlog del producto (alcance del release)', 'Plan de releases'];
+        const affected = ['Línea base del release «' + relName(rel) + '»', 'Backlog del producto (alcance del release)', 'Plan de releases'];
         if (node) affected.push('Entregable de la EDT ' + (m.tree.codes.get(node.id) || '') + ' ' + (node.name || ''));
         if (task) affected.push('Actividad del cronograma «' + (task.name || '') + '»');
         const date = today();
         const values = {
           codigoCambio: code, fechaSolicitud: date, solicitante: 'Dueño del producto', tipoCambio: 'Actualización',
-          descripcionCambio: 'Actualizar la línea base del release «' + rel.name + '». ' + changed.map((l) => l.text).join(' '),
+          descripcionCambio: 'Actualizar la línea base del release «' + relName(rel) + '». ' + changed.map((l) => l.text).join(' '),
           justificacion: 'El release está comprometido con una línea base y el cambio supera el primer nivel de control (ajustes del backlog dentro de ±' + fmt.num(det.thr, 1) + ' % del alcance, sin cambiar fecha ni presupuesto). Según el control de cambios en dos niveles, requiere la decisión del comité de control de cambios (4.6 Realizar el control integrado de cambios).',
           impactoAlcance: scopeText,
           diasCronograma: det.wd,
-          impactoCronograma: v.dateChange ? 'La fecha de fin del release pasa del ' + fmt.date(b.end, 'long') + ' al ' + fmt.date(rel.end, 'long') + ' (' + sgn(det.wd) + wdText(det.wd) + ').' + (task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : '') : 'Sin cambio en la fecha de fin del release (' + fmt.date(b.end, 'long') + ').',
+          impactoCronograma: v.endRemoved ? 'Se quitó la fecha de fin del release (línea base: ' + fmt.date(b.end, 'long') + '): el release queda sin fecha comprometida hasta que el comité decida.' + (task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : '')
+            : v.dateChange ? 'La fecha de fin del release pasa del ' + fmt.date(b.end, 'long') + ' al ' + fmt.date(rel.end, 'long') + ' (' + sgn(det.wd) + wdText(det.wd) + ').' + (task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : '') : 'Sin cambio en la fecha de fin del release (' + fmt.date(b.end, 'long') + ').',
           valorCosto: Math.round(v.budgetChange * 100) / 100,
           impactoCosto: Math.abs(v.budgetChange) > 0.5 ? 'El presupuesto del release (BAC) pasa de ' + fmt.money(b.budget, m.currency) + ' a ' + fmt.money(rel.budget, m.currency) + '.' : 'Sin cambio en el presupuesto del release (' + fmt.money(b.budget, m.currency) + ').',
           elementosAfectados: affected,
           decision: 'Registrada',
         };
         let docId;
-        try { docId = await createDoc({ pid: m.pid, project, tid: 'solicitud-cambio', insts: docsIdx.byTemplate['solicitud-cambio'] || [], title: tCR.name + ' ' + code + ' — ' + rel.name, values }); }
+        try { docId = await createDoc({ pid: m.pid, project, tid: 'solicitud-cambio', insts: docsIdx.byTemplate['solicitud-cambio'] || [], title: tCR.name + ' ' + code + ' — ' + relName(rel), values }); }
         catch (e) { return; }
         const row = plain({ id: code, fecha: date, solicitante: 'Dueño del producto', descripcion: values.descripcionCambio, tipo: 'Actualización', impactoAlcance: scopeText, impactoCronograma: det.wd, impactoCosto: values.valorCosto, estado: 'Registrada' });
         await S().saveChangeRows([...S().changeRows, row]);
@@ -606,7 +667,7 @@
         if (!guard()) return;
         const { m, relInfo } = S();
         const info = relInfo.get(r.id); if (!info) return;
-        const ok = await PM.confirm({ title: 'Actualizar línea base de «' + r.name + '»', confirmText: 'Actualizar línea base', body: html`<div class="stack-sm small">
+        const ok = await PM.confirm({ title: 'Actualizar línea base de «' + relName(r) + '»', confirmText: 'Actualizar línea base', body: html`<div class="stack-sm small">
           <p>Con la solicitud ${code} aprobada, la nueva línea base del release queda así:</p>
           <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)}</li><li>Fin: ${fmt.date(r.end)}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones planeadas: ${fmt.num(r.plannedSprints || 0)}</li></ul>
           <p>Si el cambio afecta la línea base del proyecto, establece también una nueva en «Líneas base».</p></div>` });
@@ -627,7 +688,7 @@
         const s = newSprint(p, release, lastCapacity(release ? release.id : null));
         commitAgile((d) => { d.sprints.push(s); });
         S().select(release ? release.id : NONE, s.id);
-        PM.toast(s.name + ' creada: ' + fmt.date(s.start) + ' – ' + fmt.date(s.end) + '.');
+        PM.toast(spName(s) + ' creada: ' + fmt.date(s.start) + ' – ' + fmt.date(s.end) + '.');
       },
       sprintGenerate: (release) => {
         if (!guard() || !release) return;
@@ -644,22 +705,22 @@
       },
       sprintEdit: (s) => {
         if (!guard()) return;
-        const opts = S().releases.map((r) => ({ value: r.id, label: r.name || 'Release sin nombre' }));
+        const opts = S().releases.map((r) => ({ value: r.id, label: relName(r) }));
         PM.openModal((close) => html`<${SprintEditor} close=${close} sprint=${s} releaseOptions=${opts} onSave=${(f) => {
           commitAgile((d) => { const x = d.sprints.find((y) => y.id === s.id); if (x) Object.assign(x, { name: f.name, releaseId: f.releaseId, goal: f.goal, start: f.start, end: f.end, capacity: f.capacity, notes: f.notes }); });
           S().select(f.releaseId || NONE, s.id);
-          PM.toast(f.name + ' actualizada.');
+          PM.toast(spName(f) + ' actualizada.');
         }} />`);
       },
       sprintPatch: (s, patch) => { if (guard()) commitAgile((d) => { const x = d.sprints.find((y) => y.id === s.id); if (x) Object.assign(x, patch); }); },
       sprintDelete: async (s) => {
         if (!guard()) return;
         const list = S().m.items.filter((it) => it.sprintId === s.id);
-        const ok = await PM.confirm({ title: 'Eliminar ' + s.name, tone: 'danger', confirmText: 'Eliminar iteración', body: (list.length ? list.length + (list.length === 1 ? ' elemento queda' : ' elementos quedan') + ' sin iteración (conservan su release y su estado). ' : '') + 'Los documentos de la iteración se conservan en la lista de documentos.' });
+        const ok = await PM.confirm({ title: 'Eliminar ' + spName(s), tone: 'danger', confirmText: 'Eliminar iteración', body: (list.length ? list.length + (list.length === 1 ? ' elemento queda' : ' elementos quedan') + ' sin iteración (conservan su release y su estado). ' : '') + 'Los documentos de la iteración se conservan en la lista de documentos.' });
         if (!ok) return;
         commitAgile((d) => { d.sprints = d.sprints.filter((x) => x.id !== s.id); });
         await saveItems(S().m.items.filter((it) => it.sprintId === s.id).map((it) => ({ ...it, sprintId: null, sprintAddedDate: null })));
-        PM.toast(s.name + ' eliminada.');
+        PM.toast(spName(s) + ' eliminada.');
       },
       itemAdd: (it, s) => {
         if (!guard() || s.status === 'cerrado') return;
@@ -691,10 +752,10 @@
         if (!guard()) return;
         const { m } = S();
         const other = m.sprints.find((x) => x.status === 'en-curso' && x.id !== s.id);
-        if (other) { PM.toast('Ya hay una iteración en curso (' + other.name + '). Ciérrala antes de iniciar otra.', { tone: 'crit' }); return; }
+        if (other) { PM.toast('Ya hay una iteración en curso (' + spName(other) + '). Ciérrala antes de iniciar otra.', { tone: 'crit' }); return; }
         const list = m.items.filter((it) => A.countable(it) && it.sprintId === s.id);
         const total = sumEst(list), unest = list.filter((it) => !PM.isNum(it.estimate)).length;
-        const ok = await PM.confirm({ title: 'Iniciar ' + s.name, confirmText: 'Iniciar iteración', body: html`<div class="stack-sm small">
+        const ok = await PM.confirm({ title: 'Iniciar ' + spName(s), confirmText: 'Iniciar iteración', body: html`<div class="stack-sm small">
           <p>El equipo se compromete con <strong>${fpts(total, m.unit)}</strong> en ${list.length} ${list.length === 1 ? 'elemento' : 'elementos'}${PM.isNum(s.capacity) ? ' (capacidad ' + fpts(Number(s.capacity), m.unit) + ')' : ''}. El compromiso queda fijo para la velocidad y el burndown.</p>
           ${unest ? html`<p class="ags-flag"><${ui.Icon} name="alert" size=${14} />${unest === 1 ? '1 elemento no está estimado y cuenta como 0.' : unest + ' elementos no están estimados y cuentan como 0.'}</p>` : null}
           <p>Los elementos que están en el backlog del producto pasan a «${A.firstColumn(m.settings).name}» del tablero.</p></div>` });
@@ -709,7 +770,7 @@
           const r = x.releaseId ? d.releases.find((y) => y.id === x.releaseId) : null;
           if (r && (r.status === 'planeado' || r.status === 'comprometido' || !r.status)) r.status = 'en-curso';
         });
-        PM.toast(s.name + ' iniciada: ' + fpts(committed, cur.unit) + ' comprometidos.');
+        PM.toast(spName(s) + ' iniciada: ' + fpts(committed, cur.unit) + ' comprometidos.');
       },
       sprintClose: (s) => {
         if (!guard()) return;
@@ -722,7 +783,7 @@
         const rel = s.releaseId ? relOf(s.releaseId) : null;
         const later = sprintsOfRel(s.releaseId && rel ? s.releaseId : null).filter((x) => x.id !== s.id && x.status === 'planeado' && String(x.start || '') >= String(s.start || ''));
         const next = later[0] || null;
-        const nextName = next ? next.name : 'Iteración ' + sprintNumber(m.sprints);
+        const nextName = next ? spName(next) : 'Iteración ' + sprintNumber(m.sprints);
         PM.openModal((close) => html`<${CloseSprintDialog} close=${close} sprint=${s} unit=${m.unit} done=${done} committed=${committed} pending=${pending} nextName=${nextName} nextExists=${!!next}
           onConfirm=${async (choice) => {
             const cur = S().m, st2 = cur.settings, d0 = today();
@@ -742,7 +803,7 @@
               ? rest.map((it) => ({ ...it, sprintId: target.id, sprintAddedDate: null }))
               : rest.map((it) => ({ ...A.withStatus(st2, it, PM.AGILE.BACKLOG, d0), sprintId: null, sprintAddedDate: null }));
             await saveItems(moved);
-            PM.toast(s.name + ' cerrada: ' + fpts(completed, cur.unit) + ' terminados' + (rest.length ? (choice === 'next' && target ? '; ' + rest.length + ' pasan a ' + target.name + '.' : '; ' + rest.length + ' vuelven al backlog.') : '.'));
+            PM.toast(spName(s) + ' cerrada: ' + fpts(completed, cur.unit) + ' terminados' + (rest.length ? (choice === 'next' && target ? '; ' + rest.length + ' pasan a ' + spName(target) + '.' : '; ' + rest.length + ' vuelven al backlog.') : '.'));
           }} />`);
       },
       docOpen: async (kind, s) => {
@@ -757,12 +818,13 @@
         const list = m.items.filter((it) => A.countable(it) && it.sprintId === s.id).sort((a, b) => num(a.rank, 0) - num(b.rank, 0));
         const total = sumEst(list), doneList = list.filter((it) => A.isDone(st, it)), done = sumEst(doneList);
         const committed = PM.isNum(s.committed) ? Number(s.committed) : total;
+        const finished = s.status === 'cerrado' && PM.isNum(s.completed) ? Number(s.completed) : done;
         const endDate = D.valid(s.end) ? s.end : today();
         let values;
         if (kind === 'planificacion') {
           const blocked = list.filter((it) => it.blocked);
           values = {
-            iteracion: s.name, release: rel ? rel.name : '', fechaInicio: s.start, fechaFin: s.end, objetivo: s.goal || '',
+            iteracion: spName(s), release: rel ? relName(rel) : '', fechaInicio: s.start, fechaFin: s.end, objetivo: s.goal || '',
             capacidad: nOr(s.capacity), velocidadReferencia: round1(m.velocity.avg3), compromiso: committed,
             elementos: [
               ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', tipo: TYPE_LABEL[it.type] || it.type || '', estimacion: nOr(it.estimate), responsable: it.assignee || '', criterios: it.acceptance || '' })),
@@ -773,9 +835,10 @@
           };
         } else if (kind === 'revision') {
           values = {
-            iteracion: s.name, fecha: endDate, objetivo: s.goal || '',
-            objetivoCumplido: s.status === 'planeado' ? undefined : committed > 0 && done >= committed ? 'Sí' : done > 0 ? 'Parcialmente' : 'No',
-            comprometido: committed, terminado: done,
+            iteracion: spName(s), fecha: endDate, objetivo: s.goal || '',
+            /* el veredicto solo se prellena al cerrar; en una iteración cerrada vale lo terminado que se fijó al cierre */
+            objetivoCumplido: s.status === 'cerrado' ? (committed > 0 && finished >= committed ? 'Sí' : finished > 0 ? 'Parcialmente' : 'No') : undefined,
+            comprometido: committed, terminado: finished,
             elementos: [
               ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', estimacion: nOr(it.estimate), resultado: A.isDone(st, it) ? 'Aceptado' : 'No terminado', observaciones: '' })),
               ...arr(s.unfinished).filter((u) => !list.some((it) => it.id === u.id)).map((u) => ({ id: PM.uid('r'), codigo: u.code || '', titulo: u.title || '', estimacion: nOr(u.estimate), resultado: 'No terminado', observaciones: 'Pasó al backlog o a la iteración siguiente al cerrar.' })),
@@ -783,10 +846,10 @@
             asistentes: [...PM.AGILE.ROLES],
           };
         } else {
-          values = { iteracion: s.name, fecha: endDate, formato: 'Bien, mejorar y acciones' };
+          values = { iteracion: spName(s), fecha: endDate, formato: 'Bien, mejorar y acciones' };
         }
         let docId;
-        try { docId = await createDoc({ pid: m.pid, project, tid: k.tid, insts: docsIdx.byTemplate[k.tid] || [], title: t.name + ' — ' + s.name, values }); }
+        try { docId = await createDoc({ pid: m.pid, project, tid: k.tid, insts: docsIdx.byTemplate[k.tid] || [], title: t.name + ' — ' + spName(s), values }); }
         catch (e) { return; }
         commitAgile((d) => { const x = d.sprints.find((y) => y.id === s.id); if (x) x.docs = { ...(isObj(x.docs) ? x.docs : {}), [kind]: docId }; });
         PM.navigate('documento', { docId });
@@ -806,7 +869,7 @@
         for (const x of rows) {
           if (seen.has(key(x))) continue;
           seen.add(key(x));
-          out.push({ id: nextCode(out.map((y) => y.id), 'LA'), fecha, area: 'Integración', situacion: String(x.situacion || ''), impacto: x.impacto === 'Positivo' || x.impacto === 'Negativo' ? x.impacto : '', recomendacion: String(x.recomendacion || ''), registradoPor: 'Retrospectiva ' + s.name });
+          out.push({ id: nextCode(out.map((y) => y.id), 'LA'), fecha, area: 'Integración', situacion: String(x.situacion || ''), impacto: x.impacto === 'Positivo' || x.impacto === 'Negativo' ? x.impacto : '', recomendacion: String(x.recomendacion || ''), registradoPor: 'Retrospectiva ' + spName(s) });
           added++;
         }
         if (!added) { PM.toast('Las lecciones de esta retrospectiva ya están en el registro de lecciones aprendidas.'); return; }
@@ -823,7 +886,7 @@
     const planned = Math.max(info.sprints.length, Math.round(num(r.plannedSprints, 0)));
     const cc = info.v.hasBaseline && info.v.needsChangeControl;
     return html`<button type="button" class="ags-rel" aria-pressed=${selected ? 'true' : 'false'} data-release-id=${r.id} onClick=${() => onSelect(r.id)}>
-      <span class="ags-rel-top"><span class="ags-rel-name">${r.name || 'Release sin nombre'}</span><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}></span>
+      <span class="ags-rel-top"><span class="ags-rel-name">${relName(r)}</span><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}></span>
       <span class="ags-rel-meta">${dateRange(r.start, r.end)}</span>
       <span class="ags-rel-prog"><span class="ags-bar" aria-hidden="true"><span style=${'width:' + Math.round(info.prog.pct * 1000) / 10 + '%'}></span></span><span class="num">${fmt.pct(info.prog.pct)}</span></span>
       <span class="xsmall muted">${fpts(info.prog.done, unit)} de ${fpts(info.prog.total, unit)} · ${info.sprints.length} de ${planned} ${planned === 1 ? 'iteración' : 'iteraciones'}</span>
@@ -913,13 +976,13 @@
     return html`<section class="card" data-role="release-detail" data-release-id=${r.id}>
       <div class="card-head">
         <div class="stack-sm" style="gap:4px;min-width:0">
-          <h2 class="h3">${r.name || 'Release sin nombre'}</h2>
+          <h2 class="h3">${relName(r)}</h2>
           <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${dateRange(r.start, r.end)}</span>${hasBaseline(r) ? html`<${ui.Chip} tone="info" icon="lock">Con línea base</${ui.Chip}>` : null}</div>
         </div>
         <div class="row">
           ${canWrite ? html`<${ui.Button} size="sm" icon="edit" onClick=${() => act.releaseEdit(r)}>Editar release</${ui.Button}>` : null}
           ${canWrite && !hasBaseline(r) ? html`<${ui.Button} size="sm" icon="lock" disabled=${!info.prog.total || !D.valid(r.end)} onClick=${() => act.releaseBaseline(r)}>Fijar línea base del release</${ui.Button}>` : null}
-          <${ui.Dropdown} label=${'Más acciones de ' + (r.name || 'release')} items=${[
+          <${ui.Dropdown} label=${'Más acciones de ' + relName(r)} items=${[
             canWrite ? { label: 'Generar iteraciones', icon: 'sprint', onClick: () => act.sprintGenerate(r) } : null,
             { label: 'Ver métricas del release', icon: 'burndown', onClick: () => PM.navigate('metricas-agiles', { release: r.id }) },
             { label: 'Abrir el backlog', icon: 'backlog', onClick: () => PM.navigate('backlog', { release: r.id }) },
@@ -963,27 +1026,27 @@
         ${kanban ? html`<${Callout} tone="info" icon="kanban" role="kanban-note" title="Marco Kanban: las iteraciones son opcionales">
           <span>El trabajo fluye de forma continua por el tablero. Puedes planificar y controlar solo con releases (avance, pronóstico por flujo, línea base y control de cambios) y crear iteraciones únicamente si quieres cadencias fijas de revisión y retrospectiva.</span>
         </${Callout}>` : null}
-        ${list.length ? html`<div class="table-wrap"><table class="table ags-tbl" data-role="sprint-table">
-          <caption class="sr-only">${release ? 'Iteraciones de ' + release.name : 'Iteraciones sin release'}</caption>
+        ${list.length ? html`<${ScrollWrap}><table class="table ags-tbl" data-role="sprint-table">
+          <caption class="sr-only">${release ? 'Iteraciones de ' + relName(release) : 'Iteraciones sin release'}</caption>
           <thead><tr><th>Iteración</th><th>Fechas</th><th>Estado</th><th class="num">Capacidad</th><th class="num">Comprometido</th><th class="num">Terminado</th><th class="ags-actions"><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>${list.map((s) => {
             const st = SPR_STATUS[s.status] || SPR_STATUS.planeado;
             const vr = velRows.get(s.id) || { committed: 0, completed: 0 };
             const sel = s.id === selId;
             return html`<tr key=${s.id} class=${sel ? 'is-sel' : ''} data-sprint-id=${s.id}>
-              <td><button type="button" class="ags-link" aria-pressed=${sel ? 'true' : 'false'} onClick=${() => onSelect(s.id)}>${s.name || 'Iteración'}</button>${s.goal ? html`<div class="xsmall faint" style="max-width:46ch">${s.goal}</div>` : null}</td>
-              <td class="mono nowrap small">${fmt.date(s.start, 'dm')} – ${fmt.date(s.end)}</td>
+              <td><button type="button" class="ags-link" aria-pressed=${sel ? 'true' : 'false'} onClick=${() => onSelect(s.id)}>${spName(s)}</button>${s.goal ? html`<div class="xsmall faint" style="max-width:46ch">${s.goal}</div>` : null}</td>
+              <td class="mono small"><span class="nowrap">${fmt.date(s.start, 'dm')} –</span> <span class="nowrap">${fmt.date(s.end)}</span></td>
               <td><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}></td>
               <td class="num">${PM.isNum(s.capacity) ? fpts(Number(s.capacity), unit) : '—'}</td>
               <td class="num">${fpts(vr.committed, unit)}${s.status === 'planeado' ? html`<div class="xsmall faint">planificado</div>` : null}</td>
               <td class="num">${s.status === 'planeado' ? '—' : fpts(vr.completed, unit)}</td>
               <td class="ags-actions">${canWrite ? html`<div class="row" style="gap:0;flex-wrap:nowrap;justify-content:flex-end">
-                <${ui.IconButton} size="sm" icon="edit" label=${'Editar ' + s.name} onClick=${() => act.sprintEdit(s)} />
-                <${ui.IconButton} size="sm" icon="trash" label=${'Eliminar ' + s.name} onClick=${() => act.sprintDelete(s)} />
+                <${ui.IconButton} size="sm" icon="edit" label=${'Editar ' + spName(s)} onClick=${() => act.sprintEdit(s)} />
+                <${ui.IconButton} size="sm" icon="trash" label=${'Eliminar ' + spName(s)} onClick=${() => act.sprintDelete(s)} />
               </div>` : null}</td>
             </tr>`;
           })}</tbody>
-        </table></div>` : html`<${ui.Empty} icon="sprint" title="Sin iteraciones" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => act.sprintAdd(release)}>Agregar iteración</${ui.Button}>${release ? html`<${ui.Button} icon="sprint" onClick=${() => act.sprintGenerate(release)}>Generar iteraciones</${ui.Button}>` : null}` : null}>
+        </table></${ScrollWrap}>` : html`<${ui.Empty} icon="sprint" title="Sin iteraciones" actions=${canWrite ? html`<${ui.Button} variant="primary" icon="plus" onClick=${() => act.sprintAdd(release)}>Agregar iteración</${ui.Button}>${release ? html`<${ui.Button} icon="sprint" onClick=${() => act.sprintGenerate(release)}>Generar iteraciones</${ui.Button}>` : null}` : null}>
           ${kanban ? 'Opcional en Kanban. ' : ''}Cada iteración dura ${m.settings.sprintLength} días hábiles y empieza el día hábil siguiente a la anterior.
         </${ui.Empty}>`}
       </div>
@@ -1046,18 +1109,18 @@
     const refMax = Math.max(cap || 0, committed, 1);
     const unest = list.filter((it) => !PM.isNum(it.estimate)).length;
     const capId = 'ags-cap-' + s.id, goalId = 'ags-goal-' + s.id;
-    const startBlock = !canWrite ? null : other ? 'Ya hay una iteración en curso (' + other.name + '). Ciérrala antes de iniciar esta.' : !list.length ? 'Agrega elementos a la iteración antes de iniciarla.' : null;
-    const relName = release ? release.name : 'Sin release';
+    const startBlock = !canWrite ? null : other ? 'Ya hay una iteración en curso (' + spName(other) + '). Ciérrala antes de iniciar esta.' : !list.length ? 'Agrega elementos a la iteración antes de iniciarla.' : null;
+    const relLabel = release ? relName(release) : 'Sin release';
     return html`<section class="card" data-role="planner" data-sprint-id=${s.id}>
       <div class="card-head">
         <div class="stack-sm" style="gap:4px;min-width:0">
-          <h2 class="h3">${(planned ? 'Planificación de ' : '') + s.name}</h2>
-          <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${fmt.date(s.start, 'dow')} – ${fmt.date(s.end, 'dow')} ${D.valid(s.end) ? s.end.slice(0, 4) : ''}</span><span class="xsmall faint">· ${relName}</span></div>
+          <h2 class="h3">${(planned ? 'Planificación de ' : '') + spName(s)}</h2>
+          <div class="ags-chips"><${ui.Chip} tone=${st[1]}>${st[0]}</${ui.Chip}><span class="xsmall faint mono">${fmt.date(s.start, 'dow')} – ${fmt.date(s.end, 'dow')} ${D.valid(s.end) ? s.end.slice(0, 4) : ''}</span><span class="xsmall faint">· ${relLabel}</span></div>
         </div>
         <div class="row">
           ${canWrite && planned ? html`<${ui.Button} size="sm" variant="primary" icon="sprint" data-role="sprint-start" disabled=${!!startBlock} title=${startBlock || undefined} onClick=${() => act.sprintStart(s)}>Iniciar iteración</${ui.Button}>` : null}
           ${canWrite && s.status === 'en-curso' ? html`<${ui.Button} size="sm" variant="primary" icon="check" data-role="sprint-close" onClick=${() => act.sprintClose(s)}>Cerrar iteración</${ui.Button}>` : null}
-          ${canWrite ? html`<${ui.IconButton} size="sm" icon="edit" label=${'Editar ' + s.name} onClick=${() => act.sprintEdit(s)} />` : null}
+          ${canWrite ? html`<${ui.IconButton} size="sm" icon="edit" label=${'Editar ' + spName(s)} onClick=${() => act.sprintEdit(s)} />` : null}
         </div>
       </div>
       <div class="card-body stack">
@@ -1088,9 +1151,9 @@
         <div class="ags-plan-grid">
           <div class="stack-sm" data-role="sprint-items" ref=${itemsRef}>
             <div class="ags-sub"><h3 class="h4">Elementos de la iteración (${list.length})</h3></div>
-            ${list.length ? html`<div class="table-wrap ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Elementos de ${s.name}</caption>
+            ${list.length ? html`<${ScrollWrap} class="ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Elementos de ${spName(s)}</caption>
               <thead><tr><th>Código</th><th>Título</th><th>Estado</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
-              <tbody>${list.map((it) => { const cat = A.category(settings, it.status); const isDone = cat === 'terminado'; return html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="remove" statusText=${statusName(settings, it.status)} statusTone=${CAT_TONE[cat]} unit=${unit} canAct=${canWrite && !closed && !isDone} onAct=${onRemove} sprintName=${s.name} />`; })}</tbody></table></div>`
+              <tbody>${list.map((it) => { const cat = A.category(settings, it.status); const isDone = cat === 'terminado'; return html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="remove" statusText=${statusName(settings, it.status)} statusTone=${CAT_TONE[cat]} unit=${unit} canAct=${canWrite && !closed && !isDone} onAct=${onRemove} sprintName=${spName(s)} />`; })}</tbody></table></${ScrollWrap}>`
               : html`<p class="small muted">Aún no hay elementos. ${closed ? '' : 'Agrégalos desde los candidatos, en el orden del backlog.'}</p>`}
             ${closed && arr(s.unfinished).length ? html`<p class="small muted" data-role="unfinished">${'Al cerrar quedaron sin terminar ' + arr(s.unfinished).length + (arr(s.unfinished).length === 1 ? ' elemento (' : ' elementos (') + fpts(arr(s.unfinished).reduce((a, u) => a + Math.max(0, num(u.estimate, 0)), 0), unit) + '): ' + arr(s.unfinished).map((u) => u.code).filter(Boolean).join(', ') + '. Pasaron al backlog del producto o a la iteración siguiente; el burndown y el acta de revisión los conservan.'}</p>` : null}
           </div>
@@ -1098,9 +1161,9 @@
             <div class="ags-sub"><h3 class="h4">Candidatos ${release ? 'del release' : 'del backlog'} (${candidates.length})</h3>
               ${canWrite && cap !== null && cap > committed && candidates.length ? html`<${ui.Button} size="sm" icon="layers" onClick=${() => act.fillToCapacity(s, candidates, cap, committed)}>Llenar hasta la capacidad</${ui.Button}>` : null}</div>
             ${candidates.length > 8 ? html`<${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por código o título" aria-label="Buscar candidatos" />` : null}
-            ${shownCand.length ? html`<div class="table-wrap ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Candidatos para ${s.name}, en orden de prioridad del backlog</caption>
+            ${shownCand.length ? html`<${ScrollWrap} class="ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Candidatos para ${spName(s)}, en orden de prioridad del backlog</caption>
               <thead><tr><th>Código</th><th>Título</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
-              <tbody>${(all ? shownCand : shownCand.slice(0, CAND_LIMIT)).map((it) => html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="add" unit=${unit} canAct=${canWrite} onAct=${onAdd} sprintName=${s.name} />`)}</tbody></table></div>
+              <tbody>${(all ? shownCand : shownCand.slice(0, CAND_LIMIT)).map((it) => html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="add" unit=${unit} canAct=${canWrite} onAct=${onAdd} sprintName=${spName(s)} />`)}</tbody></table></${ScrollWrap}>
               ${!all && shownCand.length > CAND_LIMIT ? html`<div><${ui.Button} size="sm" variant="ghost" icon="chevron-down" onClick=${() => setAll(true)}>Mostrar los ${shownCand.length} candidatos</${ui.Button}></div>` : null}`
               : html`<p class="small muted">${candidates.length ? 'Ningún candidato coincide con la búsqueda.' : release ? 'No quedan elementos del release sin iteración. Agrega o asigna elementos desde el backlog del producto.' : 'No hay elementos sin iteración en el backlog.'}</p>`}
           </div>` : null}
@@ -1159,7 +1222,7 @@
         const prog = C.releaseProgress({ release: r, items: its, settings });
         const fc = C.releaseForecast({ release: r, sprints, items, settings, cal, statusDate });
         const fl = !fc.finish && prog.remaining > 0 ? flowForecast(its, settings, statusDate, cal) : null;
-        out.set(r.id, { prog, fc, fl, v: C.releaseVariance({ release: r, items: its, settings }), sprints: C.sprintsOfRelease(sprints, r.id) });
+        out.set(r.id, { prog, fc, fl, v: relVariance(r, its, settings), sprints: C.sprintsOfRelease(sprints, r.id) });
       }
       return out;
     }, [releases, idx, sprints, items, settings, cal, statusDate]);
@@ -1196,7 +1259,7 @@
           Un release agrupa los elementos del backlog que se entregan juntos: objetivo, fechas, presupuesto (BAC) e iteraciones. Vincúlalo con un entregable adaptativo de la EDT y con su actividad del cronograma para que su avance entre a la curva S del proyecto.${kanban ? ' Con Kanban las iteraciones son opcionales.' : ''}
         </${ui.Empty}></div>`;
     }
-    return html`<div class="page" data-view="iteraciones">
+    return html`<div class="page ags-root" data-view="iteraciones">
       ${header}
       <div class="ags-layout">
         <aside class="ags-side" aria-label="Releases del proyecto">
@@ -1400,22 +1463,30 @@
   }
 
   /* ---------- burnup del release */
-  function BurnupChart({ bu, fc, release, unit, statusDate, svgRef }) {
+  /* Puntos del burnup: los del núcleo (inicio y cierre de cada iteración) más el punto de la fecha de corte, calculado
+     con los mismos filtros (alcance creado y trabajo terminado hasta esa fecha). */
+  function burnupPoints(bu, release, items, settings, statusDate) {
+    const pts = bu.points.filter((p) => D.valid(p.date)).map((p) => ({ ...p }));
+    const past = pts.filter((p) => !p.future && p.scope !== null);
+    const lastPast = past[past.length - 1];
+    if (pts.length && D.valid(statusDate) && statusDate >= pts[0].date && (!lastPast || statusDate > lastPast.date) && !pts.some((p) => p.date === statusDate)) {
+      const at = burnupAt(release, items, settings, statusDate);
+      pts.push({ date: statusDate, label: 'Corte', scope: at.scope, done: at.done, future: false, cut: true });
+    }
+    pts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return pts;
+  }
+  const ptLabel = (p, long) => (p.cut ? (long ? 'Fecha de corte' : 'Corte') : p.sprintId ? (long ? 'Cierre de ' : '') + spName({ name: p.label }) : long ? 'Inicio del release' : 'Inicio');
+  function BurnupChart({ bu, pts, cut, proj, release, unit, statusDate, svgRef }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
     const g = useMemo(() => {
-      const pts = bu.points.filter((p) => D.valid(p.date)).map((p) => ({ ...p }));
-      const past = pts.filter((p) => !p.future && p.scope !== null);
-      const lastPast = past[past.length - 1];
-      if (pts.length && D.valid(statusDate) && statusDate >= pts[0].date && (!lastPast || statusDate > lastPast.date) && !pts.some((p) => p.date === statusDate)) pts.push({ date: statusDate, label: 'Corte', scope: bu.total, done: bu.done, future: false, cut: true });
-      pts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
       if (!pts.length) return null;
       const bl = PM.isNum(bu.baselinePoints) && hasBaseline(release) ? Number(bu.baselinePoints) : null;
       const blEnd = hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
-      const proj = fc && D.valid(fc.finish) && bu.remaining > 0 ? fc.finish : null;
       const dates = [...pts.map((p) => p.date), proj, release.end, blEnd, statusDate].filter(D.valid);
       const first = D.min(...dates); let last = D.max(...dates); if (first === last) last = D.add(first, 7);
-      const maxV = Math.max(bl || 0, bu.total, ...pts.map((p) => Math.max(p.scope || 0, p.done || 0)));
+      const maxV = Math.max(bl || 0, ...pts.map((p) => Math.max(p.scope || 0, p.done || 0)));
       const f = frameY({ width, height: CH, maxV, fmtY: (v) => fmt.num(v, 1), mt: 34, mr: bl !== null ? Math.max(tw('Línea base'), tw(fpts(bl, unit))) + 16 : 18 });
       const t0 = D.toMs(first), span = D.toMs(last) - t0;
       const x = (d) => f.M.l + ((D.toMs(d) - t0) / span) * f.iw;
@@ -1424,7 +1495,8 @@
       const g0 = { ...f, known, xs: known.map((p) => x(p.date)), x };
       g0.scopePath = linePath(known.map((p) => [x(p.date), f.y(p.scope)]));
       g0.donePath = linePath(known.map((p) => [x(p.date), f.y(p.done)]));
-      g0.proj = proj && lk ? { x0: x(lk.date), y0: f.y(lk.done), x1: x(proj), y1: f.y(bu.total), date: proj } : null;
+      /* la proyección parte del último punto conocido (normalmente el corte) y llega al alcance de ese punto */
+      g0.proj = proj && lk && proj > lk.date && lk.scope - lk.done > 0 ? { x0: x(lk.date), y0: f.y(lk.done), x1: x(proj), y1: f.y(lk.scope), date: proj } : null;
       g0.bl = bl !== null ? { y: f.y(bl), v: bl } : null;
       g0.xt = dateTicks(first, last, f.iw).map((t) => ({ key: t.d, x: x(t.d), label: t.label }));
       g0.marks = placeMarks([
@@ -1433,11 +1505,11 @@
       ], f);
       g0.defIdx = Math.max(0, known.length - 1);
       return g0;
-    }, [bu, fc, release, width, statusDate, unit]);
+    }, [bu, pts, proj, release, width, statusDate, unit]);
     const n = g ? g.known.length : 0;
     const nav = useNav(tip, svgRef, n, g ? g.defIdx : 0, (i) => ({ x: g.xs[i], y: g.M.t + 4 }), (i) => {
       const p = g.known[i];
-      return html`<${Tip} head=${(p.label && p.label !== 'Corte' ? 'Cierre de ' + p.label + ' · ' : p.cut ? 'Fecha de corte · ' : '') + fmt.date(p.date)} rows=${[
+      return html`<${Tip} head=${ptLabel(p, true) + ' · ' + fmt.date(p.date)} rows=${[
         { label: 'Alcance', value: fpts(p.scope, unit), color: C_SCOPE },
         { label: 'Terminado', value: fpts(p.done, unit), color: C_REM },
         g.bl ? { label: 'Línea base', value: fpts(g.bl.v, unit), color: 'var(--fg-3)' } : null,
@@ -1445,7 +1517,7 @@
     });
     useEffect(() => { nav.leave(); }, [g]);
     if (!g) return html`<p class="small muted">El release necesita fechas o iteraciones para dibujar el burnup.</p>`;
-    const aria = 'Burnup de ' + release.name + ': terminado ' + fpts(bu.done, unit) + ' de un alcance de ' + fpts(bu.total, unit) + ' (' + fmt.pct(bu.pct) + ')' + (g.bl ? '; línea base ' + fpts(g.bl.v, unit) : '; sin línea base') + (g.proj ? '; proyección de terminación el ' + fmt.date(g.proj.date, 'long') : '') + '.';
+    const aria = 'Burnup de ' + relName(release) + ': al ' + fmt.date(statusDate, 'long') + ' (fecha de corte), terminado ' + fpts(cut.done, unit) + ' de un alcance de ' + fpts(cut.scope, unit) + ' (' + fmt.pct(cut.pct) + ')' + (g.bl ? '; línea base ' + fpts(g.bl.v, unit) : '; sin línea base') + (g.proj ? '; proyección de terminación el ' + fmt.date(g.proj.date, 'long') : '') + '.';
     const hp = nav.hover !== null ? g.known[nav.hover] : null;
     const onMove = (e) => { const px = svgX(svgRef, e); if (px !== null) nav.show(nearestIdx(g.xs, px), e.clientX); };
     const right = g.M.l + g.iw;
@@ -1455,7 +1527,7 @@
       <path data-series="scope" d=${g.scopePath} style=${'fill:none;stroke:' + C_SCOPE + ';stroke-width:2;stroke-linejoin:round;stroke-linecap:round'} />
       <path data-series="done" d=${g.donePath} style=${'fill:none;stroke:' + C_REM + ';stroke-width:2;stroke-linejoin:round;stroke-linecap:round'} />
       ${g.proj ? html`<line data-series="projection" x1=${g.proj.x0} y1=${g.proj.y0} x2=${g.proj.x1} y2=${g.proj.y1} style=${'stroke:' + C_REM + ';stroke-width:2;stroke-dasharray:2 4;stroke-linecap:round'} /><circle cx=${g.proj.x1} cy=${g.proj.y1} r="4.5" style=${'fill:var(--surface);stroke:' + C_REM + ';stroke-width:2'} />` : null}
-      ${g.known.map((p, i) => html`<g key=${'p' + i}><circle cx=${g.xs[i]} cy=${g.y(p.scope)} r="4" style=${'fill:' + C_SCOPE + ';stroke:var(--surface);stroke-width:2'} /><circle cx=${g.xs[i]} cy=${g.y(p.done)} r="4" style=${'fill:' + C_REM + ';stroke:var(--surface);stroke-width:2'} /></g>`)}
+      ${g.known.map((p, i) => html`<g key=${'p' + i} data-pt=${p.cut ? 'cut' : String(i)}><circle data-series="scope-point" cx=${g.xs[i]} cy=${g.y(p.scope)} r="4" style=${'fill:' + C_SCOPE + ';stroke:var(--surface);stroke-width:2'} /><circle data-series="done-point" cx=${g.xs[i]} cy=${g.y(p.done)} r="4" style=${'fill:' + C_REM + ';stroke:var(--surface);stroke-width:2'} /></g>`)}
       ${hp ? html`<line pointer-events="none" data-role="crosshair" x1=${g.xs[nav.hover]} x2=${g.xs[nav.hover]} y1=${g.M.t} y2=${g.M.t + g.ih} style="stroke:var(--fg-3);stroke-width:1" />` : null}
     </${ChartFrame}>`;
   }
@@ -1476,14 +1548,14 @@
       g0.cxs = rows.map((_, i) => f.M.l + band * (i + 0.5));
       const short = band < 80;
       const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(iw / (short ? 40 : 82)))));
-      g0.xt = rows.map((r, i) => ({ key: r.id, x: g0.cxs[i], label: short ? 'It. ' + ((/(\d+)\s*$/.exec(String(r.name || '')) || [])[1] || i + 1) : r.name, show: i % every === 0 })).filter((t) => t.show);
+      g0.xt = rows.map((r, i) => ({ key: r.id, x: g0.cxs[i], label: short ? 'It. ' + ((/(\d+)\s*$/.exec(String(r.name || '')) || [])[1] || i + 1) : spName(r), show: i % every === 0 })).filter((t) => t.show);
       g0.avgY = vel.avg3 !== null ? f.y(vel.avg3) : null;
       g0.defIdx = Math.max(0, rows.map((r) => r.status).lastIndexOf('cerrado'));
       return g0;
     }, [rows, vel.avg3, width]);
     const nav = useNav(tip, svgRef, rows.length, g ? g.defIdx : 0, (i) => ({ x: g.cxs[i], y: g.M.t + 4 }), (i) => {
       const r = rows[i]; const st = SPR_STATUS[r.status] || SPR_STATUS.planeado;
-      return html`<${Tip} head=${r.name + ' · ' + st[0]} rows=${[
+      return html`<${Tip} head=${spName(r) + ' · ' + st[0]} rows=${[
         { label: r.status === 'planeado' ? 'Planificado' : 'Comprometido', value: fpts(r.committed, unit), color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 },
         { label: r.status === 'cerrado' ? 'Terminado' : 'Terminado hasta hoy', value: fpts(r.completed, unit), color: C_REM, kind: 'sw' },
         r.committed > 0 && r.status !== 'planeado' ? { label: 'Cumplimiento', value: fmt.pct(r.completed / r.committed) } : null]} foot=${fmt.date(r.start) + ' – ' + fmt.date(r.end)} />`;
@@ -1491,7 +1563,7 @@
     useEffect(() => { nav.leave(); }, [g]);
     if (!g) return null;
     const closedRows = rows.filter((r) => r.status === 'cerrado');
-    const aria = 'Velocidad por iteración' + (closedRows.length ? ' (terminado de comprometido): ' + closedRows.map((r) => r.name + ' ' + fmt.num(r.completed, 1) + ' de ' + fmt.num(r.committed, 1)).join(', ') + '. Promedio de las últimas 3 cerradas: ' + fpts(vel.avg3, unit) + '.' : ': aún no hay iteraciones cerradas; ' + rows.length + (rows.length === 1 ? ' iteración planeada o en curso.' : ' iteraciones planeadas o en curso.'));
+    const aria = 'Velocidad por iteración' + (closedRows.length ? ' (terminado de comprometido): ' + closedRows.map((r) => spName(r) + ' ' + fmt.num(r.completed, 1) + ' de ' + fmt.num(r.committed, 1)).join(', ') + '. Promedio de las últimas 3 cerradas: ' + fpts(vel.avg3, unit) + '.' : ': aún no hay iteraciones cerradas; ' + rows.length + (rows.length === 1 ? ' iteración planeada o en curso.' : ' iteraciones planeadas o en curso.'));
     const onMove = (e) => { const px = svgX(svgRef, e); if (px !== null) nav.show(nearestIdx(g.cxs, px), e.clientX); };
     const base = g.M.t + g.ih;
     return html`<${ChartFrame} tip=${tip} nav=${nav} svgRef=${svgRef} g=${g} aria=${aria} id="velocity" onMove=${onMove}>
@@ -1555,14 +1627,17 @@
   }
 
   /* ---------- pronóstico de terminación (línea de tiempo) */
+  /* Release con alcance y sin trabajo pendiente: el «pronóstico» del núcleo es la fecha real de terminación. */
+  const relFinished = (fc) => !!fc && fc.total > 0 && !(fc.remaining > 0);
   function ForecastChart({ fc, fl, release, statusDate, unit, svgRef }) {
     const tip = PM.useChartTip();
     const width = useWidth(tip.ref, 560);
     const bl = hasBaseline(release) && D.valid(release.baseline.end) ? release.baseline.end : null;
     const lanes = useMemo(() => {
       const out = [];
-      const fin = fc.finish || (fl && fl.finish);
-      if (fin) out.push({ key: 'fc', label: fc.finish ? 'Pronóstico' : 'Pronóstico por flujo', best: fc.finish ? fc.finishBest : null, worst: fc.finish ? fc.finishWorst : null, date: fin });
+      const done = relFinished(fc);
+      const fin = done ? fc.finish : fc.finish || (fl && fl.finish);
+      if (fin) out.push({ key: 'fc', done, label: done ? 'Terminado' : fc.finish ? 'Pronóstico' : 'Pronóstico por flujo', best: fc.finish && !done ? fc.finishBest : null, worst: fc.finish && !done ? fc.finishWorst : null, date: fin });
       if (D.valid(release.end)) out.push({ key: 'plan', label: 'Fin planeado', date: release.end });
       if (bl) out.push({ key: 'bl', label: 'Línea base', date: bl });
       return out;
@@ -1589,6 +1664,7 @@
     }, [lanes, width, statusDate]);
     const nav = useNav(tip, svgRef, lanes.length, 0, (i) => ({ x: g.lanes[i].x, y: g.lanes[i].cy - 10 }), (i) => {
       const l = g.lanes[i];
+      if (l.key === 'fc' && l.done) return html`<${Tip} head="Release terminado" rows=${[{ label: 'Último elemento terminado', value: fmt.date(l.date), color: C_REM, kind: 'dot' }]} />`;
       if (l.key === 'fc') return html`<${Tip} head=${l.label} rows=${[
         { label: 'Probable', value: fmt.date(l.date), color: C_REM, kind: 'dot' },
         D.valid(l.best) ? { label: 'Optimista', value: fmt.date(l.best) } : null,
@@ -1599,7 +1675,7 @@
     useEffect(() => { nav.leave(); }, [g]);
     if (!g) return null;
     const f0 = g.lanes.find((l) => l.key === 'fc');
-    const aria = 'Pronóstico de terminación de ' + release.name + ': ' + (f0 ? 'probable el ' + fmt.date(f0.date, 'long') + (D.valid(f0.best) ? ', optimista el ' + fmt.date(f0.best, 'long') : '') + (D.valid(f0.worst) ? ', pesimista el ' + fmt.date(f0.worst, 'long') : '') : 'sin pronóstico') + (D.valid(release.end) ? '; fin planeado el ' + fmt.date(release.end, 'long') : '') + (bl ? '; línea base el ' + fmt.date(bl, 'long') : '') + '.';
+    const aria = 'Pronóstico de terminación de ' + relName(release) + ': ' + (f0 && f0.done ? 'terminado el ' + fmt.date(f0.date, 'long') : f0 ? 'probable el ' + fmt.date(f0.date, 'long') + (D.valid(f0.best) ? ', optimista el ' + fmt.date(f0.best, 'long') : '') + (D.valid(f0.worst) ? ', pesimista el ' + fmt.date(f0.worst, 'long') : '') : 'sin pronóstico') + (D.valid(release.end) ? '; fin planeado el ' + fmt.date(release.end, 'long') : '') + (bl ? '; línea base el ' + fmt.date(bl, 'long') : '') + '.';
     const yb = g.M.t + g.ih;
     return html`<${ChartFrame} tip=${tip} nav=${nav} svgRef=${svgRef} g=${g} aria=${aria} id="forecast">
       ${g.lanes.map((l, i) => html`<g key=${l.key} data-lane=${l.key}>
@@ -1811,6 +1887,15 @@
     const bd = useMemo(() => (sprint ? C.sprintBurndown({ sprint, items: withUnfinished(sprint, items), settings, cal, statusDate }) : null), [sprint, items, settings, cal, statusDate]);
     const bu = useMemo(() => (release ? C.releaseBurnup({ release, sprints, items, settings, statusDate }) : null), [release, sprints, items, settings, statusDate]);
     const fc = useMemo(() => (release ? C.releaseForecast({ release, sprints, items, settings, cal, statusDate }) : null), [release, sprints, items, settings, cal, statusDate]);
+    /* burnup a la fecha de corte: puntos con el corte, valores al corte y proyección desde el corte */
+    const buCut = useMemo(() => (release ? burnupAt(release, items, settings, statusDate) : null), [release, items, settings, statusDate]);
+    const buPts = useMemo(() => (bu ? burnupPoints(bu, release, items, settings, statusDate) : []), [bu, release, items, settings, statusDate]);
+    const buProj = useMemo(() => {
+      if (!bu || !fc || !D.valid(fc.finish) || !(bu.remaining > 0)) return null;
+      const known = buPts.filter((pt) => pt.scope !== null && pt.scope !== undefined);
+      const lk = known[known.length - 1];
+      return lk && fc.finish > lk.date && lk.scope - lk.done > 0 ? fc.finish : null;
+    }, [bu, fc, buPts]);
     const fl = useMemo(() => (release && fc && !fc.finish ? flowForecast(items.filter((it) => A.countable(it) && it.releaseId === release.id), settings, statusDate, cal) : null), [release, fc, items, settings, statusDate, cal]);
     const vel = useMemo(() => C.velocity({ sprints: flowScope === 'release' ? spList : sprints, items, settings }), [flowScope, spList, sprints, items, settings]);
     const cfdRange = useMemo(() => {
@@ -1834,11 +1919,12 @@
         Las métricas aparecen cuando el proyecto tiene elementos en el backlog, releases e iteraciones: burndown de la iteración, burnup del release, velocidad, flujo acumulado, pronóstico de terminación, valor ganado ágil y tiempo de ciclo.
       </${ui.Empty}></div>`;
     }
-    const relOpts = [...releases.map((r) => ({ value: r.id, label: r.name || 'Release sin nombre' })), { value: NONE, label: 'Todo el proyecto (sin release)' }];
-    const spOpts = spList.map((s) => ({ value: s.id, label: s.name + ' · ' + (SPR_STATUS[s.status] || SPR_STATUS.planeado)[0].toLowerCase() }));
+    const relOpts = [...releases.map((r) => ({ value: r.id, label: relName(r) })), { value: NONE, label: 'Todo el proyecto (sin release)' }];
+    const spOpts = spList.map((s) => ({ value: s.id, label: spName(s) + ' · ' + (SPR_STATUS[s.status] || SPR_STATUS.planeado)[0].toLowerCase() }));
     const fileBase = PM.slug((project.code || project.name || 'proyecto')) || 'proyecto';
     const tbl = (caption, head, rows) => () => html`<${DataTable} caption=${caption} head=${head} rows=${rows} />`;
     const lastBd = bd && [...bd.days].reverse().find((d) => d.remaining !== null);
+    const fcFin = fc ? (relFinished(fc) ? fc.finish : fc.finish || (fl && fl.finish)) || null : null;
     return html`<div class="page" data-view="metricas-agiles">
       ${header}
       <div class="toolbar ags-toolbar" data-role="metrics-filters">
@@ -1847,24 +1933,24 @@
         ${release ? html`<div class="field"><span class="field-label" id="ags-m-scope">Flujo y velocidad</span><${ui.Segmented} label="Alcance de las métricas de flujo y velocidad" value=${flowScope} onChange=${setScope} options=${[{ value: 'release', label: 'Release' }, { value: 'todo', label: 'Todo el proyecto' }]} /></div>` : null}
       </div>
       <div class="ags-charts">
-        <${ChartCard} id="burndown" title=${'Burndown' + (sprint ? ' de ' + sprint.name : ' de la iteración')} filename=${'burndown_' + fileBase + '.svg'}
+        <${ChartCard} id="burndown" title=${'Burndown' + (sprint ? ' de ' + spName(sprint) : ' de la iteración')} filename=${'burndown_' + fileBase + '.svg'}
           subtitle=${sprint ? fmt.date(sprint.start) + ' – ' + fmt.date(sprint.end) + ' · ' + (lastBd ? 'quedan ' + fpts(lastBd.remaining, unit) : 'sin días transcurridos') : null}
           empty=${!sprint ? 'Crea una iteración en «Releases e iteraciones» para ver su burndown.' : !bd || bd.days.length < 2 ? 'La iteración necesita fechas de inicio y fin válidas.' : null}
           legend=${html`<${Legend} items=${[{ label: 'Restante', color: C_REM }, { label: 'Alcance', color: C_SCOPE }, { label: 'Ideal', color: C_IDEAL, kind: 'dash' }, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
-          render=${(r) => html`<${BurndownChart} bd=${bd} unit=${unit} statusDate=${statusDate} svgRef=${r} name=${sprint ? sprint.name : ''} />`}
+          render=${(r) => html`<${BurndownChart} bd=${bd} unit=${unit} statusDate=${statusDate} svgRef=${r} name=${sprint ? spName(sprint) : ''} />`}
           table=${bd ? tbl('Burndown por día hábil', [{ label: 'Fecha', mono: true }, { label: 'Ideal', num: true }, { label: 'Restante', num: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], bd.days.map((d) => [fmt.date(d.date), fmt.num(d.ideal, 1), d.remaining === null ? '—' : fmt.num(d.remaining, 1), d.scope === null ? '—' : fmt.num(d.scope, 1), d.done === null ? '—' : fmt.num(d.done, 1)])) : null} />
-        <${ChartCard} id="burnup" title=${'Burnup' + (release ? ' de ' + release.name : ' del release')} filename=${'burnup_' + fileBase + '.svg'}
-          subtitle=${bu ? fpts(bu.done, unit) + ' de ' + fpts(bu.total, unit) + ' (' + fmt.pct(bu.pct) + ')' + (hasBaseline(release) ? ' · línea base ' + fpts(num(release.baseline.points, 0), unit) : ' · sin línea base') : null}
+        <${ChartCard} id="burnup" title=${'Burnup' + (release ? ' de ' + relName(release) : ' del release')} filename=${'burnup_' + fileBase + '.svg'}
+          subtitle=${bu ? 'Al ' + fmt.date(statusDate) + ': ' + fpts(buCut.done, unit) + ' de ' + fpts(buCut.scope, unit) + ' (' + fmt.pct(buCut.pct) + ')' + (hasBaseline(release) ? ' · línea base ' + fpts(num(release.baseline.points, 0), unit) : ' · sin línea base') : null}
           empty=${!release ? 'Selecciona un release para ver su burnup.' : !bu.points.length ? 'Define el inicio del release o crea sus iteraciones para ver el burnup.' : null}
-          legend=${html`<${Legend} items=${[{ label: 'Alcance', color: C_SCOPE }, { label: 'Terminado', color: C_REM }, release && hasBaseline(release) ? { label: 'Línea base', color: 'var(--fg-3)' } : null, fc && fc.finish && bu && bu.remaining > 0 ? { label: 'Proyección', color: C_REM, kind: 'dash' } : null, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
-          render=${(r) => html`<${BurnupChart} bu=${bu} fc=${fc} release=${release} unit=${unit} statusDate=${statusDate} svgRef=${r} />`}
-          table=${bu ? tbl('Burnup al cierre de cada iteración', [{ label: 'Punto' }, { label: 'Fecha', mono: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], bu.points.map((p) => [p.label, fmt.date(p.date), p.scope === null ? '—' : fmt.num(p.scope, 1), p.done === null ? '—' : fmt.num(p.done, 1)])) : null} />
+          legend=${html`<${Legend} items=${[{ label: 'Alcance', color: C_SCOPE }, { label: 'Terminado', color: C_REM }, release && hasBaseline(release) ? { label: 'Línea base', color: 'var(--fg-3)' } : null, buProj ? { label: 'Proyección', color: C_REM, kind: 'dash' } : null, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
+          render=${(r) => html`<${BurnupChart} bu=${bu} pts=${buPts} cut=${buCut} proj=${buProj} release=${release} unit=${unit} statusDate=${statusDate} svgRef=${r} />`}
+          table=${bu ? tbl('Burnup al inicio, al cierre de cada iteración y a la fecha de corte', [{ label: 'Punto' }, { label: 'Fecha', mono: true }, { label: 'Alcance', num: true }, { label: 'Terminado', num: true }], buPts.map((p) => [ptLabel(p, false), fmt.date(p.date), p.scope === null ? '—' : fmt.num(p.scope, 1), p.done === null ? '—' : fmt.num(p.done, 1)])) : null} />
         <${ChartCard} id="velocity" title="Velocidad" filename=${'velocidad_' + fileBase + '.svg'}
           subtitle=${vel.avg3 !== null ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + ' cerradas: ' + fpts(vel.avg3, unit) + ' · rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) : 'Sin iteraciones cerradas todavía'}
           empty=${!vel.rows.length ? (settings.framework === 'kanban' ? 'En Kanban sin iteraciones, usa el rendimiento semanal como medida de capacidad.' : 'Crea iteraciones para medir la velocidad.') : null}
           legend=${html`<${Legend} items=${[{ label: 'Comprometido', color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 }, { label: 'Terminado', color: C_REM, kind: 'sw' }, vel.rows.some((rw) => rw.status === 'en-curso') ? { label: 'Terminado hasta hoy (iteración en curso)', color: C_REM, kind: 'sw', opacity: 0.6 } : null, vel.avg3 !== null ? { label: 'Promedio (últimas 3)', color: 'var(--fg)', kind: 'dash' } : null]} />`}
           render=${(r) => html`<${VelocityChart} vel=${vel} unit=${unit} svgRef=${r} />`}
-          table=${tbl('Velocidad por iteración', [{ label: 'Iteración' }, { label: 'Estado' }, { label: 'Inicio', mono: true }, { label: 'Fin', mono: true }, { label: 'Comprometido', num: true }, { label: 'Terminado', num: true }, { label: 'Cumplimiento', num: true }], vel.rows.map((rw) => [rw.name, (SPR_STATUS[rw.status] || SPR_STATUS.planeado)[0], fmt.date(rw.start), fmt.date(rw.end), fmt.num(rw.committed, 1), fmt.num(rw.completed, 1), rw.committed > 0 && rw.status !== 'planeado' ? fmt.pct(rw.completed / rw.committed) : '—']))} />
+          table=${tbl('Velocidad por iteración', [{ label: 'Iteración' }, { label: 'Estado' }, { label: 'Inicio', mono: true }, { label: 'Fin', mono: true }, { label: 'Comprometido', num: true }, { label: 'Terminado', num: true }, { label: 'Cumplimiento', num: true }], vel.rows.map((rw) => [spName(rw), (SPR_STATUS[rw.status] || SPR_STATUS.planeado)[0], fmt.date(rw.start), fmt.date(rw.end), fmt.num(rw.committed, 1), fmt.num(rw.completed, 1), rw.committed > 0 && rw.status !== 'planeado' ? fmt.pct(rw.completed / rw.committed) : '—']))} />
         <${ChartCard} id="cfd" title="Diagrama de flujo acumulado" filename=${'flujo-acumulado_' + fileBase + '.svg'}
           subtitle=${cfdRange ? 'Del ' + fmt.date(cfdRange.from) + ' al ' + fmt.date(cfdRange.to) + (cfdRows.length && D.diff(cfdRange.from, cfdRange.to) > 180 ? ' · semanal' : ' · diario') + ' · elementos (sin épicas)' : null}
           empty=${cfdRows.length < 2 ? 'Se necesitan elementos con fecha de creación y al menos dos días de historia hasta la fecha de corte.' : null}
@@ -1884,16 +1970,20 @@
           render=${(r) => html`<${ThroughputChart} stats=${fst} svgRef=${r} />`}
           table=${tbl('Elementos terminados por semana', [{ label: 'Semana', mono: true }, { label: 'Elementos', num: true }, { label: 'Estimación', num: true }], fst.weeks.map((w) => [fmt.date(w.start) + (w.partial ? ' (en curso)' : ''), fmt.num(w.count), fmt.num(w.points, 1)]))} />
         <${ChartCard} id="forecast" span split title="Pronóstico de terminación" filename=${'pronostico_' + fileBase + '.svg'}
-          subtitle=${fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : null}
+          subtitle=${relFinished(fc) ? 'Release terminado' : fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : release ? 'Sin velocidad ni ritmo de flujo todavía' : null}
           empty=${!release ? 'Selecciona un release para ver su pronóstico.' : !(fc.finish || (fl && fl.finish)) && !D.valid(release.end) ? (fc.total && !fc.remaining ? 'El release está terminado.' : 'Sin velocidad ni fecha de fin no hay pronóstico: cierra una iteración o termina elementos del release.') : null}
-          legend=${html`<${Legend} items=${[{ label: 'Probable', color: C_REM, kind: 'dot' }, fc && fc.finishBest ? { label: 'Rango optimista–pesimista', color: C_REM, kind: 'sw', opacity: 0.3 } : null, { label: 'Fin planeado', color: 'var(--fg-2)', kind: 'sw' }, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
+          legend=${html`<${Legend} items=${[
+            fcFin ? { label: relFinished(fc) ? 'Terminación real' : 'Probable', color: C_REM, kind: 'dot' } : null,
+            fcFin && !relFinished(fc) && fc.finish && fc.finishBest ? { label: 'Rango optimista–pesimista', color: C_REM, kind: 'sw', opacity: 0.3 } : null,
+            release && D.valid(release.end) ? { label: 'Fin planeado', color: 'var(--fg-2)', kind: 'sw' } : null,
+            { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
           render=${(r) => html`<${ForecastChart} fc=${fc} fl=${fl} release=${release} statusDate=${statusDate} unit=${unit} svgRef=${r} />`}
           extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} />` : null}
-          table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], [
-            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (velocidad media)', fc.finish || (fl && fl.finish)], ['Pesimista (velocidad mínima)', fc.finishWorst],
-          ].map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
+          table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], (relFinished(fc) ? [['Terminación real (último elemento)', fc.finish]] : [
+            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (' + (fc.finish ? 'velocidad media' : fl && fl.finish ? 'ritmo de flujo' : 'sin velocidad') + ')', fcFin], ['Pesimista (velocidad mínima)', fc.finishWorst],
+          ]).map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
         <${ChartCard} id="agile-evm" span split title="Valor ganado ágil (AgileEVM)" filename=${'agile-evm_' + fileBase + '.svg'}
-          subtitle=${release ? 'Release «' + release.name + '» frente al valor ganado del proyecto' : null}
+          subtitle=${release ? 'Release «' + relName(release) + '» frente al valor ganado del proyecto' : null}
           empty=${!release ? 'Selecciona un release para calcular su valor ganado ágil.' : !(ev.bac > 0) ? 'Define el presupuesto (BAC) y las iteraciones planeadas del release para calcular el AgileEVM.' : null}
           legend=${null}
           render=${(r) => html`<${EvmBars} ev=${ev} currency=${currency} svgRef=${r} />`}
@@ -1904,15 +1994,20 @@
   }
 
   function ForecastText({ release, fc, fl, unit, cal }) {
-    const fin = fc.finish || (fl && fl.finish);
-    if (!fin) return null;
+    const done = relFinished(fc);
+    const fin = done ? fc.finish : fc.finish || (fl && fl.finish);
+    if (!fin) {
+      return html`<${Callout} tone="info" role="forecast-none" title=${done ? 'Release terminado' : 'Aún no hay pronóstico'}>
+        <span>${done ? 'Todos los elementos del release están terminados.' : !fc.total ? 'El release no tiene elementos estimados: asígnalos y estímalos en el backlog para pronosticar su terminación.' : 'Sin velocidad: aún no hay pronóstico. Cierra una iteración o termina elementos del release (el ritmo de flujo usa lo terminado en las últimas 6 semanas).'}</span>
+      </${Callout}>`;
+    }
     const late = D.valid(release.end) ? wdDiff(cal, release.end, fin) : null;
     const bl = hasBaseline(release) && D.valid(release.baseline.end) ? wdDiff(cal, release.baseline.end, fin) : null;
     const tone = late === null ? 'info' : late > 5 ? 'crit' : late > 0 ? 'warn' : 'good';
     const vsPlan = late === null ? 'El release no tiene fecha de fin para comparar.' : late === 0 ? 'Coincide con el fin planeado.' : late > 0 ? wdText(late) + ' después del fin planeado (' + fmt.date(release.end) + ').' : wdText(late) + ' antes del fin planeado (' + fmt.date(release.end) + ').';
     const vsBl = bl === null ? '' : bl === 0 ? ' Coincide con la línea base.' : ' ' + sgn(bl) + wdText(bl) + ' frente a la línea base (' + fmt.date(release.baseline.end) + ').';
     return html`<${Callout} tone=${tone} role="forecast-text">
-      <span>${fc.finish ? 'Con la velocidad media de ' + fpts(fc.velocity, unit) + ' faltan ' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ': terminaría el ' + fmt.date(fin, 'long') + (fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst ? ' (entre el ' + fmt.date(fc.finishBest) + ' y el ' + fmt.date(fc.finishWorst) + ')' : '') + '. ' : 'Al ritmo de ' + fpts(fl.perWeek, unit) + ' por semana terminaría el ' + fmt.date(fin, 'long') + '. '}${vsPlan}${vsBl}</span>
+      <span>${done ? 'El release está terminado: el último elemento se terminó el ' + fmt.date(fin, 'long') + '. ' : fc.finish ? 'Con la velocidad media de ' + fpts(fc.velocity, unit) + ' faltan ' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración' : ' iteraciones') + ': terminaría el ' + fmt.date(fin, 'long') + (fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst ? ' (entre el ' + fmt.date(fc.finishBest) + ' y el ' + fmt.date(fc.finishWorst) + ')' : '') + '. ' : 'Al ritmo de ' + fpts(fl.perWeek, unit) + ' por semana terminaría el ' + fmt.date(fin, 'long') + '. '}${vsPlan}${vsBl}</span>
     </${Callout}>`;
   }
 
