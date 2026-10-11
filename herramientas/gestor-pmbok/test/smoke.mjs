@@ -1,5 +1,6 @@
 // Prueba de humo: recorre todas las vistas registradas con un proyecto (de ejemplo si existe).
-// Uso: node test/smoke.mjs [--file ruta.html] [--only a,b] [--shots dir] [--dark] [--mobile] [--blank]
+// Uso: node test/smoke.mjs [--file ruta.html] [--only a,b] [--shots dir] [--dark] [--mobile] [--blank] [--example id] [--lifecycle 'Híbrido']
+// --example: id del proyecto de ejemplo (andamio, medellin, erp…); --lifecycle: ciclo de vida del proyecto en blanco (con --blank)
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openApp, createProject, createExample, gotoView, errorCards, horizontalOverflow, root } from './harness.mjs';
@@ -12,6 +13,8 @@ const dark = args.includes('--dark');
 const mobile = args.includes('--mobile');
 const blank = args.includes('--blank');
 const file = opt('--file') || 'gestor-pmbok.html';
+const exampleId = opt('--example') || 'andamio';
+const lifecycle = opt('--lifecycle');
 
 const { browser, page, errors } = await openApp({ width: mobile ? 400 : 1360, height: mobile ? 860 : 900, dark, file });
 let failed = false;
@@ -21,8 +24,8 @@ try {
   const bootOk = /Proyectos/.test(boot.host) && !/Conectando/.test(boot.host + boot.foot) && boot.lang === 'es-CO';
   if (!bootOk) failed = true;
   console.log(`${bootOk ? 'OK  ' : 'FAIL'} ${'arranque'.padEnd(18)} Portafolio visible al abrir${bootOk ? '' : '  ' + JSON.stringify(boot).slice(0, 200)}`);
-  let pid = blank ? null : await createExample(page);
-  if (!pid) pid = await createProject(page);
+  let pid = blank ? null : await createExample(page, exampleId);
+  if (!pid) pid = await createProject(page, lifecycle ? { lifecycle } : {});
   await page.waitForTimeout(500);
   const views = await page.evaluate(() => PM.views.map((v) => ({ id: v.id, label: v.label })));
   if (shots) mkdirSync(shots, { recursive: true });
