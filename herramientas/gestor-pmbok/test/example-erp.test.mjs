@@ -3,12 +3,13 @@
 // Uso: node test/example-erp.test.mjs [--file página.html] [--out dir] [--shots dir] [--quick]
 //   Sin --file construye núcleo + módulos de vistas y plantillas + 94 y 95 (sin los otros ejemplos).
 //   1) Constructor, importación y estructura: EDT con enfoques, cronograma, releases, iteraciones, backlog, costos, RACI.
-//   2) Cifras de los documentos frente a los cálculos de la aplicación (PM.calc.*, PM.agile.*), con datos leídos del almacenamiento.
+//   2) Cifras de los documentos frente a los cálculos de la aplicación (PM.calc.*, PM.agile.*), con datos leídos del almacenamiento,
+//      y cifras y referencias de docs/ejemplo-erp/supuestos-y-fuentes.md.
 //   3) Vistas: crea el ejemplo con el selector, revisa métricas ágiles (burndown, burnup, velocidad 31/32/30/26, AgileEVM),
 //      tablero Kanban (WIP y bloqueado), curva S con el avance de los releases y recorre todas las vistas sin tarjetas de error.
 //   4) Sin --quick: tema oscuro y 400 px en las vistas ágiles y el tablero (sin desborde de página).
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openApp, createExample, gotoView, errorCards, horizontalOverflow, root } from './harness.mjs';
@@ -338,6 +339,37 @@ section('Datos, cálculos y documentos del ejemplo (' + file + ')');
     const res = await validateInPage(app.page);
     for (const r of res) check(r.ok, r.msg, r.extra);
     check(!app.errors.length, 'sin errores de consola al construir e importar', app.errors);
+    /* docs/ejemplo-erp/supuestos-y-fuentes.md: cifras calculadas por la aplicación y referencias */
+    const mdPath = join(root, 'docs/ejemplo-erp/supuestos-y-fuentes.md');
+    if (check(existsSync(mdPath), 'existe docs/ejemplo-erp/supuestos-y-fuentes.md')) {
+      const md = readFileSync(mdPath, 'utf8');
+      const want = await app.page.evaluate(() => {
+        const F = PM.getExample('erp').facts();
+        const p = (s) => String(s).replace(/[  ]/g, ' ');
+        /* millones con un decimal fijo (el documento escribe «680,0 M», «52,0 M») */
+        const m1 = (v) => (v / 1e6).toFixed(1).replace('.', ',').replace('-', '−');
+        const E = F.evm, R2 = F.releases['rel-2'];
+        const closed = F.velocity.rows.filter((r) => r.status === 'cerrado').map((r) => r.completed);
+        return [
+          'BAC ' + m1(E.bac) + ' M · PV ' + m1(E.pv) + ' M · EV ' + m1(E.ev) + ' M · AC ' + m1(E.ac) + ' M',
+          'SPI ' + p(PM.fmt.idx(E.spi)) + ' · CPI ' + p(PM.fmt.idx(E.cpi)) + ' · TCPI ' + p(PM.fmt.idx(E.tcpi)),
+          'EAC ' + m1(E.eac) + ' M', 'VAC ' + m1(E.vac) + ' M',
+          p(PM.fmt.num(E.pctComplete * 100, 1)) + ' % real frente a ' + p(PM.fmt.num(E.pctPlanned * 100, 1)) + ' % planificado',
+          '**COP ' + m1(F.budget) + ' M** = BAC de las actividades ' + m1(F.bac) + ' M + reserva para contingencias ' + m1(F.reserves.contingency) + ' M + reserva de gestión ' + m1(F.reserves.management) + ' M',
+          closed.slice(0, -1).join(', ') + ' y ' + closed[closed.length - 1] + ' puntos en las iteraciones 1 a 6',
+          'promedio de las tres últimas ' + p(PM.fmt.num(F.velocity.avg3, 1)),
+          R2.prog.done + ' de ' + R2.prog.total + ' puntos (' + p(PM.fmt.num(R2.prog.pct * 100, 1)) + ' %)',
+          'PV ' + m1(R2.evm.pv) + ' M, EV ' + m1(R2.evm.ev) + ' M, AC ' + m1(R2.evm.ac) + ' M, SPI ' + p(PM.fmt.idx(R2.evm.spi)) + ', CPI ' + p(PM.fmt.idx(R2.evm.cpi)) + ', EAC ' + m1(R2.evm.eac) + ' M',
+          'terminaría el ' + p(PM.fmt.date(R2.forecast.finish, 'long')),
+          'COP ' + m1(F.releaseCostsTotal) + ' M', '| **Total** | **' + (F.evm.ac / 1e6).toFixed(2).replace('.', ',') + '** |',
+          F.counts.items + ' elementos (' + F.counts.epics + ' épicas', F.counts.unestimated + ' elementos sin estimar',
+        ];
+      });
+      const missing = want.filter((s) => !md.includes(s));
+      check(!missing.length, 'supuestos y fuentes: cifras iguales a las calculadas por la aplicación', missing);
+      const refs = ['https://ecosire.com/es/blog/erp-cost-calculator-how-to-use', 'https://innowise.com/es/blog/erp-implementation-cost/', 'https://softland.com/co/?p=19127'];
+      check(refs.every((u) => md.includes(u)) && /supuestos del ejemplo/i.test(md) && /proveedores/.test(md), 'supuestos y fuentes: cita las tres referencias como guías de proveedores y aclara que las cifras son supuestos');
+    }
   } finally { await app.browser.close(); }
 }
 
@@ -346,12 +378,15 @@ section('Vistas con el ejemplo creado desde el selector');
   const app = await openApp({ file, width: 1360, height: 900 });
   const { page, errors } = app;
   try {
-    /* el selector de ejemplos muestra el del ERP */
+    /* el selector de ejemplos muestra el del ERP (con un solo ejemplo registrado, la página lo crea sin selector) */
+    const nExamples = await page.evaluate(() => PM.examples.length);
     await page.evaluate(() => { PM.createExampleProject(); });
-    await page.waitForSelector('.example-card', { timeout: 8000 });
-    const cards = await page.$$eval('.example-card', (els) => els.map((e) => e.getAttribute('aria-label')));
-    check(cards.some((c) => /ERP/.test(c)), 'el selector de ejemplos ofrece el ERP', cards);
-    await page.click('.example-card[aria-label*="ERP"]');
+    if (nExamples > 1) {
+      await page.waitForSelector('.example-card', { timeout: 8000 });
+      const cards = await page.$$eval('.example-card', (els) => els.map((e) => e.getAttribute('aria-label')));
+      check(cards.some((c) => /ERP/.test(c)), 'el selector de ejemplos ofrece el ERP', cards);
+      await page.click('.example-card[aria-label*="ERP"]');
+    }
     await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 20000 });
     await page.waitForTimeout(900);
     const pid = await page.evaluate(() => PM.getState().projectId);

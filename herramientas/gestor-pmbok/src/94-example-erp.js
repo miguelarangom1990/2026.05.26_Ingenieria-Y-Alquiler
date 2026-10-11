@@ -228,13 +228,13 @@
   const REL = {
     r1: { id: 'rel-1', name: 'Release 1: inventario y alquiler de equipos', goal: 'Controlar en el ERP cada equipo por bodega, obra y estado, y calcular el alquiler desde las actas de entrega y devolución.', start: '2026-07-13', end: '2026-09-09', status: 'cerrado', budget: mm(96), plannedSprints: 4, wbsId: 'w6', taskId: 't25',
       baseline: { date: CC1_DATE, points: 118, end: '2026-09-09', budget: mm(96), sprints: 4, changeRef: 'CC-001' },
-      notes: 'Línea base inicial del 10 de julio de 2026: 102 puntos. Actualizada el 13 de agosto con el CC-001 (integración con las básculas de despacho, +13 puntos; sin cambio de fecha ni de presupuesto). En producción desde el 10 de septiembre de 2026.' },
+      notes: 'Línea base inicial del 10 de julio de 2026: 102 puntos. Actualizada el 13 de agosto con el CC-001 (integración con las básculas de despacho, +13 puntos; sin cambio de fecha ni de presupuesto). En producción desde el 10 de septiembre de 2026. Presupuesto: cuatro iteraciones de COP 24,0 millones (implementador a precio fijo, COP 19,8 millones, y analista de TI, COP 4,2 millones).' },
     r2: { id: 'rel-2', name: 'Release 2: facturación electrónica y cartera', goal: 'Facturar el alquiler el mismo día del corte con factura electrónica validada por la DIAN y llevar la cartera por edades.', start: '2026-09-10', end: '2026-11-06', status: 'en-curso', budget: mm(104), plannedSprints: 4, wbsId: 'w7', taskId: 't26',
       baseline: { date: '2026-09-10', points: 112, end: '2026-11-06', budget: mm(104), sprints: 4, changeRef: null },
-      notes: 'Comprometido el 10 de septiembre de 2026 (planificación de la iteración 5). Salida a producción programada para el 10 de noviembre, después del cierre mensual.' },
+      notes: 'Comprometido el 10 de septiembre de 2026 (planificación de la iteración 5). Salida a producción programada para el 10 de noviembre, después del cierre mensual. Presupuesto: cuatro iteraciones de COP 24,0 millones más una bolsa de COP 8,0 millones de horas del implementador para el conector con el proveedor tecnológico de facturación electrónica.' },
     r3: { id: 'rel-3', name: 'Release 3: mantenimiento y tablero gerencial', goal: 'Programar y costear el mantenimiento de los equipos y dar a la gerencia indicadores diarios de utilización, ingresos y cartera.', start: '2026-11-09', end: '2026-12-22', status: 'planeado', budget: mm(78), plannedSprints: 3, wbsId: 'w8', taskId: 't27',
       baseline: null,
-      notes: 'Hoja de ruta: se compromete con línea base en la planificación de la iteración 9. Salida a producción el 12 de enero de 2027, después del cierre anual.' },
+      notes: 'Hoja de ruta: se compromete con línea base en la planificación de la iteración 9. Salida a producción el 12 de enero de 2027, después del cierre anual. Presupuesto: tres iteraciones de COP 24,0 millones más una bolsa de COP 6,0 millones de horas del implementador para el modelo de datos del tablero gerencial.' },
   };
   /* [id, nombre, release, inicio, fin, estado, capacidad, comprometido, terminado, objetivo] */
   const SPRINTS = [
@@ -1010,7 +1010,7 @@
     id: 'erp', icon: 'sprint',
     name: 'Implementación del ERP (ágil)',
     description: 'Proyecto interno adaptativo: ERP de mercado medio con un socio implementador, Scrum con tablero Kanban, tres releases (inventario y alquiler, facturación electrónica y cartera, mantenimiento y tablero gerencial) y entregables predictivos de selección, infraestructura, migración y capacitación.',
-    summary: ['Adaptativo (ágil)', '9 meses', 'COP 680,0 M'],
+    summary: ['Proyecto interno de TI', 'Adaptativo (ágil)', '9 meses', 'COP 680 M'],
     build: () => buildExample(),
     facts,
   });

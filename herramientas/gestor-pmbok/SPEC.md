@@ -55,8 +55,8 @@ Colombia**, tono profesional y directo.
 | `src/70-matrices.js` | vistas `raci`, `riesgos-matriz`, `interesados-matriz`, `calidad`. |
 | `src/80-dashboard.js` | vistas `tablero`, `lineas-base`, `ficha`. |
 | `src/90-example.js` | constructor del proyecto de ejemplo (`PM.registerExample`). |
-| `src/91–93-example-medellin*.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital). |
-| `src/94-example-erp.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (§9.7). |
+| `src/91–93-example-medellin*.js`, `src/96-example-medellin-agile.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital en 96). |
+| `src/94-example-erp.js`, `src/95-example-erp-docs.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (datos y documentos; §9.7). |
 | `src/99-boot.js` | arranque. Núcleo. |
 
 **No modifiques archivos del núcleo.** Si necesitas algo del núcleo que no existe, impleméntalo
