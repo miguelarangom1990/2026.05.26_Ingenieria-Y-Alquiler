@@ -577,12 +577,13 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     return out;
   };
   /* Eventos y prácticas ágiles con su asignación típica: exactamente un A (o R/A) y al menos un R por fila.
-     Dueño del producto: rinde cuentas de la priorización y la aceptación, y refina el backlog; Scrum Master / facilitador:
+     Dueño del producto: ordena (prioriza) y refina el backlog del producto y rinde cuentas de la aceptación (Guía de Scrum
+     2020: el Scrum Master solo apoya la gestión del backlog, por eso es C en la priorización); Scrum Master / facilitador:
      facilita los eventos; Equipo de desarrollo: planifica, se sincroniza a diario y aplica la definición de terminado;
      Director de proyecto: consultado o informado (integra con el plan del proyecto); Patrocinador: informado. */
   const AGILE_EVENTS = [
     { name: 'Refinamiento del backlog', desc: 'Detallar, dividir y estimar los elementos del backlog del producto.', cells: { po: 'RA', sm: 'C', dt: 'C', dp: 'I' } },
-    { name: 'Priorización del backlog', desc: 'Ordenar el backlog por valor, riesgo y dependencias (MoSCoW).', cells: { po: 'A', sm: 'R', dt: 'C', dp: 'C' } },
+    { name: 'Priorización del backlog', desc: 'Ordenar el backlog por valor, riesgo y dependencias (MoSCoW).', cells: { po: 'RA', sm: 'C', dt: 'C', dp: 'C' } },
     { name: 'Planificación de la iteración', desc: 'Objetivo de la iteración y elementos que el equipo se compromete a terminar.', cells: { po: 'C', sm: 'R', dt: 'RA', dp: 'I' } },
     { name: 'Reunión diaria', desc: 'Sincronización de 15 minutos del equipo e impedimentos.', cells: { sm: 'R', dt: 'RA', dp: 'I' } },
     { name: 'Revisión de la iteración', desc: 'Demostración del incremento a los interesados y ajuste del backlog.', cells: { po: 'A', sm: 'R', dt: 'R', dp: 'C', pa: 'I' } },

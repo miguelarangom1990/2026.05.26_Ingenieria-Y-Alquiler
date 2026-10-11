@@ -109,6 +109,11 @@ const results = await page.evaluate(() => {
   eq('cronograma: original intacto', schedule.tasks[0].progress, 0);
   const allDone = A.applyToSchedule(schedule, agileData, items.map((x) => ({ ...x, status: 'terminado', doneDate: x.doneDate || '2026-09-10' })));
   eq('cronograma: release terminado fija fin real', [allDone.tasks[0].progress, allDone.tasks[0].actualFinish], [100, '2026-09-10']);
+  const dup = A.applyToSchedule({ tasks: [{ id: 'x1', duration: 5, releaseId: 'r1', progress: 0 }, { id: 'x2', duration: 5, releaseId: 'r1', progress: 0 }, { id: 't-rel', duration: 5, progress: 0 }] }, agileData, items);
+  eq('cronograma: un release se aplica a una sola actividad', dup.tasks.map((t) => !!t.agileDerived), [false, false, true]);
+  const dup2 = A.applyToSchedule({ tasks: [{ id: 'x1', duration: 5, releaseId: 'r1' }, { id: 'x2', duration: 5, releaseId: 'r1' }] }, { releases: [{ ...release, taskId: null }], sprints }, items);
+  eq('cronograma: sin taskId gana la primera actividad', dup2.tasks.map((t) => !!t.agileDerived), [true, false]);
+  eq('vínculos: dos releases en la misma actividad, gana el último', A.linksOf([{ id: 'a' }], { releases: [{ id: 'r1', taskId: 'a' }, { id: 'r2', taskId: 'a' }] }).get('a').id, 'r2');
   eq('cronograma sin releases: misma referencia', A.applyToSchedule(schedule, { releases: [] }, items) === schedule, true);
   // Datos mal formados no lanzan excepciones
   let bad = null;

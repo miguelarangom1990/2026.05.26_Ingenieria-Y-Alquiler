@@ -716,17 +716,17 @@
      Lee model.agile y model.agileItems (los mismos datos de PM.useProjectModel que ya usa el tablero; no abre otra
      suscripción) y calcula con PM.calc / PM.agile del núcleo. */
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
-  /* línea base del release con contenido (PM.normalizeTool convierte un baseline null en {}: un objeto vacío no cuenta) */
-  const hasRelBaseline = (r) => { const b = r && r.baseline; return isObj(b) && (D.valid(b.date) || PM.isNum(b.points) || D.valid(b.end)); };
+  /* ayudantes del núcleo (07-agile-core): línea base del release con contenido, iteraciones por inicio y release activo */
+  const hasRelBaseline = (r) => PM.agile.hasBaseline(r);
   const agileReleases = (data) => (data && Array.isArray(data.releases) ? data.releases.filter((r) => isObj(r) && r.id) : []);
-  const agileSprints = (data) => (data && Array.isArray(data.sprints) ? data.sprints.filter((s) => isObj(s) && s.id) : [])
-    .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+  const agileSprints = (data) => PM.agile.sortSprints(data && data.sprints);
   const fpts = (v, unit) => fmt.num(v, Number.isInteger(v) ? 0 : 1) + ' ' + unit;
   const FRAMEWORK_LABEL = { scrum: 'Scrum', kanban: 'Kanban (flujo continuo)', 'scrum-kanban': 'Scrum con tablero Kanban' };
   const MODE_LABEL = { hibrido: 'Enfoque híbrido', adaptativo: 'Enfoque adaptativo' };
-  /* Release que se sigue en el tablero: el de la iteración en curso; si no, el primero en curso, comprometido o sin cerrar. */
-  const activeReleaseOf = (releases, current) => (current && current.releaseId && releases.find((r) => r.id === current.releaseId))
-    || releases.find((r) => r.status === 'en-curso') || releases.find((r) => r.status === 'comprometido') || releases.find((r) => r.status !== 'cerrado') || null;
+  /* límite WIP de una columna como lo aplica el tablero Kanban (45): entero ≥ 1, o sin límite */
+  const wipLimit = (c) => { const n = c && PM.isNum(c.wip) ? Number(c.wip) : 0; return n > 0 ? Math.max(1, Math.round(n)) : null; };
+  const isKanbanFlow = (data) => PM.agile.settings(data).framework === 'kanban';
+  const elems = (n) => (n === 1 ? '1 elemento' : fmt.num(n) + ' elementos');
   function agileSummary(model) {
     const A = PM.agile, C = PM.calc;
     const data = model.agile || {};
@@ -745,31 +745,45 @@
       sprintDays = D.valid(current.start) && current.start <= current.end ? cal.countWork(current.start, current.end) : null;
     }
     const vel = C.velocity({ sprints, items, settings });
-    const active = activeReleaseOf(releases, current);
+    /* flujo en una sola pasada: conteo por columna, trabajo en curso, rendimiento de las últimas 4 semanas y bloqueados.
+       El WIP se cuenta como en el tablero Kanban (45): todos los elementos de cada columna, sin filtrar por iteración (los
+       filtros del tablero solo cambian qué tarjetas se ven, no el trabajo en curso real del equipo). */
+    const counts = new Map();
+    let wip = 0, thr = 0, thrEst = 0;
+    const from28 = D.add(statusDate, -27);
+    const boardBlocked = [], backlogBlocked = [];
+    for (const it of items) {
+      if (!A.countable(it)) continue;
+      const cat = A.category(settings, it.status);
+      if (cat === 'terminado') { if (D.valid(it.doneDate) && it.doneDate >= from28 && it.doneDate <= statusDate) { thr++; thrEst += A.estimate(it); } continue; }
+      counts.set(it.status, (counts.get(it.status) || 0) + 1);
+      if (cat === 'en-curso') wip++;
+      /* bloqueados en el tablero (por hacer o en curso) y en el backlog del producto (aún sin planificar) */
+      if (it.blocked) (cat === 'nuevo' ? backlogBlocked : boardBlocked).push(it);
+    }
+    const wipOver = [];
+    for (const c of settings.columns) { const lim = wipLimit(c), n = counts.get(c.id) || 0; if (lim && n > lim) wipOver.push({ id: c.id, name: c.name, n, wip: lim }); }
+    const blockedSprint = current ? boardBlocked.filter((it) => it.sprintId === current.id).length : 0;
+    const kanban = settings.framework === 'kanban';
+    const active = A.activeRelease(releases, sprints);
     let rel = null;
     if (active) {
       const prog = C.releaseProgress({ release: active, items, settings });
       const ac = A.releaseActualCost(active, model.costs, model.tree, statusDate);
       const ev = C.agileEvm({ release: active, sprints, items, settings, actualCost: ac, statusDate });
       const fc = C.releaseForecast({ release: active, sprints, items, settings, cal, statusDate });
-      rel = { r: active, prog, ev, fc };
+      /* flujo continuo (Kanban): sin iteraciones no hay velocidad; el pronóstico usa el rendimiento de las últimas 4 semanas
+         (estimación terminada por semana) proyectado en días calendario desde la fecha de corte */
+      let flowFc = null;
+      if (kanban && !fc.finish && prog.remaining > 0) {
+        const perWeek = thrEst / 4;
+        let finish = null;
+        if (perWeek > 0) { finish = D.add(statusDate, Math.max(1, Math.ceil((prog.remaining / perWeek) * 7))); for (let g = 0; g < 14 && !cal.isWork(finish); g++) finish = D.add(finish, 1); }
+        flowFc = { perWeek, finish };
+      }
+      rel = { r: active, prog, ev, fc, flowFc };
     }
-    /* alertas con el mismo alcance del tablero Kanban: la iteración en curso en Scrum; todo el flujo en Kanban */
-    const scopeSprint = settings.framework !== 'kanban' && current ? current.id : null;
-    const counts = new Map();
-    let wip = 0, thr = 0;
-    const from28 = D.add(statusDate, -27);
-    for (const it of items) {
-      if (!A.countable(it)) continue;
-      const cat = A.category(settings, it.status);
-      if (cat === 'terminado' && D.valid(it.doneDate) && it.doneDate >= from28 && it.doneDate <= statusDate) thr++;
-      if (scopeSprint && it.sprintId !== scopeSprint) continue;
-      counts.set(it.status, (counts.get(it.status) || 0) + 1);
-      if (cat === 'en-curso') wip++;
-    }
-    const wipOver = settings.columns.filter((c) => PM.isNum(c.wip) && c.wip > 0 && (counts.get(c.id) || 0) > c.wip).map((c) => ({ id: c.id, name: c.name, n: counts.get(c.id), wip: c.wip }));
-    const blocked = A.sortByRank(items.filter((it) => A.countable(it) && it.blocked && !A.isDone(settings, it)));
-    return { settings, unit: A.unitShort(settings), items, releases, sprints, current, next, burndown, left, sprintDays, vel, rel, wipOver, blocked, scopeSprint, wip, thr };
+    return { settings, unit: A.unitShort(settings), items, releases, sprints, current, next, burndown, left, sprintDays, vel, rel, wipOver, boardBlocked: A.sortByRank(boardBlocked), backlogBlocked: A.sortByRank(backlogBlocked), blockedSprint, kanban, wip, thr, thrEst, counts };
   }
 
   /* Burndown mínimo de la iteración en curso: ideal (discontinua) y restante (hasta la fecha de corte). */
@@ -819,7 +833,7 @@
   function AgileCard({ model, project }) {
     const canWrite = PM.useCanWrite();
     const s = useMemo(() => agileSummary(model), [model.agile, model.agileItems, model.costs, model.tree, model.statusDate, model.sched]);
-    const { unit, current, next, burndown, vel, rel, wipOver, blocked, settings } = s;
+    const { unit, current, next, burndown, vel, rel, wipOver, boardBlocked, backlogBlocked, settings, kanban } = s;
     const statusDate = model.statusDate;
     const cal = model.sched.cal;
     const currency = model.currency;
@@ -849,11 +863,13 @@
         ${burndown && burndown.days.length > 1 ? html`<${MiniBurndown} bd=${burndown} unit=${unit} name=${current.name} />` : null}
         <div class="dashboard-agile-kv">${burndown ? html`<span>Terminado <strong data-agile-done>${fpts(burndown.done, unit)}</strong></span><span>Restante <strong>${fpts(burndown.remaining, unit)}</strong></span><span>Compromiso <strong>${fpts(num(burndown.committed), unit)}</strong></span>` : null}</div>
       </div>`;
-    } else if (settings.framework === 'kanban') {
+    } else if (kanban) {
+      const inProgress = settings.columns.filter((c) => c.category === 'en-curso');
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
         <h4 class="label-caps">Flujo continuo</h4>
-        <div class="dashboard-agile-big">${fmt.num(s.wip)} <small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
-        <div class="xsmall faint">Rendimiento: ${s.thr === 1 ? '1 elemento terminado' : fmt.num(s.thr) + ' elementos terminados'} en las últimas 4 semanas.</div>
+        <div class="dashboard-agile-big" data-agile-wip=${s.wip}>${fmt.num(s.wip)} <small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
+        ${inProgress.length ? html`<div class="dashboard-agile-kv" data-agile-columns>${inProgress.map((c) => { const n = s.counts.get(c.id) || 0, lim = wipLimit(c); return html`<span key=${c.id}>${c.name} <strong>${lim ? n + ' / ' + lim : n}</strong></span>`; })}</div>` : null}
+        <div class="xsmall faint">Trabajo en curso por columna${inProgress.some(wipLimit) ? ' frente a su límite WIP' : ''}, en todo el tablero.</div>
       </div>`;
     } else {
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
@@ -863,11 +879,18 @@
       </div>`;
     }
 
-    /* 2. velocidad */
-    const velSec = html`<div class="dashboard-agile-sec" data-agile="velocity">
+    /* 2. velocidad (Scrum) o rendimiento (Kanban: flujo continuo, sin iteraciones) */
+    const velBasis = vel.closed === 1 ? 'Terminado en la única iteración cerrada.'
+      : vel.closed ? (vel.closed > 3 ? 'Promedio de las últimas 3 iteraciones cerradas' : 'Promedio de las ' + vel.closed + ' iteraciones cerradas') + ' (mín. ' + fpts(vel.min3, unit) + ', máx. ' + fpts(vel.max3, unit) + ').'
+      : 'Aparece al cerrar la primera iteración (terminado al cierre).';
+    const velSec = kanban ? html`<div class="dashboard-agile-sec" data-agile="throughput">
+      <h4 class="label-caps">Rendimiento</h4>
+      <div class="dashboard-agile-big" data-agile-throughput=${s.thr}>${fmt.num(s.thr)} <small>${s.thr === 1 ? 'elemento terminado en 4 semanas' : 'elementos terminados en 4 semanas'}</small></div>
+      <div class="xsmall faint">Del ${fmt.date(D.add(statusDate, -27), 'dm')} al ${fmt.date(statusDate, 'dm')}: ${fpts(s.thrEst, unit)} terminados${s.thr ? ' · ' + fmt.num(s.thr / 4, 1) + ' elementos por semana' : ''}. En flujo continuo el rendimiento reemplaza a la velocidad por iteración.</div>
+    </div>` : html`<div class="dashboard-agile-sec" data-agile="velocity">
       <h4 class="label-caps">Velocidad media</h4>
       <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'} <small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
-      <div class="xsmall faint">${vel.closed ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + (Math.min(3, vel.closed) === 1 ? ' iteración cerrada' : ' iteraciones cerradas') + (vel.closed > 1 ? ' (mín. ' + fpts(vel.min3, unit) + ', máx. ' + fpts(vel.max3, unit) + ')' : '') + '.' : 'Aparece al cerrar la primera iteración (terminado al cierre).'}</div>
+      <div class="xsmall faint" data-agile-velbasis>${velBasis}</div>
       ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${isNum(vel.avg3) ? html`<span data-agile-commit-check>${num(burndown.committed) > vel.avg3 * 1.2 ? 'El compromiso supera la velocidad media en más de un 20 %: riesgo de no terminarlo.' : 'El compromiso está dentro de la velocidad media.'}</span>` : null}</div>` : null}
     </div>`;
 
@@ -876,12 +899,20 @@
     if (!rel) {
       relSec = html`<div class="dashboard-agile-sec" data-agile="release"><h4 class="label-caps">Release activo</h4><div class="small">${s.releases.length ? 'Todos los releases están cerrados.' : 'Aún no hay releases: agrúpalos en la hoja de ruta para seguir su avance, su valor ganado ágil y su pronóstico.'}</div><div><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>${s.releases.length || !canWrite ? 'Ver releases' : 'Crear release'}</${ui.Button}></div></div>`;
     } else {
-      const { r, prog, ev, fc } = rel;
-      const spiT = PM.calc.indexTone(ev.spi), cpiT = PM.calc.indexTone(ev.cpi);
-      const fv = fc.finish && D.valid(r.end) ? wdDiff(cal, r.end, fc.finish) : null;
+      const { r, prog, ev, fc, flowFc } = rel;
+      /* sin presupuesto (BAC) el release no tiene PV ni EV: SPI y CPI no se calculan (un CPI 0 no significa sobrecosto) */
+      const noBac = !(ev.bac > 0);
+      const spi = noBac ? null : ev.spi, cpi = noBac ? null : ev.cpi;
+      const spiT = PM.calc.indexTone(spi), cpiT = PM.calc.indexTone(cpi);
+      const finish = fc.finish || (flowFc && flowFc.finish) || null;
+      const fv = finish && D.valid(r.end) ? wdDiff(cal, r.end, finish) : null;
+      const vsEnd = fv === null ? '.' : fv === 0 ? ', en la fecha del release.' : ', ' + fmt.num(Math.abs(fv)) + ' ' + wdUnit(fv) + (fv > 0 ? ' después' : ' antes') + ' del fin del release (' + fmt.date(r.end) + ').';
       const fcText = prog.total > 0 && !prog.remaining ? 'Alcance terminado' + (D.valid(prog.lastDone) ? ' el ' + fmt.date(prog.lastDone) : '') + '.'
-        : !fc.finish ? (prog.total > 0 ? 'Sin velocidad todavía: el pronóstico aparece al cerrar la primera iteración.' : 'Sin alcance estimado en el release.')
-        : 'Terminación probable: ' + fmt.date(fc.finish) + (fc.sprintsNeeded ? ' (' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración más' : ' iteraciones más') + ')' : '') + (fv === null ? '.' : fv === 0 ? ', en la fecha del release.' : ', ' + fmt.num(Math.abs(fv)) + ' ' + wdUnit(fv) + (fv > 0 ? ' después' : ' antes') + ' del fin del release (' + fmt.date(r.end) + ').');
+        : fc.finish ? 'Terminación probable: ' + fmt.date(fc.finish) + (fc.sprintsNeeded ? ' (' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración más' : ' iteraciones más') + ')' : '') + vsEnd
+        : flowFc && flowFc.finish ? 'Terminación probable por rendimiento: ' + fmt.date(flowFc.finish) + ' (' + fpts(Math.round(flowFc.perWeek * 10) / 10, unit) + ' por semana en las últimas 4 semanas)' + vsEnd
+        : flowFc ? 'Sin elementos estimados terminados en las últimas 4 semanas: el pronóstico por rendimiento aparece cuando el flujo entregue trabajo.'
+        : prog.total > 0 ? 'Sin velocidad todavía: el pronóstico aparece al cerrar la primera iteración.' : 'Sin alcance estimado en el release.';
+      const spiEmpty = noBac ? 'Sin presupuesto (BAC)' : kanban && !s.sprints.length ? 'Sin iteraciones (flujo continuo)' : 'Sin iteraciones transcurridas';
       const fcTone = fv === null ? null : fv > 0 ? 'warn' : 'good';
       relSec = html`<div class="dashboard-agile-sec" data-agile="release">
         <h4 class="label-caps">Release activo</h4>
@@ -889,22 +920,33 @@
         <div class="dashboard-agile-kv"><span>Terminado <strong data-agile-progress>${fpts(prog.done, unit)} de ${fpts(prog.total, unit)}</strong></span><span><strong>${fmt.pct(prog.pct, 1)}</strong></span></div>
         <${ui.Meter} value=${prog.pct} tone=${prog.pct >= 1 ? 'good' : undefined} label=${'Avance del release ' + (r.name || '') + ': ' + fmt.pct(prog.pct, 1)} />
         <div class="dashboard-pair" style="margin-top:4px">
-          <div data-index="spi-agil"><div class="dashboard-pair-k" title="SPI ágil = EV / PV (PV = BAC × iteraciones transcurridas / planeadas)">SPI ágil</div><div class="stat-value" style=${toneStyle(spiT)}>${idx(ev.spi)}</div><div class="stat-sub">${idxWord(ev.spi, 'Adelantado', 'Al día', 'Atrasado') || (ev.bac > 0 ? 'Sin iteraciones transcurridas' : 'Sin presupuesto (BAC)')}</div></div>
-          <div data-index="cpi-agil"><div class="dashboard-pair-k" title="CPI ágil = EV / AC (costos reales imputados al release)">CPI ágil</div><div class="stat-value" style=${toneStyle(cpiT)}>${idx(ev.cpi)}</div><div class="stat-sub">${idxWord(ev.cpi, 'Por debajo del presupuesto', 'Dentro del presupuesto', 'Por encima del presupuesto') || (ev.bac > 0 ? 'Sin costos imputados' : 'Sin presupuesto (BAC)')}</div></div>
+          <div data-index="spi-agil"><div class="dashboard-pair-k" title="SPI ágil = EV / PV (PV = BAC × iteraciones transcurridas / planeadas)">SPI ágil</div><div class="stat-value" style=${toneStyle(spiT)}>${idx(spi)}</div><div class="stat-sub">${idxWord(spi, 'Adelantado', 'Al día', 'Atrasado') || spiEmpty}</div></div>
+          <div data-index="cpi-agil"><div class="dashboard-pair-k" title="CPI ágil = EV / AC (costos reales imputados al release)">CPI ágil</div><div class="stat-value" style=${toneStyle(cpiT)}>${idx(cpi)}</div><div class="stat-sub">${idxWord(cpi, 'Por debajo del presupuesto', 'Dentro del presupuesto', 'Por encima del presupuesto') || (noBac ? 'Sin presupuesto (BAC)' : 'Sin costos imputados')}</div></div>
         </div>
-        <div class="dashboard-alert" data-tone=${fcTone || undefined} data-agile-forecast=${fc.finish || ''}><${ui.Icon} name=${fcTone === 'warn' ? 'alert' : 'calendar'} size=${15} /><span>${fcText}${fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst && prog.remaining ? ' Rango: ' + fmt.date(fc.finishBest) + ' a ' + fmt.date(fc.finishWorst) + '.' : ''}</span></div>
-        ${ev.bac > 0 ? html`<div class="xsmall faint">BAC ${moneyShort(ev.bac, currency)} · EV ${moneyShort(ev.ev, currency)} · AC ${moneyShort(ev.ac, currency)}</div>` : null}
+        <div class="dashboard-alert" data-tone=${fcTone || undefined} data-agile-forecast=${finish || ''}><${ui.Icon} name=${fcTone === 'warn' ? 'alert' : 'calendar'} size=${15} /><span>${fcText}${fc.finishBest && fc.finishWorst && fc.finishBest !== fc.finishWorst && prog.remaining ? ' Rango: ' + fmt.date(fc.finishBest) + ' a ' + fmt.date(fc.finishWorst) + '.' : ''}</span></div>
+        ${ev.bac > 0 ? html`<div class="xsmall faint">BAC ${moneyShort(ev.bac, currency)} · EV ${moneyShort(ev.ev, currency)} · AC ${moneyShort(ev.ac, currency)}</div>` : ev.ac > 0 ? html`<div class="xsmall faint">AC ${moneyShort(ev.ac, currency)} sin presupuesto (BAC) del release.</div>` : null}
       </div>`;
     }
 
     /* 4. alertas */
+    /* WIP y bloqueados sobre todo el tablero (como el tablero Kanban); los bloqueados del backlog del producto aparte */
     const alerts = [];
+    const list = (arr) => arr.slice(0, 3).map((it) => (it.code || '') + (it.title ? ' ' + trunc(it.title, 40) : '')).join('; ') + (arr.length > 3 ? ' y ' + (arr.length - 3) + ' más' : '');
     for (const w of wipOver) alerts.push(html`<li key=${'wip-' + w.id} class="dashboard-alert" data-tone="crit" data-agile-alert="wip"><${ui.Icon} name="alert" size=${15} /><span>Límite WIP superado en «${w.name}»: ${w.n} elementos para un límite de ${w.wip}.</span></li>`);
-    if (blocked.length) alerts.push(html`<li key="blocked" class="dashboard-alert" data-tone="crit" data-agile-alert="blocked"><${ui.Icon} name="lock" size=${15} /><span>${blocked.length === 1 ? '1 elemento bloqueado' : blocked.length + ' elementos bloqueados'}: ${blocked.slice(0, 3).map((it) => (it.code || '') + (it.title ? ' ' + trunc(it.title, 40) : '')).join('; ')}${blocked.length > 3 ? ' y ' + (blocked.length - 3) + ' más' : ''}.</span></li>`);
+    if (boardBlocked.length) {
+      const nB = boardBlocked.length, k = s.blockedSprint;
+      const where = current && k === nB ? ' en la iteración actual' : ' en el tablero' + (current && k ? ' (' + k + ' de la iteración actual)' : '');
+      alerts.push(html`<li key="blocked" class="dashboard-alert" data-tone="crit" data-agile-alert="blocked"><${ui.Icon} name="lock" size=${15} /><span>${nB === 1 ? '1 elemento bloqueado' : nB + ' elementos bloqueados'}${where}: ${list(boardBlocked)}.</span></li>`);
+    }
+    if (backlogBlocked.length) {
+      const nK = backlogBlocked.length;
+      alerts.push(html`<li key="blocked-backlog" class="dashboard-alert" data-tone="warn" data-agile-alert="blocked-backlog"><${ui.Icon} name="lock" size=${15} /><span>${nK === 1 ? '1 elemento del backlog del producto está bloqueado' : nK + ' elementos del backlog del producto están bloqueados'} (aún sin planificar): ${list(backlogBlocked)}.</span></li>`);
+    }
+    const onBoard = wipOver.length > 0 || boardBlocked.length > 0;
     const alertSec = html`<div class="dashboard-agile-sec" data-agile="alerts">
-      <h4 class="label-caps">Alertas del flujo${s.scopeSprint ? ' · iteración actual' : ''}</h4>
+      <h4 class="label-caps">Alertas del flujo</h4>
       ${alerts.length ? html`<ul class="dashboard-alerts">${alerts}</ul>` : html`<div class="dashboard-alert" data-tone="good" data-agile-alert="none"><${ui.Icon} name="check-circle" size=${15} /><span>Sin alertas: ninguna columna supera su límite WIP y no hay elementos bloqueados.</span></div>`}
-      ${alerts.length ? html`<div><${LinkBtn} label="Ver tablero Kanban" onClick=${() => go('kanban')} /></div>` : null}
+      ${alerts.length ? html`<div class="row" style="gap:6px 14px">${onBoard ? html`<${LinkBtn} label="Ver tablero Kanban" onClick=${() => go('kanban')} />` : null}${backlogBlocked.length ? html`<${LinkBtn} label="Ver backlog" onClick=${() => go('backlog')} />` : null}</div>` : null}
     </div>`;
 
     return html`<${Panel} title="Seguimiento ágil" subtitle=${subtitle} actions=${links} data-card="agile">
@@ -1023,24 +1065,28 @@
     let route = steps;
     if ((mode === 'hibrido' || mode === 'adaptativo') && PM.agile) {
       const ag = agileSteps({ model, docs, nodes });
+      /* Kanban (flujo continuo, sin iteraciones): el tablero con límites WIP y la revisión periódica del flujo reemplazan a
+         la primera iteración y a la revisión y retrospectiva de cada iteración */
+      const startStep = ag.kanban ? ag.flujo : ag.iteracion;
+      const reviewStep = ag.kanban ? ag.revisionFlujo : ag.revision;
       const byId = Object.fromEntries(steps.map((s) => [s.id, s]));
       if (mode === 'hibrido') {
         /* híbrido: la ruta predictiva completa más el enfoque ágil después del alcance (EDT), la línea base del release junto
            a la del proyecto y, al empezar la ejecución, la primera iteración y la revisión y retrospectiva de cada iteración */
         route = [];
         for (const s of steps) {
-          if (s.id === 'avance') route.push(ag.iteracion);
+          if (s.id === 'avance') route.push(startStep);
           route.push(s);
           if (s.id === 'edt') route.push(ag.enfoque, ag.vision, ag.backlog, ag.terminado, ag.releases);
           if (s.id === 'lineabase') route.push(ag.lbRelease);
-          if (s.id === 'avance') route.push(ag.revision);
+          if (s.id === 'avance') route.push(reviewStep);
         }
       } else {
         /* adaptativo: los pasos predictivos esenciales (acta, interesados, riesgos, plan de gestión de cambios) y los ágiles */
         const planCambios = docs.get('plan-gestion-cambios');
         route = [byId.acta, byId.interesados, byId.riesgos,
           { phase: 'plan', id: 'plan-cambios', label: 'Plan de gestión de cambios', desc: '4.2 · Control de cambios en dos niveles: el backlog se ajusta libremente; el alcance, la fecha o el presupuesto del release, con solicitud de cambio.', done: isApproved(planCambios), partial: !!planCambios, stateLabel: docStateLabel(planCambios, 'Aprobado'), action: () => openDoc('plan-gestion-cambios') },
-          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, ag.iteracion, ag.revision];
+          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, startStep, reviewStep];
       }
     }
     return route.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
@@ -1073,7 +1119,22 @@
     const hasDoc = (sp, kind, tid) => !!(sp.docs && sp.docs[kind] && ids.has(sp.docs[kind])) || (docs.byTemplate[tid] || []).some((d) => d.fields && norm(d.fields.iteracion) && norm(d.fields.iteracion) === norm(sp.name));
     const covered = closed.filter((sp) => hasDoc(sp, 'revision', 'acta-revision-sprint') && hasDoc(sp, 'retrospectiva', 'retrospectiva'));
     const anyEventDoc = (docs.byTemplate['acta-revision-sprint'] || []).length + (docs.byTemplate.retrospectiva || []).length > 0;
+    /* Kanban: columnas guardadas por el equipo (no las de fábrica) con al menos un límite WIP */
+    const kanban = settings.framework === 'kanban';
+    const ownCols = isObj(data.settings) && Array.isArray(data.settings.columns) && data.settings.columns.some((c) => isObj(c) && c.id);
+    const nWip = settings.columns.filter(wipLimit).length;
+    /* Kanban: revisión del flujo o retrospectiva (actas de revisión o retrospectivas) en el último periodo (≈ un mes) */
+    const reviews = [...(docs.byTemplate['acta-revision-sprint'] || []), ...(docs.byTemplate.retrospectiva || [])];
+    const revDate = (d) => (d.fields && D.valid(d.fields.fecha) ? d.fields.fecha : String(d.updatedAt || d.createdAt || '').slice(0, 10));
+    const lastRev = PM.sortBy(reviews, revDate, -1)[0] || null;
+    const lastRevAt = lastRev ? revDate(lastRev) : null;
+    const revCurrent = !!lastRev && (!D.valid(lastRevAt) || D.diff(lastRevAt, model.statusDate) <= 35);
     return {
+      kanban,
+      flujo: { phase: 'control', id: 'flujo-kanban', label: 'Configurar columnas y límites WIP', desc: 'Método Kanban · Columnas del flujo con políticas explícitas y un límite WIP para el trabajo en curso.', done: ownCols && nWip > 0, partial: ownCols || nWip > 0,
+        stateLabel: ownCols ? settings.columns.length + ' columnas · ' + (nWip ? nWip + ' con límite WIP' : 'sin límite WIP') : 'Columnas por defecto (sin revisar)', action: () => go('kanban') },
+      revisionFlujo: { phase: 'control', id: 'revision-flujo', label: 'Revisión periódica del flujo', desc: 'Método Kanban · Revisión del servicio y retrospectiva con cadencia fija: tiempo de ciclo, rendimiento, bloqueos y mejoras.', done: revCurrent, partial: !!lastRev,
+        stateLabel: !lastRev ? 'Pendiente' : !D.valid(lastRevAt) ? 'Registrada' : (revCurrent ? 'Última: ' : 'Desactualizada · última: ') + fmt.date(lastRevAt, 'dm'), action: () => openDoc(lastRev ? lastRev.id : 'retrospectiva') },
       enfoque: { phase: 'plan', id: 'enfoque', label: 'Definir el enfoque por entregable en la EDT', desc: 'PMBOK® 7 · Qué entregables siguen en cascada y cuáles se desarrollan por iteraciones.', done: nAdapt > 0, partial: nSet > 0,
         stateLabel: nAdapt ? nAdapt + (nAdapt === 1 ? ' entregable adaptativo' : ' entregables adaptativos') : nodes.length ? 'Sin entregables adaptativos' : 'Pendiente (sin EDT)', action: () => go('edt') },
       vision: { phase: 'plan', id: 'vision', label: 'Visión del producto', desc: '5.2 · Para quién es el producto, qué necesidad resuelve y cómo se medirá el éxito.', done: !!vision, stateLabel: vision ? PM.docStatus(vision.status).label : 'Pendiente', action: () => openDoc('vision-producto') },
@@ -1102,16 +1163,18 @@
       </span>
     </button></li>`;
   }
-  function RouteCard({ route, prominent, mode = 'predictivo' }) {
+  function RouteCard({ route, prominent, mode = 'predictivo', flow = false }) {
     const [open, setOpen] = useState(!!prominent);
     const done = route.filter((r) => r.done).length;
     const nextIdx = route.findIndex((r) => !r.done);
     const complete = done === route.length;
     const planDone = route.filter((r) => r.phase === 'plan').every((r) => r.done);
     const ad = mode === 'adaptativo', hy = mode === 'hibrido';
-    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución a la revisión y retrospectiva de las iteraciones.' : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
-      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? 'sigue iterar con revisión y retrospectiva.' : hy ? 'sigue iterar, monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
-      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, e iterar.' : hy ? 'iniciar, planificar (en cascada y por iteraciones), establecer las líneas base, iterar, controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
+    /* flow: Kanban (flujo continuo, sin iteraciones) */
+    const work = flow ? 'gestionar el flujo' : 'iterar';
+    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución a ' + (flow ? 'la revisión periódica del flujo.' : 'la revisión y retrospectiva de las iteraciones.') : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
+      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? (flow ? 'sigue gestionar el flujo con revisiones periódicas.' : 'sigue iterar con revisión y retrospectiva.') : hy ? 'sigue ' + work + ', monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
+      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, ' + (flow ? 'y gestionar el flujo.' : 'e iterar.') : hy ? 'iniciar, planificar (en cascada y ' + (flow ? 'ágil' : 'por iteraciones') + '), establecer las líneas base, ' + work + ', controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
     return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'} data-mode=${mode}>
       <div class="dashboard-panel-head">
         <div class="stack-sm" style="gap:2px;min-width:0">
@@ -1123,7 +1186,7 @@
           ${!prominent ? html`<${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ocultar pasos' : 'Mostrar pasos'}</${ui.Button}>` : null}
         </div>
       </div>
-      ${open ? html`<${RouteSteps} route=${route} nextIdx=${nextIdx} mode=${mode} />` : null}
+      ${open ? html`<${RouteSteps} route=${route} nextIdx=${nextIdx} mode=${mode} flow=${flow} />` : null}
     </section>`;
   }
   /* Pasos por fase en filas parejas que llegan al borde derecho: con el ancho disponible caben hasta `max` columnas de
@@ -1131,11 +1194,12 @@
      9 columnas → 6). Sin medida (primer cuadro) rige la regla CSS auto-fit. */
   const STEP_MIN = 230, STEP_GAP = 8;
   const PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución por iteraciones' }, hibrido: { plan: 'Inicio y planificación (en cascada y ágil)' } };
-  function RouteSteps({ route, nextIdx, mode }) {
+  const FLOW_PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución en flujo continuo' } };
+  function RouteSteps({ route, nextIdx, mode, flow }) {
     const ref = useRef();
     const w = useWidth(ref, 0);
     const max = w > 0 ? Math.max(1, Math.floor((w + STEP_GAP) / (STEP_MIN + STEP_GAP))) : 0;
-    const labels = PHASE_LABELS[mode] || {};
+    const labels = (flow && FLOW_PHASE_LABELS[mode]) || PHASE_LABELS[mode] || {};
     return html`<div class="card-body"><div class="stack" ref=${ref}>
       ${PHASES.map((p0) => {
         const ph = labels[p0.id] ? { ...p0, label: labels[p0.id] } : p0;
@@ -1195,13 +1259,14 @@
     const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode });
     const prominent = route.filter((r) => r.done).length < 5;
     const agileOn = !!(PM.agile && PM.agile.enabled(p));
+    const flow = agileOn && isKanbanFlow(model.agile);
     return html`<div class="page dashboard-page">
       <${ui.PageHeader} eyebrow="Tablero del proyecto · 4.5 Monitorear y controlar el trabajo del proyecto" title=${p.name}
         description=${p.description ? trunc(p.description, 260) : null}
         actions=${html`<${ui.Button} size="sm" icon=${canWrite ? 'edit' : 'eye'} onClick=${() => go('ficha')}>${canWrite ? 'Editar ficha' : 'Ver ficha'}</${ui.Button}>`} />
       <${TitleBlock} project=${p} />
       ${canWrite ? html`<${StatusHint} project=${p} model=${model} docs=${docs} />` : null}
-      ${prominent ? html`<${RouteCard} route=${route} prominent mode=${mode} />` : null}
+      ${prominent ? html`<${RouteCard} route=${route} prominent mode=${mode} flow=${flow} />` : null}
       <${KpiRow} model=${model} />
       ${agileOn ? html`<${AgileCard} model=${model} project=${p} />` : null}
       <div class="dashboard-two">
@@ -1219,7 +1284,7 @@
         <${DocsCard} docs=${docs} />
         <${BaselinesCard} model=${model} canWrite=${canWrite} />
       </div>
-      ${!prominent ? html`<${RouteCard} route=${route} mode=${mode} />` : null}
+      ${!prominent ? html`<${RouteCard} route=${route} mode=${mode} flow=${flow} />` : null}
     </div>`;
   }
 

@@ -476,6 +476,9 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   toman `progress` = terminado/alcance × 100 (1 decimal), `actualStart` = inicio de la primera iteración iniciada (si no tenía) y
   `actualFinish` = última terminación al llegar a 100 %; marca `agileDerived: true`. `useProjectModel` lo aplica antes del CPM:
   así el trabajo ágil entra a la ruta crítica, la curva S, el valor ganado y el tablero del proyecto. No modifica lo guardado.
+  Los vínculos salen de `PM.agile.linksOf(tasks, agileData)` → `Map(taskId → release)`: primero `release.taskId` (si dos releases
+  apuntan a la misma actividad gana el último) y luego `task.releaseId` solo para releases sin actividad (la primera en el orden
+  del cronograma). Un release nunca se aplica a dos actividades; usa esta función en lugar de replicar la regla.
 
 ### 9.4 Vistas (grupo `agil`)
 

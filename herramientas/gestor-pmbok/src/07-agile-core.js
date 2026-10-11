@@ -329,16 +329,34 @@
   /* Aplica el avance ágil a las actividades del cronograma vinculadas a releases (task.releaseId o release.taskId):
      avance = terminado / alcance; inicio real = inicio de la primera iteración iniciada; fin real al completar.
      No modifica datos guardados: el resultado solo se usa para calcular (CPM, valor ganado, tablero). */
+  /* Vínculos actividad → release (una actividad por release y un release por actividad):
+     primero release.taskId (si dos releases apuntan a la misma actividad, gana el último); luego task.releaseId, solo
+     para releases que aún no tienen actividad (la primera actividad en el orden del cronograma). */
+  agile.linksOf = function (tasks, agileData) {
+    const releases = arr(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
+    const list = arr(tasks).filter((t) => isObj(t) && t.id);
+    const ids = new Set(list.map((t) => t.id));
+    const byTask = new Map();
+    for (const r of releases) if (r.taskId && ids.has(r.taskId)) byTask.set(r.taskId, r);
+    const used = new Set([...byTask.values()].map((r) => r.id));
+    for (const t of list) {
+      if (byTask.has(t.id) || !t.releaseId || used.has(t.releaseId)) continue;
+      const r = releases.find((x) => x.id === t.releaseId);
+      if (r) { byTask.set(t.id, r); used.add(r.id); }
+    }
+    return byTask;
+  };
+
   agile.applyToSchedule = function (schedule, agileData, items) {
     const releases = arr(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
     if (!schedule || !releases.length || !arr(schedule.tasks).length) return schedule;
     const st = agile.settings(agileData);
-    const byTask = new Map();
-    for (const r of releases) if (r.taskId) byTask.set(r.taskId, r);
+    const byTask = agile.linksOf(schedule.tasks, agileData);
+    if (!byTask.size) return schedule;
     let changed = false;
     const tasks = schedule.tasks.map((t) => {
       if (!isObj(t)) return t;
-      const r = byTask.get(t.id) || (t.releaseId ? releases.find((x) => x.id === t.releaseId) : null);
+      const r = byTask.get(t.id);
       if (!r) return t;
       const prog = calc.releaseProgress({ release: r, items, settings: st });
       if (!prog.total) return t;

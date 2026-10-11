@@ -539,6 +539,7 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await gotoView(page, 'edt'); await page.waitForSelector('tr[data-code="1.2.4"]');
     const toasts = async () => nb(await page.textContent('.toasts').catch(() => ''));
     const codes = () => page.$$eval('tr[data-wbs-row]', (trs) => trs.map((r) => r.dataset.code));
+    const rowIds = () => page.$$eval('tr[data-wbs-row]', (trs) => trs.map((r) => r.dataset.wbsRow));
 
     /* --- 4. enfoque propio igual al del padre: distintivo lleno, sin «heredado de» --- */
     const bInfo = await page.$$eval('tr[data-wbs-row]', (trs) => Object.fromEntries(trs.filter((r) => r.querySelector('.wbs-ap')).map((r) => { const b = r.querySelector('.wbs-ap'); return [r.dataset.code, [b.classList.contains('is-inh'), b.title]]; })));
@@ -554,9 +555,9 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForTimeout(300);
     check('eliminar mientras carga: aviso y sin confirmación', /Aún se están cargando el cronograma, los costos o los datos ágiles/.test(await toasts()) && (await page.$$('.modal')).length === 0, await toasts());
     check('eliminar mientras carga: la EDT no cambia', (await tool(page, pid, 'wbs')).nodes.length === 12, (await tool(page, pid, 'wbs')).nodes.length);
-    await page.click('tr[data-code="1.2.4"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.4"] [data-wbs-input]');
-    await page.keyboard.press('Backspace'); await page.waitForTimeout(200);
-    check('Retroceso mientras carga: el elemento vacío se conserva', (await codes()).includes('1.2.4'), await codes());
+    await page.click('tr[data-wbs-row="w24"] [data-wbs-name]'); await page.waitForSelector('tr[data-wbs-row="w24"] [data-wbs-input]');
+    await page.keyboard.press('Backspace'); await page.waitForTimeout(900);
+    check('Retroceso mientras carga: el elemento vacío se conserva', (await rowIds()).includes('w24') && (await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w24'), await codes());
     await page.keyboard.press('Escape'); await page.waitForTimeout(100);
 
     /* liberar el backlog */
@@ -565,17 +566,19 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await page.click('tr[data-code="1.2"] .wbs-code-btn'); await page.waitForSelector('aside.wbs-panel [data-wbs-backlog-stats]');
 
     /* --- 7. Retroceso no elimina un elemento vacío al que apunta una épica --- */
-    await page.click('tr[data-code="1.2.3"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.3"] [data-wbs-input]');
-    await page.keyboard.press('Backspace'); await page.waitForTimeout(250);
-    check('Retroceso: se conserva el elemento al que apunta una épica', (await codes()).includes('1.2.3') && (await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w23'), await codes());
-    await page.keyboard.press('Escape'); await page.waitForTimeout(100);
-    await page.click('tr[data-code="1.2.4"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.4"] [data-wbs-input]');
+    await page.click('tr[data-wbs-row="w23"] [data-wbs-name]'); await page.waitForSelector('tr[data-wbs-row="w23"] [data-wbs-input]');
     await page.keyboard.press('Backspace'); await page.waitForTimeout(900);
-    check('Retroceso (control): elimina el elemento vacío sin vínculos', !(await codes()).includes('1.2.4') && !(await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w24'), await codes());
+    check('Retroceso: se conserva el elemento al que apunta una épica', (await rowIds()).includes('w23') && (await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w23'), await rowIds());
+    await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+    if ((await rowIds()).includes('w24')) {
+      await page.click('tr[data-wbs-row="w24"] [data-wbs-name]'); await page.waitForSelector('tr[data-wbs-row="w24"] [data-wbs-input]');
+      await page.keyboard.press('Backspace'); await page.waitForTimeout(900);
+    }
+    check('Retroceso (control): elimina el elemento vacío sin vínculos', !(await rowIds()).includes('w24') && !(await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w24'), await rowIds());
 
     /* eliminar 1.2.3 con el botón: avisa de la épica y le quita el entregable */
-    await page.click('tr[data-code="1.2.3"] .wbs-code-btn'); await page.waitForTimeout(150);
-    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForSelector('.modal [data-wbs-confirm-items]');
+    await page.click('tr[data-wbs-row="w23"] .wbs-code-btn'); await page.waitForTimeout(150);
+    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForSelector('.modal [data-wbs-confirm-items]', { timeout: 5000 });
     check('eliminar ya cargado: la confirmación avisa de la épica', /1 elemento del backlog quedará sin entregable de la EDT \(EP-002\)/.test(nb(await page.textContent('.modal [data-wbs-confirm-items]'))), nb(await page.textContent('.modal')));
     await page.click('.modal-foot >> text=Eliminar elemento'); await page.waitForTimeout(900);
     const e2 = await backlogItem(page, pid, 'e2');
