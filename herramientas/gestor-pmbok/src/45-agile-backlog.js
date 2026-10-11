@@ -109,6 +109,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 .agb-pick-item:hover { background: var(--surface-2); }
 .agb-pick-item input { margin-top: 3px; }
 .agb-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agk-mscope { padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .agk-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
 .agk-filters > .field { flex: 0 1 240px; }
 @media (max-width: 680px) { .agk-filters > .field { flex: 1 1 100%; } }
@@ -175,7 +176,10 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   const CAT_LABEL = { nuevo: 'Backlog del producto', pendiente: 'Pendiente', 'en-curso': 'En curso', terminado: 'Terminado' };
   const CAT_TONE = { nuevo: 'outline', pendiente: undefined, 'en-curso': 'accent', terminado: 'good' };
   const CAT_OPTIONS = [{ value: 'pendiente', label: 'Pendiente' }, { value: 'en-curso', label: 'En curso' }, { value: 'terminado', label: 'Terminado' }];
-  const SPRINT_STATUS = Object.fromEntries(AG.SPRINT_STATUS.map((s) => [s.value, s.label]));
+  /* estados de la iteración en femenino, como en «Releases e iteraciones» (PM.AGILE.SPRINT_STATUS los nombra en masculino) */
+  const SPRINT_STATUS = { planeado: 'Planeada', 'en-curso': 'En curso', cerrado: 'Cerrada' };
+  const sprintStatus = (s) => SPRINT_STATUS[s && s.status] || SPRINT_STATUS.planeado;
+  const isClosed = (s) => !!s && s.status === 'cerrado';
   const RELEASE_STATUS = Object.fromEntries(AG.RELEASE_STATUS.map((s) => [s.value, s.label]));
   const plural = (n, one, many) => fmt.num(n) + ' ' + (n === 1 ? one : many);
   const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -195,6 +199,10 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const c = st.columns.find((x) => x.id === status);
     return c ? c.name : 'Backlog del producto';
   };
+  /* «Terminado» registra la fecha de hoy; si la fecha de corte del proyecto es anterior, las métricas al corte (tablero,
+     burndown, velocidad) no lo incluyen todavía: se explica en el aviso */
+  const afterCut = (doneDate, cut) => D.valid(doneDate) && D.valid(cut) && doneDate > cut;
+  const afterCutText = (cut) => 'Quedó después de la fecha de corte del proyecto (' + fmt.date(cut) + '): las métricas al corte no lo incluyen. Actualiza la fecha de corte en la Ficha del proyecto («Usar hoy») para verlo en el tablero y en el burndown.';
   const cssEsc = (s) => (window.CSS && CSS.escape ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'));
   /* firma de un elemento sin el id ni el orden de las claves (para saber si el almacén ya refleja un cambio) */
   const sig = (it) => {
@@ -367,8 +375,15 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     /* opciones de release, iteración y épica (con la referencia huérfana, si la hay, para poder verla y quitarla) */
     const relOpts = releases.map((r) => ({ value: r.id, label: r.name + ' · ' + (RELEASE_STATUS[r.status] || 'Planeado') }));
     const relOrphan = orphanOpt(f.releaseId, relOpts, 'Release no encontrado (' + f.releaseId + ')');
-    const sprOpts = sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') + (s.releaseId && relName(s.releaseId) ? ' · ' + relName(s.releaseId) : '') }));
-    const sprOrphan = orphanOpt(f.sprintId, sprOpts, 'Iteración no encontrada (' + f.sprintId + ')');
+    /* una iteración cerrada no recibe ni entrega elementos (misma regla que «Releases e iteraciones»): cambiaría su
+       burndown y su velocidad ya cerrados. Solo aparece la cerrada en la que ya está el elemento, y entonces no se cambia. */
+    const origSprint = orig && orig.sprintId ? sprints.find((s) => s.id === orig.sprintId) : null;
+    const lockedSprint = isClosed(origSprint);
+    const sprOpts = sprints.filter((s) => !isClosed(s) || (origSprint && s.id === origSprint.id))
+      .map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + sprintStatus(s) + (s.releaseId && relName(s.releaseId) ? ' · ' + relName(s.releaseId) : '') }));
+    const sprOrphan = orphanOpt(f.sprintId, sprOpts, sprints.some((s) => s.id === f.sprintId) ? 'Iteración cerrada (' + f.sprintId + ')' : 'Iteración no encontrada (' + f.sprintId + ')');
+    /* fecha de corte del proyecto: lo terminado después no cuenta en las métricas al corte */
+    const cutDate = D.valid(model.statusDate) ? model.statusDate : null;
     const epicOpts = epics.map((e) => ({ value: e.id, label: str(e.code) + ' ' + (str(e.title) || 'Sin título') }));
     const epicRef = f.epicId ? L0.items.find((x) => x.id === f.epicId) : null;
     const epicOrphan = orphanOpt(f.epicId, epicOpts, epicRef && epicRef.id !== itemId ? str(epicRef.code) + ' ya no es una épica' : 'Épica no encontrada (' + f.epicId + ')');
@@ -423,6 +438,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         assignee: str(f.assignee).trim(), blocked: !!f.blocked, blockedReason: f.blocked ? str(f.blockedReason).trim() : '',
         tags: tagList(f.tags), createdAt: D.valid(f.createdAt) ? f.createdAt : base.createdAt || today,
       };
+      /* no se saca un elemento de una iteración cerrada ni se agrega a una (la vista de iteraciones aplica la misma regla) */
+      const spOf = (id) => (id ? (L.sprints || []).find((s) => s.id === id) : null);
+      if ((base.sprintId || null) !== patch.sprintId && (isClosed(spOf(base.sprintId)) || isClosed(spOf(patch.sprintId)))) patch.sprintId = base.sprintId || null;
       let next = { ...base, ...patch };
       const req = str(f.requirementId).trim();
       if (req) next.requirementId = req; else delete next.requirementId;
@@ -436,7 +454,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       if (kids.length) L.saveMany([next, ...kids.map((x) => ({ ...x, epicId: null }))]);
       else L.save(next);
       close();
-      PM.toast((orig ? 'Elemento ' + codeV + ' actualizado.' : 'Elemento ' + codeV + ' agregado al backlog.') + (kids.length ? ' ' + plural(kids.length, 'elemento quedó', 'elementos quedaron') + ' sin épica.' : ''));
+      const lateDone = A.isDone(L.settings, next) && !(base.doneDate && A.isDone(L.settings, base)) && afterCut(next.doneDate, cutDate);
+      PM.toast((orig ? 'Elemento ' + codeV + ' actualizado.' : 'Elemento ' + codeV + ' agregado al backlog.') + (kids.length ? ' ' + plural(kids.length, 'elemento quedó', 'elementos quedaron') + ' sin épica.' : '')
+        + (lateDone ? ' Terminado el ' + fmt.date(next.doneDate) + '. ' + afterCutText(cutDate) : ''), lateDone ? { timeout: 9000 } : undefined);
     };
     const del = async () => {
       const L = getLive();
@@ -490,15 +510,15 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <${ui.Field} label="Valor de negocio (1 a 10)" for="agb-f-value" error=${err.value} hint="Opcional; ayuda a ordenar el backlog por valor.">
           <${ui.NumberInput} id="agb-f-value" value=${f.value} min=${1} max=${10} onValue=${set('value')} disabled=${ro} />
         </${ui.Field}>
-        <${ui.Field} label="Estado" for="agb-f-status" hint=${orig && orig.doneDate && A.isDone(st, orig) && f.status === orig.status ? 'Terminado el ' + fmt.date(orig.doneDate) + '.' : willBeDone && (!orig || !A.isDone(st, orig)) ? 'Al guardar se registra la fecha de terminación (hoy).' : null}>
+        <${ui.Field} label="Estado" for="agb-f-status" hint=${orig && orig.doneDate && A.isDone(st, orig) && f.status === orig.status ? 'Terminado el ' + fmt.date(orig.doneDate) + '.' : willBeDone && (!orig || !A.isDone(st, orig)) ? 'Al guardar se registra la fecha de terminación (hoy).' + (afterCut(D.today(), cutDate) ? ' Es posterior a la fecha de corte del proyecto (' + fmt.date(cutDate) + '): las métricas al corte no lo incluirán hasta que la actualices.' : '') : null}>
           <${ui.Select} id="agb-f-status" value=${f.status} options=${statusOpts} onValue=${(v) => { setStatusTouched(true); set('status')(v); }} disabled=${ro} />
         </${ui.Field}>
         <${ui.Field} label="Release" for="agb-f-rel" hint=${relOrphan.length ? 'El release asignado ya no existe: elige otro o «Sin release».' : !releases.length ? 'Aún no hay releases: créalos en «Releases e iteraciones».' : null}>
           <${ui.Select} id="agb-f-rel" value=${f.releaseId} placeholder="Sin release" options=${[...relOpts, ...relOrphan]} onValue=${set('releaseId')} disabled=${ro} />
         </${ui.Field}>
-        <${ui.Field} label="Iteración" for="agb-f-sprint" hint=${sprOrphan.length ? 'La iteración asignada ya no existe: elige otra o «Sin iteración».' : sprint && sprint.releaseId && f.releaseId && sprint.releaseId !== f.releaseId ? 'Atención: la iteración pertenece a otro release (' + relName(sprint.releaseId) + ').' : sprint && sprint.status === 'en-curso' && (!orig || orig.sprintId !== sprint.id) ? 'La iteración ya inició: se registra como alcance agregado (burndown).' : null}>
+        <${ui.Field} label="Iteración" for="agb-f-sprint" hint=${lockedSprint ? 'La iteración está cerrada: el elemento permanece en ella para conservar su burndown y su velocidad.' : sprOrphan.length ? 'La iteración asignada ya no existe: elige otra o «Sin iteración».' : sprint && sprint.releaseId && f.releaseId && sprint.releaseId !== f.releaseId ? 'Atención: la iteración pertenece a otro release (' + relName(sprint.releaseId) + ').' : sprint && sprint.status === 'en-curso' && (!orig || orig.sprintId !== sprint.id) ? 'La iteración ya inició: se registra como alcance agregado (burndown).' : null}>
           <${ui.Select} id="agb-f-sprint" value=${f.sprintId} placeholder="Sin iteración" options=${[...sprOpts, ...sprOrphan]}
-            onValue=${(v) => setF((x) => { const sp = sprints.find((s) => s.id === v); return { ...x, sprintId: v, releaseId: !x.releaseId && sp && sp.releaseId ? sp.releaseId : x.releaseId }; })} disabled=${ro} />
+            onValue=${(v) => setF((x) => { const sp = sprints.find((s) => s.id === v); return { ...x, sprintId: v, releaseId: !x.releaseId && sp && sp.releaseId ? sp.releaseId : x.releaseId }; })} disabled=${ro || lockedSprint} />
         </${ui.Field}>
         ${f.type !== 'epica' ? html`<${ui.Field} label="Épica" for="agb-f-epic" hint=${epicOrphan.length ? 'La épica asignada ya no existe o cambió de tipo: elige otra o «Sin épica».' : !epics.length ? 'No hay épicas: crea una con el tipo «Épica» para agrupar elementos.' : null}>
           <${ui.Select} id="agb-f-epic" value=${f.epicId} placeholder="Sin épica" options=${[...epicOpts, ...epicOrphan]} onValue=${set('epicId')} disabled=${ro} />
@@ -921,14 +941,27 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const r = v === NONE ? null : lk.rel.get(v);
       bulk((it) => ((it.releaseId || null) === (r ? r.id : null) ? null : { ...it, releaseId: r ? r.id : null }), (n) => (r ? plural(n, 'elemento asignado', 'elementos asignados') + ' a «' + r.name + '».' : 'Se quitó el release de ' + plural(n, 'elemento', 'elementos') + '.'));
     };
+    /* una iteración cerrada no recibe ni entrega elementos (misma regla que «Releases e iteraciones»): cambiaría su
+       burndown y su velocidad ya cerrados */
     const bulkSprint = (v) => {
       if (!v) return;
-      const sp = v === NONE ? null : lk.spr.get(v);
+      const L = live.current;
+      const spr = new Map(L.sprints.map((s) => [s.id, s]));
+      const sp = v === NONE ? null : spr.get(v);
+      if (v !== NONE && !sp) return;
+      if (isClosed(sp)) { PM.toast('«' + (sp.name || 'La iteración') + '» está cerrada: no recibe elementos nuevos. Elige una iteración planeada o en curso.', { tone: 'crit' }); return; }
       const today = D.today();
-      bulk((it) => {
-        if ((it.sprintId || null) === (sp ? sp.id : null)) return null;
-        return { ...it, sprintId: sp ? sp.id : null, sprintAddedDate: sp && sp.status === 'en-curso' ? today : null, releaseId: it.releaseId || (sp && sp.releaseId) || null };
-      }, (n) => (sp ? plural(n, 'elemento asignado', 'elementos asignados') + ' a «' + sp.name + '».' : 'Se quitó la iteración de ' + plural(n, 'elemento', 'elementos') + '.'));
+      const upd = []; let locked = 0;
+      for (const id of selIds) {
+        const it = L.byId.get(id); if (!it) continue;
+        if ((it.sprintId || null) === (sp ? sp.id : null)) continue;
+        if (isClosed(spr.get(it.sprintId))) { locked++; continue; }
+        upd.push({ ...it, sprintId: sp ? sp.id : null, sprintAddedDate: sp && sp.status === 'en-curso' ? today : null, releaseId: it.releaseId || (sp && sp.releaseId) || null });
+      }
+      if (upd.length) L.saveMany(upd);
+      const n = upd.length;
+      PM.toast((sp ? plural(n, 'elemento asignado', 'elementos asignados') + ' a «' + sp.name + '».' : 'Se quitó la iteración de ' + plural(n, 'elemento', 'elementos') + '.')
+        + (locked ? ' ' + plural(locked, 'elemento sigue', 'elementos siguen') + ' en su iteración cerrada (no se cambia para conservar su burndown y su velocidad).' : ''), locked ? { timeout: 7000 } : undefined);
     };
     const bulkPriority = (v) => { if (!v) return; bulk((it) => (it.priority === v ? null : { ...it, priority: v }), (n) => 'Prioridad «' + v + '» asignada a ' + plural(n, 'elemento', 'elementos') + '.'); };
     const bulkDelete = async () => {
@@ -972,7 +1005,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const epicOpts = [{ value: NONE, label: 'Sin épica' }, ...epics.map((e) => ({ value: e.id, label: (e.code || '') + ' ' + (e.title || '') }))];
     const statusOpts = [{ value: BACKLOG, label: 'Backlog del producto' }, ...st.columns.map((c) => ({ value: c.id, label: c.name }))];
     const wbsOpts = [{ value: NONE, label: 'Sin entregable' }, ...[...lk.wbs].map(([id, w]) => ({ value: id, label: w.code + ' ' + w.name + (w.approach === 'adaptativo' ? ' · Ágil' : '') }))];
-    const sprintOpts = model.sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') }));
+    /* asignación en lote: solo iteraciones planeadas o en curso (una cerrada no recibe elementos) */
+    const sprintOpts = model.sprints.filter((s) => !isClosed(s)).map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + sprintStatus(s) }));
     /* filtros aplicados (también los que llegan desde la EDT o desde Releases e iteraciones), visibles y quitables uno a uno */
     const missing = model.loading ? '…' : 'No encontrado';
     const active = [];
@@ -1242,9 +1276,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const sprintId = L0.sprintF || '', relId = L0.relF || '';
     const sprint = sprintId ? L0.sprints.find((s) => s.id === sprintId) : null;
     const rel = relId ? L0.releases.find((r) => r.id === relId) : null;
+    /* una iteración cerrada no recibe elementos: con ella en el filtro solo se ofrecen los que ya tiene */
+    const canAdd = !!sprint && !isClosed(sprint);
     const [inc, setInc] = useState(false);
     const pool = useMemo(() => A.sortByRank(L0.items.filter((it) => A.countable(it) && A.category(st, it.status) === 'nuevo'
-      && (sprintId ? it.sprintId === sprintId || (inc && !it.sprintId && (!relId || it.releaseId === relId)) : !relId || it.releaseId === relId))), [inc]);
+      && (sprintId ? it.sprintId === sprintId || (canAdd && inc && !it.sprintId && (!relId || it.releaseId === relId)) : !relId || it.releaseId === relId))), [inc]);
     const [picked, setPicked] = useState(() => new Set());
     const sel = pool.filter((it) => picked.has(it.id));
     const unit = A.unitShort(st);
@@ -1263,7 +1299,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const sp = sprint ? L.sprints.find((s) => s.id === sprint.id) : null;
       const upd = sel.map((x) => L.items.find((y) => y.id === x.id)).filter(Boolean).map((it) => {
         let x = A.withStatus(L.settings, it, first.id, today);
-        if (sp && !it.sprintId) x = { ...x, sprintId: sp.id, sprintAddedDate: sp.status === 'en-curso' ? today : null, releaseId: x.releaseId || sp.releaseId || null };
+        if (sp && !isClosed(sp) && !it.sprintId) x = { ...x, sprintId: sp.id, sprintAddedDate: sp.status === 'en-curso' ? today : null, releaseId: x.releaseId || sp.releaseId || null };
         return x;
       });
       L.saveMany(upd);
@@ -1274,7 +1310,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const allOn = pool.length > 0 && sel.length === pool.length;
     const footer = html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="arrow-right" disabled=${!sel.length} onClick=${submit}>${'Pasar ' + (sel.length || '') + ' a «' + first.name + '»'}</${ui.Button}>`;
     return html`<${ui.Modal} title="Traer del backlog" subtitle=${scope + ', en orden de prioridad.'} onClose=${close} size="wide" footer=${footer}>
-      ${sprint ? html`<${ui.Check} checked=${inc} onValue=${(v) => { setInc(v); setPicked(new Set()); }} label=${'Incluir elementos sin iteración (se asignan a «' + (sprint.name || 'la iteración') + '»)'} />` : null}
+      ${canAdd ? html`<${ui.Check} checked=${inc} onValue=${(v) => { setInc(v); setPicked(new Set()); }} label=${'Incluir elementos sin iteración (se asignan a «' + (sprint.name || 'la iteración') + '»)'} />` : null}
       ${pool.length ? html`<div class="stack-sm">
         <${ui.Check} checked=${allOn} onValue=${(v) => setPicked(v ? new Set(pool.map((x) => x.id)) : new Set())} label=${'Seleccionar todos (' + pool.length + ')'} />
         <div class="agb-pick" role="group" aria-label="Elementos del backlog">${pool.map((it) => html`<label key=${it.id} class="agb-pick-item">
@@ -1282,7 +1318,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
           <span class="agb-pick-main"><span><span class="code-tag">${it.code}</span> ${it.title || 'Sin título'}</span>
             <span class="row xsmall muted" style="gap:6px"><${TypeChip} type=${it.type} /><span>${fmtEst(it.estimate, unit)}</span><span>${it.priority || ''}</span>${it.blocked ? html`<${ui.Chip} tone="crit" icon="lock">Bloqueado</${ui.Chip}>` : null}</span></span>
         </label>`)}</div>
-      </div>` : html`<${Note} icon="info">No hay elementos en el backlog del producto ${sprint ? 'asignados a esta iteración' : rel ? 'de este release' : ''}. ${sprint && !inc ? 'Marca «Incluir elementos sin iteración» o asígnalos desde el backlog.' : 'Agrégalos desde el backlog del producto.'}
+      </div>` : html`<${Note} icon="info">No hay elementos en el backlog del producto ${sprint ? 'asignados a esta iteración' : rel ? 'de este release' : ''}. ${canAdd && !inc ? 'Marca «Incluir elementos sin iteración» o asígnalos desde el backlog.' : sprint && !canAdd ? 'La iteración está cerrada y no recibe elementos nuevos: elige la iteración en curso en el filtro del tablero.' : 'Agrégalos desde el backlog del producto.'}
         <div style="margin-top:6px"><${ui.Button} size="sm" icon="backlog" onClick=${() => { close(); PM.navigate('backlog'); }}>Ir al backlog</${ui.Button}></div></${Note}>`}
     </${ui.Modal}>`;
   }
@@ -1372,27 +1408,37 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
     const colsInfo = useMemo(() => cols.map((c) => ({ id: c.id, name: c.name, category: c.category, wip: c.wip, full: !!(wipInfo.get(c.id) || {}).full })), [cols, wipInfo]);
     /* antigüedad en la columna: a hoy (es la posición actual de la tarjeta) */
     const days = useMemo(() => { const m = new Map(); for (const it of items) m.set(it.id, daysIn(it, today)); return m; }, [items, today]);
-    /* métricas de flujo del alcance filtrado (iteración y release) hasta la fecha de corte del proyecto */
+    /* métricas de flujo del equipo hasta la fecha de corte del proyecto, sobre todo el flujo o, si se filtra, sobre el
+       release (como «Métricas ágiles»). El filtro de iteración y el de responsable solo cambian qué tarjetas se ven: una
+       iteración dura menos que la ventana de 4 semanas del rendimiento y su promedio semanal no tendría sentido. */
+    const relObj = relV ? lk.rel.get(relV) : null;
+    const flowItems = useMemo(() => items.filter((it) => A.countable(it) && (!relV || it.releaseId === relV)), [items, relV]);
+    const pStart = project && D.valid(project.start) ? project.start : null;
     const flow = useMemo(() => {
-      const from = D.add(cut, -27);
+      /* ventana del rendimiento: 4 semanas hasta el corte, sin empezar antes del inicio del release filtrado ni del
+         proyecto (el promedio semanal se divide entre las semanas reales de la ventana) */
+      let from = D.add(cut, -27);
+      for (const d of [relObj && relObj.start, pStart]) if (D.valid(d) && d <= cut && d > from) from = d;
+      const days = D.diff(from, cut) + 1;
       const cyc = [], lead = [];
-      let thr = 0, thrEst = 0, blocked = 0;
-      for (const it of scope) {
+      let thr = 0, thrEst = 0, blocked = 0, late = 0;
+      for (const it of flowItems) {
         const cat = A.category(st, it.status);
         if (cat === 'terminado') {
-          if (!D.valid(it.doneDate) || it.doneDate > cut) continue;
+          if (!D.valid(it.doneDate)) continue;
+          if (it.doneDate > cut) { late++; continue; }
           /* misma regla que Métricas ágiles (PM.agile.flowTimes): días calendario contando el inicial y el final */
           const ft = A.flowTimes(it, st);
           if (ft) { cyc.push(ft.cycle); if (ft.lead !== null) lead.push(ft.lead); }
           if (it.doneDate >= from) { thr++; thrEst += A.estimate(it); }
         } else if (cat !== 'nuevo' && it.blocked) blocked++;
       }
-      return { cycle: mean(cyc), nCycle: cyc.length, lead: mean(lead), nLead: lead.length, thr, thrEst, blocked };
-    }, [scope, st, cut]);
+      return { cycle: mean(cyc), nCycle: cyc.length, lead: mean(lead), nLead: lead.length, thr, thrEst, blocked, late, from, days, weeks: Math.max(1, days / 7) };
+    }, [flowItems, st, cut, relObj, pStart]);
     const bringCount = useMemo(() => items.filter((it) => A.countable(it) && A.category(st, it.status) === 'nuevo' && (sprintF ? it.sprintId === sprintF : !relV || it.releaseId === relV)).length, [items, st, sprintF, relV]);
 
     const live = useRef(null);
-    live.current = { model, items, byId, settings: st, cols, sprints: model.sprints, releases: model.releases, save: opt.save, saveMany: opt.saveMany, remove: opt.remove, removeMany: opt.removeMany, canWrite, wipCounts, project, sprintF, relF: relV, unit };
+    live.current = { model, items, byId, settings: st, cols, sprints: model.sprints, releases: model.releases, save: opt.save, saveMany: opt.saveMany, remove: opt.remove, removeMany: opt.removeMany, canWrite, wipCounts, project, sprintF, relF: relV, unit, cut };
     const getLive = useCallback(() => live.current, []);
 
     const api = useMemo(() => {
@@ -1424,7 +1470,11 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
           const next = A.withStatus(L2.settings, fresh, colId, D.today());
           pending.current = { id, act, t: Date.now() };
           L2.save(next);
-          setSay((it.code || 'La tarjeta') + ' pasó a «' + col.name + '».' + (col.category === 'terminado' && next.doneDate ? ' Terminado el ' + fmt.date(next.doneDate) + '.' : ''));
+          const msg = (it.code || 'La tarjeta') + ' pasó a «' + col.name + '».' + (col.category === 'terminado' && next.doneDate ? ' Terminado el ' + fmt.date(next.doneDate) + '.' : '');
+          /* terminado después de la fecha de corte: los mosaicos y el burndown al corte no cambian; se explica */
+          const late = col.category === 'terminado' && !A.isDone(L2.settings, fresh) && afterCut(next.doneDate, L2.cut);
+          setSay(msg + (late ? ' ' + afterCutText(L2.cut) : ''));
+          if (late) PM.toast(msg + ' ' + afterCutText(L2.cut), { timeout: 9000 });
         },
         cardKey(e, id, ci) {
           const k = e.key;
@@ -1517,7 +1567,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       left = cut >= sp.end ? 0 : cal.countWork(from, sp.end);
     }
     const atCut = cut !== today ? ' · al corte del ' + fmt.date(cut) : '';
-    const sprintOpts = [{ value: '', label: 'Todo el flujo' }, ...model.sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + (SPRINT_STATUS[s.status] || 'Planeado') }))];
+    const sprintOpts = [{ value: '', label: 'Todo el flujo' }, ...model.sprints.map((s) => ({ value: s.id, label: (s.name || 'Iteración') + ' · ' + sprintStatus(s) }))];
     const hasCountable = items.some(A.countable);
     const boardEmpty = ![...board.byCol.values()].some((l) => l.length > 0);
     /* alguna columna con límite WIP tiene tarjetas que el filtro oculta: su conteo WIP las incluye (se avisa) */
@@ -1531,18 +1581,23 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <${ui.Field} label="Responsable" for="agk-f-who"><${ui.Select} id="agk-f-who" value=${whoF} placeholder="Todo el equipo" options=${[{ value: NONE, label: 'Sin responsable' }, ...people.map((p) => ({ value: p, label: p }))]} onValue=${setWhoF} /></${ui.Field}>
       </div>
       ${sp ? html`<div class="agk-sprint" data-agk-sprint=${sp.id}><${ui.Icon} name="sprint" size=${15} /><strong style="color:var(--fg)">${sp.name}</strong>
-        <span>${fmt.date(sp.start, 'dm')} – ${fmt.date(sp.end, 'dm')}</span><${ui.Chip} tone=${sp.status === 'en-curso' ? 'accent' : sp.status === 'cerrado' ? 'good' : 'outline'}>${SPRINT_STATUS[sp.status] || 'Planeado'}</${ui.Chip}>
+        <span>${fmt.date(sp.start, 'dm')} – ${fmt.date(sp.end, 'dm')}</span><${ui.Chip} tone=${sp.status === 'en-curso' ? 'accent' : sp.status === 'cerrado' ? 'good' : 'outline'}>${sprintStatus(sp)}</${ui.Chip}>
         ${left !== null ? html`<span>${left === 1 ? 'Queda 1 día hábil' : 'Quedan ' + fmt.num(left) + ' días hábiles'}</span>` : null}${sp.goal ? html`<span>Objetivo: ${sp.goal}</span>` : null}</div>`
         : html`<div class="agk-sprint"><${ui.Icon} name="kanban" size=${15} /><span>${relV ? 'Flujo del release «' + ((lk.rel.get(relV) || {}).name || '') + '»' : 'Todo el flujo: todas las tarjetas del tablero, de cualquier iteración.'}</span></div>`}
 
       <section class="card agb-tiles-card" aria-label="Métricas de flujo" data-agk-metrics="1">
+        <div class="agk-mscope xsmall muted" data-agk-scope="1">${relObj ? 'Métricas del release «' + (relObj.name || 'sin nombre') + '»' : 'Métricas de todo el flujo del equipo'}${sprintF || whoF ? ': el filtro de iteración y el de responsable solo eligen las tarjetas visibles, no cambian estas cifras.' : '.'}</div>
         <div class="agb-tiles">
           <${Tile} id="cycle" label="Tiempo de ciclo promedio" value=${flow.cycle === null ? '—' : fmt.days(flow.cycle)} sub=${(flow.nCycle ? 'Del inicio del trabajo a terminado, contando ambos días · ' + plural(flow.nCycle, 'elemento', 'elementos') : 'Aún no hay elementos terminados con historial') + atCut} />
           <${Tile} id="lead" label="Tiempo de entrega promedio" value=${flow.lead === null ? '—' : fmt.days(flow.lead)} sub=${(flow.nLead ? 'De la creación a terminado · ' + plural(flow.nLead, 'elemento', 'elementos') : 'Sin elementos terminados') + atCut} />
-          <${Tile} id="thr" label="Rendimiento (últimas 4 semanas)" value=${plural(flow.thr, 'elemento', 'elementos')} sub=${fmt.num(flow.thrEst, 1) + ' ' + unit + ' · ' + fmt.num(flow.thr / 4, 1) + ' por semana' + atCut} title=${'Terminados entre el ' + fmt.date(D.add(cut, -27)) + ' y el ' + fmt.date(cut) + (cut !== today ? ' (fecha de corte del proyecto)' : '')} />
+          <${Tile} id="thr" label=${flow.days >= 28 ? 'Rendimiento (últimas 4 semanas)' : 'Rendimiento (desde el ' + fmt.date(flow.from, 'dm') + ')'} value=${plural(flow.thr, 'elemento', 'elementos')}
+            sub=${fmt.num(flow.thrEst, 1) + ' ' + unit + ' · ' + fmt.num(flow.thr / flow.weeks, 1) + ' por semana' + atCut}
+            title=${'Terminados entre el ' + fmt.date(flow.from) + ' y el ' + fmt.date(cut) + (cut !== today ? ' (fecha de corte del proyecto)' : '') + '; promedio semanal sobre ' + (flow.days >= 28 ? '4 semanas' : fmt.num(flow.days) + ' días') + '.'} />
           <${Tile} id="blocked" label="Elementos bloqueados" value=${fmt.num(flow.blocked)} tone=${flow.blocked ? 'crit' : undefined} sub=${flow.blocked ? 'Resuélvelos antes de empezar trabajo nuevo' : 'Ningún bloqueo en el flujo'} />
         </div>
       </section>
+      ${flow.late ? html`<${Note} tone="warn" icon="calendar"><div class="stack-sm" data-agk-late="1"><span>${flow.late === 1 ? '1 elemento terminado después de la fecha de corte (' + fmt.date(cut) + ') no cuenta' : flow.late + ' elementos terminados después de la fecha de corte (' + fmt.date(cut) + ') no cuentan'} en estas métricas ni en el burndown, la velocidad y el tablero del proyecto, que se calculan al corte: «Terminado» registra la fecha de hoy. Actualiza la fecha de corte para incluirlos.</span>
+        ${canWrite ? html`<div><${ui.Button} size="sm" icon="calendar" onClick=${() => { const pid = model.pid || (project && project.id); if (pid) PM.projectOps.update(pid, { statusDate: today }).then(() => PM.toast('Fecha de corte: ' + fmt.date(today, 'long') + '.'), () => {}); }}>Usar hoy como fecha de corte</${ui.Button}></div>` : html`<span class="small">La fecha de corte se actualiza en la Ficha del proyecto.</span>`}</div></${Note}>` : null}
 
       ${!canWrite ? html`<${Note} icon="lock">Modo de solo lectura: puedes consultar el tablero, pero no mover tarjetas ni editar columnas.</${Note}>` : null}
       ${hiddenByFilter ? html`<${Note} icon="filter"><span data-agk-wipnote="1">El conteo y el límite WIP de cada columna incluyen todas sus tarjetas, también las que el filtro oculta (otras iteraciones, otros releases o el resto del equipo): el WIP es el trabajo en curso real del equipo.</span></${Note}>` : null}

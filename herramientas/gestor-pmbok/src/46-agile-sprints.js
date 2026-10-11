@@ -206,13 +206,46 @@ td.ags-actions { background: var(--surface); }
      primero (si dos releases apuntan a la misma actividad gana el último) y luego task.releaseId solo para releases sin
      actividad. Es la misma actividad a la que el núcleo aplica el avance del backlog. */
   const taskIdOfRelease = (m, releaseId) => { for (const [tid, r] of A.linksOf(arr(m.schedule && m.schedule.tasks), m.agileData || m.agile)) if (r.id === releaseId) return tid; return null; };
-  /* Variación frente a la línea base (PM.calc.releaseVariance) más un caso que el núcleo no cubre: si la línea base
-     tiene fecha de fin y el release ya no la tiene, la fecha cambió y requiere control de cambios (§9.6). */
-  function relVariance(release, items, settings) {
-    const v = C.releaseVariance({ release, items, settings });
-    if (v.hasBaseline && D.valid(release.baseline.end) && !D.valid(release.end)) return { ...v, endRemoved: true, needsChangeControl: true };
+  /* Texto de un campo que puede llegar con otro tipo en datos importados o editados a mano (número, null). */
+  const str = (v) => (v === null || v === undefined ? '' : String(v));
+  /* Iteraciones de la línea base del release: las planeadas o, si son menos, las ya creadas (así la línea base no queda
+     por debajo de lo que el equipo ya tiene en el calendario). */
+  const baselineSprints = (release, relSprints) => Math.max(Math.round(num(release && release.plannedSprints, 0)), arr(relSprints).length);
+  /* Iteraciones que se cruzan en el calendario (el equipo trabaja una iteración a la vez). */
+  const overlapsOf = (s, all) => (D.valid(s.start) && D.valid(s.end) ? arr(all).filter((o) => o.id !== s.id && D.valid(o.start) && D.valid(o.end) && o.start <= s.end && o.end >= s.start) : []);
+  /* Variación frente a la línea base (PM.calc.releaseVariance con las iteraciones: número frente a la línea base e
+     iteraciones que terminan después del fin) más un caso que el núcleo no cubre: si la línea base tiene fecha de fin y
+     el release ya no la tiene, la fecha cambió y requiere control de cambios (§9.6). */
+  function relVariance(release, items, settings, sprints) {
+    let v = C.releaseVariance({ release, items, settings, sprints });
+    if (!v.hasBaseline) return v;
+    if (v.sprintChange === undefined) {
+      /* núcleo anterior sin la comparación de iteraciones: la misma regla, aquí */
+      const rs = C.sprintsOfRelease(sprints, release.id);
+      const bs = Math.round(num(release.baseline.sprints, 0));
+      const endRef = D.valid(release.end) ? release.end : D.valid(release.baseline.end) ? release.baseline.end : null;
+      v = { ...v, sprintChange: bs > 0 ? rs.length - bs : 0, sprintsAfterEnd: endRef ? rs.filter((s) => D.valid(s.end) && s.end > endRef).map((s) => s.id) : [] };
+    }
+    /* Menos iteraciones creadas que las de la línea base no es un cambio: el equipo las crea a medida que planifica (o
+       el release termina antes). Sí lo son más iteraciones que la línea base y las que terminan después del fin. */
+    const thr = num(settings && settings.scopeChangeThreshold, 10) / 100;
+    const needs = Math.abs(v.scopePct) > thr + 1e-9 || v.dateChange !== 0 || Math.abs(v.budgetChange) > 0.5 || v.sprintChange > 0 || v.sprintsAfterEnd.length > 0;
+    v = { ...v, needsChangeControl: needs };
+    if (D.valid(release.baseline.end) && !D.valid(release.end)) return { ...v, endRemoved: true, needsChangeControl: true };
     return v;
   }
+  /* Base de la velocidad con que el núcleo pronostica un release (PM.calc.releaseForecast): la media de las últimas
+     iteraciones cerradas del release o, si el release no tiene ninguna, la del equipo en todo el proyecto. */
+  function velBasis(release, sprints, items, settings) {
+    const rv = C.velocity({ sprints: arr(sprints).filter((s) => s.releaseId === release.id), items, settings });
+    if (rv.closed) return { scope: 'release', n: Math.min(3, rv.closed), avg: rv.avg3 };
+    const pv = C.velocity({ sprints, items, settings });
+    return { scope: 'equipo', n: Math.min(3, pv.closed), avg: pv.avg3 };
+  }
+  /* «la última iteración cerrada» / «las últimas 3 iteraciones cerradas» */
+  const lastClosed = (n) => (n === 1 ? 'la última iteración cerrada' : 'las últimas ' + n + ' iteraciones cerradas');
+  const velName = (b) => (b.scope === 'release' ? 'velocidad media del release' : 'velocidad del equipo');
+  const velWhere = (b) => lastClosed(b.n) + (b.scope === 'release' ? ' del release' : ' del proyecto');
   /* Alcance y terminado del release a una fecha, con los mismos filtros del burnup del núcleo (releaseBurnup). */
   function burnupAt(release, items, settings, day) {
     let scope = 0, done = 0;
@@ -252,16 +285,29 @@ td.ags-actions { background: var(--surface); }
     return { perWeek, weeks, finish: cal.addWork(D.add(statusDate, Math.ceil(weeks * 7)), 0) };
   }
 
-  /* Fechas de la siguiente iteración: día hábil siguiente a la última iteración del release (o del proyecto). */
+  /* Fechas de la siguiente iteración: el equipo trabaja una iteración a la vez, así que empieza el día hábil siguiente a
+     la última iteración de TODO el proyecto (no solo del release: si el release siguiente ya tiene iteraciones, la nueva
+     queda después de ellas y no se cruza), y nunca antes del inicio del release. */
   function nextSprintDates(cal, settings, allSprints, relSprints, release, project, statusDate) {
     const lastEnd = (list) => D.max(...list.map((s) => s.end).filter(D.valid));
-    const base = relSprints.length ? lastEnd(relSprints) : lastEnd(allSprints);
+    const base = lastEnd(allSprints) || lastEnd(relSprints);
     let start = base ? D.add(base, 1) : null;
     const rs = release && D.valid(release.start) ? release.start : null;
     if (!start) start = rs || (project && D.valid(project.start) ? project.start : statusDate);
-    else if (!relSprints.length && rs && rs > start) start = rs;
+    else if (rs && rs > start) start = rs;
     start = cal.addWork(start, 0);
     return { start, end: cal.addWork(start, Math.max(1, settings.sprintLength) - 1) };
+  }
+  /* Riesgos de agregar iteraciones a un release: las que terminan después de su fin y el total frente a la línea base
+     (o a las planeadas, sin línea base). Cambiar el número de iteraciones de un release con línea base es nivel 2. */
+  function addRisks(release, existing, plans) {
+    if (!release) return { afterEnd: [], total: existing + plans.length, overBaseline: false, overPlanned: false, base: null };
+    const end = D.valid(release.end) ? release.end : null;
+    const afterEnd = end ? plans.filter((p) => D.valid(p.end) && p.end > end) : [];
+    const total = existing + plans.length;
+    const bl = A.hasBaseline(release) ? Math.round(num(release.baseline.sprints, 0)) : 0;
+    const planned = Math.round(num(release.plannedSprints, 0));
+    return { afterEnd, total, end, base: bl || null, overBaseline: bl > 0 && total > bl, overPlanned: !bl && planned > 0 && total > planned, planned };
   }
   const sprintNumber = (sprints) => { let max = 0; for (const s of sprints) { const mm = /(\d+)\s*$/.exec(String(s.name || '')); if (mm) max = Math.max(max, Number(mm[1])); } return Math.max(max, sprints.length) + 1; };
 
@@ -329,26 +375,42 @@ td.ags-actions { background: var(--surface); }
   ];
 
   /* Variación del release frente a su línea base, con textos listos para mostrar y para la solicitud de cambio. */
-  function varianceDetail(r, v, settings, unit, currency, cal) {
+  function varianceDetail(r, v, settings, unit, currency, cal, relSprints) {
     const thr = settings.scopeChangeThreshold;
     const b = r.baseline || {};
     const scopeOver = Math.abs(v.scopePct) > thr / 100 + 1e-9;
-    const wd = wdDiff(cal, b.end, r.end);
+    const rs = arr(relSprints);
+    /* días hábiles del cambio de fecha: hasta el fin del release o, si alguna iteración termina después, hasta esa */
+    const after = rs.filter((s) => (v.sprintsAfterEnd || []).includes(s.id));
+    const lastAfter = after.length ? D.max(...after.map((s) => s.end)) : null;
+    const effEnd = lastAfter && (!D.valid(r.end) || lastAfter > r.end) ? lastAfter : r.end;
+    const wd = wdDiff(cal, b.end, effEnd);
     const lines = [];
     lines.push({ id: 'scope', flag: scopeOver, text: 'Alcance: ' + fpts(v.total, unit) + ' frente a ' + fpts(v.baselinePoints, unit) + ' de la línea base (' + signedPct(v.scopePct) + (scopeOver ? '; supera el umbral de ±' + fmt.num(thr, 1) + ' %' : '; dentro del umbral de ±' + fmt.num(thr, 1) + ' %') + ').' });
+    const wdEnd = wdDiff(cal, b.end, r.end);
     lines.push(v.endRemoved ? { id: 'date', flag: true, text: 'Fecha de fin: se quitó (línea base: ' + fmt.date(b.end) + ').' }
-      : v.dateChange ? { id: 'date', flag: true, text: 'Fecha de fin: del ' + fmt.date(b.end) + ' al ' + fmt.date(r.end) + ' (' + sgn(v.dateChange) + daysText(v.dateChange) + ' calendario, ' + sgn(wd) + wdText(wd) + ').' }
+      : v.dateChange ? { id: 'date', flag: true, text: 'Fecha de fin: del ' + fmt.date(b.end) + ' al ' + fmt.date(r.end) + ' (' + sgn(v.dateChange) + daysText(v.dateChange) + ' calendario, ' + sgn(wdEnd) + wdText(wdEnd) + ').' }
       : { id: 'date', flag: false, text: 'Fecha de fin: sin cambio (' + fmt.date(b.end) + ').' });
     lines.push(Math.abs(v.budgetChange) > 0.5 ? { id: 'budget', flag: true, text: 'Presupuesto: de ' + fmt.money(b.budget, currency) + ' a ' + fmt.money(r.budget, currency) + ' (' + signedMoney(v.budgetChange, currency) + ').' } : { id: 'budget', flag: false, text: 'Presupuesto: sin cambio (' + fmt.money(b.budget, currency) + ').' });
-    return { lines, scopeOver, wd, thr };
+    const bs = Math.round(num(b.sprints, 0));
+    if (bs > 0) {
+      const n = bs + (v.sprintChange || 0);
+      lines.push(v.sprintChange ? { id: 'sprints', flag: true, text: 'Iteraciones: ' + fmt.num(n) + ' frente a ' + fmt.num(bs) + ' de la línea base (' + sgn(v.sprintChange) + fmt.num(Math.abs(v.sprintChange)) + ').' }
+        : { id: 'sprints', flag: false, text: 'Iteraciones: ' + fmt.num(bs) + ', igual que la línea base.' });
+    }
+    if (after.length) {
+      const endTxt = D.valid(r.end) ? ' (' + fmt.date(r.end) + ')' : '';
+      lines.push({ id: 'after-end', flag: true, text: (after.length === 1 ? 'Iteración que termina después del fin del release' : 'Iteraciones que terminan después del fin del release') + endTxt + ': ' + after.map((s) => spName(s) + ' (termina el ' + fmt.date(s.end) + ')').join(', ') + '.' });
+    }
+    return { lines, scopeOver, wd, thr, after, effEnd };
   }
 
   /* ---------------------------------------------------------------- campos con borrador (guardan al salir) */
   function DraftText({ id, value, onCommit, disabled, multiline, placeholder, label }) {
-    const [v, setV] = useState(value || '');
+    const [v, setV] = useState(str(value));
     const focused = useRef(false);
-    useEffect(() => { if (!focused.current) setV(value || ''); }, [value]);
-    const commit = () => { focused.current = false; if ((v || '') !== (value || '')) onCommit(v); };
+    useEffect(() => { if (!focused.current) setV(str(value)); }, [value]);
+    const commit = () => { focused.current = false; if (str(v) !== str(value)) onCommit(str(v)); };
     const common = { id, value: v, disabled, placeholder, 'aria-label': label, onFocus: () => { focused.current = true; }, onBlur: commit };
     return multiline
       ? html`<${ui.TextArea} ...${common} rows=${2} onValue=${setV} />`
@@ -393,8 +455,10 @@ td.ags-actions { background: var(--surface); }
   /* ==================================================================== DIÁLOGOS */
   function ReleaseEditor({ close, release, isNew, wbsGroups, taskOptions, currency, onSave }) {
     const [f, setF] = useState(() => ({
-      name: release.name || '', goal: release.goal || '', start: release.start || '', end: release.end || '', status: release.status || 'planeado',
-      budget: nOr(release.budget), plannedSprints: nOr(release.plannedSprints), wbsId: release.wbsId || '', taskId: release.currentTaskId || '', notes: release.notes || '',
+      /* los textos se inicializan como cadena: un nombre, un objetivo o unas notas numéricos (datos importados o editados a
+         mano) no deben impedir guardar */
+      name: str(release.name), goal: str(release.goal), start: D.valid(release.start) ? release.start : '', end: D.valid(release.end) ? release.end : '', status: release.status || 'planeado',
+      budget: nOr(release.budget), plannedSprints: nOr(release.plannedSprints), wbsId: str(release.wbsId), taskId: str(release.currentTaskId), notes: str(release.notes),
     }));
     const [err, setErr] = useState({});
     const set = (k) => (v) => setF((o) => ({ ...o, [k]: v }));
@@ -405,7 +469,7 @@ td.ags-actions { background: var(--surface); }
     const statusHint = bl ? 'Tiene línea base.' : keepCommitted ? 'Comprometido sin línea base: fíjala desde el release para controlar los cambios.' : 'Para comprometerlo, fija la línea base desde el release (pasa a «Comprometido»).';
     const submit = () => {
       const e = {};
-      if (!f.name.trim()) e.name = 'Escribe el nombre del release.';
+      if (!str(f.name).trim()) e.name = 'Escribe el nombre del release.';
       if (bl && !D.valid(f.end)) e.end = 'El release tiene línea base: la fecha de fin no se puede quitar. Si cambia, guarda la nueva fecha y registra la solicitud de cambio.';
       else if (f.start && f.end && f.end < f.start) e.end = 'La fecha de fin debe ser igual o posterior a la de inicio.';
       if (f.status === 'comprometido' && !bl && !keepCommitted) e.status = 'Fija la línea base del release para comprometerlo.';
@@ -413,7 +477,7 @@ td.ags-actions { background: var(--surface); }
       if (f.budget !== null && f.budget < 0) e.budget = 'El presupuesto no puede ser negativo.';
       setErr(e);
       if (Object.keys(e).length) return;
-      onSave({ ...f, name: f.name.trim(), goal: f.goal.trim(), notes: f.notes.trim(), start: D.valid(f.start) ? f.start : null, end: D.valid(f.end) ? f.end : null, wbsId: f.wbsId || null, taskId: f.taskId || null });
+      onSave({ ...f, name: str(f.name).trim(), goal: str(f.goal).trim(), notes: str(f.notes).trim(), start: D.valid(f.start) ? f.start : null, end: D.valid(f.end) ? f.end : null, wbsId: f.wbsId || null, taskId: f.taskId || null });
       close();
     };
     return html`<${ui.Modal} title=${isNew ? 'Nuevo release' : 'Editar release'} subtitle=${isNew ? 'Un release agrupa los elementos del backlog que se entregan juntos.' : relName(release)} size="wide" onClose=${close}
@@ -442,23 +506,28 @@ td.ags-actions { background: var(--surface); }
     </${ui.Modal}>`;
   }
 
-  function SprintEditor({ close, sprint, releaseOptions, onSave }) {
-    const [f, setF] = useState(() => ({ name: sprint.name || '', releaseId: sprint.releaseId || '', goal: sprint.goal || '', start: sprint.start || '', end: sprint.end || '', capacity: nOr(sprint.capacity), notes: sprint.notes || '' }));
+  function SprintEditor({ close, sprint, releaseOptions, releases, sprints, onSave }) {
+    const [f, setF] = useState(() => ({ name: str(sprint.name), releaseId: str(sprint.releaseId), goal: str(sprint.goal), start: D.valid(sprint.start) ? sprint.start : '', end: D.valid(sprint.end) ? sprint.end : '', capacity: nOr(sprint.capacity), notes: str(sprint.notes) }));
     const [err, setErr] = useState({});
     const set = (k) => (v) => setF((o) => ({ ...o, [k]: v }));
     const submit = () => {
       const e = {};
-      if (!f.name.trim()) e.name = 'Escribe el nombre de la iteración.';
+      if (!str(f.name).trim()) e.name = 'Escribe el nombre de la iteración.';
       if (!D.valid(f.start)) e.start = 'Indica la fecha de inicio.';
       if (!D.valid(f.end)) e.end = 'Indica la fecha de fin.';
       else if (D.valid(f.start) && f.end < f.start) e.end = 'La fecha de fin debe ser igual o posterior a la de inicio.';
       if (f.capacity !== null && f.capacity < 0) e.capacity = 'La capacidad no puede ser negativa.';
       setErr(e);
       if (Object.keys(e).length) return;
-      onSave({ ...f, name: f.name.trim(), goal: f.goal.trim(), notes: f.notes.trim(), releaseId: f.releaseId || null });
+      onSave({ ...f, name: str(f.name).trim(), goal: str(f.goal).trim(), notes: str(f.notes).trim(), releaseId: f.releaseId || null });
       close();
     };
     const st = SPR_STATUS[sprint.status] || SPR_STATUS.planeado;
+    /* avisos (no impiden guardar): la iteración se cruza con otra o termina después del fin de su release */
+    const rel = f.releaseId ? arr(releases).find((r) => r.id === f.releaseId) : null;
+    const valid = D.valid(f.start) && D.valid(f.end) && f.end >= f.start;
+    const cross = valid ? overlapsOf({ id: sprint.id, start: f.start, end: f.end }, sprints) : [];
+    const late = valid && rel && D.valid(rel.end) && f.end > rel.end;
     return html`<${ui.Modal} title="Editar iteración" subtitle=${spName(sprint) + ' · ' + st[0]} size="wide" onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="save" onClick=${submit}>Guardar iteración</${ui.Button}>`}>
       <form class="ags-form" data-role="sprint-form" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
@@ -467,8 +536,12 @@ td.ags-actions { background: var(--surface); }
         <${ui.Field} label="Inicio" for="ags-sp-start" required error=${err.start}><${ui.DateInput} id="ags-sp-start" value=${f.start} onValue=${(v) => set('start')(v || '')} /></${ui.Field}>
         <${ui.Field} label="Fin" for="ags-sp-end" required error=${err.end}><${ui.DateInput} id="ags-sp-end" value=${f.end} onValue=${(v) => set('end')(v || '')} /></${ui.Field}>
         <${ui.Field} label="Capacidad" for="ags-sp-cap" error=${err.capacity} hint="Unidades de estimación que el equipo puede terminar."><${ui.NumberInput} id="ags-sp-cap" value=${f.capacity} min=${0} onValue=${set('capacity')} /></${ui.Field}>
-        <${ui.Field} class="span-all" label="Objetivo de la iteración" for="ags-sp-goal"><${ui.TextArea} id="ags-sp-goal" value=${f.goal} onValue=${set('goal')} rows=${2} /></${ui.Field}>
+        <${ui.Field} class="span-all" label="Objetivo de la iteración" for="ags-sp-goal" hint="Compromiso del equipo para la iteración."><${ui.TextArea} id="ags-sp-goal" value=${f.goal} onValue=${set('goal')} rows=${2} /></${ui.Field}>
         <${ui.Field} class="span-all" label="Notas" for="ags-sp-notes"><${ui.TextArea} id="ags-sp-notes" value=${f.notes} onValue=${set('notes')} rows=${2} /></${ui.Field}>
+        ${cross.length || late ? html`<div class="span-all stack-sm" data-role="sprint-warnings" aria-live="polite">
+          ${cross.length ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />Se cruza con ${cross.map((o) => spName(o) + ' (' + fmt.date(o.start, 'dm') + ' – ' + fmt.date(o.end) + ')').join(', ')}: el equipo trabaja una iteración a la vez.</span>` : null}
+          ${late ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />Termina después del fin del release (${fmt.date(rel.end)}).${A.hasBaseline(rel) ? ' El release tiene línea base: requiere una solicitud de cambio (nivel 2).' : ''}</span>` : null}
+        </div>` : null}
         <button type="submit" hidden></button>
       </form>
     </${ui.Modal}>`;
@@ -478,16 +551,75 @@ td.ags-actions { background: var(--surface); }
     const [count, setCount] = useState(() => Math.max(1, planned - existing));
     const n = Math.max(0, Math.min(52, Math.round(num(count, 0))));
     const preview = useMemo(() => plan(n), [n]);
+    const risk = addRisks(release, existing, preview);
+    const lateSet = new Set(risk.afterEnd.map((p) => p.name));
     return html`<${ui.Modal} title="Generar iteraciones" subtitle=${relName(release)} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="sprint" disabled=${!n} onClick=${() => { onConfirm(preview); close(); }}>${n === 1 ? 'Generar 1 iteración' : 'Generar ' + n + ' iteraciones'}</${ui.Button}>`}>
-      <p class="small muted">El release tiene ${existing} de ${planned || 0} iteraciones planeadas. Cada iteración empieza el día hábil siguiente al fin de la anterior y dura lo configurado en la capa ágil, según el calendario del proyecto.</p>
+      <p class="small muted">El release tiene ${existing} de ${planned || 0} iteraciones planeadas. Cada iteración empieza el día hábil siguiente a la última iteración del proyecto (el equipo trabaja una a la vez) y dura lo configurado en la capa ágil, según el calendario del proyecto.</p>
       <${ui.Field} label="Número de iteraciones" for="ags-gen-n"><${ui.NumberInput} id="ags-gen-n" value=${count} min=${0} max=${52} onValue=${setCount} /></${ui.Field}>
       ${preview.length ? html`<div class="table-wrap ags-data"><table class="table table-tight"><caption class="sr-only">Iteraciones que se crearán</caption><thead><tr><th>Iteración</th><th>Inicio</th><th>Fin</th></tr></thead>
-        <tbody>${preview.map((p) => html`<tr key=${p.name}><td>${p.name}</td><td class="mono nowrap">${fmt.date(p.start)}</td><td class="mono nowrap">${fmt.date(p.end)}</td></tr>`)}</tbody></table></div>` : null}
+        <tbody>${preview.map((p) => html`<tr key=${p.name} data-late=${lateSet.has(p.name) ? 'true' : 'false'}><td>${p.name}${lateSet.has(p.name) ? html`<div class="ags-flag"><${ui.Icon} name="alert" size=${13} />Después del fin del release</div>` : null}</td><td class="mono nowrap">${fmt.date(p.start)}</td><td class="mono nowrap">${fmt.date(p.end)}</td></tr>`)}</tbody></table></div>` : null}
+      <${AddRiskNote} risk=${risk} release=${release} />
+    </${ui.Modal}>`;
+  }
+  /* Aviso al agregar iteraciones que alargan el release o superan su línea base (control de cambios de nivel 2). */
+  function AddRiskNote({ risk, release }) {
+    if (!risk.afterEnd.length && !risk.overBaseline && !risk.overPlanned) return null;
+    const bl = A.hasBaseline(release);
+    const lines = [];
+    if (risk.afterEnd.length) lines.push((risk.afterEnd.length === 1 ? spName(risk.afterEnd[0]) + ' termina' : fmt.num(risk.afterEnd.length) + ' iteraciones terminan') + ' después del fin del release (' + fmt.date(risk.end) + ').');
+    if (risk.overBaseline) lines.push('El release pasaría a ' + fmt.num(risk.total) + ' iteraciones frente a ' + fmt.num(risk.base) + ' de su línea base.');
+    else if (risk.overPlanned) lines.push('El release pasaría a ' + fmt.num(risk.total) + ' iteraciones frente a ' + fmt.num(risk.planned) + ' planeadas.');
+    return html`<${Callout} tone="warn" role="add-risk" title=${bl ? 'Requiere control de cambios (nivel 2)' : 'El release se alarga'}>
+      <ul>${lines.map((l) => html`<li key=${l}>${l}</li>`)}</ul>
+      <span>${bl ? 'El release tiene línea base: después de crearlas, registra la solicitud de cambio (4.6 Realizar el control integrado de cambios) y, aprobada, actualiza la línea base del release.' : 'Ajusta la fecha de fin o las iteraciones planeadas del release para que el plan las incluya.'}</span>
+    </${Callout}>`;
+  }
+
+  /* Inicio de la iteración: el objetivo es el compromiso del equipo (Guía de Scrum 2020) y el total de los elementos
+     seleccionados es el pronóstico que queda fijo para la velocidad y el burndown. Si hoy está fuera de las fechas
+     planeadas, ofrece moverlas desde hoy conservando la duración en días hábiles. */
+  function StartSprintDialog({ close, sprint, unit, total, count, unest, firstColumn, requireGoal, cal, todayIso, sprints, onConfirm }) {
+    const [goal, setGoal] = useState(() => str(sprint.goal));
+    const [dates, setDates] = useState('keep');
+    const [err, setErr] = useState(null);
+    const valid = D.valid(sprint.start) && D.valid(sprint.end) && sprint.end >= sprint.start;
+    const outside = valid ? (todayIso < sprint.start ? 'before' : todayIso > sprint.end ? 'after' : null) : null;
+    const moved = useMemo(() => {
+      if (!outside || !cal) return null;
+      const dur = Math.max(1, cal.countWork(sprint.start, sprint.end) || 1);
+      const start = cal.addWork(todayIso, 0);
+      return { start, end: cal.addWork(start, dur - 1), dur };
+    }, [outside, cal, sprint.start, sprint.end, todayIso]);
+    const cross = moved ? overlapsOf({ id: sprint.id, start: moved.start, end: moved.end }, sprints) : [];
+    const hasGoal = !!goal.trim();
+    const submit = () => {
+      if (requireGoal && !hasGoal) { setErr('Escribe el objetivo de la iteración: es el compromiso del equipo para esta iteración. Los elementos seleccionados son el pronóstico para lograrlo.'); return; }
+      onConfirm({ goal: goal.trim(), dates: dates === 'adjust' && moved ? { start: moved.start, end: moved.end } : null });
+      close();
+    };
+    const capTxt = PM.isNum(sprint.capacity) ? ' (capacidad ' + fpts(Number(sprint.capacity), unit) + ')' : '';
+    return html`<${ui.Modal} title=${'Iniciar ' + spName(sprint)} onClose=${close}
+      footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="primary" icon="sprint" data-role="start-confirm" onClick=${submit} autoFocus=${!!str(sprint.goal).trim()}>Iniciar iteración</${ui.Button}>`}>
+      <div class="stack-sm small" data-role="start-dialog">
+        <${ui.Field} label="Objetivo de la iteración" for="ags-start-goal" required=${requireGoal} error=${err} hint="Es el compromiso del equipo: qué valor entrega al terminar la iteración.">
+          <${ui.TextArea} id="ags-start-goal" value=${goal} onValue=${(v) => { setGoal(v); setErr(null); }} rows=${2} autoFocus=${!str(sprint.goal).trim()} placeholder="Qué valor entrega el equipo al terminar la iteración" />
+        </${ui.Field}>
+        ${!requireGoal && !hasGoal ? html`<p class="ags-flag" data-role="start-no-goal"><${ui.Icon} name="alert" size=${14} />Sin objetivo: la iteración no tendrá un compromiso con el que evaluar la revisión.</p>` : null}
+        <p data-role="start-forecast">Pronóstico: <strong>${fpts(total, unit)}</strong> en ${count} ${count === 1 ? 'elemento' : 'elementos'}${capTxt}. Al iniciar, este total queda fijo como lo comprometido para la velocidad y el burndown; los elementos pueden ajustarse con el dueño del producto sin cambiar el objetivo.</p>
+        ${unest ? html`<p class="ags-flag"><${ui.Icon} name="alert" size=${14} />${unest === 1 ? '1 elemento no está estimado y cuenta como 0.' : unest + ' elementos no están estimados y cuentan como 0.'}</p>` : null}
+        <p>Los elementos que están en el backlog del producto pasan a «${firstColumn}» del tablero.</p>
+        ${outside && moved ? html`<fieldset class="ags-radio-group" data-role="start-dates">
+          <legend>${outside === 'before' ? 'Hoy (' + fmt.date(todayIso) + ') es anterior al inicio planeado (' + fmt.date(sprint.start) + ')' : 'Hoy (' + fmt.date(todayIso) + ') es posterior al fin planeado (' + fmt.date(sprint.end) + ')'}</legend>
+          <label class="ags-radio"><input type="radio" name="ags-start-dates" value="keep" checked=${dates === 'keep'} onChange=${() => setDates('keep')} /><span><strong>Conservar las fechas planeadas</strong><br /><span class="xsmall muted">${fmt.date(sprint.start)} – ${fmt.date(sprint.end)}. El burndown y los días restantes siguen esas fechas.</span></span></label>
+          <label class="ags-radio"><input type="radio" name="ags-start-dates" value="adjust" checked=${dates === 'adjust'} onChange=${() => setDates('adjust')} /><span><strong>Ajustar las fechas desde hoy</strong><br /><span class="xsmall muted">${fmt.date(moved.start)} – ${fmt.date(moved.end)} (${wdText(moved.dur)}, la misma duración).</span></span></label>
+          ${dates === 'adjust' && cross.length ? html`<span class="ags-flag"><${ui.Icon} name="alert" size=${14} />Las fechas nuevas se cruzan con ${cross.map((o) => spName(o)).join(', ')}: ajústala${cross.length === 1 ? '' : 's'} después en «Editar».</span>` : null}
+        </fieldset>` : null}
+      </div>
     </${ui.Modal}>`;
   }
 
-  function CloseSprintDialog({ close, sprint, unit, done, committed, pending, nextName, nextExists, onConfirm }) {
+  function CloseSprintDialog({ close, sprint, unit, done, committed, pending, nextName, nextExists, nextLate, onConfirm }) {
     const [choice, setChoice] = useState('backlog');
     const pendingPts = sumEst(pending);
     return html`<${ui.Modal} title=${'Cerrar ' + spName(sprint)} onClose=${close}
@@ -496,17 +628,18 @@ td.ags-actions { background: var(--surface); }
       ${pending.length ? html`<fieldset class="ags-radio-group" data-role="close-choice">
         <legend>${pending.length === 1 ? 'Qué hacer con el elemento no terminado' : 'Qué hacer con los ' + pending.length + ' elementos no terminados'} (${fpts(pendingPts, unit)})</legend>
         <label class="ags-radio"><input type="radio" name="ags-close" value="backlog" checked=${choice === 'backlog'} onChange=${() => setChoice('backlog')} /><span><strong>Devolverlos al backlog del producto</strong><br /><span class="xsmall muted">Quedan sin iteración y con estado «Backlog del producto» para volver a priorizarlos.</span></span></label>
-        <label class="ags-radio"><input type="radio" name="ags-close" value="next" checked=${choice === 'next'} onChange=${() => setChoice('next')} /><span><strong>Pasarlos a ${nextExists ? '«' + nextName + '»' : 'una nueva iteración («' + nextName + '»)'}</strong><br /><span class="xsmall muted">${nextExists ? 'Conservan su estado en el tablero.' : 'Se crea la iteración siguiente con la duración configurada.'}</span></span></label>
+        <label class="ags-radio"><input type="radio" name="ags-close" value="next" checked=${choice === 'next'} onChange=${() => setChoice('next')} /><span><strong>Pasarlos a ${nextExists ? '«' + nextName + '»' : 'una nueva iteración («' + nextName + '»)'}</strong><br /><span class="xsmall muted">${nextExists ? 'Conservan su estado en el tablero.' : 'Se crea la iteración siguiente con la duración configurada, después de la última iteración del proyecto.'}</span>${!nextExists && nextLate ? html`<span class="ags-flag" data-role="close-next-late"><${ui.Icon} name="alert" size=${13} />${nextLate}</span>` : null}</span></label>
       </fieldset>
       <ul class="small" style="margin:0;padding-left:18px">${pending.slice(0, 8).map((it) => html`<li key=${it.id}><span class="code-tag">${it.code}</span> ${it.title || 'Sin título'}</li>`)}${pending.length > 8 ? html`<li class="faint">y ${pending.length - 8} más</li>` : null}</ul>` : html`<p class="small muted">Todos los elementos de la iteración están terminados.</p>`}
     </${ui.Modal}>`;
   }
 
-  function DeleteReleaseDialog({ close, release, sprintCount, itemCount, onConfirm }) {
+  function DeleteReleaseDialog({ close, release, sprintCount, itemCount, keepTask, onConfirm }) {
     const [choice, setChoice] = useState('keep');
     return html`<${ui.Modal} title=${'Eliminar «' + relName(release) + '»'} onClose=${close}
       footer=${html`<${ui.Button} onClick=${close}>Cancelar</${ui.Button}><${ui.Button} variant="danger-solid" icon="trash" onClick=${() => { onConfirm(choice); close(); }}>Eliminar release</${ui.Button}>`}>
       <p class="small">${itemCount ? itemCount + (itemCount === 1 ? ' elemento del backlog queda' : ' elementos del backlog quedan') + ' sin release (no se eliminan). ' : ''}Se quita también el vínculo con la actividad del cronograma y con los costos reales imputados al release.</p>
+      ${keepTask ? html`<p class="small" data-role="delete-keep-progress">La actividad «${keepTask.name}» conserva el avance calculado desde el backlog (${fmt.pct100(keepTask.progress, 1)}${keepTask.actualStart ? ', inicio real ' + fmt.date(keepTask.actualStart) : ''}${keepTask.actualFinish ? ', fin real ' + fmt.date(keepTask.actualFinish) : ''}) como su avance registrado: el valor ganado del proyecto no cambia y, desde ahora, el avance se actualiza en el cronograma.</p>` : null}
       ${sprintCount ? html`<fieldset class="ags-radio-group" data-role="delete-choice">
         <legend>${sprintCount === 1 ? 'La iteración del release' : 'Las ' + sprintCount + ' iteraciones del release'}</legend>
         <label class="ags-radio"><input type="radio" name="ags-del" value="keep" checked=${choice === 'keep'} onChange=${() => setChoice('keep')} /><span><strong>Conservarlas sin release</strong><br /><span class="xsmall muted">Mantienen sus elementos, su velocidad y sus documentos.</span></span></label>
@@ -552,6 +685,31 @@ td.ags-actions { background: var(--surface); }
       return { adaptive, other };
     };
     const currentTaskOf = (r) => taskIdOfRelease(S().m, r.id) || '';
+    /* Avance que el núcleo calcula hoy desde el backlog para la actividad del release (m.effSchedule, agileDerived): al
+       romper el vínculo se guarda como avance registrado (igual que el editor de actividades de 40-schedule), así el EV,
+       el SPI y la curva S del proyecto no caen. */
+    const derivedOf = (m, taskId, relId) => {
+      const t = taskId ? arr(m.effSchedule && m.effSchedule.tasks).find((x) => x.id === taskId) : null;
+      if (!t || !t.agileDerived || (relId && t.releaseId !== relId)) return null;
+      return { progress: num(t.progress, 0), actualStart: D.valid(t.actualStart) ? t.actualStart : null, actualFinish: num(t.progress, 0) >= 100 && D.valid(t.actualFinish) ? t.actualFinish : null };
+    };
+    /* Quita el vínculo de las actividades con el release: la que lo representaba conserva su avance derivado y ninguna
+       queda con task.releaseId del release. Una sola escritura del cronograma. */
+    const unlinkTasks = (m, relId, taskId) => {
+      const keep = derivedOf(m, taskId, relId);
+      const tasks = arr(m.schedule.tasks);
+      if (!keep && !tasks.some((t) => t.releaseId === relId)) return null;
+      const next = PM.clone(m.schedule);
+      next.tasks = next.tasks.map((t) => {
+        if (!t || typeof t !== 'object') return t;
+        let x = t;
+        if (keep && t.id === taskId) x = { ...x, progress: keep.progress, actualStart: keep.actualStart || t.actualStart || null, actualFinish: keep.actualFinish };
+        if (t.releaseId === relId) x = { ...x, releaseId: null };
+        return x;
+      });
+      m.saveSchedule(next);
+      return keep;
+    };
     const taskOptions = (r) => {
       const { m } = S();
       /* actividades que ya representan otro release (regla del núcleo: un release por actividad) */
@@ -575,11 +733,19 @@ td.ags-actions { background: var(--surface); }
         if (isNew) d.releases.push({ id, ...patch });
         else { const x = d.releases.find((y) => y.id === id); if (x) Object.assign(x, patch); }
       });
-      /* la actividad que deja de representar el release pierde su vínculo (task.releaseId) */
+      /* la actividad que deja de representar el release pierde su vínculo (task.releaseId) y conserva el avance que se
+         calculaba desde el backlog */
       if (prevTask && prevTask !== f.taskId) {
         const tasks = arr(m.schedule.tasks);
-        if (tasks.some((t) => t.id === prevTask && t.releaseId === id)) {
-          const next = PM.clone(m.schedule); next.tasks = next.tasks.map((t) => (t && t.id === prevTask ? { ...t, releaseId: null } : t)); m.saveSchedule(next);
+        const keep = derivedOf(m, prevTask, id);
+        if (keep || tasks.some((t) => t.id === prevTask && t.releaseId === id)) {
+          const next = PM.clone(m.schedule);
+          next.tasks = next.tasks.map((t) => (t && t.id === prevTask ? { ...t, ...(t.releaseId === id ? { releaseId: null } : null), ...(keep ? { progress: keep.progress, actualStart: keep.actualStart || t.actualStart || null, actualFinish: keep.actualFinish } : null) } : t));
+          m.saveSchedule(next);
+        }
+        if (keep) {
+          const t = tasks.find((x) => x.id === prevTask);
+          PM.toast('«' + ((t && t.name) || 'La actividad') + '» deja de calcularse desde el backlog y conserva su avance de ' + fmt.pct100(keep.progress, 1) + '.');
         }
       }
       S().select(id, null);
@@ -593,7 +759,11 @@ td.ags-actions { background: var(--surface); }
         const { m } = S();
         const rs = sprintsOfRel(r.id);
         const itemCount = m.items.filter((it) => it.releaseId === r.id).length;
-        PM.openModal((close) => html`<${DeleteReleaseDialog} close=${close} release=${r} sprintCount=${rs.length} itemCount=${itemCount} onConfirm=${async (choice) => {
+        const tid = taskIdOfRelease(m, r.id);
+        const keep0 = derivedOf(m, tid, r.id);
+        const tk = keep0 ? arr(m.schedule.tasks).find((t) => t.id === tid) : null;
+        const keepTask = keep0 ? { ...keep0, name: (tk && tk.name) || 'Actividad sin nombre' } : null;
+        PM.openModal((close) => html`<${DeleteReleaseDialog} close=${close} release=${r} sprintCount=${rs.length} itemCount=${itemCount} keepTask=${keepTask} onConfirm=${async (choice) => {
           const cur = S().m;
           const dropSprints = new Set(choice === 'delete' ? rs.map((s) => s.id) : []);
           const changed = cur.items.filter((it) => it.releaseId === r.id || (it.sprintId && dropSprints.has(it.sprintId))).map((it) => ({ ...it, releaseId: it.releaseId === r.id ? null : it.releaseId, sprintId: it.sprintId && dropSprints.has(it.sprintId) ? null : it.sprintId || null, sprintAddedDate: it.sprintId && dropSprints.has(it.sprintId) ? null : it.sprintAddedDate || null }));
@@ -601,9 +771,11 @@ td.ags-actions { background: var(--surface); }
             d.releases = d.releases.filter((x) => x.id !== r.id);
             d.sprints = choice === 'delete' ? d.sprints.filter((s) => s.releaseId !== r.id) : d.sprints.map((s) => (s.releaseId === r.id ? { ...s, releaseId: null } : s));
           });
-          if (arr(cur.schedule.tasks).some((t) => t.releaseId === r.id)) { const next = PM.clone(cur.schedule); next.tasks = next.tasks.map((t) => (t && t.releaseId === r.id ? { ...t, releaseId: null } : t)); cur.saveSchedule(next); }
+          /* la actividad del release conserva el avance calculado desde el backlog (con lo leído antes del cambio) */
+          unlinkTasks(cur, r.id, taskIdOfRelease(cur, r.id));
           if (arr(cur.costs.actuals).some((a) => a.releaseId === r.id)) { const next = PM.clone(cur.costs); next.actuals = next.actuals.map((a) => (a && a.releaseId === r.id ? { ...a, releaseId: null } : a)); cur.saveCosts(next); }
           S().select(null, null);
+          S().requestFocus({ test: (mm) => !mm.releases.some((x) => x.id === r.id), targets: ['[data-role="release-detail"] h2', '.ags-side-head h2', '.page-head h1'] });
           await saveItems(changed);
           PM.toast('Release «' + relName(r) + '» eliminado.');
         }} />`);
@@ -612,16 +784,19 @@ td.ags-actions { background: var(--surface); }
         if (!guard()) return;
         const { m, relInfo } = S();
         const info = relInfo.get(r.id); if (!info) return;
+        const late0 = D.valid(r.end) ? info.sprints.filter((s) => D.valid(s.end) && s.end > r.end) : [];
         const ok = await PM.confirm({ title: 'Fijar línea base de «' + relName(r) + '»', confirmText: 'Fijar línea base', body: html`<div class="stack-sm small">
           <p>La línea base compromete el release con el dueño del producto y los interesados:</p>
-          <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)} (${info.prog.count} elementos)</li><li>Fin: ${fmt.date(r.end)}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones planeadas: ${fmt.num(r.plannedSprints || 0)}</li></ul>
-          <p>Después, los cambios de alcance de más de ±${fmt.num(m.settings.scopeChangeThreshold, 1)} % o cualquier cambio de fecha o presupuesto requieren una solicitud de cambio (4.6).</p></div>` });
+          <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)} (${info.prog.count} elementos)</li><li>Fin: ${fmt.date(r.end)}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones: ${fmt.num(baselineSprints(r, info.sprints))}</li></ul>
+          ${late0.length ? html`<p class="ags-flag" data-role="baseline-late"><${ui.Icon} name="alert" size=${14} />${late0.map((s) => spName(s)).join(', ')} ${late0.length === 1 ? 'termina' : 'terminan'} después del fin del release: ajusta la fecha de fin o las iteraciones antes de fijar la línea base.</p>` : null}
+          <p>Después, los cambios de alcance de más de ±${fmt.num(m.settings.scopeChangeThreshold, 1)} % o cualquier cambio de fecha, presupuesto o número de iteraciones requieren una solicitud de cambio (4.6).</p></div>` });
         if (!ok) return;
         const cur = S();
         const prog = cur.relInfo.get(r.id).prog;
+        const nSpr = baselineSprints(relOf(r.id) || r, cur.relInfo.get(r.id).sprints);
         commitAgile((d) => {
           const x = d.releases.find((y) => y.id === r.id); if (!x) return;
-          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: num(x.plannedSprints, 0), changeRef: null };
+          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: null };
           x.pendingChange = null;
           if (x.status !== 'en-curso' && x.status !== 'cerrado') x.status = 'comprometido';
         });
@@ -635,7 +810,7 @@ td.ags-actions { background: var(--surface); }
         const crInsts = s0.docsIdx.byTemplate['solicitud-cambio'] || [];
         const code = nextCode([...s0.changeRows.map((x) => x.id), ...crInsts.map((d) => d.fields && d.fields.codigoCambio)], 'CC');
         const info0 = s0.relInfo.get(r.id);
-        const det0 = varianceDetail(r, info0.v, s0.m.settings, s0.m.unit, s0.m.currency, s0.cal);
+        const det0 = varianceDetail(r, info0.v, s0.m.settings, s0.m.unit, s0.m.currency, s0.cal, info0.sprints);
         const ok = await PM.confirm({ title: 'Registrar solicitud de cambio ' + code, confirmText: 'Registrar solicitud', body: html`<div class="stack-sm small">
           <p>Se crea la solicitud de cambio ${code} prellenada con el impacto del release «${relName(r)}» y se agrega al registro de cambios con estado «Registrada»:</p>
           <ul style="margin:0;padding-left:18px">${det0.lines.filter((l) => l.flag).map((l) => html`<li key=${l.id}>${l.text}</li>`)}</ul>
@@ -644,7 +819,7 @@ td.ags-actions { background: var(--surface); }
         const { m, project, docsIdx, cal } = S();
         const rel = relOf(r.id) || r;
         const info = S().relInfo.get(r.id);
-        const v = info.v, det = varianceDetail(rel, v, m.settings, m.unit, m.currency, cal);
+        const v = info.v, det = varianceDetail(rel, v, m.settings, m.unit, m.currency, cal, info.sprints);
         const b = rel.baseline || {};
         const added = (S().idx.byRelease.get(rel.id) || []).filter((it) => D.valid(it.createdAt) && D.valid(b.date) && it.createdAt > b.date);
         const addedText = added.length ? ' Elementos agregados después de la línea base: ' + added.slice(0, 12).map((it) => it.code + ' ' + (it.title || '') + ' (' + fpts(A.estimate(it), m.unit) + ')').join('; ') + (added.length > 12 ? '; y ' + (added.length - 12) + ' más' : '') + '.' : '';
@@ -660,11 +835,14 @@ td.ags-actions { background: var(--surface); }
         const values = {
           codigoCambio: code, fechaSolicitud: date, solicitante: 'Dueño del producto', tipoCambio: 'Actualización',
           descripcionCambio: 'Actualizar la línea base del release «' + relName(rel) + '». ' + changed.map((l) => l.text).join(' '),
-          justificacion: 'El release está comprometido con una línea base y el cambio supera el primer nivel de control (ajustes del backlog dentro de ±' + fmt.num(det.thr, 1) + ' % del alcance, sin cambiar fecha ni presupuesto). Según el control de cambios en dos niveles, requiere la decisión del comité de control de cambios (4.6 Realizar el control integrado de cambios).',
+          justificacion: 'El release está comprometido con una línea base y el cambio supera el primer nivel de control (ajustes del backlog dentro de ±' + fmt.num(det.thr, 1) + ' % del alcance, sin cambiar fecha, presupuesto ni número de iteraciones). Según el control de cambios en dos niveles, requiere la decisión del comité de control de cambios (4.6 Realizar el control integrado de cambios).',
           impactoAlcance: scopeText,
           diasCronograma: det.wd,
-          impactoCronograma: v.endRemoved ? 'Se quitó la fecha de fin del release (línea base: ' + fmt.date(b.end, 'long') + '): el release queda sin fecha comprometida hasta que el comité decida.' + (task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : '')
-            : v.dateChange ? 'La fecha de fin del release pasa del ' + fmt.date(b.end, 'long') + ' al ' + fmt.date(rel.end, 'long') + ' (' + sgn(det.wd) + wdText(det.wd) + ').' + (task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : '') : 'Sin cambio en la fecha de fin del release (' + fmt.date(b.end, 'long') + ').',
+          impactoCronograma: (v.endRemoved ? 'Se quitó la fecha de fin del release (línea base: ' + fmt.date(b.end, 'long') + '): el release queda sin fecha comprometida hasta que el comité decida.'
+            : v.dateChange ? 'La fecha de fin del release pasa del ' + fmt.date(b.end, 'long') + ' al ' + fmt.date(rel.end, 'long') + ' (' + sgn(wdDiff(cal, b.end, rel.end)) + wdText(wdDiff(cal, b.end, rel.end)) + ').' : det.after.length ? 'La fecha de fin del release no cambia (' + fmt.date(rel.end, 'long') + '), pero el trabajo se extiende hasta el ' + fmt.date(det.effEnd, 'long') + ' (' + sgn(det.wd) + wdText(det.wd) + ' frente a la línea base).' : 'Sin cambio en la fecha de fin del release (' + fmt.date(b.end, 'long') + ').')
+            + (v.sprintChange ? ' El release pasa de ' + fmt.num(Math.round(num(b.sprints, 0))) + ' a ' + fmt.num(Math.round(num(b.sprints, 0)) + v.sprintChange) + ' iteraciones.' : '')
+            + (det.after.length ? ' ' + (det.after.length === 1 ? 'Iteración que termina' : 'Iteraciones que terminan') + ' después del fin del release: ' + det.after.map((s) => spName(s) + ' (' + fmt.date(s.start) + ' – ' + fmt.date(s.end) + ')').join(', ') + '.' : '')
+            + ((v.endRemoved || v.dateChange || det.after.length) && task ? ' Afecta la actividad «' + (task.name || '') + '» del cronograma.' : ''),
           valorCosto: Math.round(v.budgetChange * 100) / 100,
           impactoCosto: Math.abs(v.budgetChange) > 0.5 ? 'El presupuesto del release (BAC) pasa de ' + fmt.money(b.budget, m.currency) + ' a ' + fmt.money(rel.budget, m.currency) + '.' : 'Sin cambio en el presupuesto del release (' + fmt.money(b.budget, m.currency) + ').',
           elementosAfectados: affected,
@@ -682,16 +860,24 @@ td.ags-actions { background: var(--surface); }
         if (!guard()) return;
         const { m, relInfo } = S();
         const info = relInfo.get(r.id); if (!info) return;
+        /* las iteraciones aprobadas que terminan después del fin llevan el fin del release a la última de ellas */
+        const lastEnd0 = D.max(...info.sprints.map((s) => s.end).filter(D.valid));
+        const newEnd0 = lastEnd0 && D.valid(r.end) && lastEnd0 > r.end ? lastEnd0 : r.end;
         const ok = await PM.confirm({ title: 'Actualizar línea base de «' + relName(r) + '»', confirmText: 'Actualizar línea base', body: html`<div class="stack-sm small">
           <p>Con la solicitud ${code} aprobada, la nueva línea base del release queda así:</p>
-          <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)}</li><li>Fin: ${fmt.date(r.end)}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones planeadas: ${fmt.num(r.plannedSprints || 0)}</li></ul>
+          <ul style="margin:0;padding-left:18px"><li>Alcance: ${fpts(info.prog.total, m.unit)}</li><li>Fin: ${fmt.date(newEnd0)}${newEnd0 !== r.end ? ' (fin de ' + spName(info.sprints.find((s) => s.end === lastEnd0)) + '; antes ' + fmt.date(r.end) + ')' : ''}</li><li>Presupuesto: ${fmt.money(r.budget, m.currency)}</li><li>Iteraciones: ${fmt.num(baselineSprints(r, info.sprints))}</li></ul>
           <p>Si el cambio afecta la línea base del proyecto, establece también una nueva en «Líneas base».</p></div>` });
         if (!ok) return;
         const cur = S();
-        const prog = cur.relInfo.get(r.id).prog;
+        const info1 = cur.relInfo.get(r.id);
+        const prog = info1.prog;
         commitAgile((d) => {
           const x = d.releases.find((y) => y.id === r.id); if (!x) return;
-          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: num(x.plannedSprints, 0), changeRef: code };
+          const lastEnd = D.max(...info1.sprints.map((s) => s.end).filter(D.valid));
+          if (lastEnd && D.valid(x.end) && lastEnd > x.end) x.end = lastEnd;
+          const nSpr = baselineSprints(x, info1.sprints);
+          if (nSpr > Math.round(num(x.plannedSprints, 0))) x.plannedSprints = nSpr;
+          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: code };
           x.pendingChange = null;
         });
         PM.toast('Línea base del release actualizada con ' + code + '.');
