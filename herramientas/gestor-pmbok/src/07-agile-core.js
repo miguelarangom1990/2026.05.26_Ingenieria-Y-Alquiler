@@ -62,7 +62,8 @@
   PM.deepFreeze(PM.AGILE);
 
   PM.EMPTY = PM.deepFreeze({ ...PM.EMPTY, agile: { settings: PM.AGILE.DEFAULT_SETTINGS, releases: [], sprints: [] } });
-  if (PM.TOOL_SHAPES) PM.TOOL_SHAPES.agile = { settings: { columns: [{}] }, releases: [{ baseline: {} }], sprints: [{}] };
+  /* release.baseline puede ser null (sin línea base): no se le da forma de objeto para no convertir null en {} */
+  if (PM.TOOL_SHAPES) PM.TOOL_SHAPES.agile = { settings: { columns: [{}] }, releases: [{}], sprints: [{}] };
 
   /* ---------------------------------------------------------------- menú e iconos */
   if (!PM.GROUPS.find((g) => g.id === 'agil')) {
@@ -137,6 +138,15 @@
   /* rango para colocar un elemento entre dos vecinos */
   agile.rankBetween = (before, after) => { const a = before ? num(before.rank, 0) : null, b = after ? num(after.rank, 0) : null; if (a === null && b === null) return 1000; if (a === null) return b - 1000; if (b === null) return a + 1000; return (a + b) / 2; };
 
+  /* línea base del release con contenido (fecha, puntos o fin); un objeto vacío o mal formado no cuenta */
+  agile.hasBaseline = (release) => { const b = isObj(release) ? release.baseline : null; return isObj(b) && (D.valid(b.date) || Number.isFinite(num(b.points, NaN)) || D.valid(b.end)); };
+  /* release activo: el de la iteración en curso; si no, el primero en curso, comprometido o planeado (no cerrado) */
+  agile.activeRelease = (releases, sprints) => {
+    const rs = arr(releases).filter((r) => isObj(r) && r.id);
+    const cur = arr(sprints).find((s) => isObj(s) && s.status === 'en-curso' && s.releaseId);
+    return (cur && rs.find((r) => r.id === cur.releaseId)) || rs.find((r) => r.status === 'en-curso') || rs.find((r) => r.status === 'comprometido') || rs.find((r) => r.status !== 'cerrado') || null;
+  };
+
   /* ---------------------------------------------------------------- cálculos */
   const calc = PM.calc;
   /* Enfoque efectivo de cada nodo de la EDT: el propio, o el heredado del padre, o el del proyecto. */
@@ -152,7 +162,7 @@
   };
 
   const sumEst = (list) => list.reduce((s, i) => s + agile.estimate(i), 0);
-  const sortByStart = (sprints) => [...arr(sprints)].filter((s) => isObj(s) && s.id).sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+  const sortByStart = (agile.sortSprints = (sprints) => [...arr(sprints)].filter((s) => isObj(s) && s.id).sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')) || String(a.name || '').localeCompare(String(b.name || ''))));
   calc.sprintsOfRelease = (sprints, releaseId) => sortByStart(sprints).filter((s) => s.releaseId === releaseId);
 
   /* Burndown de una iteración: restante por día hábil; alcance = elementos asignados (fecha de ingreso o inicio). */
@@ -220,7 +230,7 @@
     if (first) pts.push({ date: first, label: 'Inicio', scope: scopeAt(first), done: doneAt(first), future: first > cut });
     for (const s of rs) { if (!D.valid(s.end)) continue; const day = s.end > cut ? null : s.end; pts.push({ date: s.end, label: s.name, sprintId: s.id, scope: day ? scopeAt(day) : null, done: day ? doneAt(day) : null, future: !day }); }
     const prog = calc.releaseProgress({ release, items, settings: st });
-    return { points: pts, ...prog, baselinePoints: release.baseline ? num(release.baseline.points, null) : null };
+    return { points: pts, ...prog, baselinePoints: agile.hasBaseline(release) ? num(release.baseline.points, null) : null };
   };
 
   /* Pronóstico de terminación por velocidad: iteraciones restantes y fecha estimada (optimista, probable, pesimista). */
@@ -306,7 +316,7 @@
   /* Cambios de alcance del release frente a su línea base (control integrado de cambios en dos niveles). */
   calc.releaseVariance = function ({ release, items, settings }) {
     const prog = calc.releaseProgress({ release, items, settings });
-    const b = isObj(release.baseline) ? release.baseline : null;
+    const b = agile.hasBaseline(release) ? release.baseline : null;
     if (!b) return { hasBaseline: false, ...prog };
     const bp = num(b.points, 0);
     const scopePct = bp > 0 ? (prog.total - bp) / bp : 0;

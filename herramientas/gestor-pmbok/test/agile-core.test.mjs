@@ -83,6 +83,10 @@ const results = await page.evaluate(() => {
   eq('variación del release', [rv.hasBaseline, r3(rv.scopePct), rv.dateChange, rv.budgetChange, rv.needsChangeControl], [true, 0.133, 0, 0, true]);
   eq('variación dentro del umbral', C.releaseVariance({ release: { ...release, baseline: { points: 33, end: '2026-09-11', budget: 300 } }, items, settings }).needsChangeControl, false);
   eq('variación sin línea base', C.releaseVariance({ release: { id: 'r1' }, items, settings }).hasBaseline, false);
+  eq('línea base vacía o nula no cuenta', [C.releaseVariance({ release: { id: 'r1', budget: 5, baseline: {} }, items, settings }).needsChangeControl, A.hasBaseline({ baseline: null }), A.hasBaseline({ baseline: { points: 0 } }), A.hasBaseline(release)], [undefined, false, true, true]);
+  eq('normalizar: línea base nula se conserva', PM.normalizeTool('agile', { releases: [{ id: 'r', baseline: null }] }).releases[0].baseline, null);
+  eq('release activo', [A.activeRelease([{ id: 'a', status: 'cerrado' }, { id: 'b', status: 'planeado' }], []).id, A.activeRelease([{ id: 'a', status: 'en-curso' }, { id: 'b' }], [{ status: 'en-curso', releaseId: 'b' }]).id, A.activeRelease([], [])], ['b', 'b', null]);
+  eq('orden de iteraciones', A.sortSprints([{ id: 'x', start: '2026-02-01' }, null, { id: 'y', start: '2026-01-01' }]).map((s) => s.id), ['y', 'x']);
   // Flujo acumulado
   const hist = [
     { id: 'x1', type: 'historia', createdAt: '2026-08-01', status: 'terminado', history: [{ date: '2026-08-01', status: 'backlog' }, { date: '2026-08-03', status: 'por-hacer' }, { date: '2026-08-04', status: 'en-curso' }, { date: '2026-08-05', status: 'terminado' }] },

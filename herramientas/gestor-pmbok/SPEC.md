@@ -470,6 +470,8 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   Costo real: `PM.agile.releaseActualCost(release, costs, tree, statusDate)`.
 - `cfd({items, settings, from, to})` → `[{date, nuevo, pendiente, 'en-curso', terminado}]` (semanal si el rango supera 180 días).
 - `releaseVariance({release, items, settings})` → `{hasBaseline, scopePct, dateChange (días), budgetChange, needsChangeControl, …}`.
+- Ayudantes: `PM.agile.hasBaseline(release)` (línea base con fecha, puntos o fin; `null` o `{}` no cuentan), `PM.agile.activeRelease(releases, sprints)`
+  (el de la iteración en curso, si no el primero en curso, comprometido o sin cerrar), `PM.agile.sortSprints(sprints)` (por inicio).
 - `PM.agile.applyToSchedule(schedule, agileData, items)`: las actividades vinculadas a un release (`release.taskId` o `task.releaseId`)
   toman `progress` = terminado/alcance × 100 (1 decimal), `actualStart` = inicio de la primera iteración iniciada (si no tenía) y
   `actualFinish` = última terminación al llegar a 100 %; marca `agileDerived: true`. `useProjectModel` lo aplica antes del CPM:
