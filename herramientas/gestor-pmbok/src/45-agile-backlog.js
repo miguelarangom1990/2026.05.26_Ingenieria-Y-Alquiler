@@ -1033,7 +1033,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       </div>
       ${active.length ? html`<div class="agb-active" role="group" aria-label="Filtros aplicados" data-agb-active="1">
         <span class="xsmall muted">Filtrado por:</span>
-        ${active.map((c) => html`<button key=${c.k} type="button" class="agb-fchip" data-agb-fchip=${c.k} title="Quitar este filtro" aria-label=${'Quitar el filtro ' + c.label.toLowerCase() + ': ' + c.value} onClick=${() => setF((x) => ({ ...x, [c.k]: '' }))}>
+        ${active.map((c) => html`<button key=${c.k} type="button" class="agb-fchip" data-agb-fchip=${c.k} title=${'Quitar el filtro ' + c.label.toLowerCase() + ': ' + c.value} aria-label=${'Quitar el filtro ' + c.label.toLowerCase() + ': ' + c.value} onClick=${() => setF((x) => ({ ...x, [c.k]: '' }))}>
           <span class="agb-fchip-k">${c.label}:</span><span class="agb-fchip-v">${c.value}</span><${ui.Icon} name="x" size=${12} /></button>`)}
       </div>` : null}
       ${refine ? html`<${Note} tone="info" icon="checklist">Modo «Refinamiento»: elementos pendientes (no terminados) sin estimar o sin criterios de aceptación. ${canWrite ? 'Escribe la estimación directamente en la tabla (Enter o salir del campo la guarda) y abre el elemento para completar sus criterios.' : ''}</${Note}>` : null}

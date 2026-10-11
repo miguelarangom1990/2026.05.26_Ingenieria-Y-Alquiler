@@ -763,6 +763,68 @@ for (const width of [400, 1280, 1360, 1600]) {
   } finally { await browser.close(); }
 }
 
+/* ================================================================== reglas del núcleo: costos compartidos, actividad del release y release activo */
+{
+  const agile = JSON.parse(JSON.stringify(SEED.agile));
+  /* dos releases del mismo entregable (w2) y apuntando a la misma actividad (t2): PM.agile.linksOf da t2 al último (r2) */
+  agile.releases = agile.releases.map((r) => (r.id === 'r2' ? { ...r, wbsId: 'w2', taskId: 't2', start: '2026-08-03' } : r));
+  const { browser, page, errors, pid } = await newApp({ width: 1360, height: 900, seedOpts: { agile } });
+  try {
+    /* un registro sin release del paquete w21 (descendiente de w2) cuenta para los dos releases */
+    await page.evaluate(async (pid) => { await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [
+      { id: 'a1', date: '2026-08-20', amount: 30000000, wbsId: 'w21', category: 'Mano de obra', description: 'Equipo de desarrollo agosto' },
+      { id: 'a2', date: '2026-08-31', amount: 15000000, taskId: 't3', description: 'Cuadrilla' },
+    ], statusUpdates: [], reserves: { contingency: 0, management: 0 } }); }, pid);
+    await page.waitForTimeout(250);
+    await step('Actividad del release con la regla del núcleo (PM.agile.linksOf): dos releases con la misma actividad', async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r1"]');
+      const kv = nb(await page.locator('[data-role="release-detail"] .ags-kv').innerText());
+      assert(!/Desarrollo de la plataforma/.test(kv), 'r1 no debe mostrar la actividad que el núcleo asigna a r2: ' + kv);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r2' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r2"]');
+      assert(/Desarrollo de la plataforma \(release 1\)/.test(nb(await page.locator('[data-role="release-detail"] .ags-kv').innerText())), 'r2 representa la actividad t2');
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1' }));
+      await page.waitForSelector('[data-role="release-detail"][data-release-id="r1"]');
+      await page.locator('[data-role="release-detail"]').getByRole('button', { name: /Editar release/ }).first().click();
+      await page.waitForSelector('#ags-rel-task');
+      eq(await page.$eval('#ags-rel-task', (s) => s.value), '', 'el editor de r1 no muestra la actividad de r2');
+      const opts = await page.$$eval('#ags-rel-task option', (os) => os.map((o) => o.value));
+      assert(!opts.includes('t2'), 't2 ya representa otro release y no se ofrece: ' + JSON.stringify(opts));
+      await dialog(page).getByRole('button', { name: 'Cancelar' }).click();
+    });
+    await step('Métricas: AC del release con los costos compartidos señalados (PM.agile.releaseCosts)', async () => {
+      await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1' }));
+      await page.waitForSelector('[data-role="evm-shared"]');
+      const txt = nb(await page.locator('[data-role="evm-shared"]').innerText());
+      const m30 = await page.evaluate(() => PM.fmt.money(30000000, 'COP'));
+      assert(txt.includes('1 registro de costos sin release (' + nb(m30) + ') coincide también con «Release 2 · Facturación»'), 'aviso de costos compartidos: ' + txt);
+      assert(/una sola vez en el total de los releases \(/.test(txt) && txt.includes(nb(m30) + ', sin duplicar'), 'total sin duplicar: ' + txt);
+      const tiles = nb(await page.locator('[data-role="evm-tiles"]').innerText());
+      assert(/AC \(costo real\)[\s\S]*Incluye [^\n]* compartidos con otro release/.test(tiles), 'el AC dice cuánto es compartido: ' + tiles);
+      const acRow = nb(await page.locator('[data-role="evm-compare-ac"]').innerText());
+      const ms30 = nb(await page.evaluate(() => PM.fmt.moneyShort(30000000, 'COP'))), ms45 = nb(await page.evaluate(() => PM.fmt.moneyShort(45000000, 'COP')));
+      assert(acRow.includes(ms30) && acRow.includes(ms45), 'fila AC: release ' + ms30 + ' y proyecto ' + ms45 + ': ' + acRow);
+      assert(await page.locator('[data-role="evm-shared"]').getByRole('button', { name: 'Ir a costos reales' }).count() === 1, 'acción hacia los costos reales');
+    });
+    await step('Release activo con la regla del núcleo (PM.agile.activeRelease): sin iteración en curso, el comprometido', async () => {
+      await page.evaluate(async (pid) => {
+        const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+        await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => ({ ...r, status: r.id === 'r1' ? 'planeado' : 'comprometido' })), sprints: a.sprints.map((x) => ({ ...x, status: 'cerrado', completed: x.completed == null ? 10 : x.completed })) });
+      }, pid);
+      await page.waitForTimeout(300);
+      await gotoView(page, 'tablero');
+      await gotoView(page, 'metricas-agiles');
+      await page.waitForSelector('#ags-m-rel');
+      eq(await page.$eval('#ags-m-rel', (s) => s.value), 'r2', 'métricas: release activo por defecto');
+      await gotoView(page, 'iteraciones');
+      await page.waitForSelector('.ags-rel[data-release-id="r2"][aria-pressed="true"]');
+      eq(await errorCards(page), [], 'tarjetas de error');
+      eq(errors, [], 'errores de consola');
+    });
+  } finally { await browser.close(); }
+}
+
 /* ================================================================== proyecto predictivo */
 {
   const { browser, page, errors } = await newApp({ meta: { lifecycle: 'Predictivo' }, seed: false });
@@ -775,8 +837,12 @@ for (const width of [400, 1280, 1360, 1600]) {
       await page.getByRole('button', { name: 'Usar ciclo de vida híbrido' }).click();
       await page.waitForSelector('[data-view="iteraciones"]');
       assert(/Aún no hay releases/.test(await page.locator('.view-host').innerText().then(nb)), 'estado vacío útil');
+      const stepsOf = () => page.$$eval('[data-role="agile-start"] [data-step]', (els) => els.map((e) => e.getAttribute('data-step') + ':' + e.getAttribute('data-done')));
+      eq(await stepsOf(), ['backlog:0', 'release:0', 'sprints:0', 'baseline:0'], 'iteraciones vacías: ruta para planificar');
+      assert(/Pendiente · sin elementos/.test(nb(await page.locator('[data-step="backlog"]').innerText())), 'el paso dice su estado con texto');
       await gotoView(page, 'metricas-agiles');
       assert(/Aún no hay datos para las métricas/.test(await page.locator('.view-host').innerText().then(nb)), 'métricas vacías con explicación');
+      eq(await stepsOf(), ['backlog:0', 'release:0', 'sprints:0', 'flow:0'], 'métricas vacías: qué necesitan');
       eq(errors, [], 'errores de consola');
     });
   } finally { await browser.close(); }

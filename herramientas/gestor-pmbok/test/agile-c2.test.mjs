@@ -188,7 +188,8 @@ await section('A. valor ganado', async () => {
     eq('r1: PPC con iteraciones transcurridas / planeadas, y APC', [r1.ppc, r1.apc].map(nb), [nb(exp.r1.ppc) + ' 2 / 4 iter.', '36,4 %']);
     check('r1: PPC = 2 / 4 iteraciones', Math.abs(exp.r1.raw.ppc - 0.5) < 1e-9, exp.r1.raw.ppc);
     eq('r1: SPI y CPI', [r1.spi, r1.cpi].map(nb), [exp.r1.spi, exp.r1.cpi].map(nb));
-    check('r1: AC = 30 M (release) + 10 M (actividad del entregable w21)', Math.round(exp.r1.raw.ac) === 40000000, exp.r1.raw.ac);
+    /* regla del núcleo (PM.agile.releaseCosts): un release con registros marcados cuenta solo esos; el registro de su actividad (a3) no se suma */
+    check('r1: AC = 30 M (solo su registro marcado; el de la actividad del entregable no se suma)', Math.round(exp.r1.raw.ac) === 30000000 && nb(r1.ac) === nb(exp.r1.ac), [exp.r1.raw.ac, r1.ac]);
     const r2 = await row('r2');
     check('r2: sin iteraciones transcurridas (SPI —) y AC 5 M imputado', nb(r2.spi) === '—' && Math.round(exp.r2.raw.ac) === 5000000 && nb(r2.ac) === nb(exp.r2.ac), r2);
     check('alcance del release en la fila', /16 de 44 pts terminados/.test(nb(await page.textContent('tr[data-release="r1"] [data-role="release-scope"]'))), null);
@@ -264,12 +265,13 @@ await section('A2. valor ganado: predictivo sin capa ágil', async () => {
 await section('A3. valor ganado ágil: AC sin duplicar, release sin BAC y actividad fuera de la línea base', async () => {
   const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
   try {
-    /* r1 y r2 comparten el entregable w2: el costo a1 (sin release, actividad t2 del paquete w21) cuenta en ambos.
+    /* r1 y r2 comparten el entregable w2 y ya habían empezado el 20 ago: el costo a1 (sin release, actividad t2 del paquete
+       w21) cuenta en ambos (PM.agile.releaseCosts no asigna a un release costos anteriores a su inicio).
        r3 no tiene presupuesto y tiene un costo imputado. t4 se vincula a r1 después de la línea base de costos. */
     const agile = { ...AGILE,
       releases: [
         { id: 'r1', name: 'R1 · Inventario', start: '2026-08-03', end: '2026-09-25', status: 'en-curso', budget: 80000000, plannedSprints: 4, wbsId: 'w2', taskId: null, baseline: null },
-        { id: 'r2', name: 'R2 · Facturación', start: '2026-09-28', end: '2026-11-20', status: 'planeado', budget: 70000000, plannedSprints: 3, wbsId: 'w2', taskId: null, baseline: null },
+        { id: 'r2', name: 'R2 · Facturación', start: '2026-08-17', end: '2026-11-20', status: 'planeado', budget: 70000000, plannedSprints: 3, wbsId: 'w2', taskId: null, baseline: null },
         { id: 'r3', name: 'R3 · Tablero gerencial', start: '2026-11-23', end: '2026-12-18', status: 'planeado', budget: 0, plannedSprints: 2, wbsId: null, taskId: null, baseline: null },
       ],
       sprints: [
@@ -292,7 +294,7 @@ await section('A3. valor ganado ágil: AC sin duplicar, release sin BAC y activi
     await page.waitForSelector('[data-role="agile-evm-table"]');
     const M = (v) => page.evaluate((v) => PM.fmt.moneyShort(v, 'COP'), v);
     const acCell = async (rid) => nb(await page.$eval(`tr[data-release="${rid}"] td[data-col="ac"] > div`, (d) => d.textContent));
-    eq('AC por release (releaseActualCost): el costo compartido cuenta en r1 y en r2', [await acCell('r1'), await acCell('r2'), await acCell('r3')], [nb(await M(40000000)), nb(await M(40000000)), nb(await M(10000000))]);
+    eq('AC por release (PM.agile.releaseCosts): el costo compartido cuenta en r1 y en r2', [await acCell('r1'), await acCell('r2'), await acCell('r3')], [nb(await M(40000000)), nb(await M(40000000)), nb(await M(10000000))]);
     check('la fila marca el costo compartido con texto', /incl\. .*40 M compartido/.test(nb(await page.textContent('tr[data-release="r1"] [data-shared]'))) && (await page.$$('tr[data-release="r3"] [data-shared]')).length === 0, null);
     const acTile = nb(await page.textContent('[data-metric="agile-ac"] .evm-metric-value'));
     eq('indicador AC: total registrado sin duplicar (50 M, no 90 M)', acTile, nb(await M(50000000)));
@@ -338,6 +340,15 @@ await section('A3. valor ganado ágil: AC sin duplicar, release sin BAC y activi
     await page.selectOption('tr[data-actual="a1"] select[data-field="releaseId"]', 'r1'); await page.waitForTimeout(900);
     await page.getByRole('tab', { name: /Valor ganado ágil/ }).click(); await page.waitForSelector('[data-role="agile-evm-table"]');
     check('imputado a r1: sin nota de compartidos y r2 sin AC', (await page.$$('[data-note="compartido"]')).length === 0 && (await acCell('r2')) === nb(await M(0)), await acCell('r2'));
+    /* regla del núcleo: un registro anterior al inicio de un release no es de ese release; tampoco se marca como compartido */
+    await page.evaluate(async (pid) => {
+      const c = await PM.store.get(PM.paths.tool(pid, 'costs'));
+      await PM.store.set(PM.paths.tool(pid, 'costs'), { ...c, actuals: c.actuals.map((a) => (a.id === 'a1' ? { ...a, releaseId: null } : a)) });
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => (r.id === 'r2' ? { ...r, start: '2026-09-28' } : r)) });
+    }, pid);
+    await page.waitForTimeout(600);
+    check('costo anterior al inicio de r2: solo de r1, sin «compartido» ni nota', (await acCell('r1')) === nb(await M(40000000)) && (await acCell('r2')) === nb(await M(0)) && (await page.$$('tr[data-release="r1"] [data-shared]')).length === 0 && (await page.$$('[data-note="compartido"]')).length === 0, [await acCell('r1'), await acCell('r2')]);
     eq('sin tarjetas de error', await errorCards(page), []);
     eq('sin errores de consola', errors, []);
     void pid;
