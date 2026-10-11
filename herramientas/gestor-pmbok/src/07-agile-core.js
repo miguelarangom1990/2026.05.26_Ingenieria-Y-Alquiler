@@ -470,7 +470,7 @@
     return html`<div class="page"><${ui.Empty} icon="sprint" title="Herramientas ágiles no activas en este proyecto"
       actions=${html`${canWrite ? html`<${ui.Button} variant="primary" icon="sprint" onClick=${enable}>Usar ciclo de vida híbrido</${ui.Button}>` : null}<${ui.Button} icon="dashboard" onClick=${() => PM.navigate('tablero')}>Ir al tablero</${ui.Button}>`}>
       El ciclo de vida de «${project ? project.name : ''}» es ${(project && project.lifecycle) || 'Predictivo'}. El backlog, el tablero Kanban y las iteraciones
-      se activan cuando el ciclo de vida es Adaptativo (ágil), Híbrido, Iterativo o Incremental (se cambia en Tablero › Datos del proyecto).
+      se activan cuando el ciclo de vida es Adaptativo (ágil), Híbrido, Iterativo o Incremental (se cambia en la Ficha del proyecto).
     </${ui.Empty}></div>`;
   };
 
