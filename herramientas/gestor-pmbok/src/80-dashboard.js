@@ -817,6 +817,7 @@
 
   const idxWord = (v, hi, mid, lo) => (!isNum(v) ? null : v > IDX_HIGH ? hi : v >= IDX_LOW ? mid : lo);
   function AgileCard({ model, project }) {
+    const canWrite = PM.useCanWrite();
     const s = useMemo(() => agileSummary(model), [model.agile, model.agileItems, model.costs, model.tree, model.statusDate, model.sched]);
     const { unit, current, next, burndown, vel, rel, wipOver, blocked, settings } = s;
     const statusDate = model.statusDate;
@@ -829,7 +830,7 @@
       return html`<${Panel} title="Seguimiento ágil" subtitle=${subtitle} actions=${links} data-card="agile">
         <div class="dashboard-blank" data-agile-empty>
           <div>La capa ágil está activa, pero aún no hay backlog, releases ni iteraciones. Empieza por el backlog del producto (historias de usuario con criterios de aceptación) y luego planifica los releases y las iteraciones.</div>
-          <div class="row"><${ui.Button} size="sm" variant="primary" icon="backlog" onClick=${() => go('backlog')}>Crear el backlog</${ui.Button}><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>Planificar releases e iteraciones</${ui.Button}></div>
+          <div class="row"><${ui.Button} size="sm" variant="primary" icon="backlog" onClick=${() => go('backlog')}>${canWrite ? 'Crear el backlog' : 'Ver el backlog'}</${ui.Button}><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>${canWrite ? 'Planificar releases e iteraciones' : 'Ver releases e iteraciones'}</${ui.Button}></div>
         </div>
       </${Panel}>`;
     }
@@ -858,7 +859,7 @@
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
         <h4 class="label-caps">Iteración actual</h4>
         <div class="small">${next ? html`Ninguna iteración en curso. Próxima: <strong>${next.name || 'Iteración'}</strong>${D.valid(next.start) ? ', inicia el ' + fmt.date(next.start) : ''}.` : 'Ninguna iteración en curso ni planeada.'}</div>
-        <div><${ui.Button} size="sm" icon="sprint" onClick=${() => go('iteraciones')}>${next ? 'Iniciar la iteración' : 'Planificar la siguiente iteración'}</${ui.Button}></div>
+        <div><${ui.Button} size="sm" icon="sprint" onClick=${() => go('iteraciones')}>${!canWrite ? 'Ver iteraciones' : next ? 'Iniciar la iteración' : 'Planificar la siguiente iteración'}</${ui.Button}></div>
       </div>`;
     }
 
@@ -873,7 +874,7 @@
     /* 3. release activo: avance, SPI y CPI ágiles, pronóstico */
     let relSec;
     if (!rel) {
-      relSec = html`<div class="dashboard-agile-sec" data-agile="release"><h4 class="label-caps">Release activo</h4><div class="small">${s.releases.length ? 'Todos los releases están cerrados.' : 'Aún no hay releases: agrúpalos en la hoja de ruta para seguir su avance, su valor ganado ágil y su pronóstico.'}</div><div><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>${s.releases.length ? 'Ver releases' : 'Crear release'}</${ui.Button}></div></div>`;
+      relSec = html`<div class="dashboard-agile-sec" data-agile="release"><h4 class="label-caps">Release activo</h4><div class="small">${s.releases.length ? 'Todos los releases están cerrados.' : 'Aún no hay releases: agrúpalos en la hoja de ruta para seguir su avance, su valor ganado ágil y su pronóstico.'}</div><div><${ui.Button} size="sm" icon="release" onClick=${() => go('iteraciones')}>${s.releases.length || !canWrite ? 'Ver releases' : 'Crear release'}</${ui.Button}></div></div>`;
     } else {
       const { r, prog, ev, fc } = rel;
       const spiT = PM.calc.indexTone(ev.spi), cpiT = PM.calc.indexTone(ev.cpi);

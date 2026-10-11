@@ -455,6 +455,9 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     eq('fases de la ruta adaptativa', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución por iteraciones']);
     check('resumen de la ruta adaptativa', /preparar el backlog y los releases/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
     check('tarjeta ágil vacía con acciones', (await page.$$('[data-card="agile"] [data-agile-empty]')).length === 1 && await page.locator('[data-card="agile"]').getByRole('button', { name: 'Crear el backlog' }).count() === 1, null);
+    await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(200);
+    check('lectura: la tarjeta vacía ofrece ver, no crear', await page.locator('[data-card="agile"]').getByRole('button', { name: 'Ver el backlog' }).count() === 1 && await page.locator('[data-card="agile"]').getByRole('button', { name: 'Crear el backlog' }).count() === 0, null);
+    await page.evaluate(() => PM.setState({ canWrite: true })); await page.waitForTimeout(200);
     await page.locator('[data-card="agile"]').getByRole('button', { name: 'Crear el backlog' }).click(); await page.waitForTimeout(150);
     eq('«Crear el backlog» abre el backlog', (await state(page)).view, 'backlog');
     await gotoView(page, 'tablero');
@@ -475,6 +478,37 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     check('predictivo: sin tarjeta ágil', (await page.$$('[data-card="agile"]')).length === 0, null);
     eq('predictivo: 14 pasos', await page.$$eval('.dashboard-step', (e) => e.length), 14);
     check('predictivo: sin chip de enfoque', !/Enfoque/.test(nb(await page.textContent('[data-card="route"] h3'))), null);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
+/* =============================================================== E. rendimiento: backlog de 400 elementos */
+await section('E. rendimiento', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    const many = [];
+    for (let k = 0; k < 400; k++) {
+      const sp = k < 60 ? 's1' : k < 120 ? 's2' : k < 180 ? 's3' : null;
+      const done = sp && (sp !== 's3' || k % 3 === 0);
+      many.push(item('m' + k, 'HU-' + String(100 + k).padStart(3, '0'), 'Historia de prueba ' + k, (k % 5) + 1, { sprintId: sp, releaseId: k % 4 === 3 ? 'r2' : 'r1', status: done ? 'terminado' : sp ? (k % 2 ? 'en-curso' : 'por-hacer') : 'backlog', doneDate: done ? (sp === 's1' ? '2026-08-12' : sp === 's2' ? '2026-08-27' : '2026-09-04') : null, blocked: k % 97 === 5 }));
+    }
+    await seed(page, { code: 'PRY-PF-008' }, { items: many });
+    const t0 = Date.now();
+    await page.waitForSelector('[data-card="agile"] [data-agile-velocity]', { timeout: 15000 });
+    const tBoard = Date.now() - t0;
+    check('tablero con 400 elementos: tarjeta ágil en menos de 4 s (' + tBoard + ' ms)', tBoard < 4000, tBoard);
+    check('alertas con 400 elementos', /elementos bloqueados/.test(nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]'))), null);
+    const t1 = Date.now();
+    await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'agil' }));
+    await page.waitForSelector('[data-role="agile-evm-table"]', { timeout: 15000 });
+    const tEvm = Date.now() - t1;
+    check('valor ganado ágil con 400 elementos en menos de 3 s (' + tEvm + ' ms)', tEvm < 3000, tEvm);
+    /* un cambio de presentación no recalcula: cambiar el formato responde rápido */
+    const t2 = Date.now();
+    await page.getByRole('button', { name: 'Valores completos' }).click();
+    await page.waitForFunction(() => /\d{3}\.\d{3}/.test(document.querySelector('tr[data-release="r1"] td[data-col="bac"]').textContent));
+    const tFmt = Date.now() - t2;
+    check('cambio de formato en menos de 800 ms (' + tFmt + ' ms)', tFmt < 800, tFmt);
     eq('sin errores de consola', errors, []);
   } finally { await browser.close(); }
 });
