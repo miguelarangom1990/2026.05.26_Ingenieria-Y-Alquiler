@@ -16,8 +16,10 @@ let failures = 0;
 const results = [];
 async function step(name, fn) {
   try { await fn(); results.push('OK   ' + name); console.log('OK   ' + name); }
-  catch (e) { failures++; results.push('FAIL ' + name); console.log('FAIL ' + name + '\n     ' + String((e && e.stack) || e).split('\n').slice(0, 5).join('\n     ')); }
+  catch (e) { failures++; results.push('FAIL ' + name); console.log('FAIL ' + name + '\n     ' + String((e && e.stack) || e).split('\n').slice(0, 5).join('\n     ')); if (onFail) { try { await onFail(); } catch (x) { /* página cerrada */ } } }
 }
+const nb = (t) => String(t).replace(/[\u00a0\u202f]/g, ' ');
+let onFail = null;
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 const eq = (a, b, msg) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(msg + ' — esperado ' + JSON.stringify(b) + ', obtenido ' + JSON.stringify(a)); };
 
@@ -143,6 +145,7 @@ async function setRegistryState(page, pid, code, estado) {
 /* ================================================================== sesión principal (escritorio, tema claro) */
 {
   const { browser, page, errors, pid } = await newApp({ width: 1360, height: 950 });
+  onFail = async () => { for (let k = 0; k < 3; k++) { if (!(await page.locator('.modal-backdrop').count())) break; await page.keyboard.press('Escape'); await page.waitForTimeout(150); } };
   try {
     await step('Menú: las vistas ágiles aparecen con ciclo de vida híbrido', async () => {
       const labels = await page.$$eval('.nav-item', (els) => els.map((e) => e.textContent.trim()));
@@ -157,27 +160,27 @@ async function setRegistryState(page, pid, code, estado) {
     await step('Releases: lista, selección por defecto y resumen del release', async () => {
       eq(await page.locator('.ags-rel[data-release-id]').count(), 2, 'tarjetas de release');
       eq(await page.getAttribute('.ags-rel[data-release-id="r1"]', 'aria-pressed'), 'true', 'r1 seleccionado (tiene la iteración en curso)');
-      const det = await page.locator('[data-role="release-detail"]').innerText();
+      const det = await page.locator('[data-role="release-detail"]').innerText().then(nb);
       assert(/Release 1 · Inventario y alquiler/.test(det), 'detalle del release');
       assert(/57\s*%/.test(det) && /28 pts de 49 pts/.test(det), 'avance del release: ' + det.slice(0, 400));
       assert(/1\.2/.test(det) && /Plataforma digital de alquiler/.test(det) && /Adaptativo/.test(det), 'entregable de la EDT con su enfoque');
       assert(/Desarrollo de la plataforma/.test(det) && /calculado desde el backlog/.test(det), 'actividad vinculada');
       assert(/Pronóstico de terminación/.test(det) && /28 sep 2026/.test(det), 'pronóstico');
-      assert(/Sin línea base/.test(await page.locator('.ags-rel[data-release-id="r2"]').innerText()), 'r2 sin línea base (baseline null)');
+      assert(/Sin línea base/.test(await page.locator('.ags-rel[data-release-id="r2"]').innerText().then(nb)), 'r2 sin línea base (baseline null)');
     });
 
     await step('Control de cambios: la variación de alcance supera el umbral y muestra el detalle', async () => {
-      const t = await page.locator('[data-role="change-needed"]').innerText();
+      const t = await page.locator('[data-role="change-needed"]').innerText().then(nb);
       assert(/nivel 2/.test(t), 'título del aviso');
       assert(/49 pts frente a 40 pts/.test(t) && /\+22,5\s*%/.test(t) && /supera el umbral de ±10\s*%/.test(t), 'detalle del alcance: ' + t);
       assert(/Fecha de fin: sin cambio/.test(t) && /Presupuesto: sin cambio/.test(t), 'fecha y presupuesto sin cambio');
-      assert(/Requiere control de cambios/.test(await page.locator('.ags-rel[data-release-id="r1"]').innerText()), 'distintivo en la tarjeta');
+      assert(/Requiere control de cambios/.test(await page.locator('.ags-rel[data-release-id="r1"]').innerText().then(nb)), 'distintivo en la tarjeta');
     });
 
     await step('Registrar solicitud de cambio: crea el documento prellenado, la fila CC-003 y el vínculo del release', async () => {
       await page.click('[data-role="change-register"]');
       const dlg = dialog(page);
-      assert(/CC-003/.test(await dlg.innerText()), 'el diálogo propone el siguiente código CC-003');
+      assert(/CC-003/.test(await dlg.innerText().then(nb)), 'el diálogo propone el siguiente código CC-003');
       await dlg.getByRole('button', { name: 'Registrar solicitud' }).click();
       const a = await until(page, async () => { const x = await getAgile(page, pid); return x && rel(x, 'r1').pendingChange && rel(x, 'r1').pendingChange.code ? x : null; }, 'pendingChange');
       const pc = rel(a, 'r1').pendingChange;
@@ -196,20 +199,20 @@ async function setRegistryState(page, pid, code, estado) {
       eq([row.id, row.solicitante, row.tipo, row.estado, row.impactoCronograma, row.impactoCosto], ['CC-003', 'Dueño del producto', 'Actualización', 'Registrada', 0, 0], 'fila del registro de cambios');
       assert(row.descripcion && row.impactoAlcance && /^\d{4}-/.test(row.fecha), 'descripción, impacto y fecha en la fila');
       await page.waitForSelector('[data-role="change-pending"]');
-      assert(/CC-003/.test(await page.locator('[data-role="change-pending"]').innerText()), 'aviso de solicitud en trámite');
+      assert(/CC-003/.test(await page.locator('[data-role="change-pending"]').innerText().then(nb)), 'aviso de solicitud en trámite');
     });
 
     await step('Solicitud aprobada en el registro: «Actualizar línea base del release» con changeRef', async () => {
       await setRegistryState(page, pid, 'CC-003', 'Aprobada');
       await page.waitForSelector('[data-role="change-approved"]');
-      assert(/aprobada/i.test(await page.locator('[data-role="change-approved"]').innerText()), 'aviso de aprobación');
+      assert(/aprobada/i.test(await page.locator('[data-role="change-approved"]').innerText().then(nb)), 'aviso de aprobación');
       await page.getByRole('button', { name: 'Actualizar línea base del release' }).click();
       await dialog(page).getByRole('button', { name: 'Actualizar línea base' }).click();
       const a = await until(page, async () => { const x = await getAgile(page, pid); return x && rel(x, 'r1').baseline.changeRef === 'CC-003' ? x : null; }, 'línea base actualizada');
       const b = rel(a, 'r1').baseline;
       eq([b.points, b.end, b.budget, b.sprints, b.date, rel(a, 'r1').pendingChange], [49, '2026-09-25', 120000000, 4, '2026-09-04', null], 'nueva línea base');
       await page.waitForSelector('[data-role="change-level1"]');
-      assert(/actualizada con CC-003/.test(await page.locator('[data-role="baseline-summary"]').innerText()), 'resumen de la línea base con la referencia');
+      assert(/actualizada con CC-003/.test(await page.locator('[data-role="baseline-summary"]').innerText().then(nb)), 'resumen de la línea base con la referencia');
     });
 
     await step('Editar release (validación) y cambio de fecha → solicitud rechazada', async () => {
@@ -217,13 +220,13 @@ async function setRegistryState(page, pid, code, estado) {
       const dlg = dialog(page);
       await dlg.locator('#ags-rel-name').fill('');
       await dlg.getByRole('button', { name: 'Guardar release' }).click();
-      assert(/Escribe el nombre del release/.test(await dlg.innerText()), 'error de nombre vacío');
+      assert(/Escribe el nombre del release/.test(await dlg.innerText().then(nb)), 'error de nombre vacío');
       await dlg.locator('#ags-rel-name').fill('Release 1 · Inventario y alquiler');
       await dlg.locator('#ags-rel-end').fill('2026-10-02');
       await dlg.getByRole('button', { name: 'Guardar release' }).click();
       await until(page, async () => { const x = await getAgile(page, pid); return x && rel(x, 'r1').end === '2026-10-02'; }, 'fin del release');
       await page.waitForSelector('[data-role="change-needed"]');
-      const t = await page.locator('[data-role="change-needed"]').innerText();
+      const t = await page.locator('[data-role="change-needed"]').innerText().then(nb);
       assert(/Fecha de fin: del 25 sep 2026 al 02 oct 2026/.test(t) && /5 días hábiles/.test(t), 'cambio de fecha detectado: ' + t);
       await page.click('[data-role="change-register"]');
       await dialog(page).getByRole('button', { name: 'Registrar solicitud' }).click();
@@ -233,7 +236,7 @@ async function setRegistryState(page, pid, code, estado) {
       await until(page, async () => { const d = await getDoc(page, pid, 'registro-cambios'); return d.fields.cambios.some((r) => r.id === 'CC-004' && r.impactoCronograma === 5); }, 'fila CC-004');
       await setRegistryState(page, pid, 'CC-004', 'Rechazada');
       await page.waitForSelector('[data-role="change-rejected"]');
-      const rt = await page.locator('[data-role="change-rejected"]').innerText();
+      const rt = await page.locator('[data-role="change-rejected"]').innerText().then(nb);
       assert(/rechazada/i.test(rt) && /no cambia/.test(rt), 'aviso de rechazo: ' + rt);
       await page.getByRole('button', { name: 'Descartar aviso' }).click();
       await until(page, async () => { const x = await getAgile(page, pid); return x && !rel(x, 'r1').pendingChange; }, 'aviso descartado');
@@ -244,7 +247,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.click('[data-role="release-new"]');
       const dlg = dialog(page);
       await dlg.getByRole('button', { name: 'Crear release' }).click();
-      assert(/Escribe el nombre del release/.test(await dlg.innerText()), 'nombre requerido');
+      assert(/Escribe el nombre del release/.test(await dlg.innerText().then(nb)), 'nombre requerido');
       const groups = await dlg.locator('#ags-rel-wbs optgroup').evaluateAll((gs) => gs.map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.value)]));
       eq(groups, [['Entregables adaptativos', ['w2', 'w21']], ['Otros entregables (predictivos)', ['w1', 'w3']]], 'entregables agrupados por enfoque');
       const tasks = await dlg.locator('#ags-rel-task option').evaluateAll((os) => os.map((o) => o.value));
@@ -296,7 +299,7 @@ async function setRegistryState(page, pid, code, estado) {
       await dlg.locator('#ags-sp-cap').fill('12');
       await dlg.locator('#ags-sp-end').fill('2026-01-01');
       await dlg.getByRole('button', { name: 'Guardar iteración' }).click();
-      assert(/igual o posterior/.test(await dlg.innerText()), 'valida que el fin no sea anterior al inicio');
+      assert(/igual o posterior/.test(await dlg.innerText().then(nb)), 'valida que el fin no sea anterior al inicio');
       await dlg.locator('#ags-sp-end').fill(s7.end);
       await dlg.getByRole('button', { name: 'Guardar iteración' }).click();
       await until(page, async () => { const x = await getAgile(page, pid); const s = spr(x, s7.id); return s && s.name === 'Iteración 7 (refuerzo)' && s.capacity === 12; }, 'iteración editada');
@@ -351,20 +354,21 @@ async function setRegistryState(page, pid, code, estado) {
       await add.focus();
       await page.keyboard.press('Enter');
       await until(page, async () => (await getItem(page, pid, 'j1')).sprintId === r2s.id, 'j1 agregado con teclado');
+      await page.waitForFunction(() => { const a = document.activeElement; const tr = a && a.closest('[data-role="candidates"] tr[data-item-id]'); return tr && tr.dataset.itemId === 'j2'; }, null, { timeout: 4000 });
       await page.locator('[data-role="candidates"] tr[data-item-id="j2"]').getByRole('button', { name: /Agregar HU-021/ }).click();
       await until(page, async () => (await getItem(page, pid, 'j2')).sprintId === r2s.id, 'j2 agregado');
-      await page.waitForFunction(() => /Compromiso: 13 pts/.test(document.querySelector('[data-role="commitment"]').innerText));
+      await page.waitForFunction(() => /Compromiso: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
       await page.getByRole('button', { name: 'Llenar hasta la capacidad' }).click();
       await until(page, async () => (await getItem(page, pid, 'j3')).sprintId === r2s.id, 'j3 agregado al llenar');
       eq((await getItem(page, pid, 'j4')).sprintId, null, 'j4 no cabe');
       await page.locator('[data-role="sprint-items"] tr[data-item-id="j2"]').getByRole('button', { name: /Quitar HU-021/ }).click();
       await until(page, async () => (await getItem(page, pid, 'j2')).sprintId === null, 'j2 quitado');
-      await page.waitForFunction(() => /Compromiso: 13 pts/.test(document.querySelector('[data-role="commitment"]').innerText));
+      await page.waitForFunction(() => /Compromiso: 13\s*pts/.test(document.querySelector('[data-role="commitment"]').innerText));
       eq((await getItem(page, pid, 'j2')).status, 'backlog', 'un elemento quitado antes de iniciar sigue en el backlog');
       await page.fill(`#ags-cap-${r2s.id}`, '10');
       await page.press(`#ags-cap-${r2s.id}`, 'Enter');
       await page.waitForSelector('[data-role="over-capacity"]');
-      assert(/Supera la capacidad en 3 pts/.test(await page.locator('[data-role="over-capacity"]').innerText()), 'aviso textual de sobrecapacidad');
+      assert(/Supera la capacidad en 3 pts/.test(await page.locator('[data-role="over-capacity"]').innerText().then(nb)), 'aviso textual de sobrecapacidad');
       await page.fill(`#ags-cap-${r2s.id}`, '20');
       await page.press(`#ags-cap-${r2s.id}`, 'Enter');
       await page.waitForSelector('[data-role="over-capacity"]', { state: 'detached' });
@@ -372,7 +376,7 @@ async function setRegistryState(page, pid, code, estado) {
 
     await step('Solo una iteración en curso: iniciar queda deshabilitado con explicación', async () => {
       assert(await page.locator('[data-role="sprint-start"]').isDisabled(), 'botón deshabilitado');
-      assert(/Ya hay una iteración en curso \(Iteración 3\)/.test(await page.locator('[data-role="start-hint"]').innerText()), 'explicación visible');
+      assert(/Ya hay una iteración en curso \(Iteración 3\)/.test(await page.locator('[data-role="start-hint"]').innerText().then(nb)), 'explicación visible');
     });
 
     await step('Cerrar iteración: completed, lo no terminado vuelve al backlog y doneDate se conserva', async () => {
@@ -380,7 +384,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.waitForSelector('[data-role="planner"][data-sprint-id="s3"]');
       await page.click('[data-role="sprint-close"]');
       const dlg = dialog(page);
-      assert(/5 pts/.test(await dlg.innerText()) && /14 pts/.test(await dlg.innerText()), 'resumen del cierre');
+      assert(/5 pts/.test(await dlg.innerText().then(nb)) && /14 pts/.test(await dlg.innerText().then(nb)), 'resumen del cierre');
       await dlg.getByRole('button', { name: 'Cerrar iteración' }).click();
       const a = await until(page, async () => { const x = await getAgile(page, pid); return x && spr(x, 's3').status === 'cerrado' ? x : null; }, 's3 cerrada');
       eq([spr(a, 's3').completed, spr(a, 's3').committed], [5, 14], 'terminado y comprometido');
@@ -388,6 +392,9 @@ async function setRegistryState(page, pid, code, estado) {
       const i9 = await getItem(page, pid, 'i9'), i7 = await getItem(page, pid, 'i7');
       eq([i8.status, i8.history[i8.history.length - 1].status, i8.doneDate, i9.status, i9.sprintId], ['backlog', 'backlog', null, 'backlog', null], 'pendientes al backlog con historial');
       eq([i7.status, i7.sprintId, i7.doneDate], ['terminado', 's3', '2026-09-03'], 'terminado conserva iteración y fecha');
+      eq(spr(a, 's3').unfinished.map((u) => [u.code, u.estimate]), [['HU-008', 5], ['HU-009', 4]], 'registro de lo no terminado al cierre');
+      await page.waitForSelector('[data-role="unfinished"]');
+      assert(/HU-008, HU-009/.test(await page.locator('[data-role="unfinished"]').innerText().then(nb)), 'nota de lo no terminado');
     });
 
     await step('Iniciar iteración: committed, elementos a la primera columna y release en curso', async () => {
@@ -441,14 +448,14 @@ async function setRegistryState(page, pid, code, estado) {
       assert(/^planificacion-sprint--/.test(st.params.docId), 'docId de la planificación');
       const plan = await getDoc(page, pid, st.params.docId);
       const f = plan.fields;
-      eq([f.iteracion, f.release, f.fechaInicio, f.fechaFin, f.objetivo, f.capacidad, f.compromiso, f.elementos.map((e) => e.codigo)], ['Iteración 4', 'Release 2 · Facturación', '2026-09-28', '2026-10-09', 'Emitir la primera factura electrónica', 20, 13, ['HU-020']], 'campos de la planificación');
+      eq([f.iteracion, f.release, f.fechaInicio, f.fechaFin, f.objetivo, f.capacidad, f.compromiso, f.elementos.map((e) => e.codigo)], ['Iteración 4', 'Release 2 · Facturación', '2026-09-28', '2026-10-09', 'Emitir la primera factura electrónica', 20, 13, ['HU-020', 'HU-022', 'HU-023']], 'campos de la planificación');
       assert(f.velocidadReferencia > 0 && Array.isArray(f.participantes) && f.participantes.length === 3 && f.elementos[0].tipo === 'Historia de usuario' && f.elementos[0].estimacion === 8, 'velocidad, participantes y fila de elemento');
       await until(page, async () => { const x = await getAgile(page, pid); return spr(x, r2s.id).docs && spr(x, r2s.id).docs.planificacion === st.params.docId; }, 'docId guardado en la iteración');
       await page.evaluate((sid) => PM.navigate('iteraciones', { release: 'r2', sprint: sid }), r2s.id);
       await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st2 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'abre el acta de revisión');
       const rev = await getDoc(page, pid, st2.params.docId);
-      eq([rev.fields.objetivoCumplido, rev.fields.comprometido, rev.fields.terminado, rev.fields.elementos.map((e) => [e.codigo, e.resultado])], ['Parcialmente', 13, 8, [['HU-020', 'Aceptado']]], 'acta de revisión');
+      eq([rev.fields.objetivoCumplido, rev.fields.comprometido, rev.fields.terminado, rev.fields.elementos.map((e) => [e.codigo, e.resultado])], ['Parcialmente', 13, 8, [['HU-020', 'Aceptado'], ['HU-022', 'No terminado'], ['HU-023', 'No terminado']]], 'acta de revisión con lo no terminado');
       await page.evaluate((sid) => PM.navigate('iteraciones', { release: 'r2', sprint: sid }), r2s.id);
       await page.locator('[data-doc-kind="retrospectiva"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st3 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^retrospectiva--/.test(s.params.docId || '') ? s : null; }, 'abre la retrospectiva');
@@ -478,7 +485,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1', sprint: 's3' }));
       await page.waitForSelector('svg[data-chart="burndown"]');
       const charts = await page.$$eval('svg[data-chart]', (els) => els.map((e) => [e.dataset.chart, e.getAttribute('role'), (e.getAttribute('aria-label') || '').length > 20]));
-      eq(charts.map((c) => c[0]), ['burndown', 'burnup', 'velocity', 'cfd', 'forecast', 'agile-evm', 'cycle-time', 'throughput'], 'gráficos presentes');
+      eq(charts.map((c) => c[0]), ['burndown', 'burnup', 'velocity', 'cfd', 'cycle-time', 'throughput', 'forecast', 'agile-evm'], 'gráficos presentes');
       assert(charts.every((c) => c[1] === 'img' && c[2]), 'role="img" y aria-label con resumen');
       const data = await page.evaluate(() => ({
         rem: document.querySelector('svg[data-chart="burndown"] path[data-series="remaining"]').getAttribute('d').length,
@@ -498,24 +505,24 @@ async function setRegistryState(page, pid, code, estado) {
       eq([data.bars, data.avg, data.cfd, data.evm, data.dots], [3, true, 4, 4, 7], 'barras de velocidad, capas del flujo, barras AgileEVM y puntos del tiempo de ciclo');
       assert(data.lanes.includes('fc') || data.lanes.includes('plan'), 'carriles del pronóstico: ' + data.lanes);
       assert(data.weeks >= 4, 'semanas de rendimiento');
-      assert(/Burndown de Iteración 3/.test(data.aria) && /quedan \d/.test(data.aria) && /compromiso inicial 14 pts/.test(data.aria), 'resumen del burndown: ' + data.aria);
+      assert(/Burndown de Iteración 3/.test(nb(data.aria)) && /quedan 9 pts de un alcance de 14 pts/.test(nb(data.aria)) && /compromiso inicial 14 pts/.test(nb(data.aria)), 'el burndown de la iteración cerrada conserva lo no terminado: ' + data.aria);
       await page.locator('[data-chart-card="burndown"] [data-role="toggle-data"]').click();
       eq(await page.locator('[data-chart-card="burndown"] [data-role="chart-data"] tbody tr').count(), 11, 'tabla del burndown (día 0 + 10 días hábiles)');
       eq(await page.getAttribute('[data-chart-card="burndown"] [data-role="toggle-data"]', 'aria-expanded'), 'true', 'aria-expanded');
       await page.locator('[data-chart-card="burndown"] .ags-chart').focus();
       await page.keyboard.press('ArrowRight');
       await page.waitForSelector('[data-chart-card="burndown"] .chart-tip');
-      assert(/Restante/.test(await page.locator('[data-chart-card="burndown"] .chart-tip').innerText()), 'tooltip con el teclado');
+      assert(/Restante/.test(await page.locator('[data-chart-card="burndown"] .chart-tip').innerText().then(nb)), 'tooltip con el teclado');
       await page.keyboard.press('Escape');
-      const evm = await page.locator('[data-role="evm-tiles"]').innerText();
+      const evm = await page.locator('[data-role="evm-tiles"]').innerText().then(nb);
       assert(/\$ 120 M/.test(evm) && /SPI/.test(evm) && /CPI/.test(evm) && /EAC/.test(evm) && /VAC/.test(evm), 'indicadores AgileEVM');
-      const cmp = await page.locator('[data-role="evm-compare"]').innerText();
+      const cmp = await page.locator('[data-role="evm-compare"]').innerText().then(nb);
       assert(/Proyecto \(valor ganado\)/.test(cmp) && /Actividad vinculada/.test(cmp), 'comparación con el proyecto y la actividad');
       const ac = await page.evaluate(() => [...document.querySelectorAll('[data-role="evm-tiles"] .stat')].find((s) => /AC \(costo real\)/.test(s.innerText)).innerText);
       assert(/\$ 30 M/.test(ac), 'AC del release desde los costos reales: ' + ac);
       await page.locator('#ags-m-rel').selectOption('r2');
       await page.waitForFunction(() => /Release 2/.test(document.querySelector('[data-chart-card="burnup"] .h3').textContent));
-      assert(/Iteración 4|Iteración 5/.test(await page.locator('[data-chart-card="burndown"] .h3').innerText()), 'la iteración se ajusta al release');
+      assert(/Iteración 4|Iteración 5/.test(await page.locator('[data-chart-card="burndown"] .h3').innerText().then(nb)), 'la iteración se ajusta al release');
       eq(await errorCards(page), [], 'tarjetas de error');
     });
 
@@ -526,7 +533,7 @@ async function setRegistryState(page, pid, code, estado) {
       eq(await page.locator('[data-role="release-new"]').count(), 0, 'sin «Nuevo release»');
       eq(await page.getByRole('button', { name: 'Editar release' }).count(), 0, 'sin «Editar release»');
       eq(await page.locator('[data-role="sprint-add"]').count(), 0, 'sin «Agregar iteración»');
-      assert(/Solo lectura/.test(await page.locator('.page-head').innerText()), 'distintivo de solo lectura');
+      assert(/Solo lectura/.test(await page.locator('.page-head').innerText().then(nb)), 'distintivo de solo lectura');
       const capDisabled = await page.locator('[data-role="planner"] input.num').first().isDisabled();
       assert(capDisabled, 'capacidad deshabilitada');
       eq(await page.locator('[data-role="candidates"] button:has-text("Agregar")').count(), 0, 'sin botones para agregar');
@@ -536,7 +543,7 @@ async function setRegistryState(page, pid, code, estado) {
     await step('Kanban: las iteraciones son opcionales y se explica', async () => {
       await page.evaluate(async (pid) => { const a = PM.clone(await PM.store.get(PM.paths.tool(pid, 'agile'))); a.settings.framework = 'kanban'; await PM.store.set(PM.paths.tool(pid, 'agile'), a); }, pid);
       await page.waitForSelector('[data-role="kanban-note"]');
-      assert(/opcionales/.test(await page.locator('[data-role="kanban-note"]').innerText()), 'nota de Kanban');
+      assert(/opcionales/.test(await page.locator('[data-role="kanban-note"]').innerText().then(nb)), 'nota de Kanban');
     });
 
     await step('params.release selecciona el release indicado', async () => {
@@ -572,12 +579,12 @@ async function setRegistryState(page, pid, code, estado) {
       const labels = await page.$$eval('.nav-item', (els) => els.map((e) => e.textContent.trim()));
       assert(!labels.some((l) => /Releases e iteraciones|Métricas ágiles/.test(l)), 'no deben aparecer en el menú');
       await gotoView(page, 'iteraciones');
-      assert(/Herramientas ágiles no activas/.test(await page.locator('.view-host').innerText()), 'aviso de vista no disponible');
+      assert(/Herramientas ágiles no activas/.test(await page.locator('.view-host').innerText().then(nb)), 'aviso de vista no disponible');
       await page.getByRole('button', { name: 'Usar ciclo de vida híbrido' }).click();
       await page.waitForSelector('[data-view="iteraciones"]');
-      assert(/Aún no hay releases/.test(await page.locator('.view-host').innerText()), 'estado vacío útil');
+      assert(/Aún no hay releases/.test(await page.locator('.view-host').innerText().then(nb)), 'estado vacío útil');
       await gotoView(page, 'metricas-agiles');
-      assert(/Aún no hay datos para las métricas/.test(await page.locator('.view-host').innerText()), 'métricas vacías con explicación');
+      assert(/Aún no hay datos para las métricas/.test(await page.locator('.view-host').innerText().then(nb)), 'métricas vacías con explicación');
       eq(errors, [], 'errores de consola');
     });
   } finally { await browser.close(); }
@@ -655,7 +662,7 @@ for (const cfg of [{ tag: 'móvil 400 px', width: 400, height: 860 }, { tag: 'te
       const tIt = Date.now() - t0;
       assert(tIt < 2500, 'iteraciones: ' + tIt + ' ms');
       eq(await page.locator('[data-role="candidates"] tbody tr').count(), 60, 'candidatos limitados a 60 con «Mostrar»');
-      assert(/Mostrar los \d+ candidatos/.test(await page.locator('[data-role="candidates"]').innerText()), 'botón para mostrar todos');
+      assert(/Mostrar los \d+ candidatos/.test(await page.locator('[data-role="candidates"]').innerText().then(nb)), 'botón para mostrar todos');
       await page.fill('[data-role="candidates"] input[type="search"]', 'carga 15');
       const n = await page.locator('[data-role="candidates"] tbody tr').count();
       assert(n >= 1 && n <= 12, 'búsqueda de candidatos: ' + n);

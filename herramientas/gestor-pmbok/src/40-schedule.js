@@ -136,6 +136,15 @@ button.sched-day:hover { border-color: var(--line-strong); }
 .sched-yes { color: var(--crit); font-weight: 600; }
 .sched-tasklinks { display: flex; flex-wrap: wrap; gap: 2px 4px; }
 .sched-tasklinks .btn { padding: 0 5px; min-height: 22px; font-weight: 500; }
+.sched-rel { display: inline-flex; align-items: center; flex: none; color: var(--fg-2); }
+.sched-rel .icon { display: block; }
+.sched-agile-note { flex-wrap: wrap; }
+.sched-agile-note > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 240px; }
+.sched-agile-note strong { color: var(--fg); font-variant-numeric: tabular-nums; }
+.sched-agile-note .btn { align-self: flex-start; }
+.sched-iter { cursor: inherit; }
+.sched-iter-sw { display: inline-block; width: 18px; height: 12px; flex: none; }
+.sched-svg .sched-net-rel { color: var(--fg-2); }
 `;
   if (!document.getElementById('css-schedule')) {
     const st = document.createElement('style');
@@ -200,6 +209,38 @@ button.sched-day:hover { border-color: var(--line-strong); }
     : html`<span class="faint">No</span>`);
   const taskName = (t) => (t && String(t.name || '').trim()) || 'Actividad sin nombre';
   const resText = (rs) => (rs || []).filter((r) => r && String(r.name || '').trim()).map((r) => String(r.name).trim() + ' ×' + fmt.num(num(r.units), 2)).join('; ');
+  /* ---------------------------------------------------------------- capa ágil (SPEC §9.3, §9.4) */
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const arrOf = (x) => (Array.isArray(x) ? x : []);
+  const relName = (r) => (r && String(r.name || '').trim()) || 'Release sin nombre';
+  /* Vínculos actividad ↔ release (release.taskId o task.releaseId, con la misma precedencia que PM.agile.applyToSchedule),
+     iteraciones por release y avance de cada release (perezoso y memorizado por llamada). */
+  function agileLinks(agileData, tasks, items) {
+    const A = PM.agile;
+    const releases = arrOf(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
+    const relById = new Map(releases.map((r) => [r.id, r]));
+    const ids = new Set(arrOf(tasks).filter(isObj).map((t) => t.id));
+    const relByTask = new Map();
+    for (const r of releases) if (r.taskId && ids.has(r.taskId) && !relByTask.has(r.taskId)) relByTask.set(r.taskId, r);
+    for (const t of arrOf(tasks)) if (isObj(t) && t.releaseId && !relByTask.has(t.id) && relById.has(t.releaseId)) relByTask.set(t.id, relById.get(t.releaseId));
+    const taskByRel = new Map();
+    for (const [tid, r] of relByTask) if (!taskByRel.has(r.id)) taskByRel.set(r.id, tid);
+    const settings = A ? A.settings(agileData) : null;
+    const spr = new Map(), prog = new Map();
+    const sprintsOf = (rid) => { if (!spr.has(rid)) spr.set(rid, PM.calc.sprintsOfRelease ? PM.calc.sprintsOfRelease(arrOf(agileData && agileData.sprints), rid) : []); return spr.get(rid); };
+    const progressOf = (r) => { if (!prog.has(r.id)) prog.set(r.id, A && PM.calc.releaseProgress ? PM.calc.releaseProgress({ release: r, items: arrOf(items), settings }) : { total: 0, done: 0, remaining: 0, pct: 0, count: 0 }); return prog.get(r.id); };
+    return { releases, relById, relByTask, taskByRel, sprintsOf, progressOf, settings, unit: A ? A.unitShort(settings) : 'pts', any: relByTask.size > 0 };
+  }
+  /* Referencia estable a los datos ágiles más recientes (para el editor de actividad, que se abre en un modal). */
+  function useAgileRef(m) {
+    const ref = useRef(null);
+    ref.current = { agile: m.agile, saveAgile: m.saveAgile, items: m.agileItems || [], agileOn: !!m.agileOn };
+    return ref;
+  }
+  const RelIcon = ({ r, derived }) => html`<span class="sched-rel" data-release=${r.id}><${ui.Icon} name="release" size=${12} title=${'Release vinculado: ' + relName(r) + (derived ? '. Avance calculado desde el backlog.' : '. Aún sin elementos estimados: el avance se registra en el cronograma.')} /></span>`;
+  const DERIVED_TITLE = (r) => 'Avance calculado desde el backlog del release «' + relName(r) + '». Se actualiza al terminar elementos del backlog; no se edita en el cronograma.';
+  const goRelease = (rid) => { if (PM.getView('iteraciones')) PM.navigate('iteraciones', { release: rid }); else PM.toast('La vista «Releases e iteraciones» no está disponible en esta página.'); };
+
   const newTask = (p = {}) => ({ id: PM.uid('t'), name: 'Nueva actividad', wbsId: null, duration: 5, milestone: false, start: null, deps: [], progress: 0, cost: 0, resources: [], responsible: '', actualStart: null, actualFinish: null, notes: '', ...p });
 
   /* Variación en días hábiles entre la fecha actual y la de línea base (+ = atraso). */
@@ -419,7 +460,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     PM.toast(add.length === 1 ? 'Se creó 1 actividad desde la EDT. Ajusta su duración y dependencias.' : 'Se crearon ' + add.length + ' actividades desde la EDT. Ajusta duraciones y dependencias.');
     return add.length;
   }
-  const editorCtx = (m, w, canWrite) => ({ w, sched: m.sched, tree: m.tree, currency: m.currency, canWrite, projectStart: m.project ? m.project.start : null });
+  const editorCtx = (m, w, canWrite, agileRef) => ({ w, sched: m.sched, tree: m.tree, currency: m.currency, canWrite, projectStart: m.project ? m.project.start : null, agileRef: agileRef || null });
   function openTaskEditor(ctx, taskId) {
     PM.openModal((close) => html`<${TaskEditor} ctx=${ctx} taskId=${taskId} close=${close} />`);
   }
@@ -439,8 +480,30 @@ button.sched-day:hover { border-color: var(--line-strong); }
     } : null));
     const [error, setError] = useState(null);
     const resNames = useMemo(() => [...new Set(liveTasks.flatMap((t) => (t.resources || []).map((r) => String(r.name || '').trim()).filter(Boolean)))].sort(), []);
+    /* capa ágil: release vinculado (task.releaseId o release.taskId) y avance calculado desde su backlog */
+    const ag0 = ctx.agileRef ? ctx.agileRef.current : null;
+    const links = useMemo(() => agileLinks(ag0 && ag0.agile, liveTasks, ag0 && ag0.items), []);
+    const curRel = links.relByTask.get(taskId) || null;
+    const [relSel, setRelSel] = useState(() => (curRel ? curRel.id : ''));
     if (!d) return html`<${ui.Modal} title="Actividad no encontrada" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}><p>La actividad ya no existe; puede que otra persona la haya eliminado.</p></${ui.Modal}>`;
     const comp = sched.byId.get(taskId);
+    const staleRel = !!(orig.releaseId && !links.relById.has(orig.releaseId));
+    const showRel = !!((ag0 && ag0.agileOn) || curRel || orig.releaseId);
+    const selRel = relSel ? links.relById.get(relSel) || null : null;
+    const selProg = selRel ? links.progressOf(selRel) : null;
+    const derived = !!(selProg && selProg.total > 0);
+    const sameLink = !!(selRel && curRel && selRel.id === curRel.id);
+    /* vista previa con la misma regla del núcleo (PM.agile.applyToSchedule) aplicada a lo guardado */
+    const preview = derived && PM.agile ? (PM.agile.applyToSchedule({ settings: {}, tasks: [{ ...orig, releaseId: selRel.id }] }, { ...((ag0 && ag0.agile) || {}), releases: [{ ...selRel, taskId }] }, (ag0 && ag0.items) || []).tasks[0] || null) : null;
+    const otherTaskId = selRel ? links.taskByRel.get(selRel.id) : null;
+    const otherTask = otherTaskId && otherTaskId !== taskId ? liveTasks.find((t) => t.id === otherTaskId) : null;
+    const relOptions = links.releases.map((r) => { const tid = links.taskByRel.get(r.id); const other = tid && tid !== taskId ? liveTasks.find((t) => t.id === tid) : null; return { value: r.id, label: relName(r) + (other ? ' (vinculado a «' + taskName(other) + '»)' : '') }; });
+    const onRel = (v) => {
+      setRelSel(v || ''); setError(null);
+      /* al desvincular una actividad calculada desde el backlog se conserva el último avance calculado como punto de partida */
+      if (!v && comp && comp.agileDerived) setD((x) => ({ ...x, progress: Math.round(num(comp.progress)), actualStart: comp.actualStart || x.actualStart || null, actualFinish: comp.actualFinish || null }));
+    };
+    const hasIter = !!PM.getView('iteraciones');
     const set = (k) => (v) => { setD((x) => ({ ...x, [k]: v })); setError(null); };
     const setDep = (i, patch) => setD((x) => ({ ...x, deps: x.deps.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
     const setRes = (i, patch) => setD((x) => ({ ...x, resources: x.resources.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
@@ -465,14 +528,40 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const resources = d.resources.filter((r) => String(r.name || '').trim()).map((r) => ({ name: String(r.name).trim(), units: Math.max(0, num(r.units, 1)) }));
       const base = (cur.tasks || []).find((t) => t.id === taskId);
       if (!base) { close(); PM.toast('La actividad ya no existe.', { tone: 'crit' }); return; }
+      /* con avance calculado desde el backlog se conservan el avance y las fechas reales guardados (no se editan) */
       const next = {
         ...base, name, wbsId: d.wbsId || null, duration: dur, milestone, start: D.valid(d.start) ? d.start : null, deps,
-        progress: PM.clamp(Math.round(num(d.progress)), 0, 100), cost: Math.max(0, num(d.cost)), resources,
-        responsible: String(d.responsible || '').trim(), actualStart: D.valid(d.actualStart) ? d.actualStart : null,
-        actualFinish: D.valid(d.actualFinish) ? d.actualFinish : null, notes: d.notes || '',
+        progress: derived ? base.progress : PM.clamp(Math.round(num(d.progress)), 0, 100), cost: Math.max(0, num(d.cost)), resources,
+        responsible: String(d.responsible || '').trim(), actualStart: derived ? base.actualStart || null : D.valid(d.actualStart) ? d.actualStart : null,
+        actualFinish: derived ? base.actualFinish || null : D.valid(d.actualFinish) ? d.actualFinish : null, notes: d.notes || '',
       };
-      w.save({ ...cur, settings: { ...(cur.settings || {}) }, tasks: (cur.tasks || []).map((t) => (t.id === taskId ? next : t)) });
+      const newRel = relSel || null;
+      const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel;
+      let tasks = (cur.tasks || []).map((t) => (t.id === taskId ? next : t));
+      let movedFrom = null;
+      if (linkChanged) {
+        next.releaseId = newRel;
+        /* un release se representa con una sola actividad: las demás pierden el vínculo */
+        if (newRel) tasks = tasks.map((t) => { if (t && t.id !== taskId && t.releaseId === newRel) { movedFrom = movedFrom || t; return { ...t, releaseId: null }; } return t; });
+      }
+      w.save({ ...cur, settings: { ...(cur.settings || {}) }, tasks });
+      if (linkChanged && ctx.agileRef && ctx.agileRef.current && ctx.agileRef.current.saveAgile) {
+        const live2 = ctx.agileRef.current; const data = live2.agile || {};
+        let changed = false;
+        const releases = arrOf(data.releases).map((r) => {
+          if (!isObj(r) || !r.id) return r;
+          if (r.id !== newRel && r.taskId === taskId) { changed = true; return { ...r, taskId: null }; }
+          if (newRel && r.id === newRel && r.taskId && r.taskId !== taskId) { changed = true; movedFrom = movedFrom || (cur.tasks || []).find((t) => t.id === r.taskId) || null; return { ...r, taskId }; }
+          return r;
+        });
+        if (changed) live2.saveAgile({ ...data, releases });
+      }
       close();
+      if (linkChanged) {
+        const relNew = newRel ? links.relById.get(newRel) : null;
+        if (relNew) PM.toast('«' + name + '» representa ahora el release «' + relName(relNew) + '»' + (links.progressOf(relNew).total > 0 ? ': su avance se calcula desde el backlog.' : '. Cuando el release tenga elementos estimados, su avance se calculará desde el backlog.') + (movedFrom ? ' Se quitó el vínculo de «' + taskName(movedFrom) + '».' : ''), { timeout: 7000 });
+        else if (curRel) PM.toast('«' + name + '» ya no representa el release «' + relName(curRel) + '»: su avance vuelve a registrarse en el cronograma.', { timeout: 7000 });
+      }
       if (next.start && next.start !== base.start) explainStart(w.get(), ctx.projectStart, taskId, next.start);
     };
     const remove = async () => { const ok = await deleteTaskFlow(w, sched, taskId); if (ok) close(); };
@@ -486,6 +575,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
       <div class="grid cols-2">
         <${ui.Field} label="Nombre" required for="te-name" class="span-all"><${ui.Input} id="te-name" value=${d.name} onValue=${set('name')} disabled=${ro} autoFocus=${!ro} /></${ui.Field}>
         <${ui.Field} label="Paquete de la EDT" for="te-wbs"><${ui.Select} id="te-wbs" value=${d.wbsId || ''} onValue=${(v) => set('wbsId')(v || null)} placeholder="Sin paquete de la EDT" options=${wbsOptions} disabled=${ro} /></${ui.Field}>
+        ${showRel ? html`<${ui.Field} label="Release vinculado" for="te-rel" hint=${!selRel
+            ? (staleRel ? 'El release vinculado ya no existe; al guardar se quita el vínculo.' : links.releases.length ? 'Vincula la actividad que representa un release: su avance se calculará desde el backlog.' : 'Aún no hay releases. Créalos en Releases e iteraciones.')
+            : (otherTask ? 'Al guardar se quita el vínculo de «' + taskName(otherTask) + '»: un release se representa con una sola actividad. ' : '') + (derived ? 'El avance y las fechas reales se calculan desde el backlog del release.' : 'El release aún no tiene elementos estimados: mientras tanto, el avance se registra aquí.')}>
+          <${ui.Select} id="te-rel" value=${relSel} onValue=${onRel} placeholder="Sin release" options=${relOptions} disabled=${ro} />
+        </${ui.Field}>` : null}
         <${ui.Field} label="Responsable" for="te-resp"><${ui.Input} id="te-resp" value=${d.responsible || ''} onValue=${set('responsible')} disabled=${ro} placeholder="Rol o persona" /></${ui.Field}>
         <${ui.Field} label="Duración (días hábiles)" for="te-dur" hint="0 convierte la actividad en hito.">
           <div class="row" style="flex-wrap:nowrap">
@@ -494,11 +588,16 @@ button.sched-day:hover { border-color: var(--line-strong); }
           </div>
         </${ui.Field}>
         <${ui.Field} label="No comenzar antes de" for="te-start" hint="Restricción de fecha. Déjala vacía para que manden las dependencias."><${ui.DateInput} id="te-start" value=${d.start} onValue=${set('start')} disabled=${ro} /></${ui.Field}>
-        <${ui.Field} label="% de avance" for="te-pct"><${ui.NumberInput} id="te-pct" value=${d.progress} min=${0} max=${100} onValue=${set('progress')} disabled=${ro} /></${ui.Field}>
+        <${ui.Field} label="% de avance" for="te-pct" hint=${derived ? 'Calculado desde el backlog del release; no se edita aquí.' : undefined}><${ui.NumberInput} id="te-pct" value=${derived && preview ? preview.progress : d.progress} min=${0} max=${100} onValue=${set('progress')} disabled=${ro || derived} title=${derived ? DERIVED_TITLE(selRel) : undefined} /></${ui.Field}>
         <${ui.Field} label=${'Costo presupuestado (' + currency + ')'} for="te-cost"><${ui.NumberInput} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
-        <${ui.Field} label="Inicio real" for="te-as"><${ui.DateInput} id="te-as" value=${d.actualStart} onValue=${set('actualStart')} disabled=${ro} /></${ui.Field}>
-        <${ui.Field} label="Fin real" for="te-af" hint="Con avance 100 % fija la fecha de terminación."><${ui.DateInput} id="te-af" value=${d.actualFinish} onValue=${set('actualFinish')} disabled=${ro} /></${ui.Field}>
+        <${ui.Field} label="Inicio real" for="te-as" hint=${derived ? 'Inicio de la primera iteración iniciada del release.' : undefined}><${ui.DateInput} id="te-as" value=${derived && preview ? preview.actualStart : d.actualStart} onValue=${set('actualStart')} disabled=${ro || derived} /></${ui.Field}>
+        <${ui.Field} label="Fin real" for="te-af" hint=${derived ? 'Última terminación del backlog del release al llegar al 100 %.' : 'Con avance 100 % fija la fecha de terminación.'}><${ui.DateInput} id="te-af" value=${derived && preview ? preview.actualFinish : d.actualFinish} onValue=${set('actualFinish')} disabled=${ro || derived} /></${ui.Field}>
       </div>
+      ${derived && preview ? html`<div class="sched-note sched-agile-note" data-agile-note role="note"><${ui.Icon} name="release" size=${15} /><div>
+        <span>Avance calculado desde el backlog del release «${relName(selRel)}»: <strong>${fmt.num(preview.progress, 1)} %</strong> (${fmt.num(selProg.done, 1)} de ${fmt.num(selProg.total, 1)} ${links.unit} terminados).</span>
+        <span class="xsmall">El avance, el inicio real y el fin real de esta actividad se toman de las iteraciones y entran así a la ruta crítica, la curva S y el valor ganado.${sameLink ? '' : ' Se aplica al guardar.'}</span>
+        ${hasIter ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => { close(); goRelease(selRel.id); }}>Ver release en Releases e iteraciones</${ui.Button}>` : null}
+      </div></div>` : null}
       <div class="stack-sm">
         <div class="h4">Predecesoras</div>
         ${d.deps.length ? html`<div class="sched-sub">
@@ -662,7 +761,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const hi = Math.max(lo, L.x(L.end || sched.finish) + L.ppd + 40 - visW);
     return PM.clamp(st.x - visW / 3, lo, hi);
   }
-  function TaskTip({ t, code, bl, cal, currency, fc }) {
+  function TaskTip({ t, code, bl, cal, currency, fc, rel }) {
     const v = bl ? wdVar(cal, t.finishDate, bl.finish || bl.start) : null;
     const fv = fc ? wdVar(cal, fc.finishDate, t.finishDate) : null;
     return html`<div>
@@ -673,16 +772,18 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ${fc && fc.remaining ? html`<span>Duración restante</span><span>${daysTxt(fc.remaining)} hábiles desde el corte</span>` : null}
         ${t.milestone ? null : html`<span>Duración</span><span>${daysTxt(t.duration)} hábiles</span>`}
         <span>Holgura total / libre</span><span>${fmt.num(t.tf)} / ${fmt.num(t.ff)} d</span>
-        <span>Avance</span><span>${fmt.num(t.progress)} %</span>
+        <span>Avance</span><span>${fmt.num(t.progress, t.agileDerived ? 1 : 0)} %${t.agileDerived ? ' (desde el backlog)' : ''}</span>
         <span>Costo</span><span>${fmt.money(t.cost, currency)}</span>
         ${code ? html`<span>EDT</span><span>${code}</span>` : null}
+        ${rel ? html`<span>Release</span><span data-tip="release">${relName(rel.r)}</span>` : null}
+        ${rel && rel.sprints.length ? html`<span>Iteraciones</span><span>${rel.sprints.slice(0, 4).map((x) => (x.name || 'Iteración') + (D.valid(x.start) ? ' (' + fmt.date(x.start, 'dm') + ')' : '')).join(', ')}${rel.sprints.length > 4 ? ' y ' + (rel.sprints.length - 4) + ' más' : ''}</span>` : null}
         ${bl ? html`<span>Fin línea base</span><span>${fmt.date(bl.finish || bl.start)}</span><span>Variación</span><span style=${v > 0 ? 'color:var(--crit)' : v < 0 ? 'color:var(--good)' : ''}>${varTxt(v)}${v > 0 ? ' (atraso)' : v < 0 ? ' (adelanto)' : ''}</span>` : null}
         ${t.critical ? html`<span>Ruta crítica</span><span style="color:var(--crit)">Sí</span>` : null}
       </div>
     </div>`;
   }
   /* CSV del cronograma calculado. */
-  function scheduleCsv(sched, tree, currency) {
+  function scheduleCsv(sched, tree, currency, links) {
     const idx = new Map(sched.tasks.map((t, i) => [t.id, i]));
     const cols = [
       { key: 'n', label: '#' }, { key: 'code', label: 'EDT' }, { key: 'name', label: 'Actividad' }, { key: 'tipo', label: 'Tipo' },
@@ -690,12 +791,14 @@ button.sched-day:hover { border-color: var(--line-strong); }
       { key: 'il', label: 'Inicio tardío' }, { key: 'tl', label: 'Fin tardío' }, { key: 'ht', label: 'Holgura total' }, { key: 'hl', label: 'Holgura libre' },
       { key: 'crit', label: 'Crítica' }, { key: 'pred', label: 'Predecesoras' }, { key: 'rest', label: 'No comenzar antes de' }, { key: 'pct', label: '% avance' },
       { key: 'ar', label: 'Inicio real' }, { key: 'fr', label: 'Fin real' }, { key: 'cost', label: 'Costo (' + currency + ')' }, { key: 'resp', label: 'Responsable' }, { key: 'rec', label: 'Recursos' },
+      ...(links && links.any ? [{ key: 'rel', label: 'Release vinculado' }, { key: 'agil', label: 'Avance desde el backlog' }] : []),
     ];
     const rows = sched.tasks.map((t, i) => ({
       n: i + 1, code: (t.wbsId && tree.codes.get(t.wbsId)) || '', name: taskName(t), tipo: t.milestone ? 'Hito' : 'Actividad', dur: t.duration,
       ini: fmt.date(t.startDate, 'short'), fin: fmt.date(t.finishDate, 'short'), il: fmt.date(t.lateStart, 'short'), tl: fmt.date(t.lateFinish, 'short'),
       ht: t.tf, hl: t.ff, crit: !!t.critical, pred: depsToText(t.deps, idx), rest: t.start ? fmt.date(t.start, 'short') : '', pct: t.progress,
       ar: t.actualStart ? fmt.date(t.actualStart, 'short') : '', fr: t.actualFinish ? fmt.date(t.actualFinish, 'short') : '', cost: num(t.cost), resp: t.responsible || '', rec: resText(t.resources),
+      ...(links && links.any ? { rel: links.relByTask.has(t.id) ? relName(links.relByTask.get(t.id)) : '', agil: !!t.agileDerived } : {}),
     }));
     return PM.toCSV(cols, rows);
   }
@@ -747,6 +850,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const gridTemplate = cols.map((k) => colW(k) + 'px').join(' ');
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
     const rows = useMemo(() => buildRows(sched, tree, rollup, group, collapsed), [sched, tree, rollup, group, collapsed]);
+    const links = useMemo(() => agileLinks(m.agile, m.schedule.tasks, m.agileItems), [m.agile, m.schedule, m.agileItems]);
+    const relTip = (t) => { const r = links.relByTask.get(t.id); return r ? { r, sprints: links.sprintsOf(r.id) } : null; };
     const today = D.today();
     const fcById = showFc ? fcMoved : null;
     const L = useMemo(() => ganttLayout({ sched, rows, zoom, frameW, gridW, blById, blRange: blSched, showBase, showDeps, showCrit, labelMode, projectStart: project.start, statusDate, today, fcById, fcFinish: forecast.finish }),
@@ -804,7 +909,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       w.setTasks((ts) => { const a = ts.slice(); const i = a.findIndex((t) => t.id === selTask.id), j = a.findIndex((t) => t.id === nb.id); if (i < 0 || j < 0) return a; const tmp = a[i]; a[i] = a[j]; a[j] = tmp; return a; });
     };
     const toggleGroup = (id) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-    const exportCsv = () => PM.download(fileBase(project) + '_cronograma.csv', scheduleCsv(sched, tree, currency));
+    const exportCsv = () => PM.download(fileBase(project) + '_cronograma.csv', scheduleCsv(sched, tree, currency, links));
     const exportSvg = () => {
       const head = headSvgRef.current, body = bodySvgRef.current; if (!head || !body) return;
       const NS = 'http://www.w3.org/2000/svg'; const LW = 320; const W = LW + L.width; const Ht = HEAD_H + Math.max(1, rows.length) * ROW_H + 30;
@@ -824,7 +929,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const b2 = body.cloneNode(true); b2.setAttribute('x', LW); b2.setAttribute('y', HEAD_H);
       b2.querySelectorAll('.sched-selrect, .sched-dragtip, .sched-hit, .sched-handle').forEach((el) => el.remove());
       svg.appendChild(h2); svg.appendChild(b2);
-      svg.appendChild(mk('text', { x: 8, y: Ht - 10, class: 'sched-faint' }, 'Cronograma generado el ' + fmt.date(D.today(), 'long') + ' · fecha de corte ' + fmt.date(statusDate) + (showCrit ? ' · ruta crítica en rojo' : '') + (showBase ? ' · línea base en gris' : '') + (showFc ? ' · pronóstico al corte con trama' : '')));
+      svg.appendChild(mk('text', { x: 8, y: Ht - 10, class: 'sched-faint' }, 'Cronograma generado el ' + fmt.date(D.today(), 'long') + ' · fecha de corte ' + fmt.date(statusDate) + (showCrit ? ' · ruta crítica en rojo' : '') + (showBase ? ' · línea base en gris' : '') + (showFc ? ' · pronóstico al corte con trama' : '') + (links.any ? ' · triángulos: inicio de las iteraciones del release vinculado' : '')));
       const holder = document.createElement('div');
       holder.style.cssText = 'position:absolute;left:-100000px;top:0;width:10px;height:10px;overflow:hidden';
       holder.appendChild(svg); document.body.appendChild(holder);
@@ -834,7 +939,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     };
 
     /* tooltip */
-    const showTip = (e, t) => { if (tipApi.current) tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? tree.codes.get(t.wbsId) : ''} bl=${blById ? blById.get(t.id) : null} cal=${sched.cal} currency=${currency} fc=${fcMoved.get(t.id) || null} />`); };
+    const showTip = (e, t) => { if (tipApi.current) tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? tree.codes.get(t.wbsId) : ''} bl=${blById ? blById.get(t.id) : null} cal=${sched.cal} currency=${currency} fc=${fcMoved.get(t.id) || null} rel=${relTip(t)} />`); };
     const hideTip = () => { if (tipApi.current) tipApi.current.hide(); };
     const showSumTip = (e, r) => {
       if (!tipApi.current || drag.current) return;
@@ -894,6 +999,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const commitDrag = (t, mode, steps) => {
       const cal = sched.cal;
       if (mode === 'move') {
+        if (D.valid(t.actualStart) && t.agileDerived) { PM.toast('«' + taskName(t) + '» ya inició (' + fmt.date(t.actualStart) + '): su inicio real se calcula desde las iteraciones del release vinculado y no se puede mover.', { timeout: 7000 }); return; }
         if (D.valid(t.actualStart)) { PM.toast('«' + taskName(t) + '» tiene inicio real (' + fmt.date(t.actualStart) + ') y no se puede mover. Cambia el inicio real en el editor de la actividad.', { timeout: 7000 }); return; }
         let ns = D.add(t.startDate, steps); if (!cal.isWork(ns)) ns = cal.dateOf(cal.indexOf(ns));
         if (ns === t.startDate) return; /* al ajustar al día hábil no se movió: no crea una restricción */
@@ -950,6 +1056,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       else if (k === 'code') c = html`<div class="sched-ro sched-mono">${(t.wbsId && tree.codes.get(t.wbsId)) || '—'}</div>`;
       else if (k === 'name') c = html`<div class="sched-name" style=${'padding-left:' + (r.depth * (colSet === 'compact' ? 7 : 12)) + 'px'}>
           ${t.milestone ? html`<${ui.Icon} name="milestone" size=${11} class="sched-ms-ico" title="Hito" />` : null}
+          ${links.relByTask.has(t.id) ? html`<${RelIcon} r=${links.relByTask.get(t.id)} derived=${!!t.agileDerived} />` : null}
           <${EditCell} value=${t.name || ''} display=${taskName(t)} validate=${V.name} label=${'Nombre, fila ' + r.num} readOnly=${ro} auto=${autoEdit && autoEdit.id === t.id ? autoEdit.n : null} title=${taskName(t)} onCommit=${(v) => w.updateTask(t.id, { name: v })} />
         </div>`;
       else if (k === 'dur') c = html`<${EditCell} value=${String(t.duration)} display=${fmt.num(t.duration) + ' d'} validate=${V.dur} inputMode="numeric" align="right" label=${'Duración en días hábiles, fila ' + r.num} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { duration: v, milestone: v === 0 })} />`;
@@ -958,7 +1065,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
           title=${t.start ? 'Restricción: no comenzar antes del ' + fmt.date(t.start) + '. Borra la fecha para quitarla.' : 'Escribe una fecha para fijar la restricción «No comenzar antes de».'}
           onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} />`;
       else if (k === 'finish') c = html`<div class="sched-ro sched-mono">${fd(t.finishDate)}</div>`;
-      else if (k === 'pct') c = html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} inputMode="decimal" align="right" label=${'% de avance, fila ' + r.num} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`;
+      else if (k === 'pct') c = t.agileDerived
+        ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + r.num} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} icon=${html`<${ui.Icon} name="release" size=${10} />`} />`
+        : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} inputMode="decimal" align="right" label=${'% de avance, fila ' + r.num} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`;
       else if (k === 'pred') c = html`<${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + r.num} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} />`;
       return html`<div key=${k} data-col=${k}>${c}</div>`;
     };
@@ -997,15 +1106,34 @@ button.sched-day:hover { border-color: var(--line-strong); }
           ${label(g)}
         </g>`;
       const wd = Math.max(2, g.x1 - g.x0); const pw = (wd * PM.clamp(t.progress, 0, 100)) / 100;
-      return html`<g key=${t.id} ...${common}>
+      const ticks = iterTicks(t, g);
+      return html`<g key=${t.id} ...${common} data-release=${ticks ? ticks.rid : undefined}>
           <rect class="sched-hit" x=${g.x0 - 2} y=${g.top + 3} width=${wd + 4} height="19" fill="transparent" />
           ${g.fc ? html`<rect class="sched-bar-under" x=${g.x0} y=${g.top + 6} width=${wd} height="13" rx="3" fill="var(--surface)" />` : null}
           <rect class="sched-bar-main" x=${g.x0} y=${g.top + 6} width=${wd} height="13" rx="3" fill=${color} fill-opacity="0.28" stroke=${color} stroke-opacity="0.75" stroke-width="1" />
           ${pw > 0 ? html`<rect class="sched-bar-prog" x=${g.x0} y=${g.top + 6} width=${pw} height="13" rx="3" fill=${color} />` : null}
+          ${ticks ? ticks.list.map((k) => html`<g key=${'it' + k.s.id} class="sched-iter" data-sprint=${k.s.id}><title>${k.title}</title>
+              <rect x=${k.x - 4} y=${g.top} width="8" height="7" fill="transparent" />
+              ${k.x > g.x0 + 1.5 ? html`<line x1=${k.x} x2=${k.x} y1=${g.top + 6.5} y2=${g.top + 18.5} stroke="var(--surface)" stroke-width="2" />` : null}
+              <path d=${'M' + (k.x - 3.5) + ',' + (g.top + 0.5) + 'H' + (k.x + 3.5) + 'L' + k.x + ',' + (g.top + 5) + 'Z'} fill="var(--fg-2)" />
+            </g>`) : null}
           ${canWrite ? html`<rect class="sched-handle" x=${g.x1 - 5} y=${g.top + 3} width="10" height="19" fill="transparent" />` : null}
           ${label(g)}
         </g>`;
     };
+    /* Iteraciones del release vinculado: marca en la fecha de inicio de cada iteración que cae dentro de la barra
+       (separador dentro de la barra y triángulo encima; título con el nombre y las fechas de la iteración). */
+    function iterTicks(t, g) {
+      const r = links.relByTask.get(t.id); if (!r) return null;
+      const list = [];
+      for (const s of links.sprintsOf(r.id)) {
+        if (!D.valid(s.start)) continue;
+        const x = L.x(s.start);
+        if (x < g.x0 - 0.5 || x > g.x1 - 2) continue;
+        list.push({ s, x, title: (s.name || 'Iteración') + ' · ' + (D.valid(s.end) ? rangeTxt(s.start, s.end) : fmt.date(s.start)) + ' · ' + relName(r) });
+      }
+      return list.length ? { rid: r.id, list } : null;
+    }
     /* Pronóstico al corte: barra (o rombo) con trama y contorno discontinuo en --signal, detrás de la barra planificada. */
     const renderFc = (g) => {
       if (!g.fc) return null;
@@ -1096,6 +1224,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ${group ? html`<span class="legend-item">${sw('background:var(--fg-2);height:5px')}Resumen de la EDT</span>` : null}
         ${showBase ? html`<span class="legend-item">${sw('background:var(--fg-3);height:4px')}Línea base ${baselines.schedule.label || ''}</span>` : null}
         ${showFc ? html`<span class="legend-item" data-legend="forecast"><span class="swatch sched-fc-swatch"></span>Pronóstico al corte</span>` : null}
+        ${links.any ? html`<span class="legend-item" data-legend="release"><${ui.Icon} name="release" size=${12} />Release vinculado (avance desde el backlog)</span>
+          <span class="legend-item" data-legend="iteration"><svg class="sched-iter-sw" viewBox="0 0 18 12" aria-hidden="true"><rect x="0.5" y="4.5" width="17" height="7" rx="2" fill="var(--accent)" fill-opacity="0.28" stroke="var(--accent)" stroke-opacity="0.75" /><line x1="9" x2="9" y1="5" y2="11" stroke="var(--surface)" stroke-width="2" /><path d="M5.5,0.5H12.5L9,4Z" fill="var(--fg-2)" /></svg>Inicio de iteración</span>` : null}
         <span class="legend-item"><span class="legend-line" style="background:var(--signal)"></span>Fecha de corte / hoy</span>
         ${colSet === 'full' ? html`<span class="legend-item"><span class="sched-pin"></span>Restricción «No comenzar antes de»</span>` : null}
         ${zoom !== 'mes' ? html`<span class="legend-item">${sw('background:var(--surface-3);border:1px solid var(--line)')}No laborable</span><span class="legend-item">${sw('background:var(--signal-wash);border:1px solid var(--line)')}Festivo</span>` : null}
@@ -1148,6 +1278,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
   function ActivitiesTab({ m, w, canWrite, sel, setSel, edit, focus, onFocused }) {
     const { sched, tree, currency, project } = m;
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
+    const links = useMemo(() => agileLinks(m.agile, m.schedule.tasks, m.agileItems), [m.agile, m.schedule, m.agileItems]);
     const tblRef = useRef();
     useLayoutEffect(() => {
       if (!focus) return;
@@ -1161,7 +1292,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const via = cycleVia(w.get().tasks || [], id, r.deps);
       return via ? { error: 'Crearía una dependencia circular con la fila ' + ((idxById.get(via) ?? -1) + 1) + '.' } : { value: r.deps };
     };
-    const exportCsv = () => PM.download(fileBase(project) + '_actividades.csv', scheduleCsv(sched, tree, currency));
+    const exportCsv = () => PM.download(fileBase(project) + '_actividades.csv', scheduleCsv(sched, tree, currency, links));
     if (!sched.tasks.length) {
       const add = () => { const t = newTask(); w.setTasks((ts) => [...ts, t]); setSel(t.id); edit(t.id); };
       return html`<${ui.Empty} icon="table" title="Aún no hay actividades" actions=${canWrite ? html`
@@ -1186,7 +1317,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
             ${sched.tasks.map((t, i) => html`<tr key=${t.id} data-id=${t.id} class=${sel === t.id ? 'is-sel' : ''} onClick=${() => setSel(t.id)} onDblClick=${(e) => { if (e.target.closest && e.target.closest('button, input')) return; edit(t.id); }}>
               <td class="num faint">${i + 1}</td>
               <td class="mono xsmall">${(t.wbsId && tree.codes.get(t.wbsId)) || '—'}</td>
-              <td class="edit" style="min-width:220px"><div class="sched-name">${t.milestone ? html`<${ui.Icon} name="milestone" size=${11} class="sched-ms-ico" />` : null}<${EditCell} value=${t.name || ''} display=${taskName(t)} validate=${V.name} label=${'Nombre, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { name: v })} /></div></td>
+              <td class="edit" style="min-width:220px"><div class="sched-name">${t.milestone ? html`<${ui.Icon} name="milestone" size=${11} class="sched-ms-ico" />` : null}${links.relByTask.has(t.id) ? html`<${RelIcon} r=${links.relByTask.get(t.id)} derived=${!!t.agileDerived} />` : null}<${EditCell} value=${t.name || ''} display=${taskName(t)} validate=${V.name} label=${'Nombre, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { name: v })} /></div></td>
               <td class="edit" style="min-width:64px"><${EditCell} value=${String(t.duration)} display=${fmt.num(t.duration)} validate=${V.dur} align="right" label=${'Duración, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { duration: v, milestone: v === 0 })} /></td>
               <td class="mono xsmall">${fmt.date(t.startDate, 'short')}</td>
               <td class="mono xsmall">${fmt.date(t.finishDate, 'short')}</td>
@@ -1197,9 +1328,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
               <td>${critCell(t)}</td>
               <td class="edit" style="min-width:110px"><${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + (i + 1)} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} /></td>
               <td class="edit" style="min-width:120px"><${EditCell} kind="date" cls="sched-mono" value=${t.start || ''} display=${t.start ? fmt.date(t.start, 'short') : '—'} validate=${V.date} label=${'No comenzar antes de, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => { w.updateTask(t.id, { start: v }); if (v) explainStart(w.get(), project.start, t.id, v); }} /></td>
-              <td class="edit" style="min-width:70px"><${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} /></td>
-              <td class="mono xsmall">${t.actualStart ? fmt.date(t.actualStart, 'short') : '—'}</td>
-              <td class="mono xsmall">${t.actualFinish ? fmt.date(t.actualFinish, 'short') : '—'}</td>
+              <td class="edit" style="min-width:70px">${t.agileDerived
+                ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} icon=${html`<${ui.Icon} name="release" size=${10} />`} />`
+                : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`}</td>
+              <td class="mono xsmall" title=${t.agileDerived && t.actualStart ? 'Inicio de la primera iteración iniciada del release' : undefined}>${t.actualStart ? fmt.date(t.actualStart, 'short') : '—'}</td>
+              <td class="mono xsmall" title=${t.agileDerived && t.actualFinish ? 'Última terminación del backlog del release' : undefined}>${t.actualFinish ? fmt.date(t.actualFinish, 'short') : '—'}</td>
               <td class="edit" style="min-width:120px"><${EditCell} value=${String(num(t.cost))} display=${fmt.money(t.cost, currency)} validate=${V.money} align="right" inputMode="decimal" label=${'Costo, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { cost: v })} /></td>
               <td class="edit" style="min-width:140px"><${EditCell} value=${t.responsible || ''} display=${t.responsible || '—'} validate=${V.text} label=${'Responsable, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { responsible: v })} /></td>
               <td class="wrap xsmall">${resText(t.resources) || html`<span class="faint">—</span>`}</td>
@@ -1352,7 +1485,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [tab, setTab] = usePref('sched.tab', 'gantt');
     const [sel, setSel] = useState(null);
     const [focus, setFocus] = useState(null);
-    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite);
+    const agileRef = useAgileRef(m);
+    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite, agileRef);
     const edit = useCallback((id) => openTaskEditor(ctxRef.current, id), []);
     const onFocused = useCallback(() => setFocus(null), []);
     /* params.taskId (enlace «Ver en el cronograma»): selecciona la actividad y la lleva a la vista. */
@@ -1526,12 +1660,14 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const svgRef = useRef(); const hostRef = useRef(); const tipApi = useRef(null);
     const [measureHost, hostW] = useWidth();
     const setHost = useCallback((el) => { hostRef.current = el; measureHost(el); }, [measureHost]);
-    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite);
+    const agileRef = useAgileRef(m);
+    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite, agileRef);
     const { sched, project } = m;
     const hasDeps = sched.tasks.some((t) => t.preds.length);
     const net = useMemo(() => (hasDeps ? networkLayout(sched) : null), [sched, hasDeps]);
     const paths = useMemo(() => criticalPaths(sched), [sched]);
     const idx = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i + 1])), [sched]);
+    const links = useMemo(() => agileLinks(m.agile, m.schedule.tasks, m.agileItems), [m.agile, m.schedule, m.agileItems]);
     /* «Ajustar»: todo el diagrama en el ancho (y el alto máximo) del recuadro, para ver la estructura y la ruta crítica. */
     const fitScale = net && hostW > 0 ? PM.clamp(Math.min((hostW - 2) / net.width, (Math.min(window.innerHeight * 0.76, 1100) - 2) / net.height), NET_FIT_MIN, 1) : 1;
     const isFit = zoom === 'fit';
@@ -1570,7 +1706,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         </${ui.Empty}>
       </div>`;
     }
-    const tip = (e, t) => tipApi.current && tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? m.tree.codes.get(t.wbsId) : ''} bl=${null} cal=${sched.cal} currency=${m.currency} />`);
+    const tip = (e, t) => { const r = links.relByTask.get(t.id); if (tipApi.current) tipApi.current.show(e, html`<${TaskTip} t=${t} code=${t.wbsId ? m.tree.codes.get(t.wbsId) : ''} bl=${null} cal=${sched.cal} currency=${m.currency} rel=${r ? { r, sprints: links.sprintsOf(r.id) } : null} />`); };
     const hide = () => tipApi.current && tipApi.current.hide();
     const maxChars = Math.floor((NW - 16) / 6.7); /* margen para la primera línea en negrita */
     const nodeEl = (n) => {
@@ -1583,7 +1719,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <text class="sched-net-v" x=${n.w / 2} y="35" text-anchor="middle">${sub}</text>
         </g>`;
       }
-      const t = n.t; const c = t.critical; const v = val(t); const lines = splitName(idx.get(t.id) + ' · ' + taskName(t), maxChars);
+      const t = n.t; const c = t.critical; const v = val(t); const rel = links.relByTask.get(t.id);
+      const lines = splitName(idx.get(t.id) + ' · ' + taskName(t), rel ? maxChars - 3 : maxChars);
       const band = c ? 'var(--crit-wash)' : 'var(--surface-2)';
       return html`<g key=${n.id} class=${cx('sched-net-node', c && 'is-crit')} data-id=${t.id} transform=${'translate(' + n.x + ',' + n.y + ')'}
           onMouseMove=${(e) => tip(e, t)} onMouseLeave=${hide} onDblClick=${() => openTaskEditor(ctxRef.current, t.id)}>
@@ -1598,6 +1735,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
         <text class="sched-net-v" x=${NW / 6} y=${NH - 7} text-anchor="middle">${v.ls}</text>
         <text class="sched-net-v" x=${NW / 2} y=${NH - 7} text-anchor="middle" style=${c ? 'fill:var(--crit);font-weight:600' : ''}>${fmt.num(t.tf)}</text>
         <text class="sched-net-v" x=${(5 * NW) / 6} y=${NH - 7} text-anchor="middle">${v.lf}</text>
+        ${rel ? html`<g class="sched-net-rel" data-release=${rel.id}><title>${'Release vinculado: ' + relName(rel) + (t.agileDerived ? ' · avance ' + fmt.num(t.progress, 1) + ' % calculado desde el backlog' : '')}</title>
+          <g transform=${'translate(' + (NW - 19) + ',' + (BAND + 4) + ') scale(0.6)'} fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" dangerouslySetInnerHTML=${{ __html: PM.ICONS.release || '' }}></g></g>` : null}
         <rect width=${NW} height=${NH} rx="4" fill="none" stroke=${c ? 'var(--crit)' : 'var(--line-strong)'} stroke-width=${c ? 2 : 1} />
       </g>`;
     };
@@ -1828,7 +1967,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const svgRef = useRef();
     const limits = (m.schedule.settings && m.schedule.settings.resourceLimits) || null;
     const model = useMemo(() => resourceModel(m.sched, limits, bucket), [m.sched, limits, bucket]);
-    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite);
+    const agileRef = useAgileRef(m);
+    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite, agileRef);
     if (m.loading) return html`<div class="page"><${ui.Loading} rows=${5} /></div>`;
     const { sched, project } = m;
     const idx = new Map(sched.tasks.map((t, i) => [t.id, i + 1]));

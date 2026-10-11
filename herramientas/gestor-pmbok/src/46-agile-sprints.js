@@ -43,6 +43,7 @@
 .ags-rel { display: flex; flex-direction: column; gap: 6px; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; box-shadow: var(--shadow-card); }
 .ags-rel:hover { border-color: var(--line-strong); }
 .ags-rel[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent), var(--shadow-card); }
+.ags-rel[aria-pressed]:focus-visible { box-shadow: inset 3px 0 0 var(--accent), var(--focus); }
 .ags-rel-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .ags-rel-name { font-weight: 600; font-size: var(--fs-sm); line-height: 1.3; overflow-wrap: anywhere; }
 .ags-rel-meta { font-size: var(--fs-xs); color: var(--fg-3); font-family: var(--font-mono); }
@@ -53,7 +54,7 @@
 .ags-chips .chip { white-space: normal; line-height: 1.35; padding-top: 1px; padding-bottom: 1px; }
 .ags-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .ags-goal { color: var(--fg-2); max-width: 80ch; font-size: var(--fs-sm); }
-.ags-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.ags-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
 .ags-tiles > .stat { padding: 10px 12px; box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line); }
 .ags-tiles .stat-value { font-size: 1.25rem; overflow-wrap: anywhere; }
 .ags-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: var(--fs-sm); margin: 0; }
@@ -103,7 +104,7 @@
 .ags-flag { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--fg); }
 .ags-flag > .icon { color: var(--warn); }
 .ags-flag[data-tone="crit"] > .icon { color: var(--crit); }
-.ags-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.ags-docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
 .ags-doc { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); min-width: 0; }
 .ags-doc-name { font-weight: 600; font-size: var(--fs-sm); display: flex; gap: 6px; align-items: center; }
 .ags-doc-name > .icon { color: var(--fg-3); }
@@ -117,7 +118,9 @@
 .ags-radio:has(input:focus-visible) { box-shadow: var(--focus); }
 .ags-toolbar { gap: 10px 16px; align-items: flex-end; }
 .ags-toolbar .field { flex: 0 1 260px; min-width: min(100%, 200px); }
-.ags-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; align-items: start; }
+.ags-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; align-items: start; }
+.ags-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px 24px; align-items: start; }
+.ags-split > * { min-width: 0; }
 .ags-charts > * { min-width: 0; }
 .ags-charts > .span-all { grid-column: 1 / -1; }
 .ags-chart { border-radius: var(--r-sm); }
@@ -247,13 +250,25 @@
     }
     return out;
   }
+  /* Los textos de los documentos usan espacios normales (los de no separación son solo para la pantalla). */
+  const plain = (v) => (typeof v === 'string' ? v.replace(/[\u00a0\u202f]/g, ' ') : Array.isArray(v) ? v.map(plain) : isObj(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)])) : v);
+  /* Elementos de una iteración cerrada que no se terminaron: se registran al cerrar (sprint.unfinished) para que el
+     burndown y el acta de revisión conserven el alcance con que terminó la iteración. */
+  function withUnfinished(sprint, items) {
+    const list = arr(sprint && sprint.unfinished);
+    if (!list.length) return items;
+    const inSprint = new Set(items.filter((it) => it.sprintId === sprint.id).map((it) => it.id));
+    const extra = list.filter((u) => u.id && !inSprint.has(u.id)).map((u) => ({ id: u.id + '@' + sprint.id, code: u.code || '', title: u.title || '', type: 'historia', estimate: nOr(u.estimate), status: PM.AGILE.BACKLOG, sprintId: sprint.id, sprintAddedDate: D.valid(u.sprintAddedDate) ? u.sprintAddedDate : null, unfinished: true }));
+    return extra.length ? [...items, ...extra] : items;
+  }
   async function createDoc({ pid, project, tid, insts, title, values }) {
     const t = PM.templates[tid];
+    values = plain(values);
     const docId = tid + '--' + PM.uid('d');
     const body = PM.newDocBody(t, project, { template: tid });
     body.fields = { ...(body.fields || {}), ...fitFields(t, values) };
     if (t.multiple) body.seq = nextSeq(insts);
-    body.title = title || t.name;
+    body.title = plain(title || t.name);
     PM.touchProject(pid);
     await PM.store.set(PM.paths.doc(pid, docId), body);
     return docId;
@@ -434,6 +449,8 @@
       const d = PM.clone(S().m.agileData) || {};
       d.releases = arr(d.releases); d.sprints = arr(d.sprints);
       fn(d);
+      /* «sin línea base» se guarda sin la clave: la normalización de la herramienta convierte null en {} */
+      for (const r of d.releases) if (r.baseline !== undefined && !hasBaseline(r)) delete r.baseline;
       return S().m.saveAgile(d);
     };
     const saveItems = (list) => Promise.all(list.map((it) => S().m.saveItem(it)));
@@ -480,7 +497,7 @@
       const id = isNew ? PM.uid('rel') : r.id;
       commitAgile((d) => {
         const patch = { name: f.name, goal: f.goal, start: f.start, end: f.end, status: f.status, budget: f.budget, plannedSprints: f.plannedSprints, wbsId: f.wbsId, taskId: f.taskId, notes: f.notes };
-        if (isNew) d.releases.push({ id, ...patch, baseline: null });
+        if (isNew) d.releases.push({ id, ...patch });
         else { const x = d.releases.find((y) => y.id === id); if (x) Object.assign(x, patch); }
       });
       /* la actividad que deja de representar el release pierde su vínculo (task.releaseId) */
@@ -580,7 +597,7 @@
         let docId;
         try { docId = await createDoc({ pid: m.pid, project, tid: 'solicitud-cambio', insts: docsIdx.byTemplate['solicitud-cambio'] || [], title: tCR.name + ' ' + code + ' — ' + rel.name, values }); }
         catch (e) { return; }
-        const row = { id: code, fecha: date, solicitante: 'Dueño del producto', descripcion: values.descripcionCambio, tipo: 'Actualización', impactoAlcance: scopeText, impactoCronograma: det.wd, impactoCosto: values.valorCosto, estado: 'Registrada' };
+        const row = plain({ id: code, fecha: date, solicitante: 'Dueño del producto', descripcion: values.descripcionCambio, tipo: 'Actualización', impactoAlcance: scopeText, impactoCronograma: det.wd, impactoCosto: values.valorCosto, estado: 'Registrada' });
         await S().saveChangeRows([...S().changeRows, row]);
         commitAgile((d) => { const x = d.releases.find((y) => y.id === r.id); if (x) x.pendingChange = { code, docId, date }; });
         PM.toast('Solicitud ' + code + ' creada y agregada al registro de cambios.');
@@ -718,6 +735,7 @@
               const x = d.sprints.find((y) => y.id === s.id); if (!x) return;
               x.status = 'cerrado'; x.completed = completed;
               if (!PM.isNum(x.committed)) x.committed = sumEst(now);
+              x.unfinished = rest.map((it) => ({ id: it.id, code: it.code || '', title: it.title || '', estimate: nOr(it.estimate), sprintAddedDate: it.sprintAddedDate || null }));
               if (created) d.sprints.push(created);
             });
             const moved = choice === 'next' && target
@@ -746,7 +764,10 @@
           values = {
             iteracion: s.name, release: rel ? rel.name : '', fechaInicio: s.start, fechaFin: s.end, objetivo: s.goal || '',
             capacidad: nOr(s.capacity), velocidadReferencia: round1(m.velocity.avg3), compromiso: committed,
-            elementos: list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', tipo: TYPE_LABEL[it.type] || it.type || '', estimacion: nOr(it.estimate), responsable: it.assignee || '', criterios: it.acceptance || '' })),
+            elementos: [
+              ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', tipo: TYPE_LABEL[it.type] || it.type || '', estimacion: nOr(it.estimate), responsable: it.assignee || '', criterios: it.acceptance || '' })),
+              ...arr(s.unfinished).filter((u) => !list.some((it) => it.id === u.id)).map((u) => { const it = m.items.find((x) => x.id === u.id) || {}; return { id: PM.uid('r'), codigo: u.code || '', titulo: u.title || '', tipo: TYPE_LABEL[it.type] || '', estimacion: nOr(u.estimate), responsable: it.assignee || '', criterios: it.acceptance || '' }; }),
+            ],
             riesgos: blocked.length ? 'Elementos bloqueados al planificar: ' + blocked.map((it) => it.code + (it.blockedReason ? ' (' + it.blockedReason + ')' : '')).join('; ') + '.' : '',
             participantes: [...PM.AGILE.ROLES],
           };
@@ -755,7 +776,10 @@
             iteracion: s.name, fecha: endDate, objetivo: s.goal || '',
             objetivoCumplido: s.status === 'planeado' ? undefined : committed > 0 && done >= committed ? 'Sí' : done > 0 ? 'Parcialmente' : 'No',
             comprometido: committed, terminado: done,
-            elementos: list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', estimacion: nOr(it.estimate), resultado: A.isDone(st, it) ? 'Aceptado' : 'No terminado', observaciones: '' })),
+            elementos: [
+              ...list.map((it) => ({ id: PM.uid('r'), codigo: it.code || '', titulo: it.title || '', estimacion: nOr(it.estimate), resultado: A.isDone(st, it) ? 'Aceptado' : 'No terminado', observaciones: '' })),
+              ...arr(s.unfinished).filter((u) => !list.some((it) => it.id === u.id)).map((u) => ({ id: PM.uid('r'), codigo: u.code || '', titulo: u.title || '', estimacion: nOr(u.estimate), resultado: 'No terminado', observaciones: 'Pasó al backlog o a la iteración siguiente al cerrar.' })),
+            ],
             asistentes: [...PM.AGILE.ROLES],
           };
         } else {
@@ -974,7 +998,7 @@
     return html`<tr data-item-id=${it.id} data-code=${it.code}>
       <td class="mono nowrap small">${it.code}</td>
       <td class="ags-title-cell">${it.title || html`<span class="faint">Sin título</span>`}${it.blocked ? html` <${ui.Chip} tone="crit" icon="lock">Bloqueado</${ui.Chip}>` : null}<div class="xsmall faint">${TYPE_LABEL[it.type] || ''}${it.priority ? ' · ' + it.priority : ''}</div></td>
-      <td>${mode === 'remove' ? html`<${ui.Chip} tone=${statusTone}>${statusText}</${ui.Chip}>` : null}</td>
+      ${mode === 'remove' ? html`<td><${ui.Chip} tone=${statusTone}>${statusText}</${ui.Chip}></td>` : null}
       <td class="num nowrap">${est || html`<span class="ags-flag"><${ui.Icon} name="alert" size=${13} />Sin estimar</span>`}</td>
       <td class="ags-actions">${canAct ? html`<${ui.Button} size="sm" variant="ghost" icon=${mode === 'add' ? 'plus' : 'minus'} aria-label=${label} title=${label} onClick=${() => onAct(it.id)}><span class="ags-btn-text">${mode === 'add' ? 'Agregar' : 'Quitar'}</span></${ui.Button}>` : note ? html`<span class="xsmall faint">${note}</span>` : null}</td>
     </tr>`;
@@ -1000,8 +1024,22 @@
     const shownCand = useMemo(() => { const t = norm(q); const f = t ? candidates.filter((it) => norm((it.code || '') + ' ' + (it.title || '')).includes(t)) : candidates; return f; }, [candidates, q]);
     const byId = useMemo(() => new Map(m.items.map((it) => [it.id, it])), [m.items]);
     const ref = useRef(); ref.current = { s, byId };
-    const onAdd = useCallback((id) => { const it = ref.current.byId.get(id); if (it) act.itemAdd(it, ref.current.s); }, [act]);
-    const onRemove = useCallback((id) => { const it = ref.current.byId.get(id); if (it) act.itemRemove(it, ref.current.s); }, [act]);
+    /* al agregar o quitar con el teclado, el foco pasa al botón de la fila que ocupa el lugar del elemento movido */
+    const refocus = useRef(null);
+    const candRef = useRef(), itemsRef = useRef();
+    const rowIndex = (box, id) => (box ? [...box.querySelectorAll('tbody tr[data-item-id]')].findIndex((tr) => tr.dataset.itemId === id) : -1);
+    const onAdd = useCallback((id) => { const it = ref.current.byId.get(id); if (!it) return; const box = candRef.current; if (box && box.contains(document.activeElement)) refocus.current = { box: 'cand', id, index: rowIndex(box, id) }; act.itemAdd(it, ref.current.s); }, [act]);
+    const onRemove = useCallback((id) => { const it = ref.current.byId.get(id); if (!it) return; const box = itemsRef.current; if (box && box.contains(document.activeElement)) refocus.current = { box: 'items', id, index: rowIndex(box, id) }; act.itemRemove(it, ref.current.s); }, [act]);
+    useEffect(() => {
+      const rf = refocus.current; if (!rf) return;
+      const box = rf.box === 'cand' ? candRef.current : itemsRef.current;
+      if (!box) { refocus.current = null; return; }
+      const rows = [...box.querySelectorAll('tbody tr[data-item-id]')];
+      if (rows.some((tr) => tr.dataset.itemId === rf.id)) return;
+      refocus.current = null;
+      const target = rows.length ? rows[Math.min(Math.max(0, rf.index), rows.length - 1)].querySelector('button') : box.querySelector('h3');
+      if (target) { if (target.tagName === 'H3') target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }); }
+    });
     const other = m.sprints.find((x) => x.status === 'en-curso' && x.id !== s.id);
     const vel = m.velocity;
     const over = cap !== null && committed > cap + 1e-9;
@@ -1048,19 +1086,20 @@
           </div>
         </div>
         <div class="ags-plan-grid">
-          <div class="stack-sm" data-role="sprint-items">
+          <div class="stack-sm" data-role="sprint-items" ref=${itemsRef}>
             <div class="ags-sub"><h3 class="h4">Elementos de la iteración (${list.length})</h3></div>
             ${list.length ? html`<div class="table-wrap ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Elementos de ${s.name}</caption>
               <thead><tr><th>Código</th><th>Título</th><th>Estado</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
               <tbody>${list.map((it) => { const cat = A.category(settings, it.status); const isDone = cat === 'terminado'; return html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="remove" statusText=${statusName(settings, it.status)} statusTone=${CAT_TONE[cat]} unit=${unit} canAct=${canWrite && !closed && !isDone} onAct=${onRemove} sprintName=${s.name} />`; })}</tbody></table></div>`
               : html`<p class="small muted">Aún no hay elementos. ${closed ? '' : 'Agrégalos desde los candidatos, en el orden del backlog.'}</p>`}
+            ${closed && arr(s.unfinished).length ? html`<p class="small muted" data-role="unfinished">${'Al cerrar quedaron sin terminar ' + arr(s.unfinished).length + (arr(s.unfinished).length === 1 ? ' elemento (' : ' elementos (') + fpts(arr(s.unfinished).reduce((a, u) => a + Math.max(0, num(u.estimate, 0)), 0), unit) + '): ' + arr(s.unfinished).map((u) => u.code).filter(Boolean).join(', ') + '. Pasaron al backlog del producto o a la iteración siguiente; el burndown y el acta de revisión los conservan.'}</p>` : null}
           </div>
-          ${!closed ? html`<div class="stack-sm" data-role="candidates">
+          ${!closed ? html`<div class="stack-sm" data-role="candidates" ref=${candRef}>
             <div class="ags-sub"><h3 class="h4">Candidatos ${release ? 'del release' : 'del backlog'} (${candidates.length})</h3>
               ${canWrite && cap !== null && cap > committed && candidates.length ? html`<${ui.Button} size="sm" icon="layers" onClick=${() => act.fillToCapacity(s, candidates, cap, committed)}>Llenar hasta la capacidad</${ui.Button}>` : null}</div>
             ${candidates.length > 8 ? html`<${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por código o título" aria-label="Buscar candidatos" />` : null}
             ${shownCand.length ? html`<div class="table-wrap ags-list-wrap"><table class="table table-tight ags-tbl"><caption class="sr-only">Candidatos para ${s.name}, en orden de prioridad del backlog</caption>
-              <thead><tr><th>Código</th><th>Título</th><th><span class="sr-only">Estado</span></th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
+              <thead><tr><th>Código</th><th>Título</th><th class="num">Estimación</th><th class="ags-actions"><span class="sr-only">Acción</span></th></tr></thead>
               <tbody>${(all ? shownCand : shownCand.slice(0, CAND_LIMIT)).map((it) => html`<${ItemRow} key=${it.id} it=${it} sig=${itemSig(it)} mode="add" unit=${unit} canAct=${canWrite} onAct=${onAdd} sprintName=${s.name} />`)}</tbody></table></div>
               ${!all && shownCand.length > CAND_LIMIT ? html`<div><${ui.Button} size="sm" variant="ghost" icon="chevron-down" onClick=${() => setAll(true)}>Mostrar los ${shownCand.length} candidatos</${ui.Button}></div>` : null}`
               : html`<p class="small muted">${candidates.length ? 'Ningún candidato coincide con la búsqueda.' : release ? 'No quedan elementos del release sin iteración. Agrega o asigna elementos desde el backlog del producto.' : 'No hay elementos sin iteración en el backlog.'}</p>`}
@@ -1148,7 +1187,7 @@
       description=${'Planifica releases con línea base y presupuesto, genera iteraciones de ' + settings.sprintLength + ' días hábiles, planifica la capacidad, inicia y cierra cada iteración con sus documentos. Marco: ' + fw + '.'}
       actions=${html`
         ${!canWrite ? html`<${ui.Chip} tone="outline" icon="eye">Solo lectura</${ui.Chip}>` : null}
-        ${typeof PM.agileSettingsDialog === 'function' ? html`<${ui.Button} icon="settings" data-role="agile-settings" onClick=${() => PM.agileSettingsDialog()}>Configuración ágil</${ui.Button}>` : null}
+        ${typeof PM.agileSettingsDialog === 'function' ? html`<${ui.Button} icon="settings" data-role="agile-settings" onClick=${() => PM.agileSettingsDialog(ref.current.m)}>Configuración ágil</${ui.Button}>` : null}
         <${ui.Button} icon="burndown" onClick=${() => PM.navigate('metricas-agiles', release ? { release: release.id } : {})}>Ver métricas</${ui.Button}>
         ${canWrite ? html`<${ui.Button} variant="primary" icon="plus" data-role="release-new" onClick=${act.releaseNew}>Nuevo release</${ui.Button}>` : null}`} />`;
     if (!releases.length && !orphans.length) {
@@ -1299,14 +1338,14 @@
   const nearestIdx = (xs, px) => { if (!xs.length) return -1; let best = 0; for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - px) < Math.abs(xs[best] - px)) best = i; return best; };
   const svgX = (svgRef, e) => { const svg = svgRef.current; if (!svg) return null; const r = svg.getBoundingClientRect(); return e.clientX - r.left; };
 
-  function ChartCard({ id, title, subtitle, legend, empty, render, table, filename, extra, span }) {
+  function ChartCard({ id, title, subtitle, legend, empty, render, table, filename, extra, span, split }) {
     const svgRef = useRef();
     const [open, setOpen] = useState(false);
     const tid = useMemo(() => PM.uid('agsdata'), []);
     return html`<section class=${cx('card', span && 'span-all')} data-chart-card=${id}>
       <div class="card-head"><div class="stack-sm" style="gap:2px;min-width:0"><h3 class="h3">${title}</h3>${subtitle ? html`<div class="xsmall faint">${subtitle}</div>` : null}</div>
         ${empty ? null : html`<div class="row"><${ui.Button} size="sm" icon="table" data-role="toggle-data" aria-expanded=${open ? 'true' : 'false'} aria-controls=${tid} onClick=${() => setOpen(!open)}>${open ? 'Ocultar datos' : 'Ver datos'}</${ui.Button}><${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${filename} /></div>`}</div>
-      <div class="card-body stack">${empty ? html`<div class="ags-empty-chart" data-role="chart-empty"><${ui.Icon} name="info" size=${16} /><span>${empty}</span></div>` : html`${legend || null}${render(svgRef)}${extra || null}${open && table ? html`<div id=${tid} data-role="chart-data">${table()}</div>` : null}`}</div>
+      <div class="card-body stack">${empty ? html`<div class="ags-empty-chart" data-role="chart-empty"><${ui.Icon} name="info" size=${16} /><span>${empty}</span></div>` : html`${split ? html`<div class="ags-split"><div class="stack">${legend || null}${render(svgRef)}</div>${extra ? html`<div class="stack">${extra}</div>` : null}</div>` : html`${legend || null}${render(svgRef)}${extra || null}`}${open && table ? html`<div id=${tid} data-role="chart-data">${table()}</div>` : null}`}</div>
     </section>`;
   }
   function DataTable({ caption, head, rows }) {
@@ -1314,7 +1353,7 @@
       <thead><tr>${head.map((h, i) => html`<th key=${i} class=${h.num ? 'num' : ''}>${h.label}</th>`)}</tr></thead>
       <tbody>${rows.map((r, i) => html`<tr key=${i}>${r.map((c, j) => html`<td key=${j} class=${head[j].num ? 'num nowrap' : head[j].mono ? 'mono nowrap' : ''}>${c}</td>`)}</tr>`)}</tbody></table></div>`;
   }
-  const C_IDEAL = 'var(--fg-3)', C_REM = 'var(--s1)', C_SCOPE = 'var(--s2)', C_DONE = 'var(--s3)';
+  const C_IDEAL = 'var(--fg-3)', C_REM = 'var(--s1)', C_SCOPE = 'var(--s7)';
 
   /* ---------- burndown de la iteración */
   function BurndownChart({ bd, unit, statusDate, svgRef, name }) {
@@ -1769,7 +1808,7 @@
     const sprint = spList.find((s) => s.id === spSel) || spList.find((s) => s.status === 'en-curso') || [...spList].reverse().find((s) => s.status === 'cerrado') || spList[0] || null;
     const flowScope = release && scope === 'release' ? 'release' : 'todo';
     const scopeItems = useMemo(() => (flowScope === 'release' ? items.filter((it) => it.releaseId === release.id) : items), [items, flowScope, release]);
-    const bd = useMemo(() => (sprint ? C.sprintBurndown({ sprint, items, settings, cal, statusDate }) : null), [sprint, items, settings, cal, statusDate]);
+    const bd = useMemo(() => (sprint ? C.sprintBurndown({ sprint, items: withUnfinished(sprint, items), settings, cal, statusDate }) : null), [sprint, items, settings, cal, statusDate]);
     const bu = useMemo(() => (release ? C.releaseBurnup({ release, sprints, items, settings, statusDate }) : null), [release, sprints, items, settings, statusDate]);
     const fc = useMemo(() => (release ? C.releaseForecast({ release, sprints, items, settings, cal, statusDate }) : null), [release, sprints, items, settings, cal, statusDate]);
     const fl = useMemo(() => (release && fc && !fc.finish ? flowForecast(items.filter((it) => A.countable(it) && it.releaseId === release.id), settings, statusDate, cal) : null), [release, fc, items, settings, statusDate, cal]);
@@ -1823,7 +1862,7 @@
         <${ChartCard} id="velocity" title="Velocidad" filename=${'velocidad_' + fileBase + '.svg'}
           subtitle=${vel.avg3 !== null ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + ' cerradas: ' + fpts(vel.avg3, unit) + ' · rango ' + fmt.num(vel.min3, 1) + '–' + fmt.num(vel.max3, 1) : 'Sin iteraciones cerradas todavía'}
           empty=${!vel.rows.length ? (settings.framework === 'kanban' ? 'En Kanban sin iteraciones, usa el rendimiento semanal como medida de capacidad.' : 'Crea iteraciones para medir la velocidad.') : null}
-          legend=${html`<${Legend} items=${[{ label: 'Comprometido', color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 }, { label: 'Terminado', color: C_REM, kind: 'sw' }, vel.avg3 !== null ? { label: 'Promedio (últimas 3)', color: 'var(--fg)', kind: 'dash' } : null]} />`}
+          legend=${html`<${Legend} items=${[{ label: 'Comprometido', color: 'var(--fg-3)', kind: 'sw', opacity: 0.45 }, { label: 'Terminado', color: C_REM, kind: 'sw' }, vel.rows.some((rw) => rw.status === 'en-curso') ? { label: 'Terminado hasta hoy (iteración en curso)', color: C_REM, kind: 'sw', opacity: 0.6 } : null, vel.avg3 !== null ? { label: 'Promedio (últimas 3)', color: 'var(--fg)', kind: 'dash' } : null]} />`}
           render=${(r) => html`<${VelocityChart} vel=${vel} unit=${unit} svgRef=${r} />`}
           table=${tbl('Velocidad por iteración', [{ label: 'Iteración' }, { label: 'Estado' }, { label: 'Inicio', mono: true }, { label: 'Fin', mono: true }, { label: 'Comprometido', num: true }, { label: 'Terminado', num: true }, { label: 'Cumplimiento', num: true }], vel.rows.map((rw) => [rw.name, (SPR_STATUS[rw.status] || SPR_STATUS.planeado)[0], fmt.date(rw.start), fmt.date(rw.end), fmt.num(rw.committed, 1), fmt.num(rw.completed, 1), rw.committed > 0 && rw.status !== 'planeado' ? fmt.pct(rw.completed / rw.committed) : '—']))} />
         <${ChartCard} id="cfd" title="Diagrama de flujo acumulado" filename=${'flujo-acumulado_' + fileBase + '.svg'}
@@ -1832,22 +1871,6 @@
           legend=${html`<${Legend} items=${[...CFD_LAYERS].reverse().map((l) => ({ label: l.label, color: l.color, kind: 'sw' }))} />`}
           render=${(r) => html`<${CfdChart} rows=${cfdRows} svgRef=${r} />`}
           table=${tbl('Elementos por estado y fecha', [{ label: 'Fecha', mono: true }, { label: 'Backlog del producto', num: true }, { label: 'Por hacer', num: true }, { label: 'En curso', num: true }, { label: 'Terminado', num: true }], cfdRows.map((rw) => [fmt.date(rw.date), fmt.num(rw.nuevo), fmt.num(rw.pendiente), fmt.num(rw['en-curso']), fmt.num(rw.terminado)]))} />
-        <${ChartCard} id="forecast" title="Pronóstico de terminación" filename=${'pronostico_' + fileBase + '.svg'}
-          subtitle=${fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : null}
-          empty=${!release ? 'Selecciona un release para ver su pronóstico.' : !(fc.finish || (fl && fl.finish)) && !D.valid(release.end) ? (fc.total && !fc.remaining ? 'El release está terminado.' : 'Sin velocidad ni fecha de fin no hay pronóstico: cierra una iteración o termina elementos del release.') : null}
-          legend=${html`<${Legend} items=${[{ label: 'Probable', color: C_REM, kind: 'dot' }, fc && fc.finishBest ? { label: 'Rango optimista–pesimista', color: C_REM, kind: 'sw', opacity: 0.3 } : null, { label: 'Fin planeado', color: 'var(--fg-2)', kind: 'sw' }, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
-          render=${(r) => html`<${ForecastChart} fc=${fc} fl=${fl} release=${release} statusDate=${statusDate} unit=${unit} svgRef=${r} />`}
-          extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} />` : null}
-          table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], [
-            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (velocidad media)', fc.finish || (fl && fl.finish)], ['Pesimista (velocidad mínima)', fc.finishWorst],
-          ].map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
-        <${ChartCard} id="agile-evm" title="Valor ganado ágil (AgileEVM)" filename=${'agile-evm_' + fileBase + '.svg'}
-          subtitle=${release ? 'Release «' + release.name + '» frente al valor ganado del proyecto' : null}
-          empty=${!release ? 'Selecciona un release para calcular su valor ganado ágil.' : !(ev.bac > 0) ? 'Define el presupuesto (BAC) y las iteraciones planeadas del release para calcular el AgileEVM.' : null}
-          legend=${null}
-          render=${(r) => html`<${EvmBars} ev=${ev} currency=${currency} svgRef=${r} />`}
-          extra=${release && ev && ev.bac > 0 ? html`<${AgileEvmSection} release=${release} ev=${ev} m=${m} />` : null}
-          table=${ev ? tbl('Valor ganado ágil', [{ label: 'Indicador' }, { label: 'Valor', num: true }], [['BAC', fmt.money(ev.bac, currency)], ['PPC', fmt.pct(ev.ppc, 1)], ['APC', fmt.pct(ev.apc, 1)], ['PV', fmt.money(ev.pv, currency)], ['EV', fmt.money(ev.ev, currency)], ['AC', fmt.money(ev.ac, currency)], ['SV', fmt.money(ev.sv, currency)], ['CV', fmt.money(ev.cv, currency)], ['SPI', fmt.idx(ev.spi)], ['CPI', fmt.idx(ev.cpi)], ['EAC', fmt.money(ev.eac, currency)], ['VAC', fmt.money(ev.vac, currency)]]) : null} />
         <${ChartCard} id="cycle-time" title="Tiempo de ciclo" filename=${'tiempo-ciclo_' + fileBase + '.svg'}
           subtitle=${fst.done.length ? fst.done.length + ' terminados · promedio ' + daysText(round1(fst.avgCycle)) + ' · mediana ' + daysText(fst.median) + ' · tiempo de entrega promedio ' + (fst.avgLead !== null ? daysText(round1(fst.avgLead)) : '—') : null}
           empty=${!fst.done.length ? 'Aún no hay elementos terminados hasta la fecha de corte.' : null}
@@ -1857,9 +1880,25 @@
         <${ChartCard} id="throughput" title="Rendimiento (throughput)" filename=${'rendimiento_' + fileBase + '.svg'}
           subtitle=${fst.perWeek !== null ? 'Promedio: ' + fmt.num(fst.perWeek, 1) + ' elementos por semana en las últimas ' + fst.weeks.length + ' semanas' : null}
           empty=${!fst.done.length ? 'Aún no hay elementos terminados hasta la fecha de corte.' : null}
-          legend=${html`<${Legend} items=${[{ label: 'Elementos terminados por semana', color: C_REM, kind: 'sw' }, { label: 'Promedio', color: 'var(--fg)', kind: 'dash' }]} />`}
+          legend=${html`<${Legend} items=${[{ label: 'Elementos terminados por semana', color: C_REM, kind: 'sw' }, fst.weeks.some((w) => w.partial) ? { label: 'Semana en curso (hasta el corte)', color: C_REM, kind: 'sw', opacity: 0.6 } : null, { label: 'Promedio', color: 'var(--fg)', kind: 'dash' }]} />`}
           render=${(r) => html`<${ThroughputChart} stats=${fst} svgRef=${r} />`}
           table=${tbl('Elementos terminados por semana', [{ label: 'Semana', mono: true }, { label: 'Elementos', num: true }, { label: 'Estimación', num: true }], fst.weeks.map((w) => [fmt.date(w.start) + (w.partial ? ' (en curso)' : ''), fmt.num(w.count), fmt.num(w.points, 1)]))} />
+        <${ChartCard} id="forecast" span split title="Pronóstico de terminación" filename=${'pronostico_' + fileBase + '.svg'}
+          subtitle=${fc && fc.finish ? fpts(fc.remaining, unit) + ' restantes a ' + fpts(fc.velocity, unit) + ' por iteración' : fl ? fpts(fl.perWeek, unit) + ' por semana (flujo de las últimas 6 semanas)' : null}
+          empty=${!release ? 'Selecciona un release para ver su pronóstico.' : !(fc.finish || (fl && fl.finish)) && !D.valid(release.end) ? (fc.total && !fc.remaining ? 'El release está terminado.' : 'Sin velocidad ni fecha de fin no hay pronóstico: cierra una iteración o termina elementos del release.') : null}
+          legend=${html`<${Legend} items=${[{ label: 'Probable', color: C_REM, kind: 'dot' }, fc && fc.finishBest ? { label: 'Rango optimista–pesimista', color: C_REM, kind: 'sw', opacity: 0.3 } : null, { label: 'Fin planeado', color: 'var(--fg-2)', kind: 'sw' }, { label: 'Corte', kind: 'cut', color: 'var(--signal)' }]} />`}
+          render=${(r) => html`<${ForecastChart} fc=${fc} fl=${fl} release=${release} statusDate=${statusDate} unit=${unit} svgRef=${r} />`}
+          extra=${release && fc ? html`<${ForecastText} release=${release} fc=${fc} fl=${fl} unit=${unit} cal=${cal} />` : null}
+          table=${release && fc ? tbl('Fechas del pronóstico', [{ label: 'Escenario' }, { label: 'Fecha', mono: true }, { label: 'Frente al fin planeado', num: true }, { label: 'Frente a la línea base', num: true }], [
+            ['Optimista (velocidad máxima)', fc.finishBest], ['Probable (velocidad media)', fc.finish || (fl && fl.finish)], ['Pesimista (velocidad mínima)', fc.finishWorst],
+          ].map(([k, d]) => [k, fmt.date(d), D.valid(d) && D.valid(release.end) ? sgn(wdDiff(cal, release.end, d)) + wdText(wdDiff(cal, release.end, d)) : '—', D.valid(d) && hasBaseline(release) && D.valid(release.baseline.end) ? sgn(wdDiff(cal, release.baseline.end, d)) + wdText(wdDiff(cal, release.baseline.end, d)) : '—'])) : null} />
+        <${ChartCard} id="agile-evm" span split title="Valor ganado ágil (AgileEVM)" filename=${'agile-evm_' + fileBase + '.svg'}
+          subtitle=${release ? 'Release «' + release.name + '» frente al valor ganado del proyecto' : null}
+          empty=${!release ? 'Selecciona un release para calcular su valor ganado ágil.' : !(ev.bac > 0) ? 'Define el presupuesto (BAC) y las iteraciones planeadas del release para calcular el AgileEVM.' : null}
+          legend=${null}
+          render=${(r) => html`<${EvmBars} ev=${ev} currency=${currency} svgRef=${r} />`}
+          extra=${release && ev && ev.bac > 0 ? html`<${AgileEvmSection} release=${release} ev=${ev} m=${m} />` : null}
+          table=${ev ? tbl('Valor ganado ágil', [{ label: 'Indicador' }, { label: 'Valor', num: true }], [['BAC', fmt.money(ev.bac, currency)], ['PPC', fmt.pct(ev.ppc, 1)], ['APC', fmt.pct(ev.apc, 1)], ['PV', fmt.money(ev.pv, currency)], ['EV', fmt.money(ev.ev, currency)], ['AC', fmt.money(ev.ac, currency)], ['SV', fmt.money(ev.sv, currency)], ['CV', fmt.money(ev.cv, currency)], ['SPI', fmt.idx(ev.spi)], ['CPI', fmt.idx(ev.cpi)], ['EAC', fmt.money(ev.eac, currency)], ['VAC', fmt.money(ev.vac, currency)]]) : null} />
       </div>
     </div>`;
   }

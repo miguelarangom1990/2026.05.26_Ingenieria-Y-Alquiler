@@ -175,6 +175,14 @@
 .docs-more { margin-top: 6px; border-top: 1px solid var(--line); }
 .docs-more > summary { cursor: pointer; padding: 8px 6px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--fg-2); list-style-position: inside; }
 .docs-more > summary:hover { color: var(--fg); }
+.docs-agile { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); min-width: 0; }
+.docs-agile > summary { cursor: pointer; padding: 9px 12px; font-size: var(--fs-sm); font-weight: 600; color: var(--fg); border-radius: var(--r-md); list-style-position: inside; }
+.docs-agile > summary:hover { background: var(--surface-3); }
+.docs-agile > summary .icon { vertical-align: -2px; margin: 0 6px 0 2px; color: var(--accent); }
+.docs-agile-area { font-weight: 400; color: var(--fg-3); }
+.docs-agile-body { display: flex; flex-direction: column; gap: 8px; padding: 2px 14px 12px; font-size: var(--fs-sm); color: var(--fg-2); }
+.docs-agile-body > p { margin: 0; max-width: 80ch; }
+.docs-agile-body .row { flex-wrap: wrap; }
 .docs-ai-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; }
 .docs-ai-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .docs-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -493,6 +501,28 @@
     return PM.navigate('documento', { docId: s });
   };
 
+  /* Consideraciones para entornos ágiles/adaptativos del área (PM.KB.areas[].agile, Guía del PMBOK® 6.ª ed.).
+     `go(fn)` envuelve la navegación (en el detalle del proceso, cierra el modal antes de navegar). */
+  function AgileNote({ area, open, go }) {
+    const ag = area && area.agile;
+    if (!ag || !ag.summary) return null;
+    const wrap = go || ((fn) => fn);
+    const practices = Array.isArray(ag.practices) ? ag.practices.filter(Boolean) : [];
+    const views = uniq(ag.views || []).map((id) => PM.getView(id)).filter((v) => v && !v.hidden);
+    const docs = uniq(ag.docs || []).filter((id) => PM.templates[id]);
+    return html`<details class="docs-agile" data-agile=${area.id} open=${!!open}>
+      <summary><${ui.Icon} name="sprint" size=${15} />Consideraciones para entornos ágiles/adaptativos <span class="docs-agile-area">· ${areaShort(area)}</span></summary>
+      <div class="docs-agile-body">
+        <p>${ag.summary}</p>
+        ${practices.length ? html`<div class="label-caps">Prácticas recomendadas</div><ul class="docs-tips">${practices.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : null}
+        ${views.length || docs.length ? html`<div class="label-caps">En el gestor</div><div class="row">
+          ${views.map((v) => html`<${ui.Button} key=${v.id} size="sm" icon=${v.icon} onClick=${wrap(() => PM.navigate(v.id))}>${v.label}</${ui.Button}>`)}
+          ${docs.map((id) => html`<${ui.Button} key=${id} size="sm" variant="ghost" icon="file" data-agile-doc=${id} onClick=${wrap(() => PM.openDocument(id))}>${docName(id)}</${ui.Button}>`)}
+        </div>` : null}
+      </div>
+    </details>`;
+  }
+
   /* ==================================================================== MAPA DE PROCESOS */
   function ProcessCard({ p, idx, state, onOpen }) {
     const pr = progressOf(trackedDocs(p), idx);
@@ -580,6 +610,7 @@
             <${ui.Icon} name=${isOpen ? 'chevron-up' : 'chevron-down'} size=${16} />
           </button>
           ${isOpen ? html`<div class="docs-acc-body">
+            <${AgileNote} area=${a} />
             ${G.map((g) => { const gp = ps.filter((p) => p.group === g.id); if (!gp.length) return null; return html`<div class="stack-sm" key=${g.id}>
               <div class="docs-acc-glabel"><span class="docs-sw" style=${'background:' + groupColor(g.id)}></span>${g.name}</div>
               <div class="docs-acc-list">${gp.map((p) => html`<${ProcessCard} key=${p.code} p=${p} idx=${idx} state=${ql ? 'hit' : ''} onOpen=${open} />`)}</div>
@@ -619,6 +650,8 @@
     const p = processOf(code);
     const idx = PM.useProjectDocs();
     const canWrite = PM.useCanWrite();
+    const { project: curProject } = PM.useCurrentProject();
+    const agileOn = !!(curProject && PM.agile && PM.agile.enabled(curProject));
     if (!p) {
       return html`<${ui.Modal} title="Proceso no disponible" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}>
         <p>No se encontró el proceso ${code} en la base de conocimiento.</p>
@@ -670,6 +703,7 @@
       <section class="stack-sm"><h3 class="h4">Salidas</h3>
         ${(p.outputs || []).length ? html`<div class="docs-out">${(p.outputs || []).map((o, i) => html`<${OutputRow} key=${i} o=${o} idx=${idx} canWrite=${canWrite} go=${go} />`)}</div>` : html`<p class="small faint">Sin salidas registradas.</p>`}
       </section>
+      <${AgileNote} area=${a} open=${agileOn} go=${go} />
     </${ui.Modal}>`;
   }
 
@@ -681,7 +715,7 @@
       const insts = sortedInstances(idx.byTemplate[o.doc]);
       const name = docName(o.doc);
       const nameNode = html`<span class="stack-sm" style="gap:0;min-width:0"><span>${name}</span>${o.label && norm(o.label) !== norm(name) ? html`<span class="xsmall faint">Salida de la Guía: ${o.label}</span>` : null}</span>`;
-      const upd = o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null;
+      const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}`;
       if (!t && !insts.length) {
         return html`<div class="docs-out-row" data-doc=${o.doc}><span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${nameNode}</span>${upd}<span class="xsmall faint">Plantilla no disponible</span></div>`;
       }

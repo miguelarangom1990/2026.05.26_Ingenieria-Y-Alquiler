@@ -1,5 +1,5 @@
-// Valida las plantillas registradas contra SPEC.md §5–§6.
-// Uso: node test/templates.test.mjs --file <ruta.html> [--set a|b|all]
+// Valida las plantillas registradas contra SPEC.md §5–§6 y §9.5 (plantillas ágiles).
+// Uso: node test/templates.test.mjs --file <ruta.html> [--set a|b|agile|all]
 import { openApp } from './harness.mjs';
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
@@ -8,9 +8,10 @@ const set = opt('--set') || 'all';
 
 const CATALOG = {
   a: ['caso-negocio','plan-gestion-beneficios','acta-constitucion','registro-supuestos','plan-direccion','plan-gestion-cambios','plan-gestion-configuracion','entregables','registro-incidentes','registro-lecciones','informe-desempeno','solicitud-cambio','registro-cambios','informe-final','acta-cierre','plan-gestion-alcance','plan-gestion-requisitos','documentacion-requisitos','matriz-trazabilidad','enunciado-alcance','acta-aceptacion-entregable','plan-gestion-cronograma','estimaciones-duracion'],
+  agile: ['vision-producto','definicion-terminado','plan-release','planificacion-sprint','acta-revision-sprint','retrospectiva'],
   b: ['plan-gestion-costos','estimacion-costos','requisitos-financiamiento','plan-gestion-calidad','metricas-calidad','documentos-prueba','informe-calidad','mediciones-control-calidad','plan-gestion-recursos','acta-constitucion-equipo','requisitos-recursos','estructura-desglose-recursos','asignaciones-recursos','evaluacion-desempeno-equipo','plan-gestion-comunicaciones','registro-comunicaciones','acta-reunion','plan-gestion-riesgos','registro-riesgos','informe-riesgos','analisis-cuantitativo','plan-gestion-adquisiciones','estrategia-adquisiciones','decisiones-hacer-comprar','enunciado-trabajo-adquisicion','criterios-seleccion-proveedores','registro-adquisiciones','control-adquisiciones','registro-interesados','plan-involucramiento-interesados'],
 };
-const MULTIPLE = ['informe-desempeno','solicitud-cambio','acta-aceptacion-entregable','informe-calidad','acta-reunion','enunciado-trabajo-adquisicion'];
+const MULTIPLE = ['informe-desempeno','solicitud-cambio','acta-aceptacion-entregable','informe-calidad','acta-reunion','enunciado-trabajo-adquisicion','planificacion-sprint','acta-revision-sprint','retrospectiva'];
 const FIXED = {
   'registro-riesgos': ['riesgos', ['id','descripcion','causa','efecto','categoria','tipo','probabilidad','impacto','puntuacion','propietario','estrategia','respuesta','disparador','reserva','estado']],
   'registro-interesados': ['interesados', ['nombre','cargo','organizacion','rol','contacto','requisitos','expectativas','poder','interes','influencia','clasificacion','actitud','nivelActual','nivelDeseado']],
@@ -20,8 +21,14 @@ const FIXED = {
   'entregables': ['entregables', ['id','entregable','paqueteEdt','criterios','fechaPrevista','fechaEntrega','estado','aceptadoPor']],
   'mediciones-control-calidad': ['mediciones', ['fecha','entregable','metrica','resultado','conforme','causa','accion']],
   'registro-supuestos': ['supuestos', ['id','tipo','descripcion','categoria','responsable','fechaValidacion','estado']],
+  // SPEC §9.5
+  'vision-producto': ['metricasExito', ['metrica','lineaBase','meta','fecha']],
+  'plan-release': ['releases', ['release','objetivo','fechaInicio','fechaFin','iteraciones','puntos','presupuesto','alcance']],
+  'planificacion-sprint': ['elementos', ['codigo','titulo','tipo','estimacion','responsable','criterios']],
+  'acta-revision-sprint': ['elementos', ['codigo','titulo','estimacion','resultado','observaciones']],
+  'retrospectiva': ['acciones', ['accion','responsable','fechaObjetivo','estado']],
 };
-const ids = set === 'a' ? CATALOG.a : set === 'b' ? CATALOG.b : [...CATALOG.a, ...CATALOG.b];
+const ids = set === 'a' ? CATALOG.a : set === 'b' ? CATALOG.b : set === 'agile' ? CATALOG.agile : [...CATALOG.a, ...CATALOG.b, ...CATALOG.agile];
 const { browser, page, errors } = await openApp({ file });
 const report = await page.evaluate(({ ids, MULTIPLE, FIXED }) => {
   const problems = []; const p = (id, msg) => problems.push(id + ': ' + msg);

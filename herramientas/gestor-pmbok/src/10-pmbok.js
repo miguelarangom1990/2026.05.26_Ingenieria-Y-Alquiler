@@ -17,6 +17,15 @@
             | {text}                   salida sin documento propio en la aplicación
    - toolViews: herramientas de la aplicación que apoyan las técnicas del proceso
      (p. ej. 8.1 «diagramas de flujo» → flujogramas). No son salidas.
+   Capa ágil y enfoque híbrido (SPEC §9):
+   - Output.agile = true          documento del enfoque ágil (§9.5) que complementa las
+                                   salidas de la Guía (visión del producto en 5.2, plan de
+                                   releases en 6.5, planificación de la iteración en 4.3…)
+   - docs[i].agile = true          plantillas ágiles del catálogo (§9.5)
+   - areas[i].agile = {summary, practices:[texto], views:[viewId], docs:[docId]}
+                                   consideraciones para entornos ágiles/adaptativos de cada
+                                   área (Guía del PMBOK® 6.ª ed., una por capítulo)
+   - glossary[i].doc               plantilla relacionada con el término (opcional)
    No registra vistas.
    ========================================================================== */
 (function () {
@@ -41,6 +50,8 @@
   const PDU = (d) => txt('Actualizaciones a los documentos del proyecto' + (d ? ' (' + d + ')' : ''));
   const OPAU = () => txt('Actualizaciones a los activos de los procesos de la organización');
   const EEFU = () => txt('Actualizaciones a los factores ambientales de la empresa');
+  /* Salidas propias del enfoque ágil o híbrido (SPEC §9.5): complementan las de la Guía. */
+  const agl = (o) => ({ ...o, agile: true });
 
   /* Entradas y técnicas recurrentes */
   const EEF = 'Factores ambientales de la empresa';
@@ -87,6 +98,115 @@
       keyQuestion: '¿Quién se ve afectado por el proyecto y cómo se logra su participación?' },
   ];
 
+  /* Consideraciones para entornos ágiles/adaptativos de cada área (Guía del PMBOK® 6.ª ed., una sección por
+     capítulo), redactadas para el gestor, con las prácticas, vistas y plantillas que las apoyan (SPEC §9). */
+  const AGILE_AREAS = {
+    integracion: {
+      summary: 'En los entornos ágiles el equipo, como experto en su trabajo, decide cómo se integran los planes y los componentes del producto. El director del proyecto deja de controlar el detalle y se concentra en crear un entorno de decisiones colaborativas, eliminar impedimentos y asegurar que el equipo pueda responder a los cambios. La planificación es gradual: el plan para la dirección fija el marco (releases, cadencia, presupuesto y gobierno) y el detalle se acuerda en cada iteración.',
+      practices: [
+        'Planificación por niveles: hoja de ruta y plan de releases, planificación de cada iteración y reunión diaria.',
+        'El conocimiento se gestiona en cada retrospectiva y sus lecciones pasan al registro de lecciones aprendidas (4.4).',
+        'Control de cambios en dos niveles: dentro del release el dueño del producto reordena el backlog sin trámite; los cambios de alcance, fecha o presupuesto del release comprometido pasan por 4.6.',
+        'En proyectos híbridos, cada release se vincula con un entregable de la EDT y una actividad del cronograma para integrar su avance en la curva S y en el valor ganado.',
+      ],
+      views: ['iteraciones', 'kanban', 'metricas-agiles'],
+      docs: ['planificacion-sprint', 'retrospectiva', 'plan-release'],
+    },
+    alcance: {
+      summary: 'Cuando los requisitos evolucionan o la incertidumbre es alta, el alcance no se puede definir por completo al inicio. Los métodos ágiles dedican menos tiempo a acordarlo todo desde el principio y más a establecer el proceso para descubrirlo y refinarlo de forma continua. Los requisitos forman el backlog del producto, que refleja las necesidades actuales del cliente: recopilar requisitos, definir el alcance y crear la EDT se repiten en cada iteración, y validar y controlar el alcance ocurren en cada revisión con el dueño del producto y los interesados.',
+      practices: [
+        'Visión del producto y backlog priorizado (MoSCoW) en lugar de un enunciado del alcance cerrado al inicio.',
+        'Historias de usuario con criterios de aceptación que cumplen la definición de listo antes de entrar a una iteración.',
+        'Validación del alcance en la revisión de cada iteración: el dueño del producto acepta o rechaza cada elemento.',
+        'En proyectos híbridos, la EDT conserva los entregables predictivos y los adaptativos se gestionan como releases con su backlog.',
+      ],
+      views: ['backlog'],
+      docs: ['vision-producto', 'acta-revision-sprint'],
+    },
+    cronograma: {
+      summary: 'Los enfoques adaptativos usan ciclos cortos para hacer el trabajo, revisar los resultados y ajustar lo necesario. Hay dos formas habituales de programar: la programación iterativa con un backlog, por releases e iteraciones de duración fija, y la programación bajo demanda (Kanban), en la que el equipo toma trabajo cuando tiene capacidad y limita el trabajo en curso. En las organizaciones grandes conviven proyectos predictivos, adaptativos e híbridos; el rol del director no cambia, pero debe dominar las herramientas y técnicas de cada enfoque.',
+      practices: [
+        'Plan de releases con una velocidad supuesta que se reemplaza por la velocidad real de las últimas iteraciones.',
+        'Iteraciones de duración fija con compromiso al iniciar y diagrama de trabajo pendiente (burndown) diario.',
+        'Pronóstico de terminación por velocidad (optimista, probable y pesimista) además de la ruta crítica.',
+        'Tablero Kanban con límites WIP y tiempo de ciclo para el trabajo de flujo continuo.',
+      ],
+      views: ['iteraciones', 'kanban', 'metricas-agiles'],
+      docs: ['plan-release'],
+    },
+    costos: {
+      summary: 'En proyectos con alta incertidumbre o con un alcance todavía sin definir, los cálculos detallados de costos aportan poco porque cambian con frecuencia. Conviene usar métodos de estimación ligeros que den un pronóstico rápido y de alto nivel, sobre todo del costo del equipo, fácil de ajustar cuando surgen cambios, y dejar las estimaciones detalladas para horizontes cortos de planificación. Con equipos estables, el presupuesto depende del número de iteraciones y el alcance es la variable que se ajusta.',
+      practices: [
+        'Presupuesto por release: costo del equipo por iteración por iteraciones planeadas, más licencias y servicios.',
+        'Valor ganado ágil (AgileEVM) por release: valor planificado según las iteraciones transcurridas y valor ganado según los puntos terminados.',
+        'Costos reales imputados a cada release para comparar su CPI y su EAC con el valor ganado del proyecto.',
+      ],
+      views: ['metricas-agiles', 'iteraciones'],
+      docs: ['plan-release'],
+    },
+    calidad: {
+      summary: 'Para responder a los cambios, los métodos ágiles incorporan pasos frecuentes de calidad y de revisión a lo largo de todo el proyecto en lugar de concentrarlos al final. Las retrospectivas periódicas revisan la eficacia de los procesos de calidad, buscan la causa raíz de los problemas y proponen ensayar nuevos enfoques. Trabajar en lotes pequeños que integran la mayor parte posible de los elementos del entregable permite descubrir incoherencias y defectos temprano, cuando corregirlos cuesta menos.',
+      practices: [
+        'Definición de terminado común a todo el trabajo y criterios de aceptación propios de cada historia.',
+        'Pruebas en cada iteración (funcionales, de regresión y de aceptación) y no solo al final del release.',
+        'Mejora continua desde la retrospectiva: cada defecto que se escapa agrega un control a la definición de terminado.',
+      ],
+      views: ['kanban', 'metricas-agiles'],
+      docs: ['definicion-terminado', 'retrospectiva'],
+    },
+    recursos: {
+      summary: 'Los proyectos con alta variabilidad se benefician de estructuras de equipo que maximizan el enfoque y la colaboración, como los equipos autoorganizados con especialistas generalistas. La colaboración busca aumentar la productividad y facilitar la solución innovadora de problemas, y requiere equipos estables y dedicados. En los recursos físicos, la gestión ágil privilegia la eficiencia y el suministro justo a tiempo, apoyados en una buena logística y cadena de suministro.',
+      practices: [
+        'Equipo pequeño, estable y dedicado: dueño del producto, Scrum Master o facilitador y equipo de desarrollo.',
+        'Capacidad de cada iteración calculada con la disponibilidad real (festivos, vacaciones y dedicación parcial).',
+        'Roles ágiles en la matriz RACI para los eventos: refinamiento, planificación, revisión y retrospectiva.',
+      ],
+      views: ['iteraciones', 'kanban'],
+      docs: ['planificacion-sprint'],
+    },
+    comunicaciones: {
+      summary: 'Los entornos con ambigüedad y cambio necesitan comunicar con más frecuencia y rapidez los detalles que evolucionan. Ayuda simplificar el acceso del equipo a la información, hacer puntos de control frecuentes y reunir al equipo en un mismo espacio, físico o virtual, tanto como sea posible. Publicar los artefactos del proyecto de forma transparente (radiadores de información) y revisar periódicamente el avance con los interesados mejora la comunicación con la dirección y con el cliente.',
+      practices: [
+        'Reunión diaria de 15 minutos para sincronizar el trabajo y detectar impedimentos.',
+        'Radiadores de información: tablero Kanban, burndown y burnup visibles para todos.',
+        'Revisión de cada iteración con los interesados como principal mecanismo de retroalimentación.',
+      ],
+      views: ['kanban', 'metricas-agiles'],
+      docs: ['acta-revision-sprint'],
+    },
+    riesgos: {
+      summary: 'Los entornos de alta variabilidad tienen, por definición, más incertidumbre y riesgo. Los enfoques adaptativos los abordan con revisiones frecuentes de los incrementos y con equipos multifuncionales que aceleran el intercambio de conocimiento y aseguran que el riesgo se entienda y se gestione. El riesgo se considera al elegir el contenido de cada iteración y en cada iteración se identifican, analizan y gestionan riesgos; los requisitos se mantienen como un documento vivo y el trabajo se vuelve a priorizar según la exposición al riesgo conocida en cada momento.',
+      practices: [
+        'Investigaciones (spikes) tempranas para reducir la incertidumbre técnica antes de comprometer historias.',
+        'Priorizar primero los elementos de mayor riesgo y valor para aprender pronto.',
+        'Riesgos y dependencias revisados en cada planificación de la iteración y bloqueos visibles en el tablero.',
+      ],
+      views: ['backlog', 'kanban'],
+      docs: ['planificacion-sprint'],
+    },
+    adquisiciones: {
+      summary: 'En los entornos ágiles se puede contratar a proveedores específicos para ampliar el equipo; esa relación de colaboración puede llevar a un modelo de adquisición de riesgo compartido, en el que comprador y vendedor comparten riesgos y beneficios. En proyectos grandes es común aplicar un enfoque adaptativo a unos entregables y uno más estable a otros. En ese caso, un acuerdo marco rige toda la relación y el trabajo adaptativo se detalla en anexos o suplementos, de modo que su alcance pueda cambiar sin modificar el contrato general.',
+      practices: [
+        'Contrato marco con órdenes de trabajo por release o por iteración y precio basado en la capacidad del equipo.',
+        'Criterios de aceptación y definición de terminado incluidos en el contrato del proveedor.',
+        'Proveedores presentes en la revisión de cada iteración para validar avances y ajustar prioridades.',
+      ],
+      views: ['backlog', 'iteraciones'],
+      docs: ['enunciado-trabajo-adquisicion', 'definicion-terminado'],
+    },
+    interesados: {
+      summary: 'Los proyectos con mucho cambio requieren el involucramiento activo y la participación de los interesados. Para facilitar discusiones y decisiones oportunas, los equipos adaptativos se relacionan directamente con los interesados en lugar de hacerlo a través de varios niveles de gestión. Con frecuencia cliente, usuarios y equipo intercambian información en un proceso de creación conjunta que aumenta el involucramiento y la satisfacción; las interacciones periódicas mitigan el riesgo, generan confianza y permiten ajustar antes, lo que reduce costos y aumenta la probabilidad de éxito.',
+      practices: [
+        'Dueño del producto con autoridad para decidir y disponible para el equipo todos los días.',
+        'Usuarios clave en la revisión de cada iteración y en la priorización del backlog.',
+        'Transparencia: backlog, tablero y métricas abiertos a los interesados.',
+      ],
+      views: ['backlog', 'iteraciones'],
+      docs: ['vision-producto', 'acta-revision-sprint'],
+    },
+  };
+  for (const a of areas) a.agile = AGILE_AREAS[a.id] || null;
+
   /* ---------------------------------------------------------------- grupos de procesos */
   const groups = [
     { id: 'inicio', num: 1, name: 'Inicio', color: 'var(--g-inicio)',
@@ -132,17 +252,17 @@
       'Lidera y lleva a cabo el trabajo definido en el plan para la dirección del proyecto e implementa los cambios aprobados para alcanzar los objetivos del proyecto. Beneficio clave: proporciona la gestión general del trabajo y de los entregables, lo que mejora la probabilidad de éxito del proyecto.', {
         inputs: ['Plan para la dirección del proyecto (cualquier componente)', 'Documentos del proyecto (registro de cambios, registro de lecciones aprendidas, lista de hitos, comunicaciones del proyecto, cronograma del proyecto, matriz de trazabilidad de requisitos, registro de riesgos, informe de riesgos)', 'Solicitudes de cambio aprobadas', EEF, OPA],
         tools: [JE, PMIS, REU],
-        outputs: [doc('entregables', 'Entregables'), txt(WPD), doc('registro-incidentes'), CR(), PMPU('cualquier componente'),
+        outputs: [doc('entregables', 'Entregables'), txt(WPD), doc('registro-incidentes'), agl(doc('planificacion-sprint')), CR(), PMPU('cualquier componente'),
           PDU('lista de actividades, registro de supuestos, registro de lecciones aprendidas, documentación de requisitos, registro de riesgos, registro de interesados'),
           upd('registro-supuestos'), upd('registro-lecciones'), upd('documentacion-requisitos'), upd('registro-riesgos'), upd('registro-interesados'), OPAU()],
-        inputsDocs: ['plan-direccion', 'registro-cambios', 'registro-lecciones', 'registro-comunicaciones', 'matriz-trazabilidad', 'registro-riesgos', 'informe-riesgos', 'solicitud-cambio'],
-        toolViews: ['cronograma', 'edt'],
+        inputsDocs: ['plan-direccion', 'registro-cambios', 'registro-lecciones', 'registro-comunicaciones', 'matriz-trazabilidad', 'registro-riesgos', 'informe-riesgos', 'solicitud-cambio', 'plan-release', 'definicion-terminado'],
+        toolViews: ['cronograma', 'edt', 'kanban'],
       }),
     P('4.4', 'Gestionar el Conocimiento del Proyecto', 'integracion', 'ejecucion', 'continua',
       'Utiliza el conocimiento existente y crea nuevo conocimiento para alcanzar los objetivos del proyecto y contribuir al aprendizaje organizacional. Beneficio clave: aprovecha el conocimiento previo de la organización para mejorar los resultados del proyecto y deja disponible el conocimiento creado para las operaciones y los proyectos futuros.', {
         inputs: ['Plan para la dirección del proyecto (todos los componentes)', 'Documentos del proyecto (registro de lecciones aprendidas, asignaciones del equipo del proyecto, estructura de desglose de recursos, criterios de selección de proveedores, registro de interesados)', 'Entregables', EEF, OPA],
         tools: [JE, 'Gestión del conocimiento', 'Gestión de la información', 'Habilidades interpersonales y de equipo (escucha activa, facilitación, liderazgo, trabajo en red, conciencia política)'],
-        outputs: [doc('registro-lecciones', 'Registro de lecciones aprendidas'), PMPU('cualquier componente'), OPAU()],
+        outputs: [doc('registro-lecciones', 'Registro de lecciones aprendidas'), agl(doc('retrospectiva')), PMPU('cualquier componente'), OPAU()],
         inputsDocs: ['plan-direccion', 'registro-lecciones', 'asignaciones-recursos', 'estructura-desglose-recursos', 'criterios-seleccion-proveedores', 'registro-interesados', 'entregables'],
       }),
     P('4.5', 'Monitorear y Controlar el Trabajo del Proyecto', 'integracion', 'monitoreo', 'continua',
@@ -153,15 +273,15 @@
           PDU('pronósticos de costos, registro de incidentes, registro de lecciones aprendidas, registro de riesgos, pronósticos del cronograma'),
           upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos')],
         inputsDocs: ['plan-direccion', 'registro-supuestos', 'estimacion-costos', 'registro-incidentes', 'registro-lecciones', 'informe-calidad', 'registro-riesgos', 'informe-riesgos'],
-        toolViews: ['tablero', 'valor-ganado'],
+        toolViews: ['tablero', 'valor-ganado', 'metricas-agiles'],
       }),
     P('4.6', 'Realizar el Control Integrado de Cambios', 'integracion', 'monitoreo', 'continua',
       'Revisa todas las solicitudes de cambio; aprueba y gestiona los cambios a entregables, documentos del proyecto, activos de la organización y plan para la dirección del proyecto, y comunica las decisiones. Beneficio clave: permite considerar los cambios documentados de manera integrada y reduce el riesgo de los cambios hechos sin tener en cuenta los objetivos o planes generales del proyecto.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de cambios, plan de gestión de la configuración, línea base del alcance, línea base del cronograma, línea base de costos)', 'Documentos del proyecto (base de las estimaciones, matriz de trazabilidad de requisitos, informe de riesgos)', WPR, 'Solicitudes de cambio', EEF, OPA],
         tools: [JE, 'Herramientas de control de cambios', 'Análisis de datos (análisis de alternativas, análisis costo-beneficio)', 'Toma de decisiones (votación, toma de decisiones autocrática, análisis de decisiones con múltiples criterios)', REU],
         outputs: [doc('solicitud-cambio', 'Solicitudes de cambio aprobadas'), PMPU('cualquier componente'), view('lineas-base', 'Líneas base actualizadas por los cambios aprobados'), PDU('registro de cambios'), doc('registro-cambios')],
-        inputsDocs: ['plan-gestion-cambios', 'plan-gestion-configuracion', 'estimacion-costos', 'matriz-trazabilidad', 'informe-riesgos', 'informe-desempeno', 'solicitud-cambio'],
-        toolViews: ['lineas-base'],
+        inputsDocs: ['plan-gestion-cambios', 'plan-gestion-configuracion', 'estimacion-costos', 'matriz-trazabilidad', 'informe-riesgos', 'informe-desempeno', 'solicitud-cambio', 'plan-release'],
+        toolViews: ['lineas-base', 'iteraciones'],
       }),
     P('4.7', 'Cerrar el Proyecto o Fase', 'integracion', 'cierre', 'unica',
       'Finaliza todas las actividades del proyecto, de una fase o de un contrato. Beneficio clave: archiva la información del proyecto o fase, documenta el trabajo completado y libera los recursos de la organización para nuevos esfuerzos.', {
@@ -183,8 +303,9 @@
       'Determina, documenta y gestiona las necesidades y los requisitos de los interesados para cumplir con los objetivos del proyecto. Beneficio clave: proporciona la base para definir el alcance del producto y el alcance del proyecto.', {
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión del alcance, plan de gestión de los requisitos, plan de involucramiento de los interesados)', 'Documentos del proyecto (registro de supuestos, registro de lecciones aprendidas, registro de interesados)', 'Documentos de negocio (caso de negocio)', 'Acuerdos', EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, entrevistas, grupos focales, cuestionarios y encuestas, estudios comparativos)', 'Análisis de datos (análisis de documentos)', 'Toma de decisiones (votación, análisis de decisiones con múltiples criterios)', 'Representación de datos (diagramas de afinidad, mapeo mental)', 'Habilidades interpersonales y de equipo (técnica de grupo nominal, observación/conversación, facilitación)', 'Diagrama de contexto', 'Prototipos'],
-        outputs: [doc('documentacion-requisitos'), doc('matriz-trazabilidad')],
+        outputs: [doc('documentacion-requisitos'), doc('matriz-trazabilidad'), agl(doc('vision-producto'))],
         inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'plan-involucramiento-interesados', 'registro-supuestos', 'registro-lecciones', 'registro-interesados', 'caso-negocio'],
+        toolViews: ['backlog'],
       }),
     P('5.3', 'Definir el Alcance', 'alcance', 'planificacion', 'unica',
       'Desarrolla una descripción detallada del proyecto y del producto. Beneficio clave: describe los límites del producto, servicio o resultado y los criterios para su aceptación.', {
@@ -192,7 +313,8 @@
         tools: [JE, 'Análisis de datos (análisis de alternativas)', 'Toma de decisiones (análisis de decisiones con múltiples criterios)', 'Habilidades interpersonales y de equipo (facilitación)', 'Análisis del producto'],
         outputs: [doc('enunciado-alcance'), PDU('registro de supuestos, documentación de requisitos, matriz de trazabilidad de requisitos, registro de interesados'),
           upd('registro-supuestos'), upd('documentacion-requisitos'), upd('matriz-trazabilidad'), upd('registro-interesados')],
-        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'registro-supuestos', 'documentacion-requisitos', 'registro-riesgos'],
+        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'registro-supuestos', 'documentacion-requisitos', 'registro-riesgos', 'vision-producto'],
+        toolViews: ['backlog'],
       }),
     P('5.4', 'Crear la EDT/WBS', 'alcance', 'planificacion', 'unica',
       'Subdivide los entregables y el trabajo del proyecto en componentes más pequeños y más fáciles de manejar. Beneficio clave: proporciona un marco de referencia de lo que se debe entregar.', {
@@ -200,15 +322,15 @@
         tools: [JE, 'Descomposición'],
         outputs: [base('scope', 'Línea base del alcance'), view('edt', 'EDT/WBS y diccionario de la EDT/WBS'), PDU('registro de supuestos, documentación de requisitos'), upd('registro-supuestos'), upd('documentacion-requisitos')],
         inputsDocs: ['plan-gestion-alcance', 'enunciado-alcance', 'documentacion-requisitos'],
-        toolViews: ['edt'],
+        toolViews: ['edt', 'backlog'],
       }),
     P('5.5', 'Validar el Alcance', 'alcance', 'monitoreo', 'periodica',
       'Formaliza la aceptación de los entregables del proyecto que se hayan completado. Beneficio clave: aporta objetividad al proceso de aceptación y aumenta la probabilidad de aceptación final del producto, servicio o resultado al validar cada entregable.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión del alcance, plan de gestión de los requisitos, línea base del alcance)', 'Documentos del proyecto (registro de lecciones aprendidas, informes de calidad, documentación de requisitos, matriz de trazabilidad de requisitos)', 'Entregables verificados', WPD],
         tools: ['Inspección', 'Toma de decisiones (votación)'],
-        outputs: [doc('acta-aceptacion-entregable', 'Entregables aceptados'), upd('entregables', 'Registro de entregables (estado de aceptación)'), WPI(), CR(),
+        outputs: [doc('acta-aceptacion-entregable', 'Entregables aceptados'), agl(doc('acta-revision-sprint')), upd('entregables', 'Registro de entregables (estado de aceptación)'), WPI(), CR(),
           PDU('registro de lecciones aprendidas, documentación de requisitos, matriz de trazabilidad de requisitos'), upd('registro-lecciones'), upd('documentacion-requisitos'), upd('matriz-trazabilidad')],
-        inputsDocs: ['plan-gestion-alcance', 'plan-gestion-requisitos', 'registro-lecciones', 'informe-calidad', 'documentacion-requisitos', 'matriz-trazabilidad', 'entregables'],
+        inputsDocs: ['plan-gestion-alcance', 'plan-gestion-requisitos', 'registro-lecciones', 'informe-calidad', 'documentacion-requisitos', 'matriz-trazabilidad', 'entregables', 'definicion-terminado'],
         toolViews: ['edt'],
       }),
     P('5.6', 'Controlar el Alcance', 'alcance', 'monitoreo', 'continua',
@@ -257,23 +379,23 @@
       'Analiza secuencias de actividades, duraciones, requisitos de recursos y restricciones del cronograma para crear el modelo de programación del proyecto. Beneficio clave: genera un modelo de programación con fechas planificadas para completar las actividades, base para la ejecución, el monitoreo y el control.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión del cronograma, línea base del alcance)', 'Documentos del proyecto (atributos de las actividades, lista de actividades, registro de supuestos, base de las estimaciones, estimaciones de la duración, registro de lecciones aprendidas, lista de hitos, diagramas de red del cronograma del proyecto, asignaciones del equipo del proyecto, calendarios de recursos, requisitos de recursos, registro de riesgos)', 'Acuerdos', EEF, OPA],
         tools: ['Análisis de la red del cronograma', 'Método de la ruta crítica', 'Optimización de recursos (nivelación de recursos, equilibrio de recursos)', 'Análisis de datos (análisis de escenarios «¿qué pasa si…?», simulación)', 'Adelantos y retrasos', 'Compresión del cronograma (intensificación, ejecución rápida)', PMIS, 'Planificación ágil de liberaciones'],
-        outputs: [base('schedule', 'Línea base del cronograma'), view('cronograma', 'Cronograma del proyecto (diagrama de Gantt)'), view('cronograma', 'Datos del cronograma'), view('cronograma', 'Calendarios del proyecto'), CR(),
+        outputs: [base('schedule', 'Línea base del cronograma'), view('cronograma', 'Cronograma del proyecto (diagrama de Gantt)'), view('cronograma', 'Datos del cronograma'), view('cronograma', 'Calendarios del proyecto'), agl(doc('plan-release')), CR(),
           PMPU('plan de gestión del cronograma, línea base de costos'),
           PDU('atributos de las actividades, registro de supuestos, estimaciones de la duración, registro de lecciones aprendidas, requisitos de recursos, registro de riesgos'),
           upd('registro-supuestos'), upd('estimaciones-duracion'), upd('registro-lecciones'), upd('requisitos-recursos'), upd('registro-riesgos')],
         inputsDocs: ['plan-gestion-cronograma', 'registro-supuestos', 'estimaciones-duracion', 'registro-lecciones', 'asignaciones-recursos', 'requisitos-recursos', 'registro-riesgos'],
-        toolViews: ['cronograma', 'red', 'recursos'],
+        toolViews: ['cronograma', 'red', 'recursos', 'iteraciones'],
       }),
     P('6.6', 'Controlar el Cronograma', 'cronograma', 'monitoreo', 'continua',
       'Monitorea el estado del proyecto para actualizar el cronograma y gestionar cambios a la línea base del cronograma. Beneficio clave: mantiene la línea base del cronograma a lo largo del proyecto.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión del cronograma, línea base del cronograma, línea base del alcance, línea base para la medición del desempeño)', 'Documentos del proyecto (registro de lecciones aprendidas, calendarios del proyecto, cronograma del proyecto, calendarios de recursos, datos del cronograma)', WPD, OPA],
         tools: ['Análisis de datos (análisis del valor ganado, diagrama de trabajo pendiente de la iteración, revisiones del desempeño, análisis de tendencias, análisis de variación, análisis de escenarios «¿qué pasa si…?»)', 'Método de la ruta crítica', PMIS, 'Optimización de recursos', 'Adelantos y retrasos', 'Compresión del cronograma'],
-        outputs: [WPI(), view('valor-ganado', 'Pronósticos del cronograma'), view('cronograma', 'Cronograma del proyecto actualizado frente a la línea base'), CR(),
+        outputs: [WPI(), view('valor-ganado', 'Pronósticos del cronograma'), view('cronograma', 'Cronograma del proyecto actualizado frente a la línea base'), agl(upd('plan-release')), CR(),
           PMPU('plan de gestión del cronograma, línea base del cronograma, línea base de costos, línea base para la medición del desempeño'),
           PDU('registro de supuestos, base de las estimaciones, registro de lecciones aprendidas, cronograma del proyecto, calendarios de recursos, registro de riesgos, datos del cronograma'),
           upd('registro-supuestos'), upd('registro-lecciones'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-cronograma', 'registro-lecciones'],
-        toolViews: ['cronograma', 'valor-ganado', 'lineas-base'],
+        inputsDocs: ['plan-gestion-cronograma', 'registro-lecciones', 'plan-release'],
+        toolViews: ['cronograma', 'valor-ganado', 'lineas-base', 'kanban', 'iteraciones', 'metricas-agiles'],
       }),
 
     /* ===================== 7. Costos ===================== */
@@ -309,8 +431,8 @@
           PMPU('plan de gestión de los costos, línea base de costos, línea base para la medición del desempeño'),
           PDU('registro de supuestos, base de las estimaciones, estimaciones de costos, registro de lecciones aprendidas, registro de riesgos'),
           upd('registro-supuestos'), upd('estimacion-costos'), upd('registro-lecciones'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-costos', 'registro-lecciones', 'requisitos-financiamiento'],
-        toolViews: ['valor-ganado'],
+        inputsDocs: ['plan-gestion-costos', 'registro-lecciones', 'requisitos-financiamiento', 'plan-release'],
+        toolViews: ['valor-ganado', 'metricas-agiles'],
       }),
 
     /* ===================== 8. Calidad ===================== */
@@ -318,7 +440,7 @@
       'Identifica los requisitos o estándares de calidad del proyecto y sus entregables, y documenta cómo el proyecto demostrará su cumplimiento. Beneficio clave: proporciona guía y dirección sobre cómo se gestionará y verificará la calidad a lo largo del proyecto.', {
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión de los requisitos, plan de gestión de los riesgos, plan de involucramiento de los interesados, línea base del alcance)', 'Documentos del proyecto (registro de supuestos, documentación de requisitos, matriz de trazabilidad de requisitos, registro de riesgos, registro de interesados)', EEF, OPA],
         tools: [JE, 'Recopilación de datos (estudios comparativos, tormenta de ideas, entrevistas)', 'Análisis de datos (análisis costo-beneficio, costo de la calidad)', 'Toma de decisiones (análisis de decisiones con múltiples criterios)', 'Representación de datos (diagramas de flujo, modelo lógico de datos, diagramas matriciales, mapeo mental)', 'Planificación de pruebas e inspección', REU],
-        outputs: [doc('plan-gestion-calidad'), doc('metricas-calidad'), PMPU('plan de gestión de los riesgos, línea base del alcance'),
+        outputs: [doc('plan-gestion-calidad'), doc('metricas-calidad'), agl(doc('definicion-terminado')), PMPU('plan de gestión de los riesgos, línea base del alcance'),
           PDU('registro de lecciones aprendidas, matriz de trazabilidad de requisitos, registro de riesgos, registro de interesados'),
           upd('registro-lecciones'), upd('matriz-trazabilidad'), upd('registro-riesgos'), upd('registro-interesados')],
         inputsDocs: ['acta-constitucion', 'plan-gestion-requisitos', 'plan-gestion-riesgos', 'plan-involucramiento-interesados', 'registro-supuestos', 'documentacion-requisitos', 'matriz-trazabilidad', 'registro-riesgos', 'registro-interesados'],
@@ -330,7 +452,7 @@
         tools: ['Recopilación de datos (listas de verificación)', 'Análisis de datos (análisis de alternativas, análisis de documentos, análisis de procesos, análisis de causa raíz)', 'Toma de decisiones (análisis de decisiones con múltiples criterios)', 'Representación de datos (diagramas de afinidad, diagramas de causa y efecto, diagramas de flujo, histogramas, diagramas matriciales, diagramas de dispersión)', 'Auditorías', 'Diseño para X', 'Resolución de problemas', 'Métodos de mejora de la calidad'],
         outputs: [doc('informe-calidad', 'Informes de calidad'), doc('documentos-prueba'), view('calidad', 'Análisis de causa raíz (diagramas de Ishikawa y de Pareto)'), CR(),
           PMPU('plan de gestión de la calidad, línea base del alcance, línea base del cronograma, línea base de costos'),
-          PDU('registro de incidentes, registro de lecciones aprendidas, registro de riesgos'), upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos')],
+          PDU('registro de incidentes, registro de lecciones aprendidas, registro de riesgos'), upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos'), agl(upd('definicion-terminado'))],
         inputsDocs: ['plan-gestion-calidad', 'registro-lecciones', 'mediciones-control-calidad', 'metricas-calidad', 'informe-riesgos'],
         toolViews: ['calidad', 'flujogramas'],
       }),
@@ -342,7 +464,7 @@
           PMPU('plan de gestión de la calidad'),
           PDU('registro de incidentes, registro de lecciones aprendidas, registro de riesgos, documentos de prueba y evaluación'),
           upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos'), upd('documentos-prueba')],
-        inputsDocs: ['plan-gestion-calidad', 'registro-lecciones', 'metricas-calidad', 'documentos-prueba', 'solicitud-cambio', 'entregables'],
+        inputsDocs: ['plan-gestion-calidad', 'registro-lecciones', 'metricas-calidad', 'documentos-prueba', 'solicitud-cambio', 'entregables', 'definicion-terminado'],
         toolViews: ['calidad'],
       }),
 
@@ -628,14 +750,24 @@
     ['control-adquisiciones', 'Seguimiento de contratos y desempeño de proveedores', '12.3', 'adquisiciones', 'monitoreo', 'registro'],
     ['registro-interesados', 'Registro de interesados', '13.1', 'interesados', 'inicio', 'registro'],
     ['plan-involucramiento-interesados', 'Plan de involucramiento de los interesados', '13.2', 'interesados', 'planificacion', 'plan'],
-  ].map(([id, name, process, area, group, kind, multiple]) => ({ id, name, process, area, group, kind, multiple: !!multiple }));
+    /* Capa ágil y enfoque híbrido (SPEC §9.5) */
+    ['vision-producto', 'Visión del producto', '5.2', 'alcance', 'inicio', 'documento', false, true],
+    ['definicion-terminado', 'Definición de listo y de terminado', '8.1', 'calidad', 'planificacion', 'documento', false, true],
+    ['plan-release', 'Plan de releases (hoja de ruta del producto)', '6.5', 'cronograma', 'planificacion', 'plan', false, true],
+    ['planificacion-sprint', 'Planificación de la iteración', '4.3', 'integracion', 'ejecucion', 'acta', true, true],
+    ['acta-revision-sprint', 'Acta de revisión de la iteración', '5.5', 'alcance', 'monitoreo', 'acta', true, true],
+    ['retrospectiva', 'Retrospectiva de la iteración', '4.4', 'integracion', 'ejecucion', 'acta', true, true],
+  ].map(([id, name, process, area, group, kind, multiple, agile]) => ({ id, name, process, area, group, kind, multiple: !!multiple, agile: !!agile }));
 
   /* Vistas de la aplicación (SPEC §4) y líneas base */
   const VIEW_LABELS = {
     tablero: 'Tablero del proyecto', procesos: 'Mapa de procesos', documentos: 'Documentos', documento: 'Documento', 'lineas-base': 'Líneas base', ficha: 'Ficha del proyecto',
     edt: 'EDT', cronograma: 'Cronograma (Gantt)', red: 'Diagrama de red', recursos: 'Recursos', 'valor-ganado': 'Curva S y valor ganado',
     raci: 'Matriz RACI', 'riesgos-matriz': 'Probabilidad e impacto', 'interesados-matriz': 'Interesados', calidad: 'Ishikawa y Pareto', flujogramas: 'Diagramas de flujo',
+    backlog: 'Backlog del producto', kanban: 'Tablero Kanban', iteraciones: 'Releases e iteraciones', 'metricas-agiles': 'Métricas ágiles',
   };
+  /* Vistas de la capa ágil (grupo «agil», SPEC §9.4) */
+  const AGILE_VIEWS = ['backlog', 'kanban', 'iteraciones', 'metricas-agiles'];
   const BASELINES = { scope: 'Línea base del alcance', schedule: 'Línea base del cronograma', cost: 'Línea base de costos' };
 
   /* ---------------------------------------------------------------- PMBOK 7: dominios de desempeño y principios */
@@ -855,6 +987,62 @@
       definition: 'Individuo, grupo u organización que puede afectar, verse afectado, o percibirse a sí mismo como afectado por una decisión, actividad o resultado del proyecto.' },
     { term: 'Matriz de evaluación del involucramiento de los interesados', area: 'interesados', view: 'interesados-matriz',
       definition: 'Matriz que compara el nivel de involucramiento actual (C) y deseado (D) de cada interesado en cinco niveles: desconocedor, reticente, neutral, partidario y líder. Las brechas indican dónde se requieren acciones de comunicación e involucramiento.' },
+    /* Ágil y enfoque híbrido (Guía de Scrum 2020, Guía de prácticas ágiles, PMBOK® 7) */
+    { term: 'Enfoque híbrido', area: 'integracion', view: 'iteraciones',
+      definition: 'Combinación de los enfoques predictivo y adaptativo en un mismo proyecto: los entregables con requisitos estables se planifican en cascada con la EDT, el cronograma y las líneas base, y los de alcance incierto se desarrollan por iteraciones a partir de un backlog. En el gestor, cada entregable de la EDT declara su enfoque y el avance de sus releases alimenta el cronograma y el valor ganado del proyecto.' },
+    { term: 'Enfoque adaptativo', area: 'integracion', view: 'backlog',
+      definition: 'Enfoque de desarrollo en el que los requisitos se descubren y refinan durante el proyecto, el trabajo se entrega en incrementos frecuentes y el plan se ajusta con la retroalimentación de los interesados. Incluye los ciclos de vida iterativos, incrementales y ágiles (Scrum, Kanban); conviene cuando el alcance no está claro y requiere iteración.' },
+    { term: 'Backlog del producto', area: 'alcance', view: 'backlog',
+      definition: 'Lista ordenada y emergente de lo que se necesita para mejorar el producto: épicas, historias de usuario, defectos, mejoras e investigaciones. El dueño del producto la ordena de forma continua; los elementos de arriba se refinan con más detalle y son la fuente única del trabajo del equipo.' },
+    { term: 'Historia de usuario', abbr: 'HU', area: 'alcance', view: 'backlog',
+      definition: 'Descripción breve de una funcionalidad desde el punto de vista de quien la usa, con la forma «Como <rol> quiero <necesidad> para <beneficio>», acompañada de criterios de aceptación. Una buena historia es independiente, negociable, valiosa, estimable, pequeña y verificable (INVEST) y cabe en una iteración.' },
+    { term: 'Épica', area: 'alcance', view: 'backlog',
+      definition: 'Elemento grande del backlog que agrupa varias historias relacionadas y no cabe en una iteración. Se divide en historias a medida que se acerca su desarrollo; su avance es el de las historias que la componen y no se cuenta aparte en la velocidad.' },
+    { term: 'Priorización MoSCoW', abbr: 'MoSCoW', area: 'alcance', view: 'backlog',
+      definition: 'Técnica para priorizar requisitos o elementos del backlog en cuatro categorías: debe tener (imprescindible para el release), debería tener (importante pero no vital), podría tener (deseable si queda capacidad) y no en este release (acordado como excluido por ahora).' },
+    { term: 'Refinamiento del backlog', area: 'alcance', view: 'backlog',
+      definition: 'Actividad continua en la que el dueño del producto y el equipo detallan, dividen, estiman y reordenan los elementos del backlog para que los próximos cumplan la definición de listo. Suele ocupar hasta el 10 % de la capacidad del equipo en cada iteración.' },
+    { term: 'Puntos de historia', abbr: 'pts', area: 'cronograma', view: 'backlog',
+      definition: 'Unidad relativa para estimar el tamaño de un elemento del backlog: combina esfuerzo, complejidad e incertidumbre frente a historias de referencia. Se usa con una serie de Fibonacci modificada (1, 2, 3, 5, 8, 13…) y técnicas de consenso como el planning poker.' },
+    { term: 'Iteración', abbr: 'Sprint', area: 'cronograma', view: 'iteraciones', doc: 'planificacion-sprint',
+      definition: 'Período fijo y corto, de una a cuatro semanas (dos en la mayoría de los equipos), en el que el equipo planifica, construye, revisa y entrega un incremento terminado del producto. En Scrum se llama sprint e incluye la planificación, la reunión diaria, la revisión y la retrospectiva.' },
+    { term: 'Release', area: 'cronograma', view: 'iteraciones', doc: 'plan-release',
+      definition: 'Entrega al cliente o a producción de un conjunto de incrementos con valor de negocio propio; agrupa varias iteraciones con un objetivo, una fecha y un presupuesto. La planificación de releases (6.5) define la hoja de ruta del producto y la línea base de cada release comprometido.' },
+    { term: 'Velocidad', area: 'cronograma', view: 'metricas-agiles',
+      definition: 'Cantidad de trabajo terminado, en puntos de historia u horas, que un equipo entrega por iteración. Sirve para pronosticar cuántas iteraciones faltan para terminar un release; no se usa para comparar equipos entre sí.',
+      formula: 'Velocidad media = Σ trabajo terminado en las últimas n iteraciones cerradas / n (el gestor usa n = 3) · Iteraciones restantes = trabajo restante / velocidad media' },
+    { term: 'Diagrama de trabajo pendiente', abbr: 'Burndown', area: 'cronograma', view: 'metricas-agiles',
+      definition: 'Gráfico del trabajo restante de una iteración frente al tiempo, comparado con una línea ideal que llega a cero el último día. Si la línea real queda por encima de la ideal, el equipo va atrasado frente a su compromiso; los aumentos indican trabajo agregado durante la iteración.',
+      formula: 'Restante del día d = alcance de la iteración en d − trabajo terminado hasta d · Ideal del día k = compromiso × (1 − k / días hábiles de la iteración)' },
+    { term: 'Diagrama de trabajo completado', abbr: 'Burnup', area: 'cronograma', view: 'metricas-agiles',
+      definition: 'Gráfico acumulado del trabajo terminado y del alcance total de un release a lo largo de las iteraciones. A diferencia del burndown, muestra por separado los cambios de alcance: la distancia entre las dos líneas es el trabajo restante.' },
+    { term: 'Límite WIP', abbr: 'WIP', area: 'cronograma', view: 'kanban',
+      definition: 'Número máximo de elementos que puede haber al mismo tiempo en una columna del tablero Kanban (trabajo en curso, del inglés work in progress). Limitarlo reduce las esperas y el tiempo de ciclo, hace visibles los cuellos de botella y obliga a terminar antes de empezar algo nuevo.',
+      formula: 'Ley de Little: tiempo de ciclo promedio = trabajo en curso promedio / rendimiento promedio' },
+    { term: 'Tablero Kanban', area: 'cronograma', view: 'kanban',
+      definition: 'Representación visual del flujo de trabajo en columnas (por ejemplo, por hacer, en curso, en revisión y terminado) con tarjetas que avanzan de izquierda a derecha, límites WIP y políticas explícitas. Hace transparente el estado del trabajo y es la base de la programación bajo demanda.' },
+    { term: 'Tiempo de ciclo', area: 'cronograma', view: 'metricas-agiles',
+      definition: 'Tiempo que tarda un elemento desde que entra a trabajo hasta que queda terminado. Junto con el rendimiento (elementos terminados por semana) es la métrica principal de Kanban; el tiempo de entrega, en cambio, se cuenta desde que el elemento se solicita.',
+      formula: 'Tiempo de ciclo = fecha de terminación − fecha de entrada a «En curso» · Rendimiento = elementos terminados / período' },
+    { term: 'Diagrama de flujo acumulado', abbr: 'CFD', area: 'cronograma', view: 'metricas-agiles',
+      definition: 'Gráfico de áreas apiladas con la cantidad de elementos en cada estado del tablero a lo largo del tiempo. La altura de la franja «en curso» muestra el trabajo en curso y su ancho horizontal aproxima el tiempo de ciclo; una franja que se ensancha indica un cuello de botella.' },
+    { term: 'Valor ganado ágil', abbr: 'AgileEVM', area: 'costos', view: 'metricas-agiles',
+      definition: 'Adaptación del análisis del valor ganado a los releases ágiles (Sulaiman, Smith y Gil, 2006): el avance planificado se mide por las iteraciones transcurridas y el avance real por el trabajo terminado frente al alcance actual del release, para obtener SPI, CPI y EAC del release.',
+      formula: 'PPC = iteraciones transcurridas / iteraciones planeadas · APC = trabajo terminado / alcance del release · PV = BAC × PPC · EV = BAC × APC · SPI = EV / PV · CPI = EV / AC · EAC = BAC / CPI' },
+    { term: 'Definición de listo', abbr: 'DoR', area: 'calidad', view: 'backlog', doc: 'definicion-terminado',
+      definition: 'Acuerdo del equipo con el dueño del producto sobre las condiciones que debe cumplir un elemento del backlog para entrar a una iteración: redactado, con criterios de aceptación, estimado, de un tamaño que cabe en la iteración y sin dependencias bloqueantes.' },
+    { term: 'Definición de terminado', abbr: 'DoD', area: 'calidad', view: 'kanban', doc: 'definicion-terminado',
+      definition: 'Descripción formal del estado que debe tener un incremento para cumplir las medidas de calidad del producto (Guía de Scrum 2020). Aplica a todo el trabajo; un elemento que no la cumple no se presenta en la revisión ni cuenta en la velocidad.' },
+    { term: 'Incremento', area: 'calidad', view: 'iteraciones', doc: 'acta-revision-sprint',
+      definition: 'Paso concreto hacia el objetivo del producto: el conjunto de elementos terminados en una iteración, sumado a los anteriores, que cumple la definición de terminado y puede usarse. Se presenta en la revisión de la iteración.' },
+    { term: 'Revisión de la iteración', area: 'alcance', view: 'iteraciones', doc: 'acta-revision-sprint',
+      definition: 'Evento al final de la iteración en el que el equipo demuestra el incremento a los interesados, el dueño del producto acepta o rechaza los elementos y se ajusta el backlog con la retroalimentación. Es la forma ágil de validar el alcance (5.5).' },
+    { term: 'Retrospectiva', area: 'integracion', view: 'iteraciones', doc: 'retrospectiva',
+      definition: 'Reunión al final de cada iteración en la que el equipo inspecciona cómo trabajó (personas, interacciones, procesos, herramientas y definición de terminado) y acuerda pocas mejoras concretas para la siguiente iteración. Es la principal fuente de lecciones aprendidas en un enfoque ágil.' },
+    { term: 'Dueño del producto', abbr: 'PO', area: 'alcance', view: 'backlog',
+      definition: 'Rol responsable de maximizar el valor del producto: define el objetivo del producto, crea, ordena y explica los elementos del backlog y acepta o rechaza el trabajo terminado. Es una sola persona, no un comité, y sus decisiones sobre las prioridades se respetan.' },
+    { term: 'Scrum Master', abbr: 'SM', area: 'recursos', view: 'iteraciones',
+      definition: 'Rol responsable de que Scrum se entienda y se aplique: facilita los eventos, elimina impedimentos, ayuda al equipo a autoorganizarse y a mejorar, y apoya al dueño del producto y a la organización en la adopción ágil. Lidera al servicio del equipo en lugar de dirigirlo.' },
   ];
 
   /* ---------------------------------------------------------------- índices */
@@ -872,7 +1060,7 @@
     edition: '6.ª edición',
     source: 'Guía de los Fundamentos para la Dirección de Proyectos (Guía del PMBOK®), 6.ª edición. Dominios y principios: 7.ª edición.',
     areas, groups, processes, domains, principles, glossary, docs,
-    FREQUENCY, VIEW_LABELS, BASELINES,
+    FREQUENCY, VIEW_LABELS, BASELINES, AGILE_VIEWS,
     compareCodes,
 
     area: (id) => areaById.get(id) || null,
@@ -920,6 +1108,9 @@
       return [...seen];
     },
     doc: (id) => docById.get(id) || null,
+    /* Capa ágil (SPEC §9): consideraciones del área y documentos ágiles del catálogo. */
+    agileFor: (areaId) => { const a = areaById.get(areaId); return (a && a.agile) || null; },
+    agileDocs: () => docs.filter((d) => d.agile).map((d) => d.id),
     /* Nombre visible de un documento: plantilla registrada o catálogo canónico. */
     docName(id) { const t = PM && PM.templates && PM.templates[id]; return (t && t.name) || (docById.get(id) || {}).name || id; },
     viewLabel(id) { const v = PM && PM.getView ? PM.getView(id) : null; return (v && v.label) || VIEW_LABELS[id] || id; },
@@ -947,7 +1138,7 @@
 
   /* Los datos son de solo lectura: se congelan los elementos (los arreglos de nivel superior quedan libres). */
   for (const list of [areas, groups, processes, domains, principles, glossary, docs]) list.forEach(freeze);
-  freeze(FREQUENCY); freeze(VIEW_LABELS); freeze(BASELINES);
+  freeze(FREQUENCY); freeze(VIEW_LABELS); freeze(BASELINES); freeze(AGILE_VIEWS);
 
   PM.KB = KB;
 })();

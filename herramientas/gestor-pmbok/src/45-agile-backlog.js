@@ -166,14 +166,15 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   const TYPE_TONE = { epica: 'accent', historia: 'info', tarea: 'outline', defecto: 'crit', mejora: 'good', investigacion: 'signal' };
   const CAT_LABEL = { nuevo: 'Backlog del producto', pendiente: 'Pendiente', 'en-curso': 'En curso', terminado: 'Terminado' };
   const CAT_TONE = { nuevo: 'outline', pendiente: undefined, 'en-curso': 'accent', terminado: 'good' };
-  const CAT_OPTIONS = [{ value: 'pendiente', label: 'Pendiente (por hacer)' }, { value: 'en-curso', label: 'En curso' }, { value: 'terminado', label: 'Terminado' }];
+  const CAT_OPTIONS = [{ value: 'pendiente', label: 'Pendiente' }, { value: 'en-curso', label: 'En curso' }, { value: 'terminado', label: 'Terminado' }];
   const SPRINT_STATUS = Object.fromEntries(AG.SPRINT_STATUS.map((s) => [s.value, s.label]));
   const RELEASE_STATUS = Object.fromEntries(AG.RELEASE_STATUS.map((s) => [s.value, s.label]));
   const plural = (n, one, many) => fmt.num(n) + ' ' + (n === 1 ? one : many);
   const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const hasEst = (it) => !!it && it.estimate !== null && it.estimate !== undefined && it.estimate !== '' && Number.isFinite(Number(it.estimate));
   const hasAcc = (it) => !!String((it && it.acceptance) || '').trim();
-  const needsRefine = (it) => A.countable(it) && (!hasEst(it) || !hasAcc(it));
+  /* refinamiento: trabajo pendiente (no terminado) sin estimación o sin criterios de aceptación */
+  const needsRefine = (it, st) => A.countable(it) && !A.isDone(st, it) && (!hasEst(it) || !hasAcc(it));
   const fmtEst = (v, unit) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? '—' : fmt.num(Number(v), 1) + ' ' + unit);
   const statusName = (st, status) => {
     if (!status || status === BACKLOG) return 'Backlog del producto';
@@ -591,9 +592,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       <td class="agb-c-title">
         <button type="button" class="agb-title" data-act="open" onClick=${() => api.open(it.id)}>${it.title || html`<span class="faint">Sin título</span>`}</button>
         ${epic ? html`<div class="agb-sub">Épica <span class="mono">${epic.code}</span> · ${epic.title}</div>` : null}
-        ${refine && A.countable(it) ? html`<div class="agb-badges">${!hasEst(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin estimar</${ui.Chip}>` : null}${!hasAcc(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin criterios de aceptación</${ui.Chip}>` : null}</div>` : null}
+        ${refine && needsRefine(it, lk.st) ? html`<div class="agb-badges">${!hasEst(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin estimar</${ui.Chip}>` : null}${!hasAcc(it) ? html`<${ui.Chip} tone="warn" icon="alert">Sin criterios de aceptación</${ui.Chip}>` : null}</div>` : null}
       </td>
-      <td class="num agb-c-tight">${refine && canWrite && A.countable(it) ? html`<${EstInput} it=${it} unit=${unit} api=${api} />` : fmtEst(it.estimate, unit)}</td>
+      <td class="num agb-c-tight">${refine && canWrite && needsRefine(it, lk.st) ? html`<${EstInput} it=${it} unit=${unit} api=${api} />` : fmtEst(it.estimate, unit)}</td>
       <td class="agb-c-tight">${it.priority || '—'}</td>
       <td class="num agb-c-tight">${PM.isNum(it.value) ? fmt.num(Number(it.value)) : '—'}</td>
       <td><span class="agb-trunc" title=${rel ? rel.name : ''}>${it.releaseId ? (rel ? rel.name : missing) : html`<span class="faint">—</span>`}</span></td>
@@ -638,7 +639,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       if (f.epic === NONE) { if (it.type === 'epica' || (it.epicId && lk.epics.has(it.epicId))) return false; } else if (f.epic && it.epicId !== f.epic && it.id !== f.epic) return false;
       if (f.status === BACKLOG) { if (A.category(st, it.status) !== 'nuevo') return false; } else if (f.status && it.status !== f.status) return false;
       if (f.wbs === NONE) { if (it.wbsId && lk.wbs.has(it.wbsId)) return false; } else if (f.wbs && it.wbsId !== f.wbs) return false;
-      if (refine && !needsRefine(it)) return false;
+      if (refine && !needsRefine(it, st)) return false;
       if (q && !hay(it).includes(q)) return false;
       return true;
     }), [sorted, f, refine, q, lk, st]);
@@ -665,7 +666,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       const perRel = model.releases.map((r) => { const l = cnt.filter((i) => i.releaseId === r.id); return { id: r.id, name: r.name || 'Release', status: r.status, count: l.length, total: sum(l), done: sum(l.filter((i) => A.isDone(st, i))) }; });
       const noRel = cnt.filter((i) => !i.releaseId || !relIds.has(i.releaseId));
       if (noRel.length) perRel.push({ id: NONE, name: 'Sin release', status: null, count: noRel.length, total: sum(noRel), done: sum(noRel.filter((i) => A.isDone(st, i))) });
-      return { n: cnt.length, epics: items.length - cnt.length, done: done.length, total: sum(cnt), totalDone: sum(done), unest: cnt.filter((i) => !hasEst(i)).length, noAcc: cnt.filter((i) => !hasAcc(i)).length, blocked: cnt.filter((i) => i.blocked && !A.isDone(st, i)).length, refine: cnt.filter(needsRefine).length, perRel };
+      const open = cnt.filter((i) => !A.isDone(st, i));
+      return { n: cnt.length, epics: items.length - cnt.length, done: done.length, total: sum(cnt), totalDone: sum(done), unest: open.filter((i) => !hasEst(i)).length, noAcc: open.filter((i) => !hasAcc(i)).length, blocked: open.filter((i) => i.blocked).length, refine: open.filter((i) => needsRefine(i, st)).length, perRel };
     }, [items, st, model.releases]);
     const epicStats = useMemo(() => {
       const m = new Map(epics.map((e) => [e.id, { n: 0, done: 0, est: 0, estDone: 0 }]));
@@ -898,7 +900,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <div class="agb-tiles">
           <${Tile} id="items" label="Elementos" value=${fmt.num(stats.n)} sub=${plural(stats.done, 'terminado', 'terminados') + (stats.epics ? ' · ' + plural(stats.epics, 'épica', 'épicas') : '') + (stats.blocked ? ' · ' + plural(stats.blocked, 'bloqueado', 'bloqueados') : '')} />
           <${Tile} id="total" label="Total estimado" value=${fmt.num(stats.total, 1) + ' ' + unit} sub=${fmt.num(stats.totalDone, 1) + ' ' + unit + ' terminados'} />
-          <${Tile} id="unest" label="Sin estimar" value=${fmt.num(stats.unest)} tone=${stats.unest ? 'warn' : undefined} sub=${stats.unest ? 'Pendientes de refinamiento' : 'Todo estimado'} />
+          <${Tile} id="unest" label="Sin estimar" value=${fmt.num(stats.unest)} tone=${stats.unest ? 'warn' : undefined} sub=${stats.unest ? 'Trabajo pendiente por refinar' : 'Todo el trabajo pendiente está estimado'} />
           <${Tile} id="noacc" label="Sin criterios de aceptación" value=${fmt.num(stats.noAcc)} tone=${stats.noAcc ? 'warn' : undefined} sub=${stats.noAcc ? 'Defínelos antes de llevarlos a una iteración' : 'Todos tienen criterios'} />
         </div>
       </section>
@@ -934,7 +936,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         ${anyFilter ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => { setF(NO_FILTERS); setRefine(false); }}>Limpiar filtros</${ui.Button}>` : null}
         <span class="xsmall muted agb-count" aria-live="polite">${anyFilter ? fmt.num(visible.length) + ' de ' + fmt.num(items.length) + ' elementos' : plural(items.length, 'elemento', 'elementos')}</span>
       </div>
-      ${refine ? html`<${Note} tone="info" icon="checklist">Modo «Refinamiento»: elementos sin estimar o sin criterios de aceptación. ${canWrite ? 'Escribe la estimación directamente en la tabla (Enter o salir del campo la guarda) y abre el elemento para completar sus criterios.' : ''}</${Note}>` : null}
+      ${refine ? html`<${Note} tone="info" icon="checklist">Modo «Refinamiento»: elementos pendientes (no terminados) sin estimar o sin criterios de aceptación. ${canWrite ? 'Escribe la estimación directamente en la tabla (Enter o salir del campo la guarda) y abre el elemento para completar sus criterios.' : ''}</${Note}>` : null}
 
       ${canWrite ? html`<form class="agb-quick" onSubmit=${quickAdd}>
         <${ui.Input} value=${quick} onValue=${setQuick} placeholder="Alta rápida: escribe el título de una historia y presiona Enter" aria-label="Título de la nueva historia (alta rápida)" />

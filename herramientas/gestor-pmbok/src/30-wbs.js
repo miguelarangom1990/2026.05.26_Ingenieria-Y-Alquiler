@@ -135,6 +135,26 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
 .wbs-tpl:hover { border-color: var(--line-strong); }
 .wbs-tpl-l1 { display: flex; flex-wrap: wrap; gap: 4px; }
 .wbs-tpl-l1 .chip { white-space: normal; }
+.wbs-ap { flex: none; }
+.wbs-ap .icon { flex: none; }
+.wbs-ap.is-inh { border-style: dashed; }
+.wbs-agile { display: flex; flex-direction: column; gap: 8px; }
+.wbs-agile-nums { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: var(--fs-sm); }
+.wbs-agile-nums strong { font-variant-numeric: tabular-nums; }
+.wbs-agile-meter { display: flex; align-items: center; gap: 8px; }
+.wbs-agile-meter .meter { flex: 1 1 auto; }
+.wbs-agile-meter span.v { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); white-space: nowrap; }
+.wbs-rels { display: flex; flex-direction: column; gap: 6px; }
+.wbs-rel { border: 1px solid var(--line); border-radius: var(--r-md); padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: var(--surface-2); }
+.wbs-rel-name { font-weight: 500; font-size: var(--fs-sm); overflow-wrap: anywhere; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.wbs-rel-name .icon { color: var(--fg-2); flex: none; }
+.wbs-dict .wbs-dc-ap { min-width: 150px; }
+.wbs-dict select.wbs-dc-ap { width: 100%; }
+.wbs-dict-ap { padding: 4px 6px; white-space: nowrap; }
+.chart .wbs-dg-ap rect { fill: var(--surface); stroke: var(--accent); stroke-width: 1; }
+.chart .wbs-dg-ap.is-inh rect { stroke: var(--line-strong); stroke-dasharray: 2 2; }
+.chart .wbs-dg-ap text { font-size: 9.5px; font-weight: 600; fill: var(--fg); }
+.wbs-sw-ap { display: inline-flex; align-items: center; justify-content: center; font-size: 0.625rem; font-weight: 600; line-height: 1; padding: 1px 4px; border: 1px solid var(--accent); border-radius: 3px; background: var(--surface); color: var(--fg); }
 `;
   if (!document.getElementById('css-wbs')) { const st = document.createElement('style'); st.id = 'css-wbs'; st.textContent = STYLE; document.head.appendChild(st); }
 
@@ -159,7 +179,91 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
   const kindOf = (node, isLeaf) => { const k = normKind(node && node.kind); if (k === 'paquete' && !isLeaf) return 'entregable'; return k || (isLeaf ? 'paquete' : 'entregable'); };
   const KindChip = ({ kind }) => { const k = KIND_BY_ID[kind] || KIND_BY_ID.entregable; return html`<${ui.Chip} tone=${k.tone}>${k.label}</${ui.Chip}>`; };
 
-  const DEFAULT_ROLES = ['Director de proyecto', 'Ingeniero de diseño', 'Residente de obra', 'Coordinador SST (HSE)', 'Coordinador logístico', 'Supervisor de montaje', 'Cuadrilla de montaje', 'Almacén', 'Facturación y cartera'];
+  /* ---------------------------------------------------------------- enfoque de desarrollo y capa ágil (SPEC §9.1, §9.4) */
+  const AP_LABEL = { predictivo: 'Predictivo', adaptativo: 'Adaptativo (ágil)' };
+  const AGILE = () => PM.agile || null;
+  const arrOf = (x) => (Array.isArray(x) ? x : []);
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const ZERO_STATS = Object.freeze({ count: 0, pts: 0, done: 0, doneCount: 0, open: 0 });
+  /* Información ágil de la EDT: enfoque efectivo por nodo, distintivos, releases por entregable y backlog por rama.
+     Se calcula una sola vez por cambio de EDT, releases o backlog (no por fila). */
+  function agileInfo(tree, project, agileData, items) {
+    const A = AGILE();
+    const mode = A ? A.mode(project) : 'predictivo';
+    const enabled = mode !== 'predictivo';
+    const approach = A && PM.calc.wbsApproach ? PM.calc.wbsApproach(tree, project) : new Map();
+    const def = mode === 'adaptativo' ? 'adaptativo' : 'predictivo';
+    const explicit = tree.nodes.some((n) => n.approach === 'adaptativo' || n.approach === 'predictivo');
+    /* proyecto adaptativo: todo es ágil, se distinguen los entregables predictivos; si no, los adaptativos */
+    const target = mode === 'adaptativo' ? 'predictivo' : 'adaptativo';
+    const inheritedOf = (id) => { const p = tree.parentOf.get(id); return p ? approach.get(p) || def : def; };
+    const badges = new Map();
+    for (const f of tree.flat) {
+      const id = f.node.id; const ap = approach.get(id) || def;
+      if (ap !== target) continue;
+      const p = tree.parentOf.get(id);
+      const root = !p || (approach.get(p) || def) !== ap;
+      let from = null;
+      if (!root) { let a = p; while (a && tree.parentOf.get(a) && (approach.get(tree.parentOf.get(a)) || def) === ap) a = tree.parentOf.get(a); from = tree.codes.get(a); }
+      badges.set(id, { ap, root, from });
+    }
+    const releases = arrOf(agileData && agileData.releases).filter((r) => isObj(r) && r.id);
+    const relByWbs = new Map();
+    for (const r of releases) if (r.wbsId) { if (!relByWbs.has(r.wbsId)) relByWbs.set(r.wbsId, []); relByWbs.get(r.wbsId).push(r); }
+    const settings = A ? A.settings(agileData) : null;
+    const unit = A ? A.unitShort(settings) : 'pts';
+    /* backlog por elemento (propio) y por rama (elemento + descendientes); las épicas agrupan y no cuentan */
+    const direct = new Map();
+    let linkedItems = 0, unlinkedItems = 0;
+    const list = arrOf(items);
+    if (A && list.length) {
+      for (const it of list) {
+        if (!A.countable(it)) continue;
+        if (!it.wbsId || !tree.byId.has(it.wbsId)) { unlinkedItems++; continue; }
+        linkedItems++;
+        let s = direct.get(it.wbsId); if (!s) direct.set(it.wbsId, (s = { count: 0, pts: 0, done: 0, doneCount: 0, open: 0 }));
+        const e = A.estimate(it); const dn = A.isDone(settings, it);
+        s.count++; s.pts += e; if (dn) { s.done += e; s.doneCount++; } else s.open++;
+      }
+    }
+    const branch = new Map();
+    if (direct.size) {
+      const add = (t, s) => { t.count += s.count; t.pts += s.pts; t.done += s.done; t.doneCount += s.doneCount; t.open += s.open; };
+      for (let i = tree.flat.length - 1; i >= 0; i--) {
+        const id = tree.flat[i].node.id;
+        let s = branch.get(id); if (!s) branch.set(id, (s = { count: 0, pts: 0, done: 0, doneCount: 0, open: 0 }));
+        const own = direct.get(id); if (own) add(s, own);
+        const p = tree.parentOf.get(id);
+        if (p) { let ps = branch.get(p); if (!ps) branch.set(p, (ps = { count: 0, pts: 0, done: 0, doneCount: 0, open: 0 })); add(ps, s); }
+      }
+    }
+    const itemsByWbs = (gone) => list.filter((it) => isObj(it) && it.wbsId && gone.has(it.wbsId));
+    return {
+      mode, enabled, explicit, approach, def, badges, inheritedOf, releases, relByWbs, settings, unit, direct, branch, linkedItems, unlinkedItems, itemsByWbs,
+      /* el selector se muestra con la capa ágil activa o si el nodo ya tiene un enfoque propio */
+      showSelector: (node) => enabled || !!(node && (node.approach === 'adaptativo' || node.approach === 'predictivo')),
+      stats: (id) => branch.get(id) || ZERO_STATS,
+      relsOf: (id) => relByWbs.get(id) || [],
+    };
+  }
+  /* Distintivo del enfoque: «Ágil» (proyecto híbrido) o «Predictivo» (proyecto adaptativo); el inicio de la rama lleva
+     el distintivo lleno y sus descendientes uno punteado (heredado), siempre con icono y texto. */
+  function ApBadge({ b }) {
+    if (!b) return null;
+    const agile = b.ap === 'adaptativo';
+    const label = agile ? 'Ágil' : 'Predictivo';
+    const title = (agile ? 'Enfoque adaptativo (ágil): se gestiona con backlog e iteraciones' : 'Enfoque predictivo: se gestiona en cascada con el cronograma') + (b.root ? '' : ' · heredado de ' + b.from);
+    return html`<${ui.Chip} tone=${b.root ? (agile ? 'accent' : 'signal') : 'outline'} icon=${agile ? 'sprint' : 'gantt'} class=${cx('wbs-ap', !b.root && 'is-inh')} title=${title}>${label}</${ui.Chip}>`;
+  }
+  const apOptions = (inh) => [
+    { value: '', label: 'Heredado (' + AP_LABEL[inh || 'predictivo'] + ')' },
+    { value: 'predictivo', label: AP_LABEL.predictivo },
+    { value: 'adaptativo', label: AP_LABEL.adaptativo },
+  ];
+  const apValue = (n) => (n && (n.approach === 'adaptativo' || n.approach === 'predictivo') ? n.approach : '');
+  const fmtPts = (v, unit) => PM.fmt.num(v, 1) + ' ' + unit;
+
+  const DEFAULT_ROLES = ['Director de proyecto','Ingeniero de diseño', 'Residente de obra', 'Coordinador SST (HSE)', 'Coordinador logístico', 'Supervisor de montaje', 'Cuadrilla de montaje', 'Almacén', 'Facturación y cartera'];
 
   /* ---------------------------------------------------------------- utilidades */
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
@@ -536,10 +640,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     <td><${Prog} v=${roll.progress} /></td>` : html`<td class="wbs-c-money"><${Dash} /></td><td><${Dash} /></td><td><${Dash} /></td><td class="wbs-c-money"><${Dash} /></td>`;
 
   /* ---------------------------------------------------------------- fila del árbol */
-  function TreeRowImpl({ f, roll, estV, showRoll, collapsed, hiddenCount, selected, editing, canWrite, pos, added, currency, wide, actions, drop, dragging }) {
+  function TreeRowImpl({ f, roll, estV, showRoll, collapsed, hiddenCount, selected, editing, canWrite, pos, added, currency, wide, actions, drop, dragging, badge, rel }) {
     const n = f.node, id = n.id;
     const kind = kindOf(n, f.isLeaf);
     const hasKids = !f.isLeaf;
+    /* release del entregable adaptativo: «Ver release» si ya existe; «Crear release» si se puede editar */
+    const relItem = rel ? (rel.viewId ? { label: 'Ver release', icon: 'release', onClick: () => actions.viewRelease(rel.viewId) } : canWrite && rel.canCreate ? { label: 'Crear release', icon: 'release', onClick: () => actions.createRelease(id) } : null) : null;
     const menu = canWrite ? [
       { label: 'Agregar elemento hijo', icon: 'plus', onClick: () => actions.addChild(id) },
       { label: 'Agregar elemento hermano', icon: 'plus', hint: 'Enter', onClick: () => actions.addSibling(id) },
@@ -551,9 +657,10 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       'sep',
       { label: 'Ver diccionario', icon: 'book', onClick: () => actions.openDict(id) },
       f.isLeaf ? { label: 'Crear actividad para este paquete', icon: 'gantt', onClick: () => actions.createTask(id) } : null,
+      relItem,
       'sep',
       { label: hasKids ? 'Eliminar con sus elementos hijos' : 'Eliminar elemento', icon: 'trash', danger: true, onClick: () => actions.remove(id) },
-    ] : [{ label: 'Ver diccionario', icon: 'book', onClick: () => actions.openDict(id) }];
+    ] : [{ label: 'Ver diccionario', icon: 'book', onClick: () => actions.openDict(id) }, relItem];
     return html`<tr class=${cx('wbs-row', 'd' + Math.min(f.depth, 4), selected && 'is-selected', f.isLeaf && 'is-leaf', drop && 'wbs-drop-' + drop, dragging && 'wbs-drag-src')} data-wbs-row=${id} data-code=${f.code}
         onClick=${(e) => { if (e.target.closest('button, select, input, textarea, a, .menu, [data-wbs-name]')) return; actions.select(id); }}>
       <td class="wbs-c-menu"><${RowMenu} label=${'Acciones de ' + f.code} items=${menu} /></td>
@@ -567,6 +674,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
               aria-label=${canWrite ? 'Editar nombre de ' + f.code + ': ' + (txt(n.name) || 'sin nombre') : undefined}
               onFocus=${canWrite ? () => actions.select(id) : undefined} onClick=${canWrite ? () => actions.edit(id) : undefined} onKeyDown=${canWrite ? (e) => actions.viewKeyDown(e, id) : undefined}>${txt(n.name) ? n.name : html`<span class="faint">Sin nombre</span>`}${added ? html`<${NewDot} />` : null}</span>`}
         ${added && canWrite && editing ? html`<${NewDot} />` : null}
+        ${badge ? html`<${ApBadge} b=${badge} />` : null}
         ${collapsed && hiddenCount ? html`<span class="wbs-hidden" title=${plural(hiddenCount, 'elemento oculto', 'elementos ocultos')}>+${hiddenCount}</span>` : null}
       </div></td>
       <td>${canWrite && selected ? html`<select class=${'wbs-kind k-' + kind} value=${kind} aria-label=${'Tipo del elemento ' + f.code} onChange=${(e) => actions.patch(id, { kind: e.currentTarget.value })}>
@@ -606,6 +714,11 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           <${RO} label="Actividades vinculadas" value=${String(r.count)} />
           ${r.count ? html`<${RO} label="Inicio – fin" value=${PM.fmt.date(r.start) + ' – ' + PM.fmt.date(r.finish)} /><${RO} label="Avance" value=${PM.fmt.pct100(r.progress)} />` : null}
         </div>
+        ${d.ag && (d.ag.enabled || d.ag.explicit) ? html`<div class="wbs-sumgrid" data-wbs-agile-root>
+          <${RO} label="Enfoque de desarrollo" value=${d.ag.mode === 'adaptativo' ? 'Adaptativo (ágil)' : d.ag.mode === 'hibrido' ? 'Híbrido (entregables predictivos y adaptativos)' : 'Predictivo'} />
+          <${RO} label="Entregables con enfoque adaptativo" value=${String(d.tree.flat.filter((f) => d.ag.approach.get(f.node.id) === 'adaptativo').length)} />
+          ${d.ag.enabled ? html`<${RO} label="Elementos del backlog vinculados a la EDT" value=${String(d.ag.linkedItems)} /><${RO} label="Elementos del backlog sin entregable" value=${String(d.ag.unlinkedItems)} />` : null}
+        </div>` : null}
         ${d.unlinked ? html`<p class="small muted">${plural(d.unlinked, 'actividad del cronograma no está vinculada', 'actividades del cronograma no están vinculadas')} a la EDT. Vincúlalas en el cronograma para que la regla del 100 % se cumpla también en el trabajo programado.</p>` : null}
         <p class="small muted">El elemento raíz representa el alcance total del proyecto. Su nombre y código se editan en la ficha del proyecto.</p>
         ${PM.getView('ficha') ? html`<div><${ui.Button} size="sm" iconRight="arrow-right" onClick=${() => PM.navigate('ficha')}>Abrir ficha del proyecto</${ui.Button}></div>` : null}
@@ -623,13 +736,20 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const roll = d.rollup.get(id);
     const estV = d.est.est.get(id) || 0;
     const fid = (k) => 'wbs-f-' + k + sfx;
+    const ag = d.ag;
+    const showAp = !!(ag && ag.showSelector(n));
+    const effAp = ag ? ag.approach.get(id) || ag.def : 'predictivo';
+    const apHint = 'Efectivo: ' + AP_LABEL[effAp] + '. Adaptativo: se gestiona con backlog, releases e iteraciones; predictivo: en cascada con el cronograma. Los elementos que lo componen lo heredan.';
     return html`<div class="stack" data-wbs-dict-panel=${id}>
-      <div class="row" style="gap:6px"><span class="code-tag">${code}</span><${KindChip} kind=${kind} />${isLeaf ? null : html`<span class="xsmall faint">${plural(d.tree.descendants(id).length, 'elemento', 'elementos')} debajo</span>`}</div>
+      <div class="row" style="gap:6px"><span class="code-tag">${code}</span><${KindChip} kind=${kind} />${ag && ag.badges.get(id) ? html`<${ApBadge} b=${ag.badges.get(id)} />` : null}${isLeaf ? null : html`<span class="xsmall faint">${plural(d.tree.descendants(id).length, 'elemento', 'elementos')} debajo</span>`}</div>
       ${w ? html`
         <${ui.Field} label="Nombre" for=${fid('name')}><${ui.Input} id=${fid('name')} value=${n.name || ''} onValue=${set('name')} placeholder="Nombre del elemento" /></${ui.Field}>
         <${ui.Field} label="Tipo" for=${fid('kind')} hint=${isLeaf ? 'Nivel más bajo de la EDT: es un paquete de trabajo, donde se estiman costos y duraciones.' : 'Tiene elementos hijos, por eso no puede ser paquete de trabajo.'}>
           <${ui.Select} id=${fid('kind')} value=${kind} onValue=${set('kind')} options=${KINDS.filter((k) => isLeaf || k.id !== 'paquete').map((k) => ({ value: k.id, label: k.label }))} />
         </${ui.Field}>
+        ${showAp ? html`<${ui.Field} label="Enfoque de desarrollo" for=${fid('approach')} hint=${apHint}>
+          <${ui.Select} id=${fid('approach')} value=${apValue(n)} onValue=${(v) => d.actions.setApproach(id, v)} options=${apOptions(ag.inheritedOf(id))} />
+        </${ui.Field}>` : null}
         <${ui.Field} label="Descripción del trabajo" for=${fid('description')}><${ui.TextArea} id=${fid('description')} rows=${3} value=${n.description || ''} onValue=${set('description')} placeholder="Qué trabajo incluye y qué queda por fuera" /></${ui.Field}>
         <${ui.Field} label="Entregable" for=${fid('deliverable')}><${ui.Input} id=${fid('deliverable')} value=${n.deliverable || ''} onValue=${set('deliverable')} placeholder="Resultado verificable que produce" /></${ui.Field}>
         <${ui.Field} label="Responsable" for=${fid('responsible')}><${ui.Input} id=${fid('responsible')} list="wbs-resp-options" value=${n.responsible || ''} onValue=${set('responsible')} placeholder="Rol o persona a cargo" /></${ui.Field}>
@@ -640,6 +760,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         <${ui.Field} label="Notas" for=${fid('notes')}><${ui.TextArea} id=${fid('notes')} rows=${2} value=${n.notes || ''} onValue=${set('notes')} placeholder="Supuestos, restricciones, referencias" /></${ui.Field}>`
       : html`
         <${RO} label="Nombre" value=${n.name} />
+        ${showAp ? html`<${RO} label="Enfoque de desarrollo" value=${AP_LABEL[effAp] + (apValue(n) ? '' : ' (heredado)')} />` : null}
         <${RO} label="Descripción del trabajo" value=${n.description} />
         <${RO} label="Entregable" value=${n.deliverable} />
         <${RO} label="Responsable" value=${n.responsible} />
@@ -659,7 +780,48 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         </div>
         ${w && isLeaf ? html`<div><${ui.Button} size="sm" icon="plus" onClick=${() => d.actions.createTask(id)}>Crear actividad para este paquete</${ui.Button}></div>` : null}
       </div>
+      ${ag ? html`<${AgileSection} id=${id} n=${n} code=${code} ag=${ag} canWrite=${w} actions=${d.actions} currency=${d.currency} />` : null}
     </div>`;
+  }
+
+  /* Backlog y releases del elemento (capa ágil): conteo y puntos del elemento y los que lo componen, avance y releases. */
+  function AgileSection({ id, n, code, ag, canWrite, actions, currency }) {
+    const stats = ag.stats(id);
+    const own = ag.direct.get(id) || ZERO_STATS;
+    const rels = ag.relsOf(id);
+    const adaptive = (ag.approach.get(id) || ag.def) === 'adaptativo';
+    if (!ag.enabled && !stats.count && !rels.length) return null;
+    const pct = stats.pts > 0 ? stats.done / stats.pts : stats.count ? stats.doneCount / stats.count : 0;
+    const byPts = stats.pts > 0;
+    const hasBacklog = !!PM.getView('backlog'), hasIter = !!PM.getView('iteraciones');
+    const relStatus = (s) => { const o = ((PM.AGILE && PM.AGILE.RELEASE_STATUS) || []).find((x) => x.value === s); return o ? o.label : 'Planeado'; };
+    const name = txt(n.name) || 'Sin nombre';
+    return html`<hr class="divider" />
+      <div class="wbs-agile" data-wbs-agile=${id}>
+        <div class="wbs-sec-title"><${ui.Icon} name="backlog" size=${15} />Backlog del producto<span class="code-tag" data-wbs-backlog-count>${stats.count}</span></div>
+        ${stats.count ? html`
+          <div class="wbs-agile-nums" data-wbs-backlog-stats>
+            <span><strong>${stats.count}</strong> ${stats.count === 1 ? 'elemento' : 'elementos'}</span>
+            <span><strong>${fmtPts(stats.pts, ag.unit)}</strong> estimados</span>
+            <span><strong>${fmtPts(stats.done, ag.unit)}</strong> terminados</span>
+            <span><strong>${stats.open}</strong> pendientes</span>
+          </div>
+          <div class="wbs-agile-meter"><${ui.Meter} value=${pct} label=${'Avance del backlog de ' + code + ' ' + name} /><span class="v" data-wbs-backlog-pct>${PM.fmt.pct100(pct * 100, 1)}</span></div>
+          <p class="xsmall faint">${byPts ? 'Avance = ' + ag.unit + ' terminados / ' + ag.unit + ' estimados' : 'Avance = elementos terminados / elementos (aún no hay estimaciones)'}. Incluye este elemento${stats.count > own.count ? ' (' + own.count + ' propios) y los que lo componen' : ''}; las épicas agrupan y no se cuentan.</p>`
+          : html`<p class="small faint">${adaptive ? 'Aún no hay elementos del backlog vinculados a este entregable ni a los que lo componen.' : 'No hay elementos del backlog vinculados.'}</p>`}
+        ${hasBacklog && ag.enabled ? html`<div><${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => PM.navigate('backlog', { wbs: id })}>Ir al backlog</${ui.Button}></div>` : null}
+        <div class="wbs-sec-title"><${ui.Icon} name="release" size=${15} />Releases<span class="code-tag">${rels.length}</span></div>
+        ${rels.length ? html`<div class="wbs-rels">${rels.map((r) => html`<div class="wbs-rel" key=${r.id} data-wbs-release=${r.id}>
+            <div class="stack-sm" style="gap:1px;min-width:0">
+              <span class="wbs-rel-name"><${ui.Icon} name="release" size=${14} />${txt(r.name) || 'Release sin nombre'}</span>
+              <span class="xsmall muted">${relStatus(r.status)}${PM.date.valid(r.start) ? ' · ' + PM.fmt.date(r.start) + (PM.date.valid(r.end) ? ' – ' + PM.fmt.date(r.end) : '') : ''}${num(r.budget) > 0 ? ' · ' + PM.fmt.money(r.budget, currency) : ''}</span>
+            </div>
+            ${hasIter ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => actions.viewRelease(r.id)} aria-label=${'Ver release ' + (txt(r.name) || '')}>Ver release</${ui.Button}>` : null}
+          </div>`)}</div>`
+          : html`<p class="small faint">${adaptive ? 'Este entregable aún no tiene releases.' : 'Los releases se planifican en los entregables con enfoque adaptativo.'}</p>`}
+        ${canWrite && ag.enabled && adaptive ? html`<div><${ui.Button} size="sm" icon="release" onClick=${() => actions.createRelease(id, true)} data-wbs-create-release>${rels.length ? 'Crear otro release' : 'Crear release'}</${ui.Button}></div>` : null}
+        ${canWrite && ag.enabled && !adaptive && !rels.length ? html`<p class="xsmall faint">Si el alcance de este entregable no está claro y requiere iteración, cambia su enfoque a «Adaptativo (ágil)» para gestionarlo con backlog e iteraciones.</p>` : null}
+      </div>`;
   }
 
   /* ---------------------------------------------------------------- diagrama jerárquico */
@@ -770,7 +932,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
   }
 
   const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5];
-  function WbsDiagram({ tree, project, est, rollup, currency, onOpen }) {
+  const FONT_AP = '600 9.5px "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif';
+  function WbsDiagram({ tree, project, est, rollup, currency, onOpen, ag }) {
     const tip = PM.useChartTip();
     const svgRef = useRef(null);
     const [zoom, setZoomRaw] = useState(() => { const z = PM.prefs.get('wbs.zoom', 'fit'); return z === 'fit' || ZOOMS.includes(Number(z)) ? z : 'fit'; });
@@ -809,8 +972,21 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         <div><span class="faint">Responsable:</span> ${txt(n.responsible) || 'Sin asignar'}</div>
         <div><span class="faint">Costo estimado:</span> ${ev > 0 ? PM.fmt.money(ev, currency) : 'Sin estimar'}</div>
         ${roll && roll.count ? html`<div><span class="faint">Actividades:</span> ${roll.count} · avance ${PM.fmt.pct100(roll.progress)}</div>` : null}
+        ${ag && ag.showSelector(n) ? html`<div><span class="faint">Enfoque:</span> ${AP_LABEL[ag.approach.get(b.id) || ag.def]}${apValue(n) ? '' : ' (heredado)'}</div>` : null}
+        ${ag && ag.stats(b.id).count ? html`<div><span class="faint">Backlog:</span> ${plural(ag.stats(b.id).count, 'elemento', 'elementos')} · ${fmtPts(ag.stats(b.id).pts, ag.unit)}</div>` : null}
       </div>`;
     };
+    /* distintivo del enfoque dentro de la caja (texto, no solo color) */
+    const apTag = (b) => {
+      const bd = ag && !b.root ? ag.badges.get(b.id) : null;
+      if (!bd) return null;
+      const label = bd.ap === 'adaptativo' ? 'Ágil' : 'Predictivo';
+      const wt = Math.ceil(textWidth(label, FONT_AP)) + 8;
+      const right = b.w - DG.PAD_X - (b.hidden ? Math.ceil(textWidth('+' + b.hidden, FONT_NAME)) + 6 : 0);
+      return html`<g class=${cx('wbs-dg-ap', !bd.root && 'is-inh')} transform=${'translate(' + (right - wt) + ',' + (DG.PAD_Y - 1) + ')'}><rect x="0.5" y="0.5" width=${wt - 1} height="13" rx="3" /><text x=${wt / 2} y="10" text-anchor="middle">${label}</text></g>`;
+    };
+    const anyBadge = !!(ag && ag.badges.size);
+    const badgeWord = ag && ag.mode === 'adaptativo' ? 'Predictivo' : 'Ágil';
     const fileName = ((project && (project.code || PM.slug(project.name))) || 'proyecto') + '_EDT.svg';
     return html`<section class="card">
       <div class="card-head">
@@ -833,17 +1009,19 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           <span class="legend-item"><span class="wbs-sw l1"></span>Primer nivel</span>
           <span class="legend-item"><span class="wbs-sw"></span>Elemento intermedio</span>
           <span class="legend-item"><span class="wbs-sw wp"></span>Paquete de trabajo</span>
+          ${anyBadge ? html`<span class="legend-item"><span class="wbs-sw-ap">${badgeWord}</span>${badgeWord === 'Ágil' ? 'Enfoque adaptativo (ágil)' : 'Enfoque predictivo en un proyecto ágil'}</span>` : null}
         </div>
         <div class="chart wbs-chart" ref=${tip.ref} onMouseLeave=${tip.hide}>
           <svg ref=${svgRef} xmlns="http://www.w3.org/2000/svg" width=${Math.round(L.W * scale)} height=${Math.round(L.H * scale)} viewBox=${'0 0 ' + L.W + ' ' + L.H} role="group" aria-label=${'Diagrama de la EDT: ' + plural(tree.nodes.length, 'elemento', 'elementos')}>
             <path class="wbs-dg-link" d=${L.path} />
             ${L.boxes.map((b) => html`<g key=${b.id} class=${cx('wbs-dg-box', b.root ? 'wbs-dg-root' : b.isLeaf ? 'wbs-dg-wp' : b.depth === 1 ? 'wbs-dg-l1' : 'wbs-dg-mid')} data-id=${b.id}
-                transform=${'translate(' + b.x + ',' + b.y + ')'} tabindex=${b.root ? undefined : '0'} role=${b.root ? undefined : 'button'} aria-label=${b.root ? undefined : b.code + ' ' + (txt(b.node.name) || 'Sin nombre') + ': ver diccionario'}
+                transform=${'translate(' + b.x + ',' + b.y + ')'} tabindex=${b.root ? undefined : '0'} role=${b.root ? undefined : 'button'} aria-label=${b.root ? undefined : b.code + ' ' + (txt(b.node.name) || 'Sin nombre') + (ag && ag.badges.get(b.id) ? ' (' + (ag.badges.get(b.id).ap === 'adaptativo' ? 'ágil' : 'predictivo') + ')' : '') + ': ver diccionario'}
                 onMouseMove=${(e) => tip.show(e, tipFor(b))} onMouseLeave=${tip.hide}
                 onClick=${b.root ? undefined : () => { tip.hide(); onOpen(b.id); }} onKeyDown=${b.root ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(b.id); } }}>
               <rect class="wbs-dg-rect" x="0.5" y="0.5" width=${b.w - 1} height=${b.h - 1} rx="4" />
               <text class="wbs-dg-code" x=${DG.PAD_X} y=${DG.PAD_Y + 10}>${b.code}</text>
               ${b.hidden ? html`<text class="wbs-dg-more" x=${b.w - DG.PAD_X} y=${DG.PAD_Y + 10} text-anchor="end">+${b.hidden}</text>` : null}
+              ${apTag(b)}
               <text class=${cx('wbs-dg-name', b.empty && 'is-empty')} x=${DG.PAD_X} y=${DG.PAD_Y + DG.CODE_H + 11}>${b.lines.map((l, i) => html`<tspan key=${i} x=${DG.PAD_X} dy=${i ? DG.LINE_H : 0}>${l}</tspan>`)}</text>
             </g>`)}
           </svg>
@@ -862,11 +1040,17 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       onKeyDown=${single ? (e) => { if (e.key === 'Enter') e.preventDefault(); } : undefined}
       onInput=${(e) => onValue(single ? e.currentTarget.value.replace(/\s*[\r\n]+\s*/g, ' ') : e.currentTarget.value)}></textarea>`;
   }
-  function DictRowImpl({ f, estV, canWrite, currency, actions, showKind }) {
+  function DictRowImpl({ f, estV, canWrite, currency, actions, showKind, ap }) {
     const n = f.node, id = n.id;
     const set = (k) => (v) => actions.patch(id, { [k]: v });
     const kind = kindOf(n, f.isLeaf);
     const kindLine = showKind ? html`<div class="wbs-dict-kind xsmall faint">${KIND_BY_ID[kind].label}</div>` : null;
+    /* columna «Enfoque de desarrollo» (capa ágil): selector editable o texto con el enfoque efectivo */
+    const apCell = ap ? html`<td>${canWrite && ap.sel
+      ? html`<select class="cell-input wbs-dc-ap" value=${ap.value} aria-label=${'Enfoque de desarrollo de ' + f.code} onChange=${(e) => actions.setApproach(id, e.currentTarget.value)}>
+          ${apOptions(ap.inh).map((o) => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}
+        </select>`
+      : html`<div class=${cx('wbs-dict-ap', !ap.value && 'faint')}>${AP_LABEL[ap.eff]}${ap.value ? '' : ' (heredado)'}</div>`}</td>` : null;
     if (!canWrite) {
       const t = (v) => (txt(v) ? html`<div class="wbs-dict-ro">${v}</div>` : html`<div class="wbs-dict-ro faint">—</div>`);
       return html`<tr data-wbs-dict=${id}>
@@ -877,6 +1061,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         <td><div class="wbs-dc-acc">${t(n.acceptance)}</div></td>
         <td class=${cx('num nowrap', !f.isLeaf && 'wbs-sub')}><div class="wbs-dc-cost">${estV > 0 ? PM.fmt.money(estV, currency) : '—'}</div></td>
         <td><div class="wbs-dc-deliv">${t(n.deliverable)}</div></td>
+        ${apCell}
       </tr>`;
     }
     return html`<tr data-wbs-dict=${id}>
@@ -888,12 +1073,15 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       <td>${f.isLeaf ? html`<${ui.NumberInput} class="cell-input wbs-dc-cost" money currency=${currency} min=${0} value=${n.costEstimate} aria-label=${'Costo estimado de ' + f.code} onValue=${set('costEstimate')} />`
         : html`<div class="cell-calc num wbs-sub wbs-dc-cost" title="Suma de los paquetes de trabajo que lo componen">${estV > 0 ? PM.fmt.money(estV, currency) : '—'}</div>`}</td>
       <td><${AutoTA} single cls="wbs-dc-deliv" value=${n.deliverable} label=${'Entregable de ' + f.code} placeholder="Entregable" onValue=${set('deliverable')} /></td>
+      ${apCell}
     </tr>`;
   }
   const DictRow = memoBy(DictRowImpl);
 
   const DICT_PAGE = 50;
-  function DictTab({ tree, est, directTasks, canWrite, currency, actions, project }) {
+  function DictTab({ tree, est, directTasks, canWrite, currency, actions, project, ag }) {
+    /* la columna de enfoque aparece con la capa ágil activa o si algún elemento ya tiene un enfoque propio */
+    const apCol = !!(ag && (ag.enabled || ag.explicit));
     const [mode, setModeRaw] = useState(() => (PM.prefs.get('wbs.dictMode', 'all') === 'wp' ? 'wp' : 'all'));
     const [page, setPage] = useState(0);
     const setMode = (m) => { setModeRaw(m); setPage(0); PM.prefs.set('wbs.dictMode', m); };
@@ -908,11 +1096,13 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         { key: 'code', label: 'Código' }, { key: 'name', label: 'Nombre' }, { key: 'kind', label: 'Tipo' }, { key: 'level', label: 'Nivel' },
         { key: 'description', label: 'Descripción del trabajo' }, { key: 'deliverable', label: 'Entregable' }, { key: 'responsible', label: 'Responsable' },
         { key: 'acceptance', label: 'Criterios de aceptación' }, { key: 'costEstimate', label: 'Costo estimado' }, { key: 'activities', label: 'Actividades vinculadas' }, { key: 'notes', label: 'Notas' },
+        ...(apCol ? [{ key: 'approach', label: 'Enfoque de desarrollo' }, { key: 'backlog', label: 'Elementos del backlog' }, { key: 'points', label: 'Estimación del backlog (' + ag.unit + ')' }] : []),
       ];
       const data = rows.map((f) => ({
         code: f.code, name: f.node.name || '', kind: KIND_BY_ID[kindOf(f.node, f.isLeaf)].label, level: f.depth + 1,
         description: f.node.description || '', deliverable: f.node.deliverable || '', responsible: f.node.responsible || '', acceptance: f.node.acceptance || '',
         costEstimate: est.est.get(f.node.id) || 0, activities: (directTasks.get(f.node.id) || []).length, notes: f.node.notes || '',
+        ...(apCol ? { approach: AP_LABEL[ag.approach.get(f.node.id) || ag.def] + (apValue(f.node) ? '' : ' (heredado)'), backlog: ag.stats(f.node.id).count, points: ag.stats(f.node.id).pts } : {}),
       }));
       const base = (project && (project.code || PM.slug(project.name))) || 'proyecto';
       PM.download(base + '_diccionario-EDT.csv', PM.toCSV(cols, data));
@@ -930,14 +1120,15 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       </div>
       <${FitWrap}>
         <table class=${cx('table wbs-dict', canWrite && 'table-edit')}>
-          <thead><tr><th>Código</th><th>Nombre</th><th>Descripción del trabajo</th><th>Responsable</th><th>Criterios de aceptación</th><th class="num">Costo estimado</th><th>Entregable</th></tr></thead>
+          <thead><tr><th>Código</th><th>Nombre</th><th>Descripción del trabajo</th><th>Responsable</th><th>Criterios de aceptación</th><th class="num">Costo estimado</th><th>Entregable</th>${apCol ? html`<th title="Predictivo (en cascada) o adaptativo (backlog e iteraciones); heredado del elemento superior si no se define">Enfoque de desarrollo</th>` : null}</tr></thead>
           <tbody>
             ${shown.length ? shown.map((f) => {
               const estV = est.est.get(f.node.id) || 0;
-              return html`<${DictRow} key=${f.node.id} sig=${JSON.stringify([f.node, f.code, f.isLeaf, estV, canWrite, currency, mode])} f=${f} estV=${estV} canWrite=${canWrite} currency=${currency} actions=${actions} showKind=${mode === 'all'} />`;
-            }) : html`<tr><td colspan="7" class="faint" style="padding:14px 12px">${q ? 'Ningún elemento coincide con la búsqueda.' : 'No hay paquetes de trabajo todavía.'}</td></tr>`}
+              const ap = apCol ? { sel: ag.showSelector(f.node), value: apValue(f.node), inh: ag.inheritedOf(f.node.id), eff: ag.approach.get(f.node.id) || ag.def } : null;
+              return html`<${DictRow} key=${f.node.id} sig=${JSON.stringify([f.node, f.code, f.isLeaf, estV, canWrite, currency, mode, ap])} f=${f} estV=${estV} canWrite=${canWrite} currency=${currency} actions=${actions} showKind=${mode === 'all'} ap=${ap} />`;
+            }) : html`<tr><td colspan=${apCol ? 8 : 7} class="faint" style="padding:14px 12px">${q ? 'Ningún elemento coincide con la búsqueda.' : 'No hay paquetes de trabajo todavía.'}</td></tr>`}
           </tbody>
-          <tfoot><tr><td colspan="5">Total estimado (suma de los paquetes de trabajo)</td><td class="num nowrap" data-wbs-total>${PM.fmt.money(est.total, currency)}</td><td></td></tr></tfoot>
+          <tfoot><tr><td colspan="5">Total estimado (suma de los paquetes de trabajo)</td><td class="num nowrap" data-wbs-total>${PM.fmt.money(est.total, currency)}</td><td></td>${apCol ? html`<td></td>` : null}</tr></tfoot>
         </table>
       </${FitWrap}>
       ${pages > 1 ? html`<div class="wbs-pager" data-wbs-pager>
@@ -974,6 +1165,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const { wbs, schedule, sched, tree, rollup, baselines, costs, currency } = model;
     const nodes = Array.isArray(wbs.nodes) ? wbs.nodes : [];
     const est = useMemo(() => estimates(tree), [tree]);
+    const agileData = model.agile, agileItems = model.agileItems;
+    const ag = useMemo(() => agileInfo(tree, project, agileData, agileItems), [tree, project && project.lifecycle, agileData, agileItems]);
     const pos = useMemo(() => { const m = new Map(); const put = (arr) => arr.forEach((n, i) => m.set(n.id, { i, n: arr.length })); put(tree.childrenOf(null)); for (const n of tree.nodes) put(tree.childrenOf(n.id)); return m; }, [tree]);
     const visible = useMemo(() => {
       const out = []; let hide = Infinity;
@@ -1018,7 +1211,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
 
     /* estado vivo para las acciones (identidad estable) */
     const live = useRef({});
-    live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci, scope: scopeTpl };
+    live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci, scope: scopeTpl,
+      agile: agileData, saveAgile: model.saveAgile, items: agileItems, ag, project, rollup, est, agileLoading: !!(model.agileMeta && model.agileMeta.loading) };
 
     const actions = useMemo(() => {
       const L = () => live.current;
@@ -1042,7 +1236,20 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         if (acts.some((a) => a && a.wbsId && gone.has(a.wbsId))) cur.saveCosts({ ...cur.costs, actuals: acts.map((a) => (a && a.wbsId && gone.has(a.wbsId) ? { ...a, wbsId: null } : a)) });
         const rows = (cur.raci && cur.raci.rows) || [];
         if (cur.raciExists && rows.some((r) => r && r.wbsId && gone.has(r.wbsId))) { cur.saveRaci({ ...cur.raci, rows: rows.map((r) => (r && r.wbsId && gone.has(r.wbsId) ? { ...r, wbsId: null } : r)) }); PM.touchProject(cur.pid); }
+        /* capa ágil: releases y elementos del backlog que apuntaban a los elementos eliminados quedan sin entregable */
+        const rels = arrOf(cur.agile && cur.agile.releases);
+        if (rels.some((r) => isObj(r) && r.wbsId && gone.has(r.wbsId))) { const next = { ...cur.agile, releases: rels.map((r) => (isObj(r) && r.wbsId && gone.has(r.wbsId) ? { ...r, wbsId: null } : r)) }; cur.agile = next; cur.saveAgile(next); }
+        const its = cur.ag.itemsByWbs(gone);
+        if (its.length && cur.pid && PM.paths.backlogItem) {
+          for (const it of its) PM.store.update(PM.paths.backlogItem(cur.pid, it.id), { wbsId: null }).catch(() => { /* el núcleo informa el error de escritura */ });
+          PM.touchProject(cur.pid);
+        }
       };
+      /* referencias ágiles a un conjunto de elementos (para avisar antes de eliminar o reemplazar) */
+      const agileRefs = (gone) => { const cur = L(); return { rels: arrOf(cur.agile && cur.agile.releases).filter((r) => isObj(r) && r.wbsId && gone.has(r.wbsId)), items: cur.ag.itemsByWbs(gone) }; };
+      const agileNotes = (refs) => html`
+        ${refs.rels.length ? html`<p class="small muted" data-wbs-confirm-rels>${refs.rels.length === 1 ? 'El release «' + (txt(refs.rels[0].name) || 'sin nombre') + '» quedará' : refs.rels.length + ' releases (' + refs.rels.slice(0, 3).map((r) => '«' + (txt(r.name) || 'sin nombre') + '»').join(', ') + (refs.rels.length > 3 ? '…' : '') + ') quedarán'} sin entregable de la EDT. Los releases no se eliminan.</p>` : null}
+        ${refs.items.length ? html`<p class="small muted" data-wbs-confirm-items>${plural(refs.items.length, 'elemento del backlog quedará', 'elementos del backlog quedarán')} sin entregable de la EDT (${refs.items.slice(0, 4).map((it) => it.code || 'sin código').join(', ')}${refs.items.length > 4 ? '…' : ''}). No se eliminan: reasígnalos desde el backlog.</p>` : null}`;
       const wbsIndex = (tree) => new Map(tree.flat.map((f, i) => [f.node.id, i]));
       const A = {
         select(id) { setSelectedId(id); if (L().editingId && L().editingId !== id) setEditing(null); },
@@ -1117,6 +1324,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const n = cur.tree.byId.get(id); if (!n || cur.tree.childrenOf(id).length) return false;
           if (['name', 'description', 'responsible', 'deliverable', 'acceptance', 'notes'].some((k) => txt(n[k])) || num(n.costEstimate) > 0) return false;
           if (((cur.schedule && cur.schedule.tasks) || []).some((t) => t.wbsId === id)) return false;
+          if (cur.ag.relsOf(id).length || cur.ag.direct.has(id)) return false;
           const vis = cur.visible; const i = vis.findIndex((f) => f.node.id === id); const prev = vis[i - 1] || vis[i + 1];
           commitNodes(renumber(cur.wbs.nodes.filter((x) => x.id !== id)));
           if (prev) A.edit(prev.node.id); else { setSelectedId(null); setEditing(null); }
@@ -1140,11 +1348,13 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const gone = new Set([id, ...desc]);
           const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((t) => t.wbsId && gone.has(t.wbsId)).length;
           const code = tree.codes.get(id);
+          const refs = agileRefs(gone);
           const ok = await PM.confirm({
             title: 'Eliminar elemento de la EDT',
             body: html`<div class="stack-sm">
               <p>Se eliminará <strong>${code} ${txt(n.name) || 'Sin nombre'}</strong>${desc.length ? html` junto con ${plural(desc.length, 'elemento que lo compone', 'elementos que lo componen')}` : ''}.</p>
               ${nTasks ? html`<p class="small muted">${plural(nTasks, 'actividad del cronograma quedará', 'actividades del cronograma quedarán')} sin vínculo con la EDT. Las actividades no se eliminan.</p>` : null}
+              ${agileNotes(refs)}
               <p class="small muted">Esta acción no se puede deshacer.</p>
             </div>`,
             confirmText: desc.length ? 'Eliminar ' + (desc.length + 1) + ' elementos' : 'Eliminar elemento', tone: 'danger',
@@ -1158,6 +1368,40 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           clearRefs(gone);
           setSelectedId(nextSel); setEditing(null); setDictId((d) => (d && gone.has(d) ? null : d));
           PM.toast(desc.length ? 'Se eliminaron ' + (desc.length + 1) + ' elementos de la EDT.' : 'Elemento eliminado de la EDT.');
+        },
+        /* enfoque de desarrollo: '' = heredado (se quita la clave), 'predictivo' o 'adaptativo' */
+        setApproach(id, v) {
+          const cur = L(); if (!cur.canWrite) return;
+          const val = v === 'predictivo' || v === 'adaptativo' ? v : null;
+          commitNodes(cur.wbs.nodes.map((n) => { if (n.id !== id) return n; const { approach, ...rest } = n; return val ? { ...rest, approach: val } : rest; }));
+        },
+        viewRelease(rid) {
+          if (!rid) return;
+          if (!PM.getView('iteraciones')) { PM.toast('La vista «Releases e iteraciones» no está disponible en esta página.'); return; }
+          PM.navigate('iteraciones', { release: rid });
+        },
+        /* «Crear release» desde un entregable adaptativo: presupuesto = costo del paquete (actividades vinculadas o costo
+           estimado consolidado); fechas = las de sus actividades o, sin ellas, las del proyecto. force: crea otro aunque ya haya. */
+        createRelease(id, force) {
+          const cur = L(); if (!cur.canWrite) return;
+          const tree = cur.tree; const n = tree.byId.get(id); if (!n) return;
+          if (cur.agileLoading) { PM.toast('Aún se están cargando los releases del proyecto. Intenta de nuevo en un momento.'); return; }
+          const existing = cur.ag.relsOf(id);
+          if (existing.length && !force) { A.viewRelease(existing[0].id); return; }
+          const code = tree.codes.get(id);
+          const roll = cur.rollup.get(id); const estV = cur.est.est.get(id) || 0;
+          const p = cur.project || {}; const D = PM.date;
+          const start = roll && roll.count && D.valid(roll.start) ? roll.start : D.valid(p.start) ? p.start : D.today();
+          const end = roll && roll.count && D.valid(roll.finish) ? roll.finish : D.valid(p.end) && p.end >= start ? p.end : null;
+          const budget = roll && roll.count && num(roll.cost) > 0 ? num(roll.cost) : estV;
+          const base = txt(n.name) || 'Entregable ' + code;
+          const name = existing.length ? base + ' · release ' + (existing.length + 1) : base;
+          const rel = { id: PM.uid('rel'), name, goal: '', start, end, status: 'planeado', budget, plannedSprints: 0, wbsId: id, taskId: null, baseline: null, notes: '' };
+          const data = cur.agile || {};
+          const next = { ...data, releases: [...arrOf(data.releases), rel] };
+          cur.agile = next; cur.saveAgile(next);
+          PM.toast('Release «' + name + '» creado para ' + code + '. Define su objetivo y planifica las iteraciones.');
+          if (PM.getView('iteraciones')) PM.navigate('iteraciones', { release: rel.id });
         },
         createTask(id) {
           const cur = L(); if (!cur.canWrite) return;
@@ -1200,10 +1444,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           if (old.length) {
             const ids = new Set(old.map((n) => n.id));
             const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((x) => x.wbsId && ids.has(x.wbsId)).length;
+            const refs = agileRefs(ids);
             const ok = await PM.confirm({
               title: 'Reemplazar la EDT',
               body: html`<div class="stack-sm"><p>La EDT actual (${plural(old.length, 'elemento', 'elementos')}) se reemplazará por ${t.fromScope ? html`los <strong>${plural(t.items.length, 'entregable', 'entregables')} del enunciado del alcance</strong>` : html`la plantilla <strong>${t.name}</strong>`}.</p>
                 ${nTasks ? html`<p class="small muted">${plural(nTasks, 'actividad del cronograma quedará', 'actividades del cronograma quedarán')} sin vínculo con la EDT.</p>` : null}
+                ${agileNotes(refs)}
                 <p class="small muted">Esta acción no se puede deshacer.</p></div>`,
               confirmText: 'Reemplazar EDT', tone: 'danger',
             });
@@ -1266,7 +1512,7 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
       </div>`;
     }
 
-    const d = { tree, est, rollup, rootRoll, directTasks, canWrite, actions, currency, project, unlinked };
+    const d = { tree, est, rollup, rootRoll, directTasks, canWrite, actions, currency, project, unlinked, ag };
     const panelOn = wide && tab === 'arbol' && !!sel;
     const selLabel = sel === ROOT ? '1 ' + ((project && project.name) || '') : sel ? tree.codes.get(sel) + ' ' + (txt(tree.byId.get(sel).name) || 'Sin nombre') : '';
     const selPos = sel && sel !== ROOT ? pos.get(sel) : null;
@@ -1316,8 +1562,11 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
             const isColl = !f.isLeaf && collapsed.has(id); const hidden = isColl ? tree.descendants(id).length : 0;
             const added = !!(blInfo && blInfo.addedIds.has(id));
             const drop = dropHint && dropHint.id === id ? dropHint.pos : null;
-            const sig = JSON.stringify([f.node, f.code, f.depth, f.isLeaf, isColl, hidden, sel === id, editingId === id, canWrite, showRoll, estV, roll && roll.count ? [roll.cost, roll.start, roll.finish, Math.round(roll.progress * 10), roll.count] : 0, p.i, p.n, added, currency, wide, drop, dragId === id]);
-            return html`<${TreeRow} key=${id} sig=${sig} f=${f} roll=${roll} estV=${estV} showRoll=${showRoll} collapsed=${isColl} hiddenCount=${hidden} selected=${sel === id} editing=${editingId === id} canWrite=${canWrite} pos=${p} added=${added} currency=${currency} wide=${wide} actions=${actions} drop=${drop} dragging=${dragId === id} />`;
+            const badge = ag.badges.get(id) || null;
+            const rels = ag.enabled && (ag.approach.get(id) || ag.def) === 'adaptativo' ? ag.relsOf(id) : null;
+            const rel = rels ? { viewId: rels.length ? rels[0].id : null, canCreate: true } : null;
+            const sig = JSON.stringify([f.node, f.code, f.depth, f.isLeaf, isColl, hidden, sel === id, editingId === id, canWrite, showRoll, estV, roll && roll.count ? [roll.cost, roll.start, roll.finish, Math.round(roll.progress * 10), roll.count] : 0, p.i, p.n, added, currency, wide, drop, dragId === id, badge, rel]);
+            return html`<${TreeRow} key=${id} sig=${sig} f=${f} roll=${roll} estV=${estV} showRoll=${showRoll} collapsed=${isColl} hiddenCount=${hidden} selected=${sel === id} editing=${editingId === id} canWrite=${canWrite} pos=${p} added=${added} currency=${currency} wide=${wide} actions=${actions} drop=${drop} dragging=${dragId === id} badge=${badge} rel=${rel} />`;
           })}
         </tbody>
       </table>
@@ -1360,8 +1609,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           <div class="wbs-main">${toolbar}<${Notices} issues=${issues} onPick=${actions.reveal} />${treeTable}${keysHint}</div>
           ${panel}
         </div>`
-      : tab === 'diagrama' ? html`<${WbsDiagram} tree=${tree} project=${project} est=${est} rollup=${rollup} currency=${currency} onOpen=${actions.openDict} />`
-      : html`<${DictTab} tree=${tree} est=${est} directTasks=${directTasks} canWrite=${canWrite} currency=${currency} actions=${actions} project=${project} />`}
+      : tab === 'diagrama' ? html`<${WbsDiagram} tree=${tree} project=${project} est=${est} rollup=${rollup} currency=${currency} onOpen=${actions.openDict} ag=${ag} />`
+      : html`<${DictTab} tree=${tree} est=${est} directTasks=${directTasks} canWrite=${canWrite} currency=${currency} actions=${actions} project=${project} ag=${ag} />`}
       ${dictOpen ? html`<${ui.Modal} title=${dictTitle} subtitle=${dictSub} size="wide" onClose=${() => setDictId(null)}
           footer=${html`<${ui.Button} variant="primary" onClick=${() => setDictId(null)}>Listo</${ui.Button}>`}>
           <${DictBody} id=${dictId} d=${{ ...d, suffix: '-m' }} />
