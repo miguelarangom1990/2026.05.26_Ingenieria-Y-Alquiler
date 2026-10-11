@@ -9,7 +9,9 @@
    adaptativos) y 7.ª ed. (enfoques de desarrollo y ciclo de vida).
    Los ejemplos describen el proyecto ficticio «EJEMPLO · Implementación del
    ERP de Ingeniería y Alquiler» (SPEC §9.7): Scrum con tablero Kanban,
-   iteraciones de dos semanas, estimación en puntos de historia y tres
+   iteraciones de diez días hábiles (dos semanas de trabajo; las fechas
+   salen del calendario con festivos de Colombia, como las genera
+   «Releases e iteraciones»), estimación en puntos de historia y tres
    releases (inventario y alquiler; facturación electrónica y cartera;
    mantenimiento y tablero gerencial). Se usan roles, no nombres de personas.
    Las plantillas llevan `agile: true` y `exampleProject: 'erp'` para que los
@@ -136,7 +138,7 @@
         producto: ERP.producto,
         patrocinador: 'Gerencia General',
         duenoProducto: ERP.po,
-        horizonte: 'Julio a diciembre de 2026: tres releases de iteraciones de dos semanas.',
+        horizonte: 'Julio a diciembre de 2026: tres releases con iteraciones de diez días hábiles (dos semanas de trabajo).',
         paraQuien: 'Las áreas comercial, de logística, almacén, mantenimiento, facturación y cartera, y la Gerencia General de Ingeniería y Alquiler S.A.S.',
         necesidad: 'Hoy controlan los equipos en alquiler, las remisiones de entrega y devolución y la facturación en hojas de cálculo y sistemas separados: el corte mensual de alquileres tarda hasta cinco días hábiles, el inventario de la bodega no coincide con el de las obras y la cartera se conoce con una semana de retraso.',
         categoria: 'Sistema integrado de gestión empresarial (ERP) en la nube, parametrizado para el alquiler de equipos de construcción.',
@@ -259,8 +261,8 @@
       example: {
         aplicaA: 'Todas las historias, tareas, defectos y mejoras del backlog del ERP: parametrización, integraciones, migración de datos, reportes y capacitación. Las épicas se dan por terminadas cuando lo están todos sus elementos.',
         acordadaPor: 'Equipo de desarrollo, dueño del producto y Scrum Master / facilitador',
-        fechaAcuerdo: '2026-08-21',
-        revisionAcuerdo: 'Se revisa en cada retrospectiva; los cambios se acuerdan por consenso del equipo con el dueño del producto y se emiten como nueva revisión. La versión vigente es el ajuste de la retrospectiva de la iteración 3 (21 de agosto de 2026), que agregó la prueba con datos migrados.',
+        fechaAcuerdo: '2026-08-26',
+        revisionAcuerdo: 'Se revisa en cada retrospectiva; los cambios se acuerdan por consenso del equipo con el dueño del producto y se emiten como nueva revisión. La versión vigente es el ajuste de la retrospectiva de la iteración 3 (26 de agosto de 2026), que agregó la prueba con datos migrados.',
         definicionListo: [
           'Historia redactada como «Como <rol> quiero <necesidad> para <beneficio>», con el proceso de negocio afectado (inventario, alquiler, facturación, cartera o mantenimiento).',
           'Criterios de aceptación con ejemplos de datos reales (equipo, obra, fechas y valores) validados por el usuario clave del área.',
@@ -319,7 +321,7 @@
           area('visionResumen', 'Resumen de la visión del producto', { rows: 3, hint: 'Dos o tres líneas tomadas de la visión del producto: para quién, qué necesidad y qué resultado se espera.' }),
           select('unidadEstimacion', 'Unidad de estimación', UNIDAD_ESTIMACION, { hint: 'Debe coincidir con la configurada en el backlog del proyecto.' }),
           number('velocidadSupuesta', 'Velocidad supuesta (por iteración)', { min: 0, hint: 'Trabajo que el equipo termina por iteración. Al inicio sale de experiencias similares; después, del promedio de las últimas tres iteraciones cerradas.' }),
-          number('duracionIteracion', 'Duración de la iteración (días hábiles)', { min: 1, max: 40, hint: 'Iteraciones de duración fija; diez días hábiles equivalen a dos semanas.' }),
+          number('duracionIteracion', 'Duración de la iteración (días hábiles)', { min: 1, max: 40, hint: 'Iteraciones de duración fija, en días hábiles: diez días hábiles son dos semanas de trabajo, y si hay festivos la iteración termina más tarde en el calendario. «Releases e iteraciones» genera las fechas con esta duración y el calendario del proyecto.' }),
           area('capacidadEquipo', 'Equipo y capacidad', { hint: 'Composición del equipo, dedicación y origen de la velocidad supuesta.' }),
         ]),
         section('releases', 'Releases', [
@@ -349,13 +351,14 @@
         duracionIteracion: 10,
         capacidadEquipo: 'Equipo de cinco personas con dedicación completa (consultor funcional ERP, desarrollador ERP, desarrollador de integraciones, analista de datos y analista de pruebas), Scrum Master con dedicación de 50 % y dueño del producto con dos horas diarias. La velocidad supuesta de 30 puntos por iteración viene de una implementación similar del proveedor del ERP; desde la iteración 4 se reemplaza por el promedio de las últimas tres iteraciones cerradas.',
         releases: [
-          { id: 'r1', release: ERP.r1, objetivo: 'Controlar en el ERP cada equipo por bodega, obra y estado, y calcular el alquiler desde las actas de entrega y devolución.', fechaInicio: '2026-07-13', fechaFin: '2026-09-04', iteraciones: 4, puntos: 118, presupuesto: 96000000, alcance: 'Catálogo de equipos y piezas; inventario por bodega y obra; remisiones y actas de entrega y devolución; cálculo del alquiler por días calendario; migración del inventario de la bodega principal.' },
-          { id: 'r2', release: ERP.r2, objetivo: 'Facturar el alquiler el mismo día del corte con factura electrónica validada por la DIAN y llevar la cartera por edades.', fechaInicio: '2026-09-07', fechaFin: '2026-10-30', iteraciones: 4, puntos: 112, presupuesto: 104000000, alcance: 'Prefactura mensual desde las actas; integración con el proveedor tecnológico de facturación electrónica; notas crédito y débito; recaudo y cartera por edades; migración de saldos de cartera.' },
-          { id: 'r3', release: ERP.r3, objetivo: 'Programar y costear el mantenimiento de los equipos y dar a la gerencia indicadores diarios de utilización, ingresos y cartera.', fechaInicio: '2026-11-03', fechaFin: '2026-12-11', iteraciones: 3, puntos: 88, presupuesto: 78000000, alcance: 'Órdenes de mantenimiento preventivo y correctivo; cobro de daños al cliente; bloqueo de equipos no aptos para despacho; tablero gerencial de utilización del inventario, ingresos y cartera.' },
+          { id: 'r1', release: ERP.r1, objetivo: 'Controlar en el ERP cada equipo por bodega, obra y estado, y calcular el alquiler desde las actas de entrega y devolución.', fechaInicio: '2026-07-13', fechaFin: '2026-09-09', iteraciones: 4, puntos: 118, presupuesto: 96000000, alcance: 'Catálogo de equipos y piezas; inventario por bodega y obra; remisiones y actas de entrega y devolución; cálculo del alquiler por días calendario; migración del inventario de la bodega principal.' },
+          { id: 'r2', release: ERP.r2, objetivo: 'Facturar el alquiler el mismo día del corte con factura electrónica validada por la DIAN y llevar la cartera por edades.', fechaInicio: '2026-09-10', fechaFin: '2026-11-06', iteraciones: 4, puntos: 112, presupuesto: 104000000, alcance: 'Prefactura mensual desde las actas; integración con el proveedor tecnológico de facturación electrónica; notas crédito y débito; recaudo y cartera por edades; migración de saldos de cartera.' },
+          { id: 'r3', release: ERP.r3, objetivo: 'Programar y costear el mantenimiento de los equipos y dar a la gerencia indicadores diarios de utilización, ingresos y cartera.', fechaInicio: '2026-11-09', fechaFin: '2026-12-22', iteraciones: 3, puntos: 88, presupuesto: 78000000, alcance: 'Órdenes de mantenimiento preventivo y correctivo; cobro de daños al cliente; bloqueo de equipos no aptos para despacho; tablero gerencial de utilización del inventario, ingresos y cartera.' },
         ],
         supuestos: [
           'El dueño del producto dedica al menos dos horas diarias a refinar y aceptar historias.',
-          'El proveedor tecnológico de facturación electrónica entrega el ambiente de habilitación antes del 7 de septiembre de 2026.',
+          'El proveedor tecnológico de facturación electrónica entrega el ambiente de habilitación antes del 10 de septiembre de 2026, inicio del release 2.',
+          'Cada release sale a producción el día hábil siguiente a su última revisión, salvo que caiga en el cierre mensual: el release 2 termina el 6 de noviembre y sale a producción el 10 de noviembre, después de los cinco primeros días hábiles del mes.',
           'Los usuarios clave participan en la revisión de cada iteración y en las pruebas de aceptación de cada release.',
           'La velocidad del equipo se estabiliza entre 28 y 32 puntos desde la iteración 3.',
         ],
@@ -415,8 +418,8 @@
       example: {
         iteracion: ERP.it6,
         release: ERP.r2,
-        fechaInicio: '2026-09-21',
-        fechaFin: '2026-10-02',
+        fechaInicio: '2026-09-24',
+        fechaFin: '2026-10-07',
         objetivo: ERP.objetivoIt6,
         capacidad: 31,
         velocidadReferencia: 31,
@@ -430,7 +433,7 @@
           { id: 'r5', codigo: 'DF-007', titulo: 'Corregir el cálculo de días de alquiler cuando la devolución cae en festivo', tipo: 'Defecto', estimacion: 2, responsable: 'Desarrollador ERP', criterios: 'Cuenta días calendario, festivos incluidos, según el contrato; se verifica con una devolución en día festivo.' },
           { id: 'r6', codigo: 'IN-004', titulo: 'Investigar las reglas de rechazo de la DIAN más frecuentes en habilitación', tipo: 'Investigación (spike)', estimacion: 3, responsable: 'Analista de pruebas', criterios: 'Reglas y casos de prueba documentados; decisión sobre las validaciones previas que hará el ERP.' },
         ],
-        riesgos: 'El ambiente de habilitación del proveedor tecnológico estuvo inestable en la iteración 5: si falla más de un día, se adelantan HU-031, DF-007 e IN-004, que no dependen de él. Dependencia: la numeración de facturación para el ambiente de pruebas debe estar habilitada antes del 23 de septiembre. Las vacaciones del analista de datos (24 y 25 de septiembre) las cubre el consultor funcional.',
+        riesgos: 'El ambiente de habilitación del proveedor tecnológico estuvo inestable en la iteración 5: si falla más de un día, se adelantan HU-031, DF-007 e IN-004, que no dependen de él. Dependencia: la numeración de facturación para el ambiente de pruebas debe estar habilitada antes del 28 de septiembre. Las vacaciones del analista de datos (1 y 2 de octubre) las cubre el consultor funcional.',
         participantes: [ERP.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Usuario clave de facturación y cartera (invitado)'],
       },
     },
@@ -477,7 +480,7 @@
       ],
       example: {
         iteracion: ERP.it6,
-        fecha: '2026-10-02',
+        fecha: '2026-10-07',
         objetivo: ERP.objetivoIt6,
         objetivoCumplido: 'Parcialmente',
         comprometido: 31,
@@ -491,9 +494,9 @@
           { id: 'r5', codigo: 'DF-007', titulo: 'Corregir el cálculo de días de alquiler cuando la devolución cae en festivo', estimacion: 2, resultado: 'Aceptado', observaciones: 'Verificado con la devolución del 17 de agosto (festivo).' },
           { id: 'r6', codigo: 'IN-004', titulo: 'Investigar las reglas de rechazo de la DIAN más frecuentes en habilitación', estimacion: 3, resultado: 'Aceptado', observaciones: 'Se documentaron 12 reglas de rechazo; las validaciones previas pasan al backlog como ME-009.' },
         ],
-        retroalimentacion: 'El dueño del producto y el usuario clave de facturación confirmaron que la prefactura reduce el corte de alquileres a un día. Cartera pidió ver la factura en el estado de cuenta del cliente el mismo día de su emisión. La Gerencia General pidió asegurar el envío automático al cliente antes del primer cierre en producción, en noviembre.',
+        retroalimentacion: 'El dueño del producto y el usuario clave de facturación confirmaron que la prefactura reduce el corte de alquileres a un día. Cartera pidió ver la factura en el estado de cuenta del cliente el mismo día de su emisión. La Gerencia General pidió asegurar el envío automático al cliente antes del primer cierre mensual en producción, a comienzos de diciembre.',
         cambiosBacklog: 'Nuevos elementos: HU-041, detalle por equipo en la prefactura (5 puntos, «Debería tener»), y ME-009, validaciones previas de NIT, numeración y correo del adquirente (3 puntos, «Debe tener»). HU-033 vuelve al backlog como «Debe tener» para la iteración 7. El alcance del release 2 pasa de 112 a 120 puntos (+7,1 %), dentro del umbral de ±10 % de su línea base: no requiere solicitud de cambio.',
-        estadoRelease: 'Release 2: 56 de 120 puntos terminados (47 %) después de 2 de sus 4 iteraciones. Faltan 64 puntos para las iteraciones 7 y 8 (32 por iteración) frente a una velocidad promedio de 29,3 puntos en las tres últimas. El dueño del producto propuso diferir al release 3 historias «Podría tener» por 8 puntos para conservar la fecha del 30 de octubre; si se mantuviera el alcance, el release necesitaría una iteración más, lo que cambia su fecha y exige una solicitud de cambio.',
+        estadoRelease: 'Release 2: 56 de 120 puntos terminados (47 %) después de 2 de sus 4 iteraciones. Faltan 64 puntos para las iteraciones 7 y 8 (32 por iteración) frente a una velocidad promedio de 29,3 puntos en las tres últimas. El dueño del producto propuso diferir al release 3 historias «Podría tener» por 8 puntos para conservar la fecha del 6 de noviembre; si se mantuviera el alcance, el release necesitaría una iteración más, lo que cambia su fecha y exige una solicitud de cambio.',
         asistentes: [ERP.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Usuario clave de facturación y cartera', 'Jefe de cartera', 'Gerencia General (patrocinador)'],
       },
     },
@@ -545,7 +548,7 @@
       ],
       example: {
         iteracion: ERP.it6,
-        fecha: '2026-10-02',
+        fecha: '2026-10-07',
         formato: 'Bien, mejorar y acciones',
         facilitador: 'Scrum Master / facilitador',
         satisfaccion: 3.8,
@@ -561,9 +564,9 @@
           'Hubo tres historias a la vez en «En curso» y la revisión de pares se acumuló al final de la iteración.',
         ],
         acciones: [
-          { id: 'r1', accion: 'Agregar a la definición de terminado la verificación de la representación gráfica con la lista de chequeo del anexo técnico vigente de la DIAN.', responsable: 'Analista de pruebas', fechaObjetivo: '2026-10-05', estado: 'Pendiente' },
-          { id: 'r2', accion: 'Pedir al proveedor tecnológico aviso automático de caídas del ambiente de habilitación y revisar su estado al iniciar cada día.', responsable: 'Scrum Master / facilitador', fechaObjetivo: '2026-10-09', estado: 'En curso' },
-          { id: 'r3', accion: 'Hacer la revisión de pares a mitad de la iteración (día 5) y respetar el límite WIP de 2 en «En revisión».', responsable: 'Equipo de desarrollo', fechaObjetivo: '2026-10-09', estado: 'Pendiente' },
+          { id: 'r1', accion: 'Agregar a la definición de terminado la verificación de la representación gráfica con la lista de chequeo del anexo técnico vigente de la DIAN.', responsable: 'Analista de pruebas', fechaObjetivo: '2026-10-08', estado: 'Pendiente' },
+          { id: 'r2', accion: 'Pedir al proveedor tecnológico aviso automático de caídas del ambiente de habilitación y revisar su estado al iniciar cada día.', responsable: 'Scrum Master / facilitador', fechaObjetivo: '2026-10-14', estado: 'En curso' },
+          { id: 'r3', accion: 'Hacer la revisión de pares a mitad de la iteración (día 5) y respetar el límite WIP de 2 en «En revisión».', responsable: 'Equipo de desarrollo', fechaObjetivo: '2026-10-15', estado: 'Pendiente' },
         ],
         lecciones: [
           { id: 'r1', situacion: 'Una historia de facturación electrónica se presentó como terminada sin el código QR exigido y fue rechazada en la revisión de la iteración 6.', impacto: 'Negativo', recomendacion: 'Incluir en la definición de terminado una lista de chequeo del anexo técnico vigente de la DIAN para toda historia que genere documentos electrónicos.' },

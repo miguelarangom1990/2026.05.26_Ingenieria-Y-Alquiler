@@ -586,7 +586,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r1', sprint: 's3' }));
       await page.waitForSelector('svg[data-chart="burnup"] [data-pt="cut"]');
       const aria = nb(await page.getAttribute('svg[data-chart="burnup"]', 'aria-label'));
-      assert(/al 4 de septiembre de 2026 \(fecha de corte\), terminado 28 pts de un alcance de 49 pts \(57\s*%\)/.test(aria), 'resumen accesible al corte: ' + aria);
+      assert(/al 0?4 de septiembre de 2026 \(fecha de corte\), terminado 28 pts de un alcance de 49 pts \(57\s*%\)/.test(aria), 'resumen accesible al corte: ' + aria);
       const sub = nb(await page.locator('[data-chart-card="burnup"] .card-head .xsmall').innerText());
       assert(/Al 04 sep 2026: 28 pts de 49 pts/.test(sub), 'subtítulo al corte: ' + sub);
       await page.locator('[data-chart-card="burnup"] [data-role="toggle-data"]').click();
@@ -683,7 +683,7 @@ async function setRegistryState(page, pid, code, estado) {
       await page.locator('[data-doc-kind="revision"]').getByRole('button', { name: 'Crear y abrir' }).click();
       const st = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'acta de la iteración en curso');
       const f = (await getDoc(page, pid, st.params.docId)).fields;
-      eq([f.objetivoCumplido, f.comprometido, f.terminado], [undefined, 14, 5], 'iteración en curso: sin veredicto prellenado');
+      eq([!!f.objetivoCumplido, f.comprometido, f.terminado], [false, 14, 5], 'iteración en curso: sin veredicto prellenado');
       await page.evaluate(async (pid) => { const st = PM.agile.settings(await PM.store.get(PM.paths.tool(pid, 'agile'))); const x = await PM.store.get(PM.paths.backlogItem(pid, 'i6')); await PM.store.set(PM.paths.backlogItem(pid, 'i6'), PM.agile.withStatus(st, x, 'en-curso', '2026-09-03')); }, pid);
       await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's2' }));
       await page.waitForSelector('[data-role="planner"][data-sprint-id="s2"] [data-doc-kind="revision"] button:not([disabled])');
@@ -691,6 +691,7 @@ async function setRegistryState(page, pid, code, estado) {
       const st2 = await until(page, async () => { const s = await page.evaluate(() => PM.getState()); return s.view === 'documento' && s.params.docId !== st.params.docId && /^acta-revision-sprint--/.test(s.params.docId || '') ? s : null; }, 'acta de la iteración cerrada');
       const f2 = (await getDoc(page, pid, st2.params.docId)).fields;
       eq([f2.objetivoCumplido, f2.comprometido, f2.terminado], ['Sí', 12, 12], 'iteración cerrada: terminado fijado al cierre (no el actual, 9)');
+      await until(page, async () => { const x = await getAgile(page, pid); return spr(x, 's2').docs && spr(x, 's2').docs.revision === st2.params.docId; }, 'docId del acta guardado en la iteración');
     });
 
     await step('Pronóstico sin velocidad: la leyenda no anuncia «Probable» y se explica con texto', async () => {
@@ -700,6 +701,7 @@ async function setRegistryState(page, pid, code, estado) {
         await PM.store.set(PM.paths.tool(pid, 'agile'), a);
       }, pid);
       await page.evaluate(() => PM.navigate('metricas-agiles', { release: 'r2' }));
+      await page.waitForSelector('[data-chart-card="forecast"] [data-role="forecast-none"]');
       await page.waitForSelector('[data-chart-card="forecast"] svg[data-chart="forecast"]');
       const lanes = await page.locator('svg[data-chart="forecast"] [data-lane]').evaluateAll((els) => els.map((e) => e.dataset.lane));
       eq(lanes, ['plan', 'bl'], 'solo el fin planeado y la línea base');

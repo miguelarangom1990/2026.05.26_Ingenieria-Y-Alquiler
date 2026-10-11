@@ -22,9 +22,10 @@
                                    salidas de la Guía (visión del producto en 5.2, plan de
                                    releases en 6.5, planificación de la iteración en 4.3…)
    - docs[i].agile = true          plantillas ágiles del catálogo (§9.5)
-   - areas[i].agile = {summary, practices:[texto], views:[viewId], docs:[docId]}
+   - areas[i].agile = {summary, practices:[texto], views:[viewId], docs:[docId], source}
                                    consideraciones para entornos ágiles/adaptativos de cada
-                                   área (Guía del PMBOK® 6.ª ed., una por capítulo)
+                                   área (síntesis propia; la Guía del PMBOK® 6.ª ed. las trata
+                                   en una sección por capítulo); source = referencia general
    - glossary[i].doc               plantilla relacionada con el término (opcional)
    No registra vistas.
    ========================================================================== */
@@ -98,11 +99,13 @@
       keyQuestion: '¿Quién se ve afectado por el proyecto y cómo se logra su participación?' },
   ];
 
-  /* Consideraciones para entornos ágiles/adaptativos de cada área (Guía del PMBOK® 6.ª ed., una sección por
-     capítulo), redactadas para el gestor, con las prácticas, vistas y plantillas que las apoyan (SPEC §9). */
+  /* Consideraciones para entornos ágiles/adaptativos de cada área: síntesis propia, orientada al gestor, de qué
+     cambia en el área con un enfoque adaptativo o híbrido y qué hacer en la aplicación, con las prácticas, vistas y
+     plantillas que lo apoyan (SPEC §9). Referencias generales: Guía del PMBOK® 6.ª ed. (una sección por capítulo),
+     Guía de prácticas ágiles (PMI y Agile Alliance) y Guía de Scrum 2020. No transcribe ni traduce esas fuentes. */
   const AGILE_AREAS = {
     integracion: {
-      summary: 'En los entornos ágiles el equipo, como experto en su trabajo, decide cómo se integran los planes y los componentes del producto. El director del proyecto deja de controlar el detalle y se concentra en crear un entorno de decisiones colaborativas, eliminar impedimentos y asegurar que el equipo pueda responder a los cambios. La planificación es gradual: el plan para la dirección fija el marco (releases, cadencia, presupuesto y gobierno) y el detalle se acuerda en cada iteración.',
+      summary: 'Con un enfoque adaptativo, el plan para la dirección del proyecto fija el marco (releases, cadencia de las iteraciones, presupuesto, reglas de gobierno y umbrales de cambio) y el detalle se acuerda iteración por iteración. El trabajo del gestor pasa de repartir tareas a coordinar: proteger el compromiso de cada iteración, resolver impedimentos y lograr que los releases ágiles y los entregables en cascada lleguen a una sola línea base. En un proyecto híbrido, vincula cada release con su entregable de la EDT y con su actividad del cronograma para que el avance del backlog alimente la ruta crítica, la curva S y el valor ganado. El dueño del producto resuelve en el backlog los cambios internos del release; solo los que alteran su alcance comprometido, su fecha o su presupuesto pasan por el control integrado de cambios (4.6).',
       practices: [
         'Planificación por niveles: hoja de ruta y plan de releases, planificación de cada iteración y reunión diaria.',
         'El conocimiento se gestiona en cada retrospectiva y sus lecciones pasan al registro de lecciones aprendidas (4.4).',
@@ -113,7 +116,7 @@
       docs: ['planificacion-sprint', 'retrospectiva', 'plan-release'],
     },
     alcance: {
-      summary: 'Cuando los requisitos evolucionan o la incertidumbre es alta, el alcance no se puede definir por completo al inicio. Los métodos ágiles dedican menos tiempo a acordarlo todo desde el principio y más a establecer el proceso para descubrirlo y refinarlo de forma continua. Los requisitos forman el backlog del producto, que refleja las necesidades actuales del cliente: recopilar requisitos, definir el alcance y crear la EDT se repiten en cada iteración, y validar y controlar el alcance ocurren en cada revisión con el dueño del producto y los interesados.',
+      summary: 'Cuando el producto todavía se está descubriendo, no conviene congelar el enunciado del alcance al inicio. Acuerda la visión del producto, los objetivos de negocio y lo que queda por fuera, y deja el detalle en el backlog del producto, que el dueño del producto ordena por valor y riesgo. El alcance comprometido de cada release se mide en puntos de historia contra su línea base: reordenar o dividir historias no requiere trámite mientras el total no supere el umbral acordado. La aceptación ocurre al cerrar cada iteración, y lo que no cumple la definición de terminado o sus criterios de aceptación vuelve al backlog. En un proyecto híbrido la EDT sigue siendo la referencia común: los entregables predictivos se descomponen en paquetes de trabajo y los adaptativos se marcan como tales y se detallan como releases con su backlog.',
       practices: [
         'Visión del producto y backlog priorizado (MoSCoW) en lugar de un enunciado del alcance cerrado al inicio.',
         'Historias de usuario con criterios de aceptación que cumplen la definición de listo antes de entrar a una iteración.',
@@ -124,7 +127,7 @@
       docs: ['vision-producto', 'acta-revision-sprint'],
     },
     cronograma: {
-      summary: 'Los enfoques adaptativos usan ciclos cortos para hacer el trabajo, revisar los resultados y ajustar lo necesario. Hay dos formas habituales de programar: la programación iterativa con un backlog, por releases e iteraciones de duración fija, y la programación bajo demanda (Kanban), en la que el equipo toma trabajo cuando tiene capacidad y limita el trabajo en curso. En las organizaciones grandes conviven proyectos predictivos, adaptativos e híbridos; el rol del director no cambia, pero debe dominar las herramientas y técnicas de cada enfoque.',
+      summary: 'En la parte ágil del proyecto la fecha de terminación no sale de encadenar actividades, sino de dividir el trabajo pendiente entre la velocidad real del equipo. El plan de releases arranca con una velocidad supuesta que se reemplaza por el promedio de las tres últimas iteraciones cerradas; con ella, el pronóstico optimista, probable y pesimista dice si la fecha comprometida del release se sostiene. Para el trabajo que llega de forma continua (soporte, ajustes, solicitudes pequeñas) funciona mejor el tablero Kanban, con límites WIP y seguimiento del tiempo de ciclo, que forzarlo dentro de iteraciones. En un proyecto híbrido, cada release se representa con una actividad del cronograma cuyo avance se calcula desde el backlog, así que la ruta crítica y la línea base del cronograma siguen siendo una sola.',
       practices: [
         'Plan de releases con una velocidad supuesta que se reemplaza por la velocidad real de las últimas iteraciones.',
         'Iteraciones de duración fija con compromiso al iniciar y diagrama de trabajo pendiente (burndown) diario.',
@@ -135,7 +138,7 @@
       docs: ['plan-release'],
     },
     costos: {
-      summary: 'En proyectos con alta incertidumbre o con un alcance todavía sin definir, los cálculos detallados de costos aportan poco porque cambian con frecuencia. Conviene usar métodos de estimación ligeros que den un pronóstico rápido y de alto nivel, sobre todo del costo del equipo, fácil de ajustar cuando surgen cambios, y dejar las estimaciones detalladas para horizontes cortos de planificación. Con equipos estables, el presupuesto depende del número de iteraciones y el alcance es la variable que se ajusta.',
+      summary: 'En el trabajo ágil el costo depende sobre todo del equipo y del tiempo: un equipo estable cuesta casi lo mismo en cada iteración, de modo que el presupuesto de un release se arma con el costo por iteración multiplicado por las iteraciones planeadas, más licencias, servicios y reservas. Con el monto aprobado fijo, la variable que se mueve es el alcance: el dueño del producto decide qué historias entran sin exceder el presupuesto del release. Para el control, imputa los costos reales a cada release y usa el valor ganado ágil (AgileEVM), que toma el valor planificado de las iteraciones transcurridas y el valor ganado de los puntos terminados. Así puedes comparar el CPI y el SPI del release con los del resto del proyecto y detectar a tiempo un release que gasta más de lo que entrega.',
       practices: [
         'Presupuesto por release: costo del equipo por iteración por iteraciones planeadas, más licencias y servicios.',
         'Valor ganado ágil (AgileEVM) por release: valor planificado según las iteraciones transcurridas y valor ganado según los puntos terminados.',
@@ -145,7 +148,7 @@
       docs: ['plan-release'],
     },
     calidad: {
-      summary: 'Para responder a los cambios, los métodos ágiles incorporan pasos frecuentes de calidad y de revisión a lo largo de todo el proyecto en lugar de concentrarlos al final. Las retrospectivas periódicas revisan la eficacia de los procesos de calidad, buscan la causa raíz de los problemas y proponen ensayar nuevos enfoques. Trabajar en lotes pequeños que integran la mayor parte posible de los elementos del entregable permite descubrir incoherencias y defectos temprano, cuando corregirlos cuesta menos.',
+      summary: 'Con un enfoque adaptativo la calidad no se inspecciona al final del release: se construye dentro de cada historia. La definición de terminado es el estándar común (pruebas, revisión de pares, documentación, datos de migración) y los criterios de aceptación son el estándar de cada elemento; lo que no los cumple no se presenta en la revisión ni suma a la velocidad. Registra los defectos en el mismo backlog, con su prioridad, y procura que cada defecto que llegue a producción deje un control nuevo en la definición de terminado, acordado en la retrospectiva. Para medir, usa datos del flujo: defectos por iteración, historias rechazadas en la revisión y tiempo de ciclo de los defectos.',
       practices: [
         'Definición de terminado común a todo el trabajo y criterios de aceptación propios de cada historia.',
         'Pruebas en cada iteración (funcionales, de regresión y de aceptación) y no solo al final del release.',
@@ -155,7 +158,7 @@
       docs: ['definicion-terminado', 'retrospectiva'],
     },
     recursos: {
-      summary: 'Los proyectos con alta variabilidad se benefician de estructuras de equipo que maximizan el enfoque y la colaboración, como los equipos autoorganizados con especialistas generalistas. La colaboración busca aumentar la productividad y facilitar la solución innovadora de problemas, y requiere equipos estables y dedicados. En los recursos físicos, la gestión ágil privilegia la eficiencia y el suministro justo a tiempo, apoyados en una buena logística y cadena de suministro.',
+      summary: 'Un equipo ágil rinde cuando es pequeño, estable y con dedicación suficiente: mover personas entre iteraciones borra la velocidad que sirve para pronosticar. Define con claridad tres responsabilidades (dueño del producto, Scrum Master o facilitador y equipo de desarrollo) y registra en la matriz RACI quién participa en cada evento. Calcula la capacidad de cada iteración con la disponibilidad real, descontando festivos, vacaciones y dedicación parcial, y no con la nómina completa. En un proyecto híbrido, asigna por porcentaje a las personas que también atienden la parte predictiva, para que ni el cronograma ni la iteración las sobrecarguen sin que se note.',
       practices: [
         'Equipo pequeño, estable y dedicado: dueño del producto, Scrum Master o facilitador y equipo de desarrollo.',
         'Capacidad de cada iteración calculada con la disponibilidad real (festivos, vacaciones y dedicación parcial).',
@@ -165,7 +168,7 @@
       docs: ['planificacion-sprint'],
     },
     comunicaciones: {
-      summary: 'Los entornos con ambigüedad y cambio necesitan comunicar con más frecuencia y rapidez los detalles que evolucionan. Ayuda simplificar el acceso del equipo a la información, hacer puntos de control frecuentes y reunir al equipo en un mismo espacio, físico o virtual, tanto como sea posible. Publicar los artefactos del proyecto de forma transparente (radiadores de información) y revisar periódicamente el avance con los interesados mejora la comunicación con la dirección y con el cliente.',
+      summary: 'En la parte ágil la información del proyecto se consulta más de lo que se envía: el backlog, el tablero Kanban, el burndown de la iteración y el burnup del release están a la vista del equipo y de los interesados todo el tiempo, sin esperar al informe mensual. Cada reunión tiene un propósito fijo y una duración corta: la reunión diaria sincroniza el trabajo y expone impedimentos, la revisión muestra el producto funcionando y recoge retroalimentación, y la retrospectiva mejora la forma de trabajar. Ajusta el plan de comunicaciones para incluir esos eventos con su frecuencia, sus asistentes y su acta. En los informes de desempeño para la dirección, agrega la velocidad, el avance del release y su pronóstico junto a los indicadores del resto del proyecto.',
       practices: [
         'Reunión diaria de 15 minutos para sincronizar el trabajo y detectar impedimentos.',
         'Radiadores de información: tablero Kanban, burndown y burnup visibles para todos.',
@@ -175,7 +178,7 @@
       docs: ['acta-revision-sprint'],
     },
     riesgos: {
-      summary: 'Los entornos de alta variabilidad tienen, por definición, más incertidumbre y riesgo. Los enfoques adaptativos los abordan con revisiones frecuentes de los incrementos y con equipos multifuncionales que aceleran el intercambio de conocimiento y aseguran que el riesgo se entienda y se gestione. El riesgo se considera al elegir el contenido de cada iteración y en cada iteración se identifican, analizan y gestionan riesgos; los requisitos se mantienen como un documento vivo y el trabajo se vuelve a priorizar según la exposición al riesgo conocida en cada momento.',
+      summary: 'El trabajo adaptativo se elige justamente porque hay mucho que no se sabe, así que la incertidumbre se reduce construyendo y probando, no solo analizando. Ordena el backlog para atacar primero lo más riesgoso y valioso, y usa investigaciones (spikes) de duración acotada cuando una decisión técnica no se puede estimar todavía. En cada planificación revisa los riesgos y las dependencias del objetivo de la iteración, y deja visibles en el tablero los elementos bloqueados con su motivo. Los riesgos que afectan al release o al proyecto (proveedores, migraciones, normativa) siguen en el registro de riesgos con su dueño y su respuesta; la revisión y la retrospectiva son buenos momentos para actualizarlo.',
       practices: [
         'Investigaciones (spikes) tempranas para reducir la incertidumbre técnica antes de comprometer historias.',
         'Priorizar primero los elementos de mayor riesgo y valor para aprender pronto.',
@@ -185,7 +188,7 @@
       docs: ['planificacion-sprint'],
     },
     adquisiciones: {
-      summary: 'En los entornos ágiles se puede contratar a proveedores específicos para ampliar el equipo; esa relación de colaboración puede llevar a un modelo de adquisición de riesgo compartido, en el que comprador y vendedor comparten riesgos y beneficios. En proyectos grandes es común aplicar un enfoque adaptativo a unos entregables y uno más estable a otros. En ese caso, un acuerdo marco rige toda la relación y el trabajo adaptativo se detalla en anexos o suplementos, de modo que su alcance pueda cambiar sin modificar el contrato general.',
+      summary: 'Contratar desarrollo ágil con alcance y precio cerrados choca con un backlog que cambia: si el alcance se va a descubrir, el contrato tiene que fijar otras cosas. Pacta la capacidad del equipo del proveedor por iteración o por release, la definición de terminado y los criterios de aceptación como condiciones de entrega, y la presencia del proveedor en la planificación y la revisión de cada iteración. Con ese esquema, cambiar el orden o el contenido del backlog no obliga a modificar el contrato, mientras que un cambio de presupuesto o de fecha del release sí pasa por el control de cambios y por la administración del contrato. Haz el seguimiento del proveedor con las métricas del equipo: velocidad, historias aceptadas y rechazadas, y defectos.',
       practices: [
         'Contrato marco con órdenes de trabajo por release o por iteración y precio basado en la capacidad del equipo.',
         'Criterios de aceptación y definición de terminado incluidos en el contrato del proveedor.',
@@ -195,7 +198,7 @@
       docs: ['enunciado-trabajo-adquisicion', 'definicion-terminado'],
     },
     interesados: {
-      summary: 'Los proyectos con mucho cambio requieren el involucramiento activo y la participación de los interesados. Para facilitar discusiones y decisiones oportunas, los equipos adaptativos se relacionan directamente con los interesados en lugar de hacerlo a través de varios niveles de gestión. Con frecuencia cliente, usuarios y equipo intercambian información en un proceso de creación conjunta que aumenta el involucramiento y la satisfacción; las interacciones periódicas mitigan el riesgo, generan confianza y permiten ajustar antes, lo que reduce costos y aumenta la probabilidad de éxito.',
+      summary: 'El enfoque ágil depende de que alguien con autoridad decida a tiempo: el dueño del producto representa a los interesados, ordena el backlog, acepta o rechaza el trabajo y debe estar disponible para el equipo durante toda la iteración. Invita a los usuarios clave a la revisión de cada iteración para que prueben el producto en lugar de opinar sobre un informe, y convierte su retroalimentación en cambios concretos del backlog. Usa el registro de interesados para decidir quién participa en cada evento y con qué frecuencia: el patrocinador suele necesitar el burnup y el pronóstico del release, y los usuarios, la demostración. Mantener abiertos el backlog y las métricas reduce las sorpresas al cerrar cada release.',
       practices: [
         'Dueño del producto con autoridad para decidir y disponible para el equipo todos los días.',
         'Usuarios clave en la revisión de cada iteración y en la priorización del backlog.',
@@ -205,7 +208,10 @@
       docs: ['vision-producto', 'acta-revision-sprint'],
     },
   };
-  for (const a of areas) a.agile = AGILE_AREAS[a.id] || null;
+  for (const a of areas) {
+    const ag = AGILE_AREAS[a.id];
+    a.agile = ag ? { ...ag, source: 'Síntesis propia del gestor. Referencia general: Guía del PMBOK® 6.ª ed., capítulo ' + a.num + ' (consideraciones para entornos ágiles/adaptativos); Guía de prácticas ágiles (PMI y Agile Alliance); Guía de Scrum 2020.' } : null;
+  }
 
   /* ---------------------------------------------------------------- grupos de procesos */
   const groups = [
