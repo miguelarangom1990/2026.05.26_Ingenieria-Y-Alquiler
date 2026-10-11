@@ -1141,6 +1141,8 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         if (histMap.has(it.status)) {
           const wasDone = A.isDone(stOld, it);
           x = A.withStatus(nst, x, curMap.get(it.status) || histMap.get(it.status), today);
+          /* si el historial ya terminaba en la columna destino, la reasignación no abre un tramo nuevo */
+          x = { ...x, history: collapseHistory(x.history) };
           if (wasDone && A.isDone(nst, x) && D.valid(it.doneDate)) x = { ...x, doneDate: it.doneDate };
           changed = true;
         } else if (it.status && it.status !== BACKLOG && kept.has(it.status)) {
@@ -1155,13 +1157,14 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
       PM.toast('Columnas del tablero guardadas.' + (moved ? ' ' + plural(moved, 'elemento reasignado', 'elementos reasignados') + '.' : ''));
     };
     const footer = html`<${ui.Button} onClick=${close}>${ro ? 'Cerrar' : 'Cancelar'}</${ui.Button}>${ro ? null : html`<${ui.Button} variant="primary" icon="save" disabled=${!!problems.length} onClick=${submit}>Guardar columnas</${ui.Button}>`}`;
+    const restoreBtn = (r, k) => html`<${ui.Button} size="sm" icon="undo" onClick=${() => restore(k)} aria-label=${'Restaurar la columna «' + r.col.name + '»'}>Restaurar columna</${ui.Button}>`;
     const histNote = (r) => {
       if (!r.h) return null;
       const t = histTargetOf(r, cols);
       if (!t) return null;
       const cat = origCat(r.col.id) || r.col.category;
       const same = t.category === cat;
-      return html`<span class="small">Historial: los pasos de ${plural(r.h, 'elemento', 'elementos')} por «${r.col.name}» quedan registrados en «${t.name || 'Sin nombre'}»${same ? ', de la misma categoría, para conservar el tiempo de ciclo y el flujo acumulado.' : ': no queda otra columna de la categoría «' + CAT_LABEL[cat] + '».'}</span>`;
+      return html`<span class="small">Historial: los pasos de ${plural(r.h, 'elemento', 'elementos')} por «${r.col.name}» quedan registrados en «${t.name || 'Sin nombre'}»${same ? ', de la misma categoría, para conservar el tiempo de ciclo y el flujo acumulado.' : : no queda otra columna de la categoría «' + CAT_LABEL[cat] + '»' + (cat === 'en-curso' ? ', así que esos pasos dejan de contar en el tiempo de ciclo.' : '.')}</span>`;
     };
     return html`<${ui.Modal} title="Columnas del tablero" subtitle="Nombre, categoría y límite de trabajo en curso (WIP) de cada columna, en el orden del flujo." onClose=${close} size="wide" footer=${footer}>
       <div class="agk-colrows" data-agk-columns="1">
@@ -1188,9 +1191,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         <div class="h4">Columnas que se eliminarán</div>
         ${removed.map((r, k) => html`<${Note} key=${r.col.id} tone=${r.n ? 'warn' : undefined} icon="trash"><div class="stack-sm" data-agk-removed-col=${r.col.id}>
           ${r.n ? html`<span>«${r.col.name}» tiene ${plural(r.n, 'elemento', 'elementos')}. Al guardar pasan a la columna:</span>` : html`<span>«${r.col.name}» no tiene elementos${r.h ? ' actualmente' : ''}.</span>`}
+          ${r.n ? html`<div class="row"><${ui.Select} value=${cols.some((c) => c.id === r.target) ? r.target : ''} placeholder=${cols.some((c) => c.id === r.target) ? undefined : 'Elige una columna'} options=${cols.map((c) => ({ value: c.id, label: c.name || 'Sin nombre' }))} aria-label=${'Columna destino de los elementos de «' + r.col.name + '»'} onValue=${(v) => setRemoved((x) => x.map((y, j) => (j === k ? { ...y, target: v } : y)))} style="width:auto" />${restoreBtn(r, k)}</div>` : null}
           ${histNote(r)}
-          <div class="row">${r.n ? html`<${ui.Select} value=${cols.some((c) => c.id === r.target) ? r.target : ''} placeholder=${cols.some((c) => c.id === r.target) ? undefined : 'Elige una columna'} options=${cols.map((c) => ({ value: c.id, label: c.name || 'Sin nombre' }))} aria-label=${'Columna destino de los elementos de «' + r.col.name + '»'} onValue=${(v) => setRemoved((x) => x.map((y, j) => (j === k ? { ...y, target: v } : y)))} style="width:auto" />` : null}
-          <${ui.Button} size="sm" icon="undo" onClick=${() => restore(k)} aria-label=${'Restaurar la columna «' + r.col.name + '»'}>Restaurar columna</${ui.Button}></div>
+          ${r.n ? null : html`<div class="row">${restoreBtn(r, k)}</div>`}
         </div></${Note}>`)}
       </div>` : null}
       ${problems.length ? html`<${Note} tone="crit" icon="alert" role="alert"><div class="stack-sm">${problems.map((p, i) => html`<span key=${i}>${p}</span>`)}</div></${Note}>` : null}
@@ -1525,7 +1528,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
             </header>
             <div class="agk-list">
               ${shown.map((it) => html`<${KanbanCard} key=${it.id} it=${it} ci=${ci} cols=${colsInfo} days=${days.get(it.id)} canWrite=${canWrite} api=${api} dragging=${dragId === it.id} unit=${unit} />`)}
-              ${!list.length ? html`<div class="agk-empty">Sin tarjetas${canWrite ? ': arrastra aquí o usa «Mover a…»' : ''}</div>` : null}
+              ${!list.length ? html`<div class="agk-empty">${n ? 'Ninguna tarjeta visible con este filtro' : 'Sin tarjetas'}${canWrite ? ': arrastra aquí o usa «Mover a…»' : ''}</div>` : null}
               ${shown.length < list.length ? html`<${ui.Button} size="sm" variant="ghost" icon="chevron-down" onClick=${() => setAllDone(true)}>Mostrar los ${list.length} terminados</${ui.Button}>` : null}
             </div>
           </section>`;

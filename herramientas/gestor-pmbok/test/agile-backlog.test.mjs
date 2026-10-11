@@ -91,7 +91,9 @@ const today = (page) => page.evaluate(() => PM.date.today());
 
   await step('indicadores', async () => {
     ok('lista con 10 elementos en orden de rango', JSON.stringify(await order(page)) === JSON.stringify(['EP-001', 'EP-002', 'HU-001', 'HU-002', 'HU-003', 'DF-001', 'HU-004', 'HU-005', 'TA-001', 'IN-001']), await order(page));
-    ok('indicador: elementos (sin épicas)', /Elementos 8 1 terminado · 2 épicas · 1 bloqueado/.test(await tileText(page, 'items')), await tileText(page, 'items'));
+    ok('indicador: elementos (sin épicas)', /Elementos \(sin épicas\) 8 1 terminado · 1 bloqueado · además 2 épicas/.test(await tileText(page, 'items')), await tileText(page, 'items'));
+    const cnt = await page.$eval('[data-agb-count]', (e) => e.textContent.trim());
+    ok('contador de la barra coherente con el indicador (aclara las épicas)', cnt === '10 elementos (incluye 2 épicas)', cnt);
     ok('indicador: total estimado con unidad', /27 pts/.test(await tileText(page, 'total')), await tileText(page, 'total'));
     ok('indicador: sin estimar', /Sin estimar 1/.test(await tileText(page, 'unest')));
     ok('indicador: sin criterios de aceptación', /aceptación 4/.test(await tileText(page, 'noacc')));
@@ -433,7 +435,7 @@ const today = (page) => page.evaluate(() => PM.date.today());
     await sleep(page, 150);
     const cards = await page.$$eval('[data-agk-card]', (e) => e.map((x) => x.dataset.agkCard).sort().join(','));
     ok('filtro por responsable', cards === 'i2,i4', cards);
-    ok('aviso del conteo con filtro de responsable', /incluyen a todo el equipo/.test(await page.innerText('.agk-page')));
+    ok('aviso del conteo con filtro de responsable', /también las que el filtro oculta/.test(await page.innerText('.agk-page')));
     await page.selectOption('#agk-f-who', '');
     await page.selectOption('#agk-f-rel', 'r2');
     ok('filtro por release', (await page.$$('[data-agk-card]')).length === 0);
@@ -518,6 +520,202 @@ const today = (page) => page.evaluate(() => PM.date.today());
     }
   });
   ok('sin errores al final de la sesión 1', !errors.length, errors);
+  await browser.close();
+}
+
+/* ================================================================= sesión 1b: regresiones de la revisión */
+/* datos importados con tipos inesperados, referencias huérfanas, épica que cambia de tipo, WIP con filtros, límite WIP
+   inválido, historial de columnas eliminadas, restaurar columna, editor externo y fecha de corte */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  const pid = await createProject(page, { lifecycle: 'Híbrido' });
+  await page.evaluate(async (pid) => {
+    const today = PM.date.today(), add = (n) => PM.date.add(today, n);
+    await PM.store.set(PM.paths.tool(pid, 'wbs'), { nodes: [{ id: 'w1', parentId: null, name: 'Plataforma', order: 1, approach: 'adaptativo' }] });
+    await PM.store.set(PM.paths.tool(pid, 'agile'), { settings: { framework: 'scrum-kanban', estimationUnit: 'puntos', sprintLength: 10, columns: [
+      { id: 'por-hacer', name: 'Por hacer', category: 'pendiente', wip: null }, { id: 'en-curso', name: 'En curso', category: 'en-curso', wip: 2 },
+      { id: 'en-revision', name: 'En revisión', category: 'en-curso', wip: 2 }, { id: 'terminado', name: 'Terminado', category: 'terminado', wip: -1 }], scopeChangeThreshold: 10 },
+      releases: [{ id: 'r1', name: 'R1', status: 'en-curso' }, { id: 'r2', name: 'R2', status: 'planeado' }],
+      sprints: [{ id: 's2', name: 'Iteración 2', releaseId: 'r1', start: add(-5), end: add(5), status: 'en-curso' }] });
+    const items = [
+      { id: 'e1', code: 'EP-001', type: 'epica', title: 'Épica uno', rank: 500, status: 'backlog' },
+      { id: 'c1', code: 'HU-001', type: 'historia', title: 'Hija 1', rank: 1000, status: 'backlog', epicId: 'e1', estimate: 3, acceptance: 'x' },
+      { id: 'c2', code: 'HU-002', type: 'historia', title: 'Hija 2', rank: 2000, status: 'backlog', epicId: 'e1', estimate: 3, acceptance: 'x' },
+      { id: 'x1', code: 'HU-003', type: 'historia', title: 12345, description: 5, acceptance: 99, assignee: 42, blocked: true, blockedReason: 7, tags: 'obra, piloto', requirementId: 12, rank: 3000, status: 'backlog' },
+      { id: 'o1', code: 'HU-004', type: 'historia', title: 'Con referencias huérfanas', releaseId: 'nada', sprintId: 'nada', epicId: 'nada', wbsId: 'nada', rank: 4000, status: 'backlog' },
+      { id: 'k1', code: 'TA-001', type: 'tarea', title: 'En curso R1 sin iteración', rank: 5000, status: 'en-curso', releaseId: 'r1', createdAt: add(-4), history: [{ date: add(-3), status: 'en-curso' }] },
+      { id: 'k2', code: 'TA-002', type: 'tarea', title: 'En curso R2', rank: 6000, status: 'en-curso', releaseId: 'r2', createdAt: add(-4), history: [{ date: add(-3), status: 'en-curso' }] },
+      { id: 'k3', code: 'TA-003', type: 'tarea', title: 'Por hacer de la iteración', rank: 7000, status: 'por-hacer', releaseId: 'r1', sprintId: 's2', createdAt: add(-4), history: [{ date: add(-3), status: 'por-hacer' }] },
+      { id: 'd1', code: 'HU-005', type: 'historia', title: 'Pasó por revisión', rank: 8000, status: 'terminado', createdAt: add(-10), doneDate: add(-1), history: [{ date: add(-10), status: 'backlog' }, { date: add(-6), status: 'en-revision' }, { date: add(-1), status: 'terminado' }] },
+      { id: 'd3', code: 'HU-007', type: 'historia', title: 'Terminada antes del corte', rank: 9000, status: 'terminado', createdAt: add(-12), doneDate: add(-5), history: [{ date: add(-12), status: 'backlog' }, { date: add(-8), status: 'en-curso' }, { date: add(-5), status: 'terminado' }] },
+    ];
+    for (const it of items) { const { id, ...b } = it; await PM.store.set(PM.paths.backlogItem(pid, id), b); }
+  }, pid);
+  await sleep(page, 300);
+  const yesterday = await page.evaluate(() => PM.date.add(PM.date.today(), -1));
+  await gotoView(page, 'backlog');
+  await page.waitForSelector('tr[data-agb-row]');
+
+  await step('regresión: conteos coherentes', async () => {
+    ok('regresión: indicador sin épicas y barra con épicas aclaradas', /Elementos \(sin épicas\) 9/.test(await tileText(page, 'items')) && (await page.$eval('[data-agb-count]', (e) => e.textContent.trim())) === '10 elementos (incluye 1 épica)', [await tileText(page, 'items'), await page.$eval('[data-agb-count]', (e) => e.textContent)]);
+  });
+
+  await step('regresión: seleccionar todos con agrupación por épica', async () => {
+    await page.check('label.check:has-text("Agrupar por épica") input');
+    const rows = await page.$$eval('tr[data-agb-row]', (els) => els.map((e) => e.dataset.agbRow));
+    await page.check('input[aria-label="Seleccionar todos los elementos visibles"]');
+    const txt = await page.$eval('[data-agb-selcount]', (e) => e.textContent.trim());
+    ok('agrupado: «Seleccionar todos» solo marca las filas dibujadas (sin épicas)', !rows.includes('e1') && txt === rows.length + ' seleccionados', [rows, txt]);
+    await page.click('.agb-bulk button:has-text("Eliminar")');
+    await page.waitForSelector('.modal:has-text("Se eliminarán del backlog")');
+    const body = await page.innerText('.modal');
+    ok('agrupado: eliminar no alcanza la épica oculta', !/EP-001/.test(body) && /Eliminar 9 elementos/.test(body), body);
+    await page.click('.modal-foot button:has-text("Cancelar")');
+    await page.click('.agb-bulk button:has-text("Quitar selección")');
+    await page.uncheck('label.check:has-text("Agrupar por épica") input');
+    await page.check('input[aria-label="Seleccionar EP-001"]');
+    await page.check('label.check:has-text("Agrupar por épica") input');
+    const txt2 = await page.$eval('[data-agb-selcount]', (e) => e.textContent.trim());
+    ok('selección oculta por la agrupación se indica', txt2 === '1 seleccionado (1 oculto por los filtros o la agrupación)', txt2);
+    ok('casilla general sin marcar si lo seleccionado no está a la vista', !(await page.$eval('input[aria-label="Seleccionar todos los elementos visibles"]', (e) => e.checked || e.indeterminate)));
+    await page.click('.agb-bulk button:has-text("Quitar selección")');
+    await page.uncheck('label.check:has-text("Agrupar por épica") input');
+  });
+
+  await step('regresión: editor con datos importados (textos numéricos y etiquetas en texto)', async () => {
+    await page.click('tr[data-agb-row="x1"] [data-act="open"]');
+    await page.waitForSelector('.modal [data-agb-editor]');
+    const vals = await page.evaluate(() => ['agb-f-title', 'agb-f-who', 'agb-f-tags', 'agb-f-reason', 'agb-f-req', 'agb-f-acc'].map((id) => document.getElementById(id).value));
+    ok('editor: muestra los valores convertidos a texto (incluidas las etiquetas en texto)', JSON.stringify(vals) === JSON.stringify(['12345', '42', 'obra, piloto', '7', '12', '99']), vals);
+    const e0 = errors.length;
+    await page.click('.modal-foot button:has-text("Guardar cambios")');
+    await sleep(page, 350);
+    const x1 = (await readItems(page, pid)).x1;
+    ok('editor: guarda sin errores y normaliza los textos', !(await modalOpen(page)) && errors.length === e0 && x1.title === '12345' && x1.assignee === '42' && x1.blockedReason === '7' && x1.requirementId === '12' && x1.acceptance === '99' && JSON.stringify(x1.tags) === '["obra","piloto"]', [errors.slice(e0), x1]);
+  });
+
+  await step('regresión: referencias huérfanas visibles y removibles', async () => {
+    await page.click('tr[data-agb-row="o1"] [data-act="open"]');
+    await page.waitForSelector('.modal [data-agb-editor]');
+    const shown = await page.evaluate(() => ['agb-f-rel', 'agb-f-sprint', 'agb-f-epic', 'agb-f-wbs'].map((id) => { const el = document.getElementById(id); return [el.value, el.selectedOptions[0] ? el.selectedOptions[0].textContent : '']; }));
+    ok('editor: las referencias inexistentes se muestran como «no encontrado»', shown.every(([v, t]) => v === 'nada' && /no encontrad/.test(t)), shown);
+    const m = await page.innerText('.modal');
+    ok('editor: avisos de referencias que ya no existen', /El release asignado ya no existe/.test(m) && /La iteración asignada ya no existe/.test(m) && /La épica asignada ya no existe/.test(m) && /El entregable asignado ya no existe/.test(m) && !/enfoque predictivo: su avance/.test(m), m.slice(0, 200));
+    for (const id of ['#agb-f-rel', '#agb-f-sprint', '#agb-f-epic', '#agb-f-wbs']) await page.selectOption(id, '');
+    await page.click('.modal-foot button:has-text("Guardar cambios")');
+    await sleep(page, 350);
+    const o1 = (await readItems(page, pid)).o1;
+    ok('editor: elegir «Sin …» limpia las referencias huérfanas', o1.releaseId === null && o1.sprintId === null && o1.epicId === null && o1.wbsId === null, o1);
+  });
+
+  await step('regresión: épica que cambia de tipo', async () => {
+    await page.click('tr[data-agb-row="e1"] [data-act="open"]');
+    await page.waitForSelector('.modal [data-agb-editor]');
+    await page.selectOption('#agb-f-type', 'historia');
+    await page.click('.modal-foot button:has-text("Guardar cambios")');
+    await page.waitForSelector('.modal:has-text("dejará de ser una épica")');
+    const body = await page.innerText('.modal:has-text("dejará de ser una épica")');
+    ok('cambiar el tipo de una épica pide confirmación y nombra a sus hijos', /HU-001, HU-002/.test(body) && /quedarán sin épica/.test(body), body);
+    await page.click('.modal:has-text("dejará de ser una épica") .modal-foot button:has-text("Cancelar")');
+    await sleep(page, 200);
+    let it = await readItems(page, pid);
+    ok('cancelar: no cambia nada y el editor sigue abierto', it.e1.type === 'epica' && it.c1.epicId === 'e1' && !!(await page.$('.modal [data-agb-editor]')));
+    await page.click('.modal-foot button:has-text("Guardar cambios")');
+    await page.click('.modal-foot button:has-text("Cambiar a Historia de usuario")');
+    await sleep(page, 400);
+    it = await readItems(page, pid);
+    ok('confirmar: cambia el tipo y los hijos quedan sin épica', it.e1.type === 'historia' && it.c1.epicId === null && it.c2.epicId === null && !(await modalOpen(page)), [it.e1.type, it.c1.epicId, it.c2.epicId]);
+  });
+
+  await step('regresión: editor externo (PM.agileItemDialog) con un modelo sin saveItem', async () => {
+    await page.evaluate(() => PM.agileItemDialog({ agileItems: [], agile: PM.EMPTY.agile }, null, {}));
+    await page.waitForSelector('.modal [data-agb-editor]');
+    ok('editor externo: código consecutivo con todos los elementos del proyecto', (await page.inputValue('#agb-f-code')) === 'HU-008', await page.inputValue('#agb-f-code'));
+    await page.fill('#agb-f-title', 'Creado desde otra vista');
+    await page.click('.modal-foot button:has-text("Agregar elemento")');
+    await sleep(page, 400);
+    const found = Object.values(await readItems(page, pid)).filter((x) => x.title === 'Creado desde otra vista');
+    ok('editor externo: el elemento se guarda en el almacén', found.length === 1 && found[0].code === 'HU-008' && found[0].status === 'backlog', found);
+    await page.evaluate(() => PM.agileItemDialog({}, { id: 'c1' }));
+    await page.waitForSelector('.modal [data-agb-editor]');
+    ok('editor externo: abre un elemento existente', /Editar HU-001/.test(await page.innerText('.modal-title')));
+    await page.keyboard.press('Escape');
+    await sleep(page, 150);
+  });
+
+  await gotoView(page, 'kanban');
+  await page.waitForSelector('[data-agk-col]');
+  const count = (c) => page.$eval('[data-agk-count="' + c + '"]', (e) => e.textContent.trim());
+  await step('regresión: WIP de todo el tablero con filtros', async () => {
+    ok('filtro por defecto: iteración en curso', (await page.inputValue('#agk-f-sprint')) === 's2');
+    const vis = await page.$eval('[data-agk-col="en-curso"] .agk-col-head', (e) => e.innerText.replace(/\s+/g, ' '));
+    ok('el conteo WIP incluye las tarjetas sin iteración (2 / 2) y muestra las visibles aparte', (await count('en-curso')) === '2 / 2' && /0 visibles con el filtro/.test(vis) && /Límite WIP alcanzado/.test(vis), vis);
+    ok('aviso: el WIP incluye lo que el filtro oculta', !!(await page.$('[data-agk-wipnote]')));
+    await page.focus('[data-agk-card="k3"] .agk-card-title');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForSelector('.modal:has-text("Límite WIP de «En curso»")');
+    ok('mover a una columna llena (por tarjetas ocultas) pide confirmación', /2 de 2 elementos en todo el tablero/.test(await page.innerText('.modal')));
+    await page.click('.modal:has-text("Límite WIP de «En curso»") .modal-foot button:has-text("Cancelar")');
+    await sleep(page, 200);
+    ok('cancelar: la tarjeta no se mueve', (await readItems(page, pid)).k3.status === 'por-hacer');
+    await page.selectOption('#agk-f-sprint', '');
+    await page.selectOption('#agk-f-rel', 'r1');
+    await sleep(page, 200);
+    const h = await page.$eval('[data-agk-col="en-curso"] .agk-col-head', (e) => e.innerText.replace(/\s+/g, ' '));
+    ok('filtro de release: el conteo WIP no cambia (2 / 2, 1 visible)', (await count('en-curso')) === '2 / 2' && /1 visible con el filtro/.test(h), h);
+    await page.click('button[aria-label="Mover TA-003 a «En curso»"]');
+    await page.waitForSelector('.modal:has-text("Límite WIP de «En curso»")');
+    await page.click('.modal-foot button:has-text("Mover de todas formas")');
+    await sleep(page, 300);
+    ok('con el filtro de release, el límite superado se ve (3 / 2)', (await count('en-curso')) === '3 / 2' && !!(await page.$('[data-agk-wip="en-curso"]')));
+    await page.selectOption('#agk-f-rel', '');
+    await sleep(page, 150);
+  });
+
+  await step('regresión: límite WIP inválido de datos importados', async () => {
+    const head = await page.$eval('[data-agk-col="terminado"] .agk-col-head', (e) => e.innerText.replace(/\s+/g, ' '));
+    ok('WIP -1 se trata como «sin límite»', (await count('terminado')) === '2' && /sin límite WIP/.test(head) && !(await page.$('[data-agk-wip="terminado"]')), head);
+  });
+
+  await step('regresión: eliminar columna conserva el historial', async () => {
+    await page.selectOption('#agk-f-sprint', '');
+    await page.selectOption('#agk-f-rel', '');
+    await sleep(page, 150);
+    ok('tiempo de ciclo antes: 4 días (5 y 3)', /4 días/.test(await tileText(page, 'cycle')), await tileText(page, 'cycle'));
+    await page.click('.page-actions button:has-text("Editar columnas")');
+    await page.waitForSelector('[data-agk-columns]');
+    await page.click('button[aria-label="Eliminar la columna «En revisión»"]');
+    const note = await page.innerText('[data-agk-removed-col="en-revision"]');
+    ok('aviso: la columna sin elementos tiene historial que pasa a una de la misma categoría', /no tiene elementos actualmente/.test(note) && /pasos de 1 elemento por «En revisión» quedan registrados en «En curso», de la misma categoría/.test(note), note);
+    await page.click('button[aria-label="Eliminar la columna «Por hacer»"]');
+    ok('al eliminar «Por hacer» falta una columna pendiente', /al menos una columna en la categoría «Pendiente»/.test(await page.innerText('.modal')));
+    await page.click('button[aria-label="Restaurar la columna «Por hacer»"]');
+    const order1 = await page.$$eval('.agk-colrow', (e) => e.map((x) => x.dataset.col));
+    ok('restaurar devuelve la columna a su posición original', JSON.stringify(order1) === '["por-hacer","en-curso","terminado"]', order1);
+    await page.click('.modal-foot button:has-text("Guardar columnas")');
+    await sleep(page, 450);
+    const ag = await readAgile(page, pid);
+    const it = await readItems(page, pid);
+    ok('columnas guardadas (WIP inválido normalizado)', JSON.stringify(ag.settings.columns.map((c) => [c.id, c.wip])) === '[["por-hacer",null],["en-curso",2],["terminado",null]]', ag.settings.columns);
+    ok('historial reescrito a la columna de la misma categoría', !Object.values(it).some((x) => (x.history || []).some((e) => e && e.status === 'en-revision')) && it.d1.history.some((e) => e.status === 'en-curso') && it.d1.status === 'terminado' && it.d1.doneDate === yesterday, it.d1.history);
+    ok('tiempo de ciclo después: sin cambios (4 días)', /4 días/.test(await tileText(page, 'cycle')), await tileText(page, 'cycle'));
+    const cfd = await page.evaluate(async (pid) => { const ag = await PM.store.get(PM.paths.tool(pid, 'agile')); const st = PM.agile.settings(ag); const its = (await PM.store.list(PM.paths.backlog(pid))).map((d) => ({ ...d.data, id: d.id })).filter((x) => x.id === 'd1'); const d = PM.date.add(PM.date.today(), -3); return PM.calc.cfd({ items: its, settings: st, from: d, to: d })[0]; }, pid);
+    ok('flujo acumulado: el paso por la columna eliminada sigue «en curso»', cfd && cfd['en-curso'] === 1 && cfd.nuevo === 0, cfd);
+  });
+
+  await step('regresión: métricas de flujo hasta la fecha de corte', async () => {
+    ok('rendimiento con corte hoy: 2 elementos', /^Rendimiento \(últimas 4 semanas\) 2 elementos/.test(await tileText(page, 'thr')), await tileText(page, 'thr'));
+    await page.evaluate(async (pid) => { await PM.projectOps.update(pid, { statusDate: PM.date.add(PM.date.today(), -3) }); }, pid);
+    await sleep(page, 400);
+    const thr = await tileText(page, 'thr'), cyc = await tileText(page, 'cycle');
+    ok('con fecha de corte anterior: lo terminado después del corte no cuenta', /^Rendimiento \(últimas 4 semanas\) 1 elemento/.test(thr) && /al corte del/.test(thr), thr);
+    ok('tiempo de ciclo al corte', /3 días/.test(cyc) && /al corte del/.test(cyc), cyc);
+    await page.selectOption('#agk-f-sprint', 's2');
+    await sleep(page, 200);
+    ok('días restantes de la iteración desde la fecha de corte', /Quedan \d+ días hábiles/.test(await page.innerText('[data-agk-sprint]')), await page.innerText('[data-agk-sprint]'));
+  });
+
+  ok('regresiones: sin errores de consola ni tarjetas de error', !errors.length && !(await errorCards(page)).length, errors);
   await browser.close();
 }
 
