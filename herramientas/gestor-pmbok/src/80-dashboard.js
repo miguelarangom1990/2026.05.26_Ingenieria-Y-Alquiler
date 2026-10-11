@@ -144,7 +144,7 @@
 .dashboard-agile-sec { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; min-width: 0; box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line); }
 .dashboard-agile-sec > h4 { margin: 0; }
 .dashboard-agile-big { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-xl); line-height: 1.2; color: var(--fg); overflow-wrap: anywhere; }
-.dashboard-agile-big small { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; color: var(--fg-2); margin-left: 4px; }
+.dashboard-agile-big small { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; color: var(--fg-2); }
 .dashboard-agile-goal { font-size: var(--fs-sm); color: var(--fg); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .dashboard-burn { min-height: 0; }
 .dashboard-burn svg { display: block; }
@@ -716,6 +716,8 @@
      Lee model.agile y model.agileItems (los mismos datos de PM.useProjectModel que ya usa el tablero; no abre otra
      suscripción) y calcula con PM.calc / PM.agile del núcleo. */
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  /* línea base del release con contenido (PM.normalizeTool convierte un baseline null en {}: un objeto vacío no cuenta) */
+  const hasRelBaseline = (r) => { const b = r && r.baseline; return isObj(b) && (D.valid(b.date) || PM.isNum(b.points) || D.valid(b.end)); };
   const agileReleases = (data) => (data && Array.isArray(data.releases) ? data.releases.filter((r) => isObj(r) && r.id) : []);
   const agileSprints = (data) => (data && Array.isArray(data.sprints) ? data.sprints.filter((s) => isObj(s) && s.id) : [])
     .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')) || String(a.name || '').localeCompare(String(b.name || '')));
@@ -841,7 +843,7 @@
         <div class="row" style="gap:6px"><strong data-agile-sprint-name>${current.name || 'Iteración sin nombre'}</strong><${ui.Chip} tone="accent" icon="sprint">En curso</${ui.Chip}></div>
         ${current.goal ? html`<div class="dashboard-agile-goal" title=${current.goal}><span class="faint">Objetivo: </span>${current.goal}</div>` : html`<div class="xsmall faint">Sin objetivo de iteración registrado.</div>`}
         ${over ? html`<div class="dashboard-alert" data-tone="warn" data-agile-overdue><${ui.Icon} name="alert" size=${15} /><span>Terminó el ${fmt.date(current.end)} y sigue en curso: ciérrala en Releases e iteraciones para fijar lo terminado.</span></div>`
-          : html`<div class="dashboard-agile-big" data-agile-left=${s.left}>${s.left === null ? '—' : fmt.num(s.left)}<small>${s.left === 1 ? 'día hábil restante' : 'días hábiles restantes'}</small></div>
+          : html`<div class="dashboard-agile-big" data-agile-left=${s.left}>${s.left === null ? '—' : fmt.num(s.left)} <small>${s.left === 1 ? 'día hábil restante' : 'días hábiles restantes'}</small></div>
             <div class="xsmall faint">${D.valid(current.start) ? fmt.date(current.start, 'dm') + ' – ' : ''}${D.valid(current.end) ? fmt.date(current.end, 'dm') : 'sin fecha de fin'}${s.sprintDays ? ' · ' + s.sprintDays + ' días hábiles' : ''}</div>`}
         ${burndown && burndown.days.length > 1 ? html`<${MiniBurndown} bd=${burndown} unit=${unit} name=${current.name} />` : null}
         <div class="dashboard-agile-kv">${burndown ? html`<span>Terminado <strong data-agile-done>${fpts(burndown.done, unit)}</strong></span><span>Restante <strong>${fpts(burndown.remaining, unit)}</strong></span><span>Compromiso <strong>${fpts(num(burndown.committed), unit)}</strong></span>` : null}</div>
@@ -849,7 +851,7 @@
     } else if (settings.framework === 'kanban') {
       iter = html`<div class="dashboard-agile-sec" data-agile="sprint">
         <h4 class="label-caps">Flujo continuo</h4>
-        <div class="dashboard-agile-big">${fmt.num(s.wip)}<small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
+        <div class="dashboard-agile-big">${fmt.num(s.wip)} <small>${s.wip === 1 ? 'elemento en curso' : 'elementos en curso'}</small></div>
         <div class="xsmall faint">Rendimiento: ${s.thr === 1 ? '1 elemento terminado' : fmt.num(s.thr) + ' elementos terminados'} en las últimas 4 semanas.</div>
       </div>`;
     } else {
@@ -863,9 +865,9 @@
     /* 2. velocidad */
     const velSec = html`<div class="dashboard-agile-sec" data-agile="velocity">
       <h4 class="label-caps">Velocidad media</h4>
-      <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'}<small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
+      <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'} <small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
       <div class="xsmall faint">${vel.closed ? 'Promedio de las últimas ' + Math.min(3, vel.closed) + (Math.min(3, vel.closed) === 1 ? ' iteración cerrada' : ' iteraciones cerradas') + (vel.closed > 1 ? ' (mín. ' + fpts(vel.min3, unit) + ', máx. ' + fpts(vel.max3, unit) + ')' : '') + '.' : 'Aparece al cerrar la primera iteración (terminado al cierre).'}</div>
-      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${isNum(vel.avg3) ? html`<span>${num(burndown.committed) > vel.avg3 * 1.2 ? 'Supera la velocidad media en más de 20 %' : 'Dentro de la velocidad media'}</span>` : null}</div>` : null}
+      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${isNum(vel.avg3) ? html`<span data-agile-commit-check>${num(burndown.committed) > vel.avg3 * 1.2 ? 'El compromiso supera la velocidad media en más de un 20 %: riesgo de no terminarlo.' : 'El compromiso está dentro de la velocidad media.'}</span>` : null}</div>` : null}
     </div>`;
 
     /* 3. release activo: avance, SPI y CPI ágiles, pronóstico */
@@ -882,7 +884,7 @@
       const fcTone = fv === null ? null : fv > 0 ? 'warn' : 'good';
       relSec = html`<div class="dashboard-agile-sec" data-agile="release">
         <h4 class="label-caps">Release activo</h4>
-        <div class="row" style="gap:6px"><strong data-agile-release=${r.id}>${r.name || 'Release sin nombre'}</strong>${r.baseline ? html`<${ui.Chip} tone="outline" icon="layers" title=${'Línea base del release: ' + fpts(num(r.baseline.points), unit) + (D.valid(r.baseline.end) ? ', fin ' + fmt.date(r.baseline.end) : '')}>Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}</div>
+        <div class="row" style="gap:6px"><strong data-agile-release=${r.id}>${r.name || 'Release sin nombre'}</strong>${hasRelBaseline(r) ? html`<${ui.Chip} tone="outline" icon="layers" title=${'Línea base del release: ' + fpts(num(r.baseline.points), unit) + (D.valid(r.baseline.end) ? ', fin ' + fmt.date(r.baseline.end) : '')}>Con línea base</${ui.Chip}>` : html`<${ui.Chip} tone="outline">Sin línea base</${ui.Chip}>`}</div>
         <div class="dashboard-agile-kv"><span>Terminado <strong data-agile-progress>${fpts(prog.done, unit)} de ${fpts(prog.total, unit)}</strong></span><span><strong>${fmt.pct(prog.pct, 1)}</strong></span></div>
         <${ui.Meter} value=${prog.pct} tone=${prog.pct >= 1 ? 'good' : undefined} label=${'Avance del release ' + (r.name || '') + ': ' + fmt.pct(prog.pct, 1)} />
         <div class="dashboard-pair" style="margin-top:4px">
@@ -1060,7 +1062,7 @@
     const ddtList = ddt && ddt.fields && Array.isArray(ddt.fields.definicionTerminado) ? ddt.fields.definicionTerminado.filter((x) => String(x || '').trim()) : [];
     const planRel = docs.get('plan-release');
     const est = countable.reduce((t, i) => t + A.estimate(i), 0);
-    const withBl = releases.filter((r) => isObj(r.baseline));
+    const withBl = releases.filter(hasRelBaseline);
     const committed = releases.filter((r) => r.status === 'comprometido' || r.status === 'en-curso');
     const started = sprints.filter((sp) => sp.status === 'en-curso' || sp.status === 'cerrado');
     const cur = sprints.find((sp) => sp.status === 'en-curso');
@@ -1080,7 +1082,7 @@
         stateLabel: ddt ? (ddtList.length ? PM.docStatus(ddt.status).label + ' · ' + ddtList.length + (ddtList.length === 1 ? ' criterio' : ' criterios') : 'Sin criterios de terminado') : 'Pendiente', action: () => openDoc('definicion-terminado') },
       releases: { phase: 'plan', id: 'releases', label: 'Plan de releases', desc: '6.5 · Hoja de ruta: releases con objetivo, fechas, iteraciones y presupuesto.', done: releases.length > 0, partial: !!planRel,
         stateLabel: releases.length ? releases.length + (releases.length === 1 ? ' release' : ' releases') : planRel ? 'Plan sin releases creados' : 'Pendiente', action: () => go('iteraciones') },
-      lbRelease: { phase: 'plan', id: 'linea-base-release', label: 'Fijar la línea base del release', desc: '4.6 · Congela alcance, fecha y presupuesto del release comprometido; cambiarlos requiere control de cambios.', done: withBl.length > 0 && committed.every((r) => isObj(r.baseline)), partial: withBl.length > 0,
+      lbRelease: { phase: 'plan', id: 'linea-base-release', label: 'Fijar la línea base del release', desc: '4.6 · Congela alcance, fecha y presupuesto del release comprometido; cambiarlos requiere control de cambios.', done: withBl.length > 0 && committed.every(hasRelBaseline), partial: withBl.length > 0,
         stateLabel: releases.length ? withBl.length + ' de ' + releases.length + (releases.length === 1 ? ' release con línea base' : ' releases con línea base') : 'Pendiente', action: () => go('iteraciones') },
       iteracion: { phase: 'control', id: 'primera-iteracion', label: 'Planificar la primera iteración', desc: '4.3 · Objetivo, capacidad y elementos comprometidos; al iniciarla se fija el compromiso.', done: started.length > 0, partial: sprints.length > 0,
         stateLabel: cur ? (cur.name || 'Iteración') + ' en curso' : closed.length ? closed.length + (closed.length === 1 ? ' iteración cerrada' : ' iteraciones cerradas') : sprints.length ? 'Planeada: ' + (sprints[0].name || 'iteración') : 'Pendiente', action: () => go('iteraciones') },

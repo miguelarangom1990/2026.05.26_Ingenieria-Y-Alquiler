@@ -134,16 +134,19 @@
 .evm-capacity > .icon { margin-top: 2px; color: var(--warn); }
 .evm-capacity[data-tone="crit"] { background: var(--crit-wash); }
 .evm-capacity[data-tone="crit"] > .icon { color: var(--crit); }
-.evm-rel-select { min-width: 150px; max-width: 220px; }
-.evm-rel-name { min-width: 200px; }
+.evm-rel-select { min-width: 128px; max-width: 190px; }
+.evm-hint.is-long { align-items: flex-start; }
+.evm-hint.is-long > .icon { margin-top: 2px; flex: none; }
+.evm-hint.is-long > span { flex: 1 1 280px; min-width: 0; max-width: 90ch; line-height: 1.45; }
+.evm-rel-name { min-width: 150px; }
+.evm-agile-tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); }
 .evm-rel-sub { display: flex; gap: 4px 6px; align-items: center; flex-wrap: wrap; margin-top: 3px; }
-.evm-agile-table td.num, .evm-agile-table th.num { padding-left: 8px; padding-right: 8px; }
+.evm-agile-table td, .evm-agile-table th { padding-left: 6px; padding-right: 6px; }
+.evm-agile-table th:first-child, .evm-agile-table td:first-child { padding-left: 10px; }
 .evm-agile-table tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid var(--line-strong); }
-.evm-agile-table .evm-iter { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-xs); }
-.evm-agile-two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
-.evm-agile-two > * { min-width: 0; }
-@media (max-width: 1200px) { .evm-agile-two { grid-template-columns: minmax(0, 1fr); } }
-.evm-agile-two .evm-notes { max-width: 82ch; }
+.evm-agile-table .evm-iter { white-space: nowrap; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--fg-3); }
+.evm-agile-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px 28px; }
+.evm-agile-notes .evm-note > span { max-width: 80ch; }
 .evm-linked { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; min-width: 180px; }
 `;
   if (!document.getElementById('css-evm')) {
@@ -697,7 +700,7 @@
           <${SCurveChart} evm=${evm} currency=${currency} svgRef=${svgRef} />
           ${straightEv ? html`<div class="evm-hint" data-role="no-cuts-hint"><${ui.Icon} name="info" size=${14} /><span>Sin cortes de avance hasta la fecha de corte: el valor ganado se traza en línea recta desde el inicio.</span>
             <${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => onTab('avance')}>Registrar cortes de avance</${ui.Button}></div>` : null}
-          ${nDerived ? html`<div class="evm-hint" data-role="agile-derived-hint"><${ui.Icon} name="release" size=${14} /><span>${nDerived === 1 ? 'Incluye el avance de 1 actividad vinculada a un release, calculado desde el backlog (terminado / alcance).' : 'Incluye el avance de ' + nDerived + ' actividades vinculadas a releases, calculado desde el backlog (terminado / alcance).'}</span>
+          ${nDerived ? html`<div class="evm-hint is-long" data-role="agile-derived-hint"><${ui.Icon} name="release" size=${14} /><span>${nDerived === 1 ? 'Incluye el avance de 1 actividad vinculada a un release, calculado desde el backlog (terminado / alcance).' : 'Incluye el avance de ' + nDerived + ' actividades vinculadas a releases, calculado desde el backlog (terminado / alcance).'}</span>
             ${model.agileOn ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => onTab('agil')}>Ver valor ganado ágil</${ui.Button}>` : null}</div>` : null}
         </div>
       </${SectionCard}>
@@ -1016,7 +1019,7 @@
             </tbody>
             <tfoot><tr><td colspan=${releaseOn ? 6 : 5} style="font-weight:650;background:var(--surface-2)">${filtered ? 'Total del filtro (' + shown.length + ' de ' + actuals.length + ')' : 'Total registrado (' + actuals.length + ')'}</td><td class="num" data-role="actuals-total" style="font-weight:650;background:var(--surface-2)">${money(shownTotal, currency)}</td>${canWrite ? html`<td style="background:var(--surface-2)"></td>` : null}</tr></tfoot>
           </table></div>`}
-          ${releaseOn && actuals.length ? html`<div class="evm-hint" data-role="release-hint"><${ui.Icon} name="info" size=${14} /><span>Release: imputa el costo a un release para su valor ganado ágil (AgileEVM). Sin release, el costo cuenta en el release cuya actividad vinculada o entregable de la EDT coincide con el del registro.${orphanRel ? ' ' + plural(orphanRel, 'registro tiene', 'registros tienen') + ' un release que ya no existe: no cuenta' + (orphanRel === 1 ? '' : 'n') + ' en ningún release.' : ''}</span>
+          ${releaseOn && actuals.length ? html`<div class="evm-hint is-long" data-role="release-hint"><${ui.Icon} name="info" size=${14} /><span>Release: imputa el costo a un release para su valor ganado ágil (AgileEVM). Sin release, el costo cuenta en el release cuya actividad vinculada o entregable de la EDT coincide con el del registro.${orphanRel ? ' ' + plural(orphanRel, 'registro tiene', 'registros tienen') + ' un release que ya no existe: no cuenta' + (orphanRel === 1 ? '' : 'n') + ' en ningún release.' : ''}</span>
             ${model.agileOn && PM.agile ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => go('valor-ganado', { tab: 'agil' })}>Ver valor ganado ágil</${ui.Button}>` : null}</div>` : null}
         </div>
       </${SectionCard}>
@@ -1534,8 +1537,7 @@
   const AGILE_COLS = [
     { key: 'name', label: 'Release' },
     { key: 'bac', label: 'BAC', title: 'Presupuesto del release (BAC)', money: true },
-    { key: 'iter', label: 'Iteraciones', title: 'Iteraciones transcurridas al corte / planeadas' },
-    { key: 'ppc', label: 'PPC', title: 'Porcentaje planeado completado = iteraciones transcurridas / planeadas', pct: true },
+    { key: 'ppc', label: 'PPC', title: 'Porcentaje planeado completado = iteraciones transcurridas al corte / iteraciones planeadas', pct: true },
     { key: 'apc', label: 'APC', title: 'Porcentaje real completado = estimación terminada / alcance actual del release', pct: true },
     { key: 'pv', label: 'PV', title: 'PV = BAC × PPC', money: true },
     { key: 'ev', label: 'EV', title: 'EV = BAC × APC', money: true },
@@ -1566,6 +1568,7 @@
     const cell = (c, e) => {
       if (c.money) return html`<td key=${c.key} class="num" data-col=${c.key}>${m(e[c.key])}</td>`;
       if (c.signed) return html`<td key=${c.key} class="num" data-col=${c.key}>${isNum(e[c.key]) && !(c.key === 'cv' && !(e.ac > 0)) ? html`<${MoneyCell} value=${e[c.key]} currency=${currency} signed compact=${compact} />` : html`<span class="faint">—</span>`}</td>`;
+      if (c.key === 'ppc') return html`<td key=${c.key} class="num" data-col=${c.key}><div>${fmt.pct(e.ppc, 1)}</div><div class="evm-iter" data-iter title=${e.sprintsElapsed + ' de ' + e.plannedSprints + ' iteraciones planeadas transcurridas al corte'}>${e.sprintsElapsed} / ${e.plannedSprints} iter.</div></td>`;
       if (c.pct) return html`<td key=${c.key} class="num" data-col=${c.key}>${fmt.pct(e[c.key], 1)}</td>`;
       if (c.idx) return html`<td key=${c.key} class="num" data-col=${c.key}><${IdxChip} value=${e[c.key]} /></td>`;
       return null;
@@ -1590,7 +1593,7 @@
     if (noBac.length) notes.push({ id: 'sin-bac', icon: 'alert', tone: 'warn', text: relList(noBac) + (noBac.length === 1 ? ' no tiene presupuesto (BAC)' : ' no tienen presupuesto (BAC)') + ': su PV, EV y EAC quedan en cero. Defínelo en «Releases e iteraciones».' });
     const icon = (n) => n.icon;
     return html`<div class="evm-tabpanel" data-role="agile-evm">
-      <section class="card"><div class="evm-tiles is-flat" data-role="agile-tiles">
+      <section class="card"><div class="evm-tiles is-flat evm-agile-tiles" data-role="agile-tiles">
         <${Metric} id="agile-bac" abbr="BAC" label="Presupuesto de los releases" display=${S(tot.bac)} full=${F(tot.bac)} note=${plural(rows.length, 'release', 'releases')} />
         <${Metric} id="agile-pv" abbr="PV" label="Valor planificado" display=${S(tot.pv)} full=${F(tot.pv)} formula="Σ BAC × PPC" />
         <${Metric} id="agile-ev" abbr="EV" label="Valor ganado" display=${S(tot.ev)} full=${F(tot.ev)} formula="Σ BAC × APC" />
@@ -1615,11 +1618,11 @@
                 <span class="xsmall faint" data-role="release-scope">${fmt.num(e.done, 1)} de ${fmt.num(e.total, 1)} ${unit} terminados</span>
                 ${!(e.bac > 0) ? html`<${ui.Chip} tone="warn" icon="alert">Sin presupuesto (BAC)</${ui.Chip}>` : null}
               </div></th>
-              ${AGILE_COLS.slice(1).map((c) => (c.key === 'iter' ? html`<td key=${c.key} class="num evm-iter" data-col="iter" title=${e.sprintsElapsed + ' de ' + e.plannedSprints + ' iteraciones planeadas terminadas al corte'}>${e.sprintsElapsed} / ${e.plannedSprints}</td>` : cell(c, e)))}
+              ${AGILE_COLS.slice(1).map((c) => cell(c, e))}
             </tr>`)}</tbody>
             ${rows.length > 1 ? html`<tfoot><tr data-role="agile-totals">
               <td>Total de los releases</td>
-              <td class="num">${m(tot.bac)}</td><td class="num faint">—</td><td class="num faint">—</td><td class="num faint">—</td>
+              <td class="num">${m(tot.bac)}</td><td class="num faint">—</td><td class="num faint">—</td>
               <td class="num">${m(tot.pv)}</td><td class="num">${m(tot.ev)}</td><td class="num">${m(tot.ac)}</td>
               <td class="num"><${MoneyCell} value=${tot.sv} currency=${currency} signed compact=${compact} /></td>
               <td class="num">${tot.ac > 0 ? html`<${MoneyCell} value=${tot.cv} currency=${currency} signed compact=${compact} />` : html`<span class="faint">—</span>`}</td>
@@ -1632,8 +1635,7 @@
         </div>
       </${SectionCard}>
 
-      <div class="evm-agile-two">
-        <${SectionCard} title="Vínculo con la curva S del proyecto" subtitle="La misma actividad medida con el valor ganado del proyecto" pad=${false} attrs=${{ 'data-role': 'agile-link' }}>
+      <${SectionCard} title="Vínculo con la curva S del proyecto" subtitle="La misma actividad medida con el valor ganado del proyecto" pad=${false} attrs=${{ 'data-role': 'agile-link' }}>
           <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table table-tight evm-table" data-role="agile-link-table">
             <caption class="sr-only">Releases y actividades vinculadas del cronograma</caption>
             <thead><tr><th scope="col">Release</th><th scope="col">Actividad vinculada</th><th class="num" scope="col" title="Presupuesto de la actividad en el plan de medición del proyecto">Presupuesto</th><th class="num" scope="col" title="% planificado al corte según las fechas de la actividad">% plan.</th><th class="num" scope="col" title="% completado de la actividad (desde el backlog si está vinculada)">% compl.</th><th class="num" scope="col">SPI proyecto</th><th class="num" scope="col">SPI ágil</th></tr></thead>
@@ -1649,9 +1651,8 @@
           </table></div>
         </${SectionCard}>
         <${SectionCard} title="Cómo leer el valor ganado ágil" subtitle="Relación con la curva S y el valor ganado del proyecto" attrs=${{ 'data-role': 'agile-notes' }}>
-          <ul class="evm-notes">${notes.map((n) => html`<li key=${n.id} class="evm-note" data-note=${n.id} data-tone=${n.tone || undefined}><${ui.Icon} name=${icon(n)} size=${16} /><span>${n.text}</span></li>`)}</ul>
+          <ul class="evm-notes evm-agile-notes">${notes.map((n) => html`<li key=${n.id} class="evm-note" data-note=${n.id} data-tone=${n.tone || undefined}><${ui.Icon} name=${icon(n)} size=${16} /><span>${n.text}</span></li>`)}</ul>
         </${SectionCard}>
-      </div>
     </div>`;
   }
 
