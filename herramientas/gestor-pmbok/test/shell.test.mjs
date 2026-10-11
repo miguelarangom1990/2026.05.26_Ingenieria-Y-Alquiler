@@ -405,6 +405,8 @@ for (const mode of ['hover', 'clic']) {
 if (!quick) {
   for (const [width, height] of [[1920, 1080], [2560, 1440]]) {
     const { browser, page, errors } = await desktop({ width, height });
+    /* ciclo de vida híbrido: así también se miden las vistas ágiles (en un proyecto predictivo muestran solo un aviso) */
+    await page.evaluate(() => PM.projectOps.update(PM.getState().projectId, { lifecycle: 'Híbrido' })); await wait(page, 400);
     const views = await page.evaluate(() => PM.views.map((v) => v.id));
     for (const collapsed of [false, true]) {
       if (collapsed) { await page.click('.rail-fold'); await wait(page, 350); }
