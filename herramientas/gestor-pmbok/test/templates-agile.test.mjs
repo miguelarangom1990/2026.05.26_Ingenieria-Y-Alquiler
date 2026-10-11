@@ -7,7 +7,12 @@
 //  4. Editor: abre cada plantilla (las múltiples con PM.navigate('documento', {template})) sin errores y con
 //     todas sus secciones, campos y columnas; el ejemplo guardado llena los campos; edición real con teclado.
 //  5. Solo lectura: sin controles de edición. 6. Mapa de procesos: salida «Ágil», consideraciones del área
-//     (plegables y operables con teclado), botones hacia vistas y plantillas. 7. Tema oscuro y 400 px.
+//     (plegables y operables con teclado), botones hacia vistas y plantillas; las plantillas múltiples abren la lista
+//     de documentos filtrada (no un documento en blanco). 7. Tema oscuro y 400 px.
+//  Regresiones de la revisión: fechas del ejemplo = iteraciones de 10 días hábiles con festivos de Colombia (como las genera
+//  46); proyecto predictivo: las 6 plantillas ágiles no cuentan (mapa, medidores, grupos, lista maestra, PM.applicableTemplates),
+//  6.5 sin medidor, salidas y entradas ágiles marcadas «No aplica», vistas ágiles inactivas fuera de «Herramientas de la
+//  aplicación»; un documento ágil creado en un proyecto predictivo sí cuenta.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openApp, createProject, gotoView, errorCards, horizontalOverflow } from './harness.mjs';
@@ -142,6 +147,19 @@ try {
     ok('la planificación pertenece al release 2 del plan de releases', ps.release === pr.releases[1].release && ps.fechaInicio >= pr.releases[1].fechaInicio && ps.fechaFin <= pr.releases[1].fechaFin, ps.release);
     ok('plan de releases: releases encadenados y fechas válidas', pr.releases.every((r, i) => PM.date.valid(r.fechaInicio) && PM.date.valid(r.fechaFin) && r.fechaFin > r.fechaInicio && (!i || r.fechaInicio > pr.releases[i - 1].fechaFin)), pr.releases.map((r) => [r.fechaInicio, r.fechaFin]));
     ok('plan de releases: 11 iteraciones de 10 días hábiles y velocidad supuesta de 30', sum(pr.releases, 'iteraciones') === 11 && pr.duracionIteracion === 10 && pr.velocidadSupuesta === 30, '');
+    /* Regresión: las fechas siguen la cadencia que genera «Releases e iteraciones» (sprintLength días hábiles, festivos CO). */
+    const cal = PM.cal.make({}, '2026-07-01');
+    const its = []; let st = pr.releases[0].fechaInicio;
+    for (const r of pr.releases) for (let i = 0; i < r.iteraciones; i++) { st = cal.addWork(st, 0); const en = cal.addWork(st, pr.duracionIteracion - 1); its.push({ start: st, end: en, rel: r.release }); st = PM.date.add(en, 1); }
+    const relBad = [];
+    for (const r of pr.releases) { const mine = its.filter((x) => x.rel === r.release); if (mine[0].start !== r.fechaInicio || mine[mine.length - 1].end !== r.fechaFin || cal.countWork(r.fechaInicio, r.fechaFin) !== r.iteraciones * pr.duracionIteracion) relBad.push({ plan: [r.fechaInicio, r.fechaFin], cadencia: [mine[0].start, mine[mine.length - 1].end], habiles: cal.countWork(r.fechaInicio, r.fechaFin) }); }
+    ok('plan de releases: cada release = iteraciones × 10 días hábiles (festivos de Colombia) y empieza el día hábil siguiente al anterior', !relBad.length, relBad);
+    ok('plan de releases: la pista de la duración explica días hábiles y festivos', /días hábiles/.test(PM.templates['plan-release'].sections.flatMap((s) => s.fields).find((f) => f.key === 'duracionIteracion').hint) && /festivos/.test(PM.templates['plan-release'].sections.flatMap((s) => s.fields).find((f) => f.key === 'duracionIteracion').hint), '');
+    ok('planificación: la iteración 6 tiene las fechas de la cadencia (2026-09-24 a 2026-10-07)', ps.fechaInicio === its[5].start && ps.fechaFin === its[5].end && its[5].start === '2026-09-24' && its[5].end === '2026-10-07', [ps.fechaInicio, ps.fechaFin, its[5]]);
+    ok('definición de terminado: acordada en la retrospectiva de la iteración 3 (su último día)', ex('definicion-terminado').fechaAcuerdo === its[2].end && ex('definicion-terminado').revisionAcuerdo.includes('26 de agosto'), [ex('definicion-terminado').fechaAcuerdo, its[2].end]);
+    ok('retrospectiva: las acciones vencen dentro de la iteración 7', rt.acciones.every((a) => a.fechaObjetivo >= its[6].start && a.fechaObjetivo <= its[6].end), [its[6], rt.acciones.map((a) => a.fechaObjetivo)]);
+    ok('revisión: el pronóstico conserva la fecha de fin del release 2 del plan (6 de noviembre)', pr.releases[1].fechaFin === '2026-11-06' && ar.estadoRelease.includes('6 de noviembre'), ar.estadoRelease);
+    ok('iteraciones: inicio y fin en días hábiles', its.every((x) => cal.isWork(x.start) && cal.isWork(x.end)), '');
     const relField = PM.templates['plan-release'].sections.flatMap((s) => s.fields).find((f) => f.key === 'releases');
     const calcOf = (k) => relField.columns.find((c) => c.key === k);
     ok('plan de releases: «Por iteración» y «Costo por punto» calculados', calcOf('porIteracion').calc(pr.releases[0], pr.releases) === 29.5 && calcOf('costoPunto').calc(pr.releases[0], pr.releases) === Math.round(96000000 / 118), [calcOf('porIteracion').calc(pr.releases[0]), calcOf('costoPunto').calc(pr.releases[0])]);
@@ -321,6 +339,8 @@ try {
   check(m.det && m.open === true && /Consideraciones para entornos ágiles\/adaptativos · Alcance/.test(m.summary), 'proyecto híbrido: consideraciones del área abiertas en el detalle', m);
   check(m.practices >= 3 && m.buttons.includes('Backlog del producto') && m.buttons.includes('Visión del producto'), 'prácticas recomendadas y botones hacia la vista y la plantilla', m.buttons);
   check(m.tools.includes('Backlog del producto'), '5.2: el backlog figura entre las herramientas de la aplicación', m.tools);
+  const hy = await page.evaluate(() => ({ nAll: PM.templateList.length, total: document.querySelector('[data-total]').innerText, na: !!document.querySelector('[data-total-na]'), m65: document.querySelector('.docs-proc[data-code="6.5"] .docs-proc-meta').innerText.trim(), off: !!document.querySelector('.modal [data-agile-off]') }));
+  check(hy.nAll === 59 && hy.total.includes('de 59 documentos aprobados') && !hy.na && /\d\/1$/.test(hy.m65) && !hy.off, 'proyecto híbrido: el mapa cuenta las 59 plantillas y 6.5 mide el plan de releases', hy);
   await shot(page, 'proceso-5-2-claro', false);
   /* se llega con Tab desde el último botón de las salidas (modalidad de teclado → :focus-visible) */
   await page.locator('.modal .docs-out button').last().focus();
@@ -343,6 +363,25 @@ try {
   await page.locator('.modal details.docs-agile button', { hasText: 'Backlog del producto' }).click();
   await page.waitForTimeout(400);
   check(await page.evaluate(() => PM.getState().view) === 'backlog' && await page.locator('.modal').count() === 0, 'el botón de la vista ágil navega al backlog');
+
+  step('Consideraciones: las plantillas múltiples abren la lista de documentos filtrada (regresión)');
+  await gotoView(page, 'procesos');
+  await page.click('.docs-proc[data-code="5.5"]');
+  await page.waitForSelector('.modal details.docs-agile');
+  const multiBtn = page.locator('.modal details.docs-agile button[data-agile-doc="acta-revision-sprint"]');
+  const mb = { text: (await multiBtn.innerText()).trim(), aria: await multiBtn.getAttribute('aria-label') };
+  check(/Acta de revisión de la iteración\s*·\s*1$/.test(mb.text) && /Ver en la lista de documentos: Acta de revisión de la iteración \(1 documento\)/.test(mb.aria), 'el botón de la plantilla múltiple muestra cuántos documentos hay y dice a dónde lleva', mb);
+  await multiBtn.click();
+  await page.waitForTimeout(450);
+  const fl = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('section[data-area] tbody tr')].map((tr) => tr.getAttribute('data-tid') || tr.getAttribute('data-doc'));
+    return { view: PM.getState().view, params: PM.getState().params, modal: document.querySelectorAll('.modal').length, rows, filt: (document.querySelector('[data-filtered]') || {}).textContent || '', editor: !!document.querySelector('.page[data-doc-id]') };
+  });
+  check(fl.view === 'documentos' && fl.params.template === 'acta-revision-sprint' && fl.modal === 0 && !fl.editor, 'navega a «Documentos» con el filtro de la plantilla, no a un documento nuevo en blanco', fl);
+  check(fl.rows.length === 2 && fl.rows[0] === 'acta-revision-sprint' && fl.rows[1] === 'acta-revision-sprint--ej' && /plantilla: Acta de revisión de la iteración/.test(fl.filt), 'la lista muestra solo la plantilla y su acta existente', fl);
+  await page.locator('[data-filtered] button', { hasText: 'Limpiar filtros' }).click();
+  await page.waitForTimeout(250);
+  check(await page.locator('section[data-area] tbody tr').count() > 50 && await page.locator('[data-filtered]').count() === 0, '«Limpiar filtros» quita el filtro de la plantilla');
 
   for (const [code, areaId] of [['4.3', 'integracion'], ['6.5', 'cronograma'], ['8.1', 'calidad'], ['4.4', 'integracion'], ['5.5', 'alcance']]) {
     await gotoView(page, 'procesos');
@@ -368,20 +407,91 @@ try {
   check(await det.count() === 1 && await det.evaluate((d) => !d.open), 'el área desplegada muestra las consideraciones ágiles plegadas');
   await det.locator('summary').click();
   await page.waitForTimeout(150);
-  check(await det.evaluate((d) => d.open && /alta variabilidad/.test(d.textContent)), 'al abrirlas se lee el texto del área (riesgos)');
+  check(await det.evaluate((d) => d.open && /la incertidumbre se reduce construyendo y probando/.test(d.textContent) && /Síntesis propia del gestor\. Referencia general: Guía del PMBOK® 6\.ª ed\., capítulo 11/.test(d.textContent)), 'al abrirlas se lee el texto del área (riesgos) con su referencia general');
   await shot(page, 'procesos-lista-claro');
   await page.locator('.btn-group button', { hasText: 'Matriz' }).click();
 
-  step('Proyecto predictivo: consideraciones plegadas');
+  step('Proyecto predictivo: las plantillas ágiles no cuentan (regresión)');
   await createProject(page, { lifecycle: 'Predictivo', name: 'Proyecto predictivo', code: 'PRY-TEST-002' });
   await page.waitForTimeout(400);
   await gotoView(page, 'procesos');
+  const mapPred = () => page.evaluate(() => {
+    const meta = (c) => document.querySelector('.docs-proc[data-code="' + c + '"] .docs-proc-meta').innerText.trim();
+    return {
+      nonAgile: PM.templateList.filter((t) => !t.agile).length, inicio: PM.templateList.filter((t) => t.group === 'inicio' && !t.agile).length,
+      total: document.querySelector('[data-total]').innerText, na: (document.querySelector('[data-total-na]') || {}).textContent || '',
+      m: Object.fromEntries(['6.5', '5.2', '4.3', '8.1', '4.4', '5.5'].map((c) => [c, meta(c)])),
+      inicioTxt: document.querySelector('.docs-gbtn[data-group="inicio"] .docs-gbtn-sub').innerText,
+      api: PM.applicableTemplates({ lifecycle: 'Predictivo' }, {}).length, apiH: PM.applicableTemplates({ lifecycle: 'Híbrido' }, {}).length,
+      apiDoc: PM.templateApplies('vision-producto', { lifecycle: 'Predictivo' }, { 'vision-producto': [{ id: 'vision-producto' }] }), apiNo: PM.templateApplies('vision-producto', { lifecycle: 'Predictivo' }, {}),
+    };
+  });
+  const pm = await mapPred();
+  check(pm.nonAgile === 53 && pm.total.includes('0 de 53 documentos aprobados') && pm.total.includes('53 sin iniciar') && /6 plantillas ágiles no aplican/.test(pm.na), 'el total del mapa cuenta 53 plantillas y avisa que las 6 ágiles no aplican', pm.total);
+  check(pm.m['6.5'] === 'Salidas en herramientas', '6.5 sin medidor (el plan de releases no cuenta)', pm.m['6.5']);
+  check(pm.m['5.2'].endsWith('0/2') && pm.m['4.3'].endsWith('0/2') && pm.m['8.1'].endsWith('0/2') && pm.m['4.4'].endsWith('0/1') && pm.m['5.5'].endsWith('0/1'), 'los medidores de 5.2, 4.3, 8.1, 4.4 y 5.5 no cuentan su salida ágil', pm.m);
+  check(pm.inicioTxt.includes('0/' + pm.inicio + ' documentos') && pm.inicio === 5, 'el grupo Inicio no cuenta la visión del producto', pm.inicioTxt);
+  check(pm.api === 53 && pm.apiH === 59 && pm.apiDoc === true && pm.apiNo === false, 'PM.applicableTemplates / PM.templateApplies (para el tablero): 53 en predictivo, 59 en híbrido; una plantilla ágil con documentos aplica', pm);
+  await page.click('.docs-proc[data-code="5.2"]');
+  await page.waitForSelector('.modal details.docs-agile');
+  await page.waitForTimeout(200);
+  const pd = await page.evaluate(() => {
+    const md = document.querySelector('.modal'); const row = md.querySelector('.docs-out-row[data-doc="vision-producto"]'); const det = md.querySelector('details.docs-agile');
+    return { na: row && row.getAttribute('data-na'), rowTxt: row ? row.innerText : '', tools: [...md.querySelectorAll('.docs-io button')].map((b) => b.textContent.trim()), off: (md.querySelector('[data-off-tools]') || {}).textContent || '',
+      meter: md.textContent.includes('0 de 2 documentos aprobados'), open: det.open, agOff: (det.querySelector('[data-agile-off]') || {}).textContent || '', btns: [...det.querySelectorAll('button')].map((b) => b.textContent.trim()), offViews: (det.querySelector('[data-off-views]') || {}).textContent || '' };
+  });
+  check(pd.na === '1' && /Ágil/.test(pd.rowTxt) && /No aplica al ciclo de vida predictivo/.test(pd.rowTxt) && !/Sin iniciar|Crear/.test(pd.rowTxt), '5.2: la visión del producto aparece como «Ágil · No aplica», sin estado ni «Crear»', pd.rowTxt);
+  check(!pd.tools.includes('Backlog del producto') && /Con ciclo de vida adaptativo o híbrido también: Backlog del producto/.test(pd.off), '5.2: el backlog no figura entre las herramientas; una nota dice cuándo se activa', pd);
+  check(pd.meter, '5.2: el detalle cuenta 2 documentos');
+  check(!pd.open && /ciclo de vida de este proyecto es Predictivo/.test(pd.agOff) && !pd.btns.includes('Backlog del producto') && /Backlog del producto/.test(pd.offViews) && pd.btns.includes('Visión del producto'), 'consideraciones plegadas, con aviso del ciclo de vida, sin botón hacia la vista inactiva y con la plantilla', pd);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.click('.docs-proc[data-code="4.3"]');
+  await page.waitForSelector('.modal');
+  await page.waitForTimeout(200);
+  const p43 = await page.evaluate(() => { const md = document.querySelector('.modal'); const q = (d) => md.querySelector('[data-input-doc="' + d + '"]'); return { pr: q('plan-release') && q('plan-release').getAttribute('data-na'), dt: q('definicion-terminado') && q('definicion-terminado').innerText, ps: md.querySelector('.docs-out-row[data-doc="planificacion-sprint"][data-na="1"]') ? 1 : 0, other: q('registro-cambios') && q('registro-cambios').getAttribute('data-na') }; });
+  check(p43.pr === '1' && /No aplica al ciclo de vida predictivo/.test(p43.dt || '') && p43.ps === 1 && p43.other === null, '4.3: entradas y salida ágiles marcadas «No aplica»; las demás, sin marca', p43);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
   await page.click('.docs-proc[data-code="6.5"]');
   await page.waitForSelector('.modal details.docs-agile');
   check(await page.locator('.modal details.docs-agile').evaluate((d) => !d.open), 'en un proyecto predictivo el bloque ágil empieza plegado');
   await page.waitForTimeout(150);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(150);
+
+  step('Proyecto predictivo: lista maestra (regresión)');
+  await gotoView(page, 'documentos');
+  const listPred = () => page.evaluate(() => {
+    const sec = document.querySelector('[data-na-section]');
+    const AG = ['vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint', 'acta-revision-sprint', 'retrospectiva'];
+    return { stat: document.querySelector('.docs-stats').innerText.replace(/\s+/g, ' '), sec: !!sec, open: sec ? sec.open : null,
+      rows: sec ? [...sec.querySelectorAll('tbody tr')].map((tr) => tr.getAttribute('data-tid') || tr.getAttribute('data-doc')) : [],
+      chips: sec ? [...sec.querySelectorAll('td.docs-c-status')].map((td) => td.textContent.trim()) : [],
+      main: [...document.querySelectorAll('section[data-area] tbody tr')].map((tr) => tr.getAttribute('data-tid') || tr.getAttribute('data-doc')).filter((id) => AG.includes(id)) };
+  });
+  const lp = await listPred();
+  check(/Documentos 53 53 plantillas \(sin 6 ágiles\)/.test(lp.stat) && /Sin iniciar 53/.test(lp.stat), 'la lista cuenta 53 documentos y aclara que las 6 ágiles no cuentan', lp.stat);
+  check(lp.sec && lp.open === false && lp.rows.length === 6 && lp.chips.every((c) => c === 'No aplica') && !lp.main.length, 'las 6 plantillas ágiles van aparte, plegadas y con el estado «No aplica»', lp);
+  await page.locator('[data-na-section] > summary').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  check(await page.locator('[data-na-section]').evaluate((d) => d.open), 'la sección se despliega con el teclado');
+  await shot(page, 'documentos-predictivo-claro');
+  await page.locator('[data-na-section] tr[data-doc="vision-producto"] td.docs-act button').click();
+  await page.waitForSelector('.page[data-doc-id="vision-producto"] [data-section]');
+  await page.locator('[data-callout="nuevo"] button', { hasText: 'Crear documento' }).click();
+  await page.waitForTimeout(500);
+  await gotoView(page, 'procesos');
+  const pm2 = await mapPred();
+  check(pm2.total.includes('0 de 54 documentos aprobados') && /5 plantillas ágiles no aplican/.test(pm2.na) && pm2.m['5.2'].endsWith('0/3'), 'un documento ágil creado en un proyecto predictivo sí cuenta (mapa 54, 5.2 0/3)', pm2);
+  await gotoView(page, 'documentos');
+  const lp2 = await listPred();
+  check(lp2.rows.length === 5 && lp2.main.includes('vision-producto') && /Documentos 54/.test(lp2.stat), 'y pasa de la sección «no aplican» a su área en la lista', lp2);
+  await page.evaluate(() => PM.navigate('documentos', { template: 'retrospectiva' }));
+  await page.waitForTimeout(350);
+  const lf = await page.evaluate(() => { const sec = document.querySelector('[data-na-section]'); return { open: sec && sec.open, rows: sec ? [...sec.querySelectorAll('tbody tr')].map((tr) => tr.getAttribute('data-tid')) : [], main: document.querySelectorAll('section[data-area]').length, empty: !!document.querySelector('.page .empty, .page [class*="empty"] h3') }; });
+  check(lf.open === true && JSON.stringify(lf.rows) === '["retrospectiva"]' && lf.main === 0, 'filtrar por una plantilla ágil que no aplica abre la sección con esa plantilla', lf);
 
   step('Definición de listo y de terminado: valores iniciales y creación');
   await page.evaluate(() => PM.openDocument('definicion-terminado'));
@@ -459,6 +569,27 @@ for (const variant of [{ dark: true, width: 1360, name: 'oscuro' }, { dark: fals
     const md = await p.evaluate(() => { const d = document.querySelector('.modal details.docs-agile'); const md = document.querySelector('.modal'); return { open: d.open, ov: md.scrollWidth - md.clientWidth, fg: getComputedStyle(d.querySelector('summary')).color, bg: getComputedStyle(d).backgroundColor }; });
     check(md.open && md.ov <= 1, 'detalle del proceso 6.5 con consideraciones abiertas (proyecto adaptativo) y sin desborde', md);
     await shot(p, 'proceso-6-5-' + variant.name, false);
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(200);
+    /* Proyecto predictivo: sección «no aplican» de la lista y detalle con salidas marcadas. */
+    await createProject(p, { lifecycle: 'Predictivo', name: 'Proyecto predictivo', code: 'PRY-TEST-003' });
+    await p.waitForTimeout(400);
+    await gotoView(p, 'documentos');
+    await p.locator('[data-na-section] > summary').click();
+    await p.waitForTimeout(200);
+    check(await horizontalOverflow(p) <= 1, 'lista maestra de un proyecto predictivo con la sección ágil abierta, sin desborde');
+    const naTbl = await p.$eval('[data-na-section] .table-wrap', (el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+    check(naTbl.sw <= naTbl.cw + 1, 'las filas de la sección ágil caben en su contenedor', naTbl);
+    await p.locator('[data-na-section]').scrollIntoViewIfNeeded();
+    await shot(p, 'documentos-predictivo-' + variant.name, false);
+    await p.evaluate(() => PM.navigate('procesos', { process: '5.2' }));
+    await p.waitForSelector('.modal .docs-out-row[data-doc="vision-producto"][data-na="1"]');
+    await p.waitForTimeout(250);
+    const md2 = await p.evaluate(() => { const md = document.querySelector('.modal'); const det = md.querySelector('details.docs-agile'); det.open = true; return { ov: md.scrollWidth - md.clientWidth }; });
+    await p.waitForTimeout(150);
+    check(md2.ov <= 1, 'detalle de 5.2 en un proyecto predictivo sin desborde', md2);
+    await p.locator('.modal .docs-out-row[data-doc="vision-producto"]').scrollIntoViewIfNeeded();
+    await shot(p, 'proceso-5-2-predictivo-' + variant.name, false);
     const cards = await errorCards(p);
     check(!cards.length, 'sin tarjetas de error', cards);
     check(!app.errors.length, 'sin errores de consola', app.errors);

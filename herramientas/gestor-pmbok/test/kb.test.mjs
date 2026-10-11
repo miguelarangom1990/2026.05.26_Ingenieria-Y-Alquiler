@@ -306,6 +306,16 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
     if (!Object.isFrozen(ag) || !Object.isFrozen(ag.practices)) fails.push('no está congelado');
     ok('área ' + a.id + ': consideraciones para entornos ágiles/adaptativos', !fails.length, fails.join('; '));
   }
+  /* Regresión: los resúmenes son síntesis propias para el gestor, no traducciones de la Guía frase por frase. */
+  const COPIED = [/alta variabilidad/i, /por definición/i, /documento vivo/i, /acuerdo marco/i, /anexos? o suplementos?/i, /riesgo compartido/i, /creación conjunta/i,
+    /especialistas generalistas/i, /justo a tiempo/i, /decisiones colaborativas/i, /dedican menos tiempo/i, /cálculos detallados de costos/i, /lotes pequeños/i,
+    /varios niveles de gestión/i, /expertos en su trabajo/i, /ciclos cortos para hacer el trabajo/i, /puntos de control frecuentes/i, /mismo espacio, físico o virtual/i];
+  for (const a of KB.areas) {
+    const hits = COPIED.filter((re) => re.test(a.agile.summary)).map(String);
+    ok('área ' + a.id + ': resumen ágil con redacción propia (sin frases traducidas de la Guía)', !hits.length, hits.join(', '));
+  }
+  ok('consideraciones ágiles: síntesis propia con referencia general a la Guía (capítulo del área)', KB.areas.every((a) => /^Síntesis propia/.test(a.agile.source) && a.agile.source.includes('capítulo ' + a.num + ' ') && a.agile.source.includes('Guía del PMBOK® 6.ª ed.')), KB.areas.map((a) => a.agile.source).join(' | '));
+  ok('consideraciones ágiles: cada resumen remite a algo que se hace en el gestor', KB.areas.every((a) => /backlog|release|iteraci|tablero|definición de terminado|RACI|registro de|plan de comunicaciones|AgileEVM|EDT/i.test(a.agile.summary)), '');
   eq('agileFor(inexistente)', KB.agileFor('x'), null);
   eq('resúmenes ágiles distintos', new Set(KB.areas.map((a) => a.agile && a.agile.summary)).size, 10);
   ok('todas las áreas sugieren al menos un documento ágil', KB.areas.every((a) => a.agile.docs.some((d) => AGILE_DOCS.includes(d))), '');

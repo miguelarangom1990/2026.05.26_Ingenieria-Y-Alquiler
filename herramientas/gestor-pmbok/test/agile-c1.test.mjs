@@ -400,6 +400,202 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
   finally { await browser.close(); }
 }
 
+/* =============================================================== E. Regresiones de la revisión: cronograma */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    const pid = await seed(page);
+    /* la primera iteración iniciada de r1 es la 2 (18 ago): inicio real calculado de t2 = 2026-08-18; t2 sin restricción */
+    await page.evaluate(async (pid) => {
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, sprints: a.sprints.map((s) => (s.id === 's1' ? { ...s, status: 'planeado' } : s)) });
+      const s = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), { ...s, tasks: s.tasks.map((t) => (t.id === 't2' ? { ...t, start: null } : t)) });
+      PM.prefs.set('sched.tab', 'gantt'); PM.prefs.set('sched.group', false); PM.prefs.set('sched.cols', 'full');
+    }, pid);
+    await gotoView(page, 'cronograma'); await page.waitForSelector('.sched-row[data-id="t2"]');
+    const rowT2 = '.sched-grid .sched-row[data-id="t2"]';
+    const toasts = async () => nb(await page.textContent('.toasts').catch(() => ''));
+    const clearToasts = () => page.evaluate(() => document.querySelectorAll('.toasts > *').forEach((t) => t.remove()));
+    eq('t2 empieza en su inicio real calculado (18/08/26)', nb(await page.textContent(rowT2 + ' [data-col="start"]')), '18/08/26');
+
+    /* --- 1. «No comenzar antes de» anterior al inicio real calculado: aviso en la celda del Gantt --- */
+    await page.click(rowT2 + ' [data-col="start"] button.sched-cell');
+    await page.fill(rowT2 + ' [data-col="start"] input', '2026-08-10'); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+    let tt = await toasts();
+    check('Gantt: aviso del inicio real calculado desde las iteraciones', /no el 10 ago 2026: la actividad ya inició \(inicio real 18 ago 2026, calculado desde las iteraciones del release vinculado\)/.test(tt) && /no cambia el inicio/.test(tt), tt);
+    await page.waitForTimeout(500);
+    let sch = await tool(page, pid, 'schedule');
+    eq('Gantt: la restricción queda guardada', sch.tasks.find((t) => t.id === 't2').start, '2026-08-10');
+    eq('Gantt: la barra sigue en el inicio real', nb(await page.textContent(rowT2 + ' [data-col="start"]')), '18/08/26');
+    await clearToasts();
+
+    /* --- pestaña Actividades --- */
+    await page.getByRole('tab', { name: /Actividades/ }).click(); await page.waitForTimeout(200);
+    await page.click('table.sched-tbl tr[data-id="t2"] button[aria-label^="No comenzar antes de"]');
+    await page.fill('table.sched-tbl tr[data-id="t2"] .sched-edit input', '2026-08-11'); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+    tt = await toasts();
+    check('Actividades: el mismo aviso', /no el 11 ago 2026: la actividad ya inició .*calculado desde las iteraciones/.test(tt), tt);
+    await clearToasts();
+    await page.getByRole('tab', { name: /Gantt/ }).click(); await page.waitForTimeout(200);
+
+    /* --- editor: pista en el campo y aviso al guardar --- */
+    await page.dblclick(rowT2 + ' [data-col="num"]'); await page.waitForSelector('.modal #te-start');
+    check('editor: la restricción explica que la actividad ya inició', /ya inició según las iteraciones del release \(18 ago 2026\): esta restricción no cambia su inicio/.test(nb(await page.textContent('.modal'))), null);
+    await page.fill('#te-start', '2026-08-12');
+    await page.click('.modal-foot >> text=Guardar cambios'); await page.waitForTimeout(600);
+    tt = await toasts();
+    check('editor: aviso al guardar', /no el 12 ago 2026: la actividad ya inició .*calculado desde las iteraciones/.test(tt), tt);
+    await clearToasts();
+
+    /* --- inicio real guardado y restricción posterior: también se explica --- */
+    const rowT1 = '.sched-grid .sched-row[data-id="t1"]';
+    await page.click(rowT1 + ' [data-col="start"] button.sched-cell');
+    await page.fill(rowT1 + ' [data-col="start"] input', '2026-08-20'); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+    tt = await toasts();
+    check('inicio real guardado: aviso aunque la restricción sea posterior', /no el 20 ago 2026: la actividad tiene inicio real \(0?3 ago 2026\)\. Cambia el inicio real en el editor/.test(tt), tt);
+    await clearToasts();
+
+    /* --- 2. dos releases con la misma actividad: gana el último, como en el núcleo --- */
+    await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => ({ ...r, taskId: 't3' })) }); }, pid);
+    await page.waitForTimeout(350);
+    const rowT3 = '.sched-grid .sched-row[data-id="t3"]';
+    eq('misma actividad en dos releases: avance del último (62,5 %)', nb(await page.textContent(rowT3 + ' [data-col="pct"]')), '62,5 %');
+    check('el icono nombra el mismo release que el avance', /Release vinculado: Release 2 · Facturación/.test(await page.$eval(rowT3 + ' .sched-rel title', (t) => t.textContent)), await page.$eval(rowT3 + ' .sched-rel title', (t) => t.textContent));
+    await page.dblclick(rowT3 + ' [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
+    eq('el editor muestra el mismo release', await page.$eval('#te-rel', (s) => s.value), 'r2');
+    check('la nota habla del mismo release', /backlog del release «Release 2 · Facturación»: 62,5 %/.test(nb(await page.textContent('[data-agile-note]'))), nb(await page.textContent('[data-agile-note]')));
+    await page.click('.modal-foot >> text=Cancelar'); await page.waitForTimeout(150);
+
+    /* --- 3. dos actividades con el mismo task.releaseId: el aviso se cumple al guardar --- */
+    await page.evaluate(async (pid) => {
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => ({ ...r, taskId: null })) });
+      const s = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), { ...s, tasks: s.tasks.map((t) => (t.id === 't4' ? { ...t, releaseId: 'r1' } : t)) });
+    }, pid);
+    await page.waitForTimeout(350);
+    const rowT4 = '.sched-grid .sched-row[data-id="t4"]';
+    eq('datos inconsistentes: las dos actividades toman el avance de r1', [nb(await page.textContent(rowT2 + ' [data-col="pct"]')), nb(await page.textContent(rowT4 + ' [data-col="pct"]'))], ['38,2 %', '38,2 %']);
+    await page.dblclick(rowT2 + ' [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
+    check('editor de la primera actividad: avisa que quita el vínculo de la otra', /Al guardar se quita el vínculo de «Desarrollo de la facturación»: un release se representa con una sola actividad/.test(nb(await page.textContent('.modal'))), nb(await page.textContent('.modal .field-hint')));
+    await page.click('.modal-foot >> text=Guardar cambios'); await page.waitForTimeout(800);
+    sch = await tool(page, pid, 'schedule');
+    check('al guardar se cumple: t2 con r1 y t4 sin vínculo (avance guardado intacto)', sch.tasks.find((t) => t.id === 't2').releaseId === 'r1' && sch.tasks.find((t) => t.id === 't4').releaseId === null && sch.tasks.find((t) => t.id === 't4').progress === 10, sch.tasks.map((t) => [t.id, t.releaseId, t.progress]));
+    tt = await toasts();
+    check('aviso: sigue representando el release y se quitó el vínculo de la otra', /sigue representando el release «Release 1 · Inventario»\. Se quitó el vínculo de «Desarrollo de la facturación»/.test(tt), tt);
+    eq('t4 vuelve a registrar su avance en el cronograma', nb(await page.textContent(rowT4 + ' [data-col="pct"]')), '10 %');
+    check('t4 sin icono de release', (await page.$$(rowT4 + ' .sched-rel')).length === 0, null);
+    await clearToasts();
+
+    /* --- 6. «Eliminar» de la barra del Gantt usa los datos ágiles vivos (cambios durante la confirmación) --- */
+    await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.map((r) => (r.id === 'r2' ? { ...r, taskId: 't5' } : r)) }); }, pid);
+    await page.waitForTimeout(300);
+    await page.click('.sched-grid .sched-row[data-id="t5"] [data-col="num"]'); await page.waitForTimeout(100);
+    await page.locator('.sched-tools').getByRole('button', { name: 'Eliminar', exact: true }).click();
+    await page.waitForSelector('[data-confirm-release]');
+    await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: [...a.releases, { id: 'r3', name: 'Release 3 · Reportes', goal: '', start: '2026-11-23', end: '2026-12-18', status: 'planeado', budget: 0, plannedSprints: 0, wbsId: null, taskId: null, baseline: null, notes: '' }] }); }, pid);
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(900);
+    const agE = await tool(page, pid, 'agile'); sch = await tool(page, pid, 'schedule');
+    check('Gantt: eliminar conserva el release creado durante la confirmación', agE.releases.length === 3 && agE.releases.some((r) => r.id === 'r3') && agE.releases.find((r) => r.id === 'r2').taskId === null && !sch.tasks.some((t) => t.id === 't5'), agE.releases.map((r) => [r.id, r.taskId]));
+
+    /* --- 8. leyenda del diagrama de red --- */
+    await gotoView(page, 'red'); await page.waitForSelector('.sched-net svg');
+    check('red: la leyenda explica la marca de release', await page.isVisible('.legend [data-legend="release"]') && /Release vinculado \(avance desde el backlog\)/.test(nb(await page.textContent('.legend [data-legend="release"]'))) && (await page.$$('.legend [data-legend="release"] svg')).length === 1, null);
+
+    const cards = await errorCards(page);
+    check('E: sin tarjetas de error', !cards.length, cards);
+    check('E: sin errores de consola', !errors.length, errors);
+  } catch (e) { fails++; console.error('EXCEPCIÓN E', e); }
+  finally { await browser.close(); }
+}
+
+/* =============================================================== F. Regresiones de la revisión: EDT */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* el backlog del proyecto se retiene sin cargar hasta liberarlo (como cuando llega después de la EDT en modo db) */
+    await page.evaluate(() => {
+      window.__hold = true; window.__held = [];
+      const orig = PM.store.subCol;
+      PM.store.subCol = function (path, next, err) {
+        if (!/\/backlog$/.test(String(path))) return orig.call(this, path, next, err);
+        return orig.call(this, path, (d) => { if (window.__hold) window.__held.push(() => next(d)); else next(d); }, err);
+      };
+    });
+    const pid = await seed(page);
+    await page.evaluate(async (pid) => {
+      const w = await PM.store.get(PM.paths.tool(pid, 'wbs'));
+      await PM.store.set(PM.paths.tool(pid, 'wbs'), { nodes: [
+        ...w.nodes.map((n) => (n.id === 'w21' ? { ...n, approach: 'adaptativo' } : n)),
+        { id: 'w211', parentId: 'w21', name: 'Bodega central', order: 1 },
+        { id: 'w23', parentId: 'w2', name: '', order: 3 },
+        { id: 'w24', parentId: 'w2', name: '', order: 4 },
+      ] });
+      await PM.store.set(PM.paths.backlogItem(pid, 'e2'), { code: 'EP-002', type: 'epica', title: 'Épica del entregable nuevo', estimate: null, priority: 'Debe tener', rank: 50, status: 'backlog', wbsId: 'w23', releaseId: null, sprintId: null, epicId: null, history: [], createdAt: '2026-08-01' });
+      if (!PM.getView('backlog')) PM.registerView({ id: 'backlog', label: 'Backlog del producto', group: 'agil', icon: 'backlog', order: 10, needsProject: true, component: ({ params }) => PM.lib.html`<div class="page" data-stub-backlog>${(params && params.wbs) || ''}</div>` });
+    }, pid);
+    await gotoView(page, 'edt'); await page.waitForSelector('tr[data-code="1.2.4"]');
+    const toasts = async () => nb(await page.textContent('.toasts').catch(() => ''));
+    const codes = () => page.$$eval('tr[data-wbs-row]', (trs) => trs.map((r) => r.dataset.code));
+
+    /* --- 4. enfoque propio igual al del padre: distintivo lleno, sin «heredado de» --- */
+    const bInfo = await page.$$eval('tr[data-wbs-row]', (trs) => Object.fromEntries(trs.filter((r) => r.querySelector('.wbs-ap')).map((r) => { const b = r.querySelector('.wbs-ap'); return [r.dataset.code, [b.classList.contains('is-inh'), b.title]]; })));
+    check('1.2.1 con enfoque propio: distintivo lleno y sin «heredado de»', bInfo['1.2.1'] && bInfo['1.2.1'][0] === false && !/heredado/.test(bInfo['1.2.1'][1]), bInfo['1.2.1']);
+    check('1.2.1.1 hereda de 1.2.1 (el ancestro que fija el enfoque)', bInfo['1.2.1.1'] && bInfo['1.2.1.1'][0] === true && /heredado de 1\.2\.1$/.test(bInfo['1.2.1.1'][1]), bInfo['1.2.1.1']);
+    check('1.2.2 sigue heredando de 1.2', bInfo['1.2.2'] && bInfo['1.2.2'][0] === true && /heredado de 1\.2$/.test(bInfo['1.2.2'][1]), bInfo['1.2.2']);
+    await page.click('tr[data-code="1.2.1"] .wbs-code-btn'); await page.waitForTimeout(150);
+    eq('el selector del mismo nodo coincide (enfoque propio)', await page.$eval('#wbs-f-approach', (s) => s.value), 'adaptativo');
+
+    /* --- 5. mientras carga el backlog no se elimina (la confirmación no podría avisar ni limpiar vínculos) --- */
+    check('el backlog sigue cargando (retenido)', await page.evaluate(() => window.__held.length > 0), null);
+    await page.click('tr[data-code="1.2"] .wbs-code-btn'); await page.waitForTimeout(150);
+    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForTimeout(300);
+    check('eliminar mientras carga: aviso y sin confirmación', /Aún se están cargando el cronograma, los costos o los datos ágiles/.test(await toasts()) && (await page.$$('.modal')).length === 0, await toasts());
+    check('eliminar mientras carga: la EDT no cambia', (await tool(page, pid, 'wbs')).nodes.length === 12, (await tool(page, pid, 'wbs')).nodes.length);
+    await page.click('tr[data-code="1.2.4"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.4"] [data-wbs-input]');
+    await page.keyboard.press('Backspace'); await page.waitForTimeout(200);
+    check('Retroceso mientras carga: el elemento vacío se conserva', (await codes()).includes('1.2.4'), await codes());
+    await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+
+    /* liberar el backlog */
+    await page.evaluate(() => { window.__hold = false; window.__held.splice(0).forEach((f) => f()); });
+    await page.waitForTimeout(400);
+    await page.click('tr[data-code="1.2"] .wbs-code-btn'); await page.waitForSelector('aside.wbs-panel [data-wbs-backlog-stats]');
+
+    /* --- 7. Retroceso no elimina un elemento vacío al que apunta una épica --- */
+    await page.click('tr[data-code="1.2.3"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.3"] [data-wbs-input]');
+    await page.keyboard.press('Backspace'); await page.waitForTimeout(250);
+    check('Retroceso: se conserva el elemento al que apunta una épica', (await codes()).includes('1.2.3') && (await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w23'), await codes());
+    await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+    await page.click('tr[data-code="1.2.4"] [data-wbs-name]'); await page.waitForSelector('tr[data-code="1.2.4"] [data-wbs-input]');
+    await page.keyboard.press('Backspace'); await page.waitForTimeout(900);
+    check('Retroceso (control): elimina el elemento vacío sin vínculos', !(await codes()).includes('1.2.4') && !(await tool(page, pid, 'wbs')).nodes.some((n) => n.id === 'w24'), await codes());
+
+    /* eliminar 1.2.3 con el botón: avisa de la épica y le quita el entregable */
+    await page.click('tr[data-code="1.2.3"] .wbs-code-btn'); await page.waitForTimeout(150);
+    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForSelector('.modal [data-wbs-confirm-items]');
+    check('eliminar ya cargado: la confirmación avisa de la épica', /1 elemento del backlog quedará sin entregable de la EDT \(EP-002\)/.test(nb(await page.textContent('.modal [data-wbs-confirm-items]'))), nb(await page.textContent('.modal')));
+    await page.click('.modal-foot >> text=Eliminar elemento'); await page.waitForTimeout(900);
+    const e2 = await backlogItem(page, pid, 'e2');
+    check('la épica queda sin entregable (sin wbsId huérfano)', e2 && e2.wbsId === null && e2.type === 'epica', e2);
+
+    /* --- 9. «Ir al backlog»: indica cómo ver solo el entregable --- */
+    await page.click('tr[data-code="1.2.1"] .wbs-code-btn'); await page.waitForTimeout(150);
+    const goTxt = nb(await page.textContent('aside.wbs-panel [data-wbs-goto-backlog] .xsmall'));
+    check('«Ir al backlog» explica el filtro por entregable', goTxt === 'En el backlog, elige 1.2.1 en el filtro de entregables para ver solo sus elementos.', goTxt);
+    await page.locator('aside.wbs-panel [data-wbs-goto-backlog]').getByRole('button', { name: 'Ir al backlog' }).click(); await page.waitForTimeout(250);
+    const st = await state(page);
+    check('«Ir al backlog» navega con el entregable', st.view === 'backlog' && st.params && st.params.wbs === 'w21', st);
+
+    const cards = await errorCards(page);
+    check('F: sin tarjetas de error', !cards.length, cards);
+    check('F: sin errores de consola', !errors.length, errors);
+  } catch (e) { fails++; console.error('EXCEPCIÓN F', e); }
+  finally { await browser.close(); }
+}
+
 /* =============================================================== D. Tema oscuro, móvil 400 px, 1920 px y rendimiento (300+ elementos) */
 for (const variant of [{ name: 'oscuro', dark: true, width: 1360 }, { name: 'movil', dark: false, width: 400 }, { name: 'ancho', dark: false, width: 1920 }]) {
   const { browser, page, errors } = await openApp({ file, width: variant.width, height: 900, dark: variant.dark });
