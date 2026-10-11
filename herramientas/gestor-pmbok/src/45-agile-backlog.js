@@ -223,7 +223,6 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
   };
   const daysIn = (it, today) => { const d = enteredAt(it); return d ? Math.max(0, D.diff(d, today)) : null; };
   /* primer paso a una columna «en curso» (inicio del tiempo de ciclo) */
-  const firstStart = (st, it) => { for (const e of arr(it.history)) if (isObj(e) && D.valid(e.date) && A.category(st, e.status) === 'en-curso') return e.date; return null; };
   const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
   /* ---------------------------------------------------------------- componentes pequeños */
@@ -1382,9 +1381,9 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
         const cat = A.category(st, it.status);
         if (cat === 'terminado') {
           if (!D.valid(it.doneDate) || it.doneDate > cut) continue;
-          const s = firstStart(st, it);
-          if (s && s <= it.doneDate) cyc.push(D.diff(s, it.doneDate));
-          if (D.valid(it.createdAt) && it.createdAt <= it.doneDate) lead.push(D.diff(it.createdAt, it.doneDate));
+          /* misma regla que Métricas ágiles (PM.agile.flowTimes): días calendario contando el inicial y el final */
+          const ft = A.flowTimes(it, st);
+          if (ft) { cyc.push(ft.cycle); if (ft.lead !== null) lead.push(ft.lead); }
           if (it.doneDate >= from) { thr++; thrEst += A.estimate(it); }
         } else if (cat !== 'nuevo' && it.blocked) blocked++;
       }
@@ -1538,7 +1537,7 @@ body.agb-dragging, body.agb-dragging * { cursor: grabbing !important; user-selec
 
       <section class="card agb-tiles-card" aria-label="Métricas de flujo" data-agk-metrics="1">
         <div class="agb-tiles">
-          <${Tile} id="cycle" label="Tiempo de ciclo promedio" value=${flow.cycle === null ? '—' : fmt.days(flow.cycle)} sub=${(flow.nCycle ? 'De la primera entrada a «en curso» a terminado · ' + plural(flow.nCycle, 'elemento', 'elementos') : 'Aún no hay elementos terminados con historial') + atCut} />
+          <${Tile} id="cycle" label="Tiempo de ciclo promedio" value=${flow.cycle === null ? '—' : fmt.days(flow.cycle)} sub=${(flow.nCycle ? 'Del inicio del trabajo a terminado, contando ambos días · ' + plural(flow.nCycle, 'elemento', 'elementos') : 'Aún no hay elementos terminados con historial') + atCut} />
           <${Tile} id="lead" label="Tiempo de entrega promedio" value=${flow.lead === null ? '—' : fmt.days(flow.lead)} sub=${(flow.nLead ? 'De la creación a terminado · ' + plural(flow.nLead, 'elemento', 'elementos') : 'Sin elementos terminados') + atCut} />
           <${Tile} id="thr" label="Rendimiento (últimas 4 semanas)" value=${plural(flow.thr, 'elemento', 'elementos')} sub=${fmt.num(flow.thrEst, 1) + ' ' + unit + ' · ' + fmt.num(flow.thr / 4, 1) + ' por semana' + atCut} title=${'Terminados entre el ' + fmt.date(D.add(cut, -27)) + ' y el ' + fmt.date(cut) + (cut !== today ? ' (fecha de corte del proyecto)' : '')} />
           <${Tile} id="blocked" label="Elementos bloqueados" value=${fmt.num(flow.blocked)} tone=${flow.blocked ? 'crit' : undefined} sub=${flow.blocked ? 'Resuélvelos antes de empezar trabajo nuevo' : 'Ningún bloqueo en el flujo'} />

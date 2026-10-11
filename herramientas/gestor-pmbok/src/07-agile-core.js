@@ -138,6 +138,27 @@
   /* rango para colocar un elemento entre dos vecinos */
   agile.rankBetween = (before, after) => { const a = before ? num(before.rank, 0) : null, b = after ? num(after.rank, 0) : null; if (a === null && b === null) return 1000; if (a === null) return b - 1000; if (b === null) return a + 1000; return (a + b) / 2; };
 
+  /* Tiempos de flujo de un elemento terminado (días calendario, contando el día inicial y el final):
+     inicio = primer paso a «en curso» o «terminado» (si no, el primer estado fuera del backlog; si no, la terminación);
+     cycle = inicio → terminación; lead = creación → terminación (null sin fecha de creación válida). null si no está terminado. */
+  agile.flowTimes = function (item, settings) {
+    const st = settings || agile.settings(null);
+    if (!isObj(item) || !agile.isDone(st, item) || !D.valid(item.doneDate)) return null;
+    const hist = arr(item.history).filter((h) => isObj(h) && D.valid(h.date));
+    let start = null;
+    for (const h of hist) { const c = agile.category(st, h.status); if (c === 'en-curso' || c === 'terminado') { start = h.date; break; } }
+    if (!start) for (const h of hist) { if (agile.category(st, h.status) !== 'nuevo') { start = h.date; break; } }
+    if (!start || start > item.doneDate) start = item.doneDate;
+    const lead = D.valid(item.createdAt) && item.createdAt <= item.doneDate ? D.diff(item.createdAt, item.doneDate) + 1 : null;
+    return { start, doneDate: item.doneDate, cycle: D.diff(start, item.doneDate) + 1, lead };
+  };
+  /* inverso de linksOf: Map(releaseId → taskId) */
+  agile.releaseTasks = function (tasks, agileData) {
+    const out = new Map();
+    for (const [taskId, r] of agile.linksOf(tasks, agileData)) out.set(r.id, taskId);
+    return out;
+  };
+
   /* línea base del release con contenido (fecha, puntos o fin); un objeto vacío o mal formado no cuenta */
   agile.hasBaseline = (release) => { const b = isObj(release) ? release.baseline : null; return isObj(b) && (D.valid(b.date) || Number.isFinite(num(b.points, NaN)) || D.valid(b.end)); };
   /* release activo: el de la iteración en curso; si no, el primero en curso, comprometido o planeado (no cerrado) */

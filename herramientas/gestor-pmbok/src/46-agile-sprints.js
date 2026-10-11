@@ -1851,12 +1851,9 @@ td.ags-actions { background: var(--surface); }
     const done = [];
     for (const it of items) {
       if (!A.countable(it) || !A.isDone(settings, it) || !D.valid(it.doneDate) || it.doneDate > statusDate) continue;
-      let start = null;
-      for (const h of arr(it.history)) { if (!D.valid(h.date)) continue; const c = A.category(settings, h.status); if (c === 'en-curso' || c === 'terminado') { start = h.date; break; } }
-      if (!start) for (const h of arr(it.history)) { if (D.valid(h.date) && A.category(settings, h.status) !== 'nuevo') { start = h.date; break; } }
-      if (!start || start > it.doneDate) start = it.doneDate;
-      const lead = D.valid(it.createdAt) && it.createdAt <= it.doneDate ? D.diff(it.createdAt, it.doneDate) + 1 : null;
-      done.push({ id: it.id, code: it.code || '', title: it.title || '', start, doneDate: it.doneDate, cycle: D.diff(start, it.doneDate) + 1, lead, estimate: A.estimate(it) });
+      const ft = A.flowTimes(it, settings);
+      if (!ft) continue;
+      done.push({ id: it.id, code: it.code || '', title: it.title || '', start: ft.start, doneDate: it.doneDate, cycle: ft.cycle, lead: ft.lead, estimate: A.estimate(it) });
     }
     done.sort((a, b) => (a.doneDate < b.doneDate ? -1 : a.doneDate > b.doneDate ? 1 : String(a.code).localeCompare(String(b.code))));
     const cyc = done.map((d) => d.cycle).sort((a, b) => a - b);

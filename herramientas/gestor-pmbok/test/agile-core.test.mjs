@@ -98,6 +98,10 @@ const results = await page.evaluate(() => {
   eq('límite WIP', [A.wipLimit({ wip: 3 }), A.wipLimit({ wip: '2.6' }), A.wipLimit({ wip: -1 }), A.wipLimit({ wip: null }), A.wipLimit(null)], [3, 3, null, null, null]);
   const ws = A.wipStatus(settings, [{ status: 'en-curso' }, { status: 'en-curso' }, { status: 'en-curso' }, { status: 'en-curso', type: 'epica' }, { status: 'en-revision' }, null]);
   eq('estado WIP', ws.filter((c) => c.wip).map((c) => [c.id, c.count, c.over, c.full]), [['en-curso', 3, false, true], ['en-revision', 1, false, false]]);
+  // Tiempos de flujo y vínculo inverso
+  eq('tiempos de flujo', A.flowTimes({ status: 'terminado', doneDate: '2026-08-07', createdAt: '2026-08-01', history: [{ date: '2026-08-01', status: 'backlog' }, { date: '2026-08-03', status: 'por-hacer' }, { date: '2026-08-04', status: 'en-curso' }, { date: '2026-08-07', status: 'terminado' }] }, settings), { start: '2026-08-04', doneDate: '2026-08-07', cycle: 4, lead: 7 });
+  eq('tiempos de flujo: sin historial y sin terminar', [A.flowTimes({ status: 'terminado', doneDate: '2026-08-07' }, settings).cycle, A.flowTimes({ status: 'en-curso' }, settings)], [1, null]);
+  eq('vínculo inverso release → actividad', [...A.releaseTasks([{ id: 'a' }, { id: 'b', releaseId: 'r2' }], { releases: [{ id: 'r1', taskId: 'a' }, { id: 'r2' }] })], [['r1', 'a'], ['r2', 'b']]);
   // Flujo acumulado
   const hist = [
     { id: 'x1', type: 'historia', createdAt: '2026-08-01', status: 'terminado', history: [{ date: '2026-08-01', status: 'backlog' }, { date: '2026-08-03', status: 'por-hacer' }, { date: '2026-08-04', status: 'en-curso' }, { date: '2026-08-05', status: 'terminado' }] },

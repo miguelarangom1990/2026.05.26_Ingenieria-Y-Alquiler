@@ -479,6 +479,8 @@ RELEASE_STATUS, SPRINT_STATUS, APPROACHES, ROLES, DEFAULT_SETTINGS}`. Iconos nue
   `PM.agileSettingsDialog(model)` (configuración ágil); trabajan sobre el proyecto actual con sus propias suscripciones.
 - Plantillas aplicables (20): `PM.templateApplies(t|id, project, byTemplate)` y `PM.applicableTemplates(project, byTemplate)`: una
   plantilla ágil (`t.agile`) cuenta solo con ciclo de vida adaptativo o híbrido, o si el proyecto ya tiene documentos de ella.
+- Tiempos de flujo: `PM.agile.flowTimes(item, settings)` → `{start, doneDate, cycle, lead}` (días calendario contando ambos extremos;
+  inicio = primer paso a «en curso» o «terminado»). Vínculo inverso: `PM.agile.releaseTasks(tasks, agileData)` → `Map(releaseId → taskId)`.
 - Ayudantes: `PM.agile.hasBaseline(release)` (línea base con fecha, puntos o fin; `null` o `{}` no cuentan), `PM.agile.activeRelease(releases, sprints)`
   (el de la iteración en curso, si no el primero en curso, comprometido o sin cerrar), `PM.agile.sortSprints(sprints)` (por inicio).
 - `PM.agile.applyToSchedule(schedule, agileData, items)`: las actividades vinculadas a un release (`release.taskId` o `task.releaseId`)
