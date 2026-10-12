@@ -29,7 +29,7 @@ file = resolve(file);
 const M = 1e6;
 const EXPECT = {
   ventas: 162122 * M, lote: 15000 * M, vip: 3000 * M, directosLb0: 94080 * M, directos: 94510 * M, indirectos: 20062 * M, financieros: 7004 * M,
-  bacLb0: 139146 * M, bac: 139576 * M, bacVigente: 140176 * M, costoTotal: 141939 * M, contLb0: 2793 * M, contLb1: 2363 * M, contVigente: 1763 * M, gestion: 1400 * M, presupuesto: 143339 * M,
+  bacLb0: 139146 * M, bac: 139576 * M, bacVigente: 140176 * M, costoTotal: 141939 * M, contLb0: 2793 * M, contLb1: 2363 * M, contUsada: 600 * M, contDisponible: 1763 * M, gestion: 1400 * M, presupuesto: 143339 * M,
   e1: 47024 * M, e2: 47486 * M, areaVendible: 24736, areaConstruida: 39385, start: '2025-01-13', end: '2029-03-28', forecastEnd: '2029-06-29', statusDate: '2026-09-30',
   lb0Date: '2025-04-22', lb1Date: '2026-03-13',
   rangos: { loteSobreVentasPct: [3, 15], directosSobreVentasPct: [52, 62], indirectosSobreVentasPct: [11, 16], financierosSobreVentasPct: [3, 8], utilidadSobreVentasPct: [8, 15], directosPorM2Construido: [1900000, 2600000], directosPorM2Vendible: [3000000, 4500000], spi: [0.92, 1.0], cpi: [0.95, 1.02] },
@@ -54,7 +54,7 @@ if (model) {
   section('Cifras de la prueba contra model.json');
   const p = model.presupuesto;
   check(p.lb0.bac === EXPECT.bacLb0 && p.lb1.bac === EXPECT.bac && p.vigente.bac === EXPECT.bacVigente, 'BAC de LB0, LB1 y vigente', [p.lb0.bac, p.lb1.bac, p.vigente.bac]);
-  check(p.lb0.contingencia === EXPECT.contLb0 && p.lb1.contingencia === EXPECT.contLb1 && p.vigente.contingenciaDisponible === EXPECT.contVigente && p.lb1.gestion === EXPECT.gestion, 'reservas');
+  check(p.lb0.contingencia === EXPECT.contLb0 && p.lb1.contingencia === EXPECT.contLb1 && p.vigente.contingenciaDisponible === EXPECT.contDisponible && p.lb1.gestion === EXPECT.gestion, 'reservas');
   check(p.lb1.lineaBaseCostos === EXPECT.costoTotal && p.lb1.presupuestoTotal === EXPECT.presupuesto && model.pyg.lb1.costoTotal === EXPECT.costoTotal, 'línea base de costos = costo total de la factibilidad');
   check(model.lote.precio_lote === EXPECT.lote && model.producto.ventasPorTipo.total === EXPECT.ventas, 'lote y ventas');
   check(model.proyecto.inicio === EXPECT.start && model.proyecto.finLineaBase === EXPECT.end && model.proyecto.finPronosticado === EXPECT.forecastEnd && model.proyecto.fechaCorte === EXPECT.statusDate, 'fechas del proyecto');
@@ -174,7 +174,7 @@ async function validateInPage(page, expect) {
     ok(sum(byK('vip')) === X.vip, 'compensación VIP', sum(byK('vip')));
     ok(sum(byK('ind')) === X.indirectos && sum(byK('fin')) === X.financieros, 'indirectos y financieros', [sum(byK('ind')), sum(byK('fin'))]);
     const dirLb1 = byK('dir').filter((t) => fact[t.id].inLb1);
-    ok(sum(dirLb1) === X.directos && sum(byK('dir')) === X.directos + (X.contLb1 - X.contVigente), 'directos de la LB1 y vigentes (con la contención del CC-003)', [sum(dirLb1), sum(byK('dir'))]);
+    ok(sum(dirLb1) === X.directos && sum(byK('dir')) === X.directos + X.contUsada && X.contLb1 - X.contUsada === X.contDisponible, 'directos de la LB1 y vigentes (con la contención del CC-003)', [sum(dirLb1), sum(byK('dir'))]);
     ok(sum(dirLb1.filter((t) => fact[t.id].st === 'E1')) === X.e1 && sum(dirLb1.filter((t) => fact[t.id].st === 'E2')) === X.e2, 'directos por etapa', [sum(dirLb1.filter((t) => fact[t.id].st === 'E1')), sum(dirLb1.filter((t) => fact[t.id].st === 'E2'))]);
     /* capítulos: cada actividad de obra lleva su reparto; la suma por capítulo es el presupuesto del capítulo */
     const capSum = {};
@@ -265,7 +265,7 @@ async function validateInPage(page, expect) {
     let prev = {}; let mono = true;
     for (const u of costs.statusUpdates) { for (const [k, v] of Object.entries(u.progress)) { if (!tids.has(k) || (prev[k] || 0) > v) mono = false; prev[k] = v; } }
     ok(mono && tasks.every((t) => (prev[t.id] || 0) === t.progress), 'el avance de los cortes nunca retrocede y el último corte es el avance actual');
-    ok(costs.reserves.contingency === X.contVigente && costs.reserves.management === X.gestion, 'reservas vigentes');
+    ok(costs.reserves.contingency === X.contLb1 && costs.reserves.management === X.gestion, 'reservas del plan vigente: la reserva para contingencias es la total de la LB1 (no se descuenta al usarla, SPEC §10.3)', costs.reserves);
     const lastNote = costs.statusUpdates[costs.statusUpdates.length - 1].note || '';
     ok(/bloque A en el piso 6 \(75 %\) y bloque B en el piso 3 \(36 %\)/.test(lastNote) && tasks.find((t) => t.id === 'K07').progress === 75 && tasks.find((t) => t.id === 'K09').progress === 36, 'nota del corte de septiembre con el avance de la estructura del cronograma (bloque A 75 %, bloque B 36 %)', lastNote);
     const evm = PM.calc.evm({ sched, costBaseline: actives.cost, costs, statusDate: st });
@@ -289,7 +289,13 @@ async function validateInPage(page, expect) {
     ok(qtyOf('Concreto premezclado de 28 MPa fluido', ['K06', 'K07', 'K09']) === 7500 && qtyOf('Acero de refuerzo de 420 MPa', ['K06', 'K07', 'K09']) === 605000, 'concreto (7.500 m³) y acero (605 t) de la estructura de la etapa 1 como en los requisitos de recursos');
     const modes = tasks.filter((t) => (t.costMode || 'global') !== 'global');
     const k03c = tasks.find((t) => t.id === 'K03C');
-    ok(modes.map((t) => t.id + ':' + t.costMode).join() === 'K03C:unitario' && k03c.quantity === 60 && k03c.unitPrice === 10e6 && PM.res.taskCost(k03c, cat0).total === k03c.cost && k03c.cost === 600e6, 'K03C a precios unitarios (60 m × COP 10 millones = COP 600 millones, su mismo costo); las demás a precio global', modes.map((t) => [t.id, t.costMode, PM.res.taskCost(t, cat0).total, t.cost]));
+    const tc03c = PM.res.taskCost(k03c, cat0);
+    ok(modes.map((t) => t.id + ':' + t.costMode).join() === 'K03C:recursos' && tc03c.total === k03c.cost && k03c.cost === 600e6 && tc03c.lines.length === 1 && tc03c.lines[0].item.id === 'rec-pan' && tc03c.lines[0].qty === 60 && tc03c.lines[0].unitCost === 10e6, 'K03C calculada por recursos (60 m de pantalla del subcontratista a COP 10 millones = COP 600 millones, su mismo costo); las demás a precio global', modes.map((t) => [t.id, t.costMode, PM.res.taskCost(t, cat0).total, t.cost]));
+    /* categoría de costo (SPEC §10.1): toda actividad con presupuesto la tiene, así el desglose por categoría no queda en «Sin categoría» */
+    const COSTED = tasks.filter((t) => t.cost > 0);
+    ok(COSTED.every((t) => PM.RES.COST_CATEGORIES.includes(t.costCategory)) && tasks.every((t) => !t.costCategory || t.cost > 0), 'categoría de costo en cada actividad con presupuesto', COSTED.filter((t) => !PM.RES.COST_CATEGORIES.includes(t.costCategory)).map((t) => t.id));
+    const catOf = (id) => tasks.find((t) => t.id === id).costCategory;
+    ok([['E06', 'Otros'], ['E15', 'Otros'], ['D04', 'Subcontratos'], ['C04', 'Servicios'], ['G05', 'Mano de obra'], ['K04', 'Subcontratos'], ['K07', 'Materiales'], ['K16', 'Mano de obra'], ['K13', 'Subcontratos'], ['K31', 'Mano de obra'], ['U01', 'Subcontratos'], ['K03C', 'Subcontratos']].every(([id, c]) => catOf(id) === c), 'categorías por naturaleza: lote y financieros en Otros, consultorías y subcontratos de obra en Subcontratos, comercialización en Servicios, estructura en Materiales y acabados y administración de obra en Mano de obra');
     const agileT = await P('/tools/agile');
     const itemsB = (await PM.store.list(PM.paths.backlog(pid))).map((d) => ({ ...d.data, id: d.id }));
     const effM = PM.res.applyCosts(PM.agile.applyToSchedule(schedule, agileT, itemsB, { statusDate: st }), resources);
@@ -299,8 +305,26 @@ async function validateInPage(page, expect) {
     ok(Object.entries(EVM_EXPECTED).every(([k, v]) => near(evm[k], v) && near(evmM[k], v)), 'valor ganado idéntico al esperado (BAC, PV, EV, AC, SPI, CPI y EAC), también con el avance ágil y las formas de costeo aplicados', Object.keys(EVM_EXPECTED).map((k) => [k, evm[k], evmM[k]]));
     ok(effM.tasks.every((t, i) => t.cost === tasks[i].cost), 'las formas de costeo no cambian el presupuesto de ninguna actividad');
     const unpl = resources.items.filter((i) => i.planned === false);
-    ok(unpl.map((i) => i.name + ':' + i.reason + ':' + (i.changeRef || '')).sort().join('|') === 'Segundo desarrollador web de la agencia:rendimiento:|Subcontratista de pantalla anclada y drenajes:cambio-alcance:CC-003|Turno extendido de formaleta del bloque B:rendimiento:', 'no planificados: pantalla anclada (CC-003), turno extendido de formaleta (INC-006) y segundo desarrollador web', unpl.map((i) => [i.name, i.reason, i.changeRef]));
-    ok(unpl.every((i) => !PM.isNum(i.reserveAmount) && D.valid(i.addedDate) && i.addedDate > X.lb1Date && i.addedDate <= st) && costs.reserves.contingency === X.contVigente, 'ninguno consume la reserva para contingencias (la disponible ya descuenta los COP 600 millones del CC-003)');
+    ok(unpl.map((i) => i.name + ':' + i.reason + ':' + (i.changeRef || '')).sort().join('|') === 'Segundo desarrollador web de la agencia:rendimiento:|Subcontratista de pantalla anclada y drenajes:riesgo:CC-003|Turno extendido de formaleta del bloque B:rendimiento:', 'no planificados: pantalla anclada (respuesta al R-004, aprobada con el CC-003), turno extendido de formaleta (INC-006) y segundo desarrollador web', unpl.map((i) => [i.name, i.reason, i.changeRef]));
+    ok(unpl.every((i) => D.valid(i.addedDate) && i.addedDate > X.lb1Date && i.addedDate <= st), 'no planificados agregados después de la LB1 y hasta el corte');
+    /* reserva para contingencias (SPEC §10.3): el total del plan no se descuenta; el consumo se registra en el recurso por riesgo */
+    const pan = resources.items.find((i) => i.id === 'rec-pan');
+    const riskIds = new Set(((((await P('/docs/registro-riesgos')) || {}).fields || {}).riesgos || []).map((r) => r.id));
+    ok(pan && pan.code === 'REC-025' && pan.reason === 'riesgo' && pan.riskId === 'R-004' && riskIds.has('R-004') && pan.reserveAmount === X.contUsada && !PM.RES.REASONS.find((r) => r.value === pan.reason).baseline, 'pantalla anclada: respuesta al riesgo R-004 (del registro de riesgos) con COP 600 millones de la reserva para contingencias, sin nueva línea base', pan && [pan.reason, pan.riskId, pan.reserveAmount]);
+    ok(unpl.filter((i) => i.id !== 'rec-pan').every((i) => !PM.isNum(i.reserveAmount) && !PM.RES.REASONS.find((r) => r.value === i.reason).baseline), 'los demás no planificados no consumen reserva ni cambian la línea base');
+    const ru = PM.res.reserveUse({ data: resources, schedule: effM, contingency: costs.reserves.contingency });
+    ok(ru.total === X.contLb1 && ru.consumed === X.contUsada && ru.available === X.contDisponible && ru.assigned === X.contUsada && ru.unassigned === 0, 'consumo de la reserva: COP 600 millones de COP 2.363 millones, disponibles COP 1.763 millones; el consumo ya está en K03C (sin cuenta aparte)', [ru.total, ru.consumed, ru.available, ru.assigned, ru.unassigned]);
+    /* estructura de desglose de costos del plan vigente (gráfico 7-8): la línea base de costos sigue siendo la de la LB1 */
+    const schedM = PM.calc.computeSchedule(effM, meta.start);
+    for (const by of ['edt', 'categoria']) {
+      const cbs = PM.res.cbsTree({ tree, sched: schedM, schedule: effM, data: resources, baseline: actives.cost, reserves: costs.reserves, source: 'plan', by });
+      const lb = cbs.children.find((c) => c.id === 'cbs:lb'); const cont = lb.children.find((c) => c.id === 'cbs:cont');
+      ok(cbs.value === X.presupuesto && cbs.value === meta.budget && lb.value === X.costoTotal && cont.value === X.contDisponible && cont.reserveTotal === X.contLb1 && cont.reserveConsumed === X.contUsada && !lb.children.some((c) => c.id === 'cbs:riesgos'), 'desglose de costos del plan vigente (' + by + '): presupuesto COP 143.339 millones = aprobado, línea base COP 141.939 millones = LB1 y reserva disponible COP 1.763 millones', [cbs.value, lb.value, cont.value, cont.reserveTotal, cont.reserveConsumed]);
+      if (by === 'categoria') {
+        const cats = Object.fromEntries(lb.children.filter((c) => c.kind === 'group').map((c) => [c.label, Math.round(c.value / 1e6)]));
+        ok(!('Sin categoría' in cats) && ['Subcontratos', 'Materiales', 'Otros', 'Mano de obra', 'Servicios'].every((k) => cats[k] > 0) && Object.values(cats).reduce((a, b) => a + b, 0) === X.bacVigente / 1e6, 'desglose por categoría de costo sin «Sin categoría» (suma = BAC vigente)', cats);
+      }
+    }
     const team = resources.items.filter((i) => i.agileTeam);
     ok(team.length === 5 && team.every((i) => i.typeId === 'comercial' && i.dedication === 85 && i.hoursPerDay === 8) && team.filter((i) => i.absences.length).length === 1, 'equipo de la capa ágil: cinco personas de lunes a viernes (dedicación 85 %) con las vacaciones del diseñador', team.map((i) => i.name));
     out.resources = { items: resources.items.length, unplanned: unpl.length };
@@ -491,10 +515,28 @@ section('Recursos del ejemplo en las vistas (catálogo y reserva para contingenc
     await page.waitForTimeout(400);
     await page.getByRole('tab', { name: 'Presupuesto' }).click();
     await page.waitForSelector('[data-role="reserve-use"]', { timeout: 8000 });
-    const chg = await page.getAttribute('[data-change-resource="rec-pan"]', 'data-change-state');
-    const used = norm(await page.locator('[data-role="reserve-use"] [data-tile], [data-role="reserve-use"] .evm-reserve-tiles').first().innerText().catch(() => ''));
-    check(chg === 'aprobada', 'valor ganado: el subcontrato de la pantalla anclada figura con su solicitud CC-003 aprobada', chg);
-    check(/Ningún recurso no planificado la consume/.test(norm(await page.locator('[data-role="reserve-use"]').innerText())), 'valor ganado: ningún recurso no planificado consume la reserva para contingencias', used.slice(0, 200));
+    /* reserva para contingencias (SPEC §10.3): total de la LB1, consumo de la pantalla anclada (R-004) y disponible */
+    const full = async (id) => norm(await page.locator('[data-role="reserve-use"] [data-metric="' + id + '"] .evm-metric-full').innerText().catch(() => ''));
+    const tiles = [await full('reserve-total'), await full('reserve-used'), await full('reserve-available')];
+    check(/\b2\.363\.000\.000\b/.test(tiles[0]) && /\b600\.000\.000\b/.test(tiles[1]) && /\b1\.763\.000\.000\b/.test(tiles[2]), 'valor ganado › presupuesto: reserva para contingencias de COP 2.363 millones, consumidos COP 600 millones por la pantalla anclada y disponibles COP 1.763 millones', tiles);
+    const panRow = norm(await page.locator('[data-role="reserve-risks"] [data-reserve="rec-pan"]').innerText().catch(() => ''));
+    check(/REC-025/.test(panRow) && /R-004/.test(panRow) && /600\.000\.000/.test(panRow) && await page.locator('[data-change-resource="rec-pan"]').count() === 0, 'la pantalla anclada figura entre los recursos que responden a riesgos (R-004) y no entre los que requieren nueva línea base', panRow);
+    /* agregación de costos del plan vigente: la línea base de costos no cambia (BAC con la contención + reserva disponible = LB1) */
+    const ledger = async (row, col) => norm(await page.locator('[data-role="ledger"] [data-row="' + row + '"] [data-col="' + col + '"]').innerText().catch(() => ''));
+    const lbCur = await ledger('baseline', 'cur'), lbBl = await ledger('baseline', 'bl');
+    check(/141\.939\.000\.000/.test(lbCur) && /141\.939\.000\.000/.test(lbBl) && /Coincide con el presupuesto aprobado/.test(norm(await page.locator('[data-role="budget-compare"]').innerText())), 'agregación de costos: línea base de costos del plan vigente igual a la de la LB1 (COP 141.939 millones) y presupuesto igual al aprobado', [lbCur, lbBl]);
+    /* Desgloses › Costos agrupado por categoría de costo (clic en el control): sin «Sin categoría» y con la reserva disponible */
+    await page.evaluate(() => PM.navigate('estructuras', { tab: 'costos' }));
+    const CBS = '[data-trd="estructuras.cbs.diagram"] [role="treeitem"]';
+    await page.waitForSelector(CBS, { timeout: 10000 });
+    await page.locator('[data-brk="costos"]').getByRole('button', { name: 'Categoría de costo' }).click();
+    await page.waitForTimeout(500);
+    const tree = await page.$$eval(CBS, (els) => els.map((e) => ({ uid: e.getAttribute('data-uid'), parent: e.getAttribute('data-parent'), value: Number(e.getAttribute('data-value')) })));
+    const cats = Object.fromEntries(tree.filter((n) => n.parent === 'cbs:lb' && n.uid.startsWith('c:')).map((n) => [n.uid, Math.round(n.value / 1e6)]));
+    const v = (uid) => (tree.find((n) => n.uid === uid) || {}).value;
+    check(!('c:sin categoría' in cats) && ['c:subcontratos', 'c:materiales', 'c:otros', 'c:mano de obra', 'c:servicios'].every((k) => cats[k] > 0) && Object.values(cats).reduce((a, b) => a + b, 0) === 140176, 'desgloses › costos por categoría de costo: cinco categorías que suman el BAC vigente, sin «Sin categoría»', cats);
+    check(v('cbs:cont') === 1763e6 && v('cbs:lb') === 141939e6 && v('cbs') === 143339e6 && v('cbs:riesgos') === undefined, 'desgloses › costos: reserva disponible de COP 1.763 millones y línea base de COP 141.939 millones (sin cuenta aparte de respuestas a riesgos)', [v('cbs:cont'), v('cbs:lb'), v('cbs'), v('cbs:riesgos')]);
+    await page.locator('[data-brk="costos"]').getByRole('button', { name: 'EDT', exact: true }).click();
     check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
   } finally { await browser.close(); }
   console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);

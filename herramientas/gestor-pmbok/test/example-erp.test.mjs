@@ -231,6 +231,15 @@ async function validateInPage(page) {
     const EVM_EXPECTED = { bac: 601300000, pv: 355730917.5906963, ev: 345763200, ac: 352120000, spi: 0.9719796140908811, cpi: 0.9819470635010792, eac: 612354802.3618476 };
     const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
     ok(Object.entries(EVM_EXPECTED).every(([k, v]) => near(evm[k], v) && near(evmR[k], v)), 'valor ganado idéntico al esperado (BAC, PV, EV, AC, SPI, CPI y EAC), también con las formas de costeo aplicadas como en useProjectModel', Object.keys(EVM_EXPECTED).map((k) => [k, evm[k], evmR[k]]));
+    /* categoría de costo (SPEC §10.1): toda actividad con presupuesto la tiene; el desglose por categoría no queda en «Sin categoría» */
+    ok(tasks.filter((t) => t.cost > 0).every((t) => PM.RES.COST_CATEGORIES.includes(t.costCategory)) && tasks.every((t) => !t.costCategory || t.cost > 0), 'categoría de costo en cada actividad con presupuesto', tasks.filter((t) => t.cost > 0 && !t.costCategory).map((t) => t.id));
+    {
+      const schedR = C.computeSchedule(effR, meta.start);
+      const cbs = PM.res.cbsTree({ tree, sched: schedR, schedule: effR, data: resources, baseline: bls.cost, reserves: costs.reserves, source: 'plan', by: 'categoria' });
+      const lb = cbs.children.find((c) => c.id === 'cbs:lb');
+      const cats = Object.fromEntries(lb.children.filter((c) => c.kind === 'group').map((c) => [c.label, Math.round(c.value / 1e5) / 10]));
+      ok(cbs.value === meta.budget && !('Sin categoría' in cats) && !('Otros' in cats) && cats.Servicios > 400 && cats['Mano de obra'] > 100 && cats.Equipos === 28 && Math.abs(Object.values(cats).reduce((a, b) => a + b, 0) - 601.3) < 1e-6, 'desglose de costos por categoría: servicios del implementador y licencias, mano de obra interna y equipos de bodega (suma = BAC; la bolsa fija del release 2 va a Servicios, no a «Otros»)', cats);
+    }
     const teamR = resources.items.filter((i) => i.agileTeam);
     ok(teamR.map((i) => i.name + ':' + i.dedication).join('|') === ['Consultor funcional ERP:100', 'Desarrollador ERP:100', 'Desarrollador de integraciones:50', 'Analista de pruebas:50', 'Analista de TI:100'].join('|') && teamR.every((i) => i.hoursPerDay === 8) && resources.items.filter((i) => !i.agileTeam && /Scrum Master|Dueño del producto/.test(i.name)).length === 2, 'equipo Scrum del catálogo: cinco personas, dos al 50 % (4 personas equivalentes); el Scrum Master y el dueño del producto no suman capacidad', teamR.map((i) => [i.name, i.dedication]));
     const capOf = (sid) => PM.res.teamCapacity({ data: resources, schedule, sprint: sprints.find((x) => x.id === sid), cal, settings: st, velocity: vel });

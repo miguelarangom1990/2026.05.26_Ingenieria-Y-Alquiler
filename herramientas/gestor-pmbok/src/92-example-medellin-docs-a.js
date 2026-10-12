@@ -1242,7 +1242,7 @@
           diasCronograma: 0,
           impactoCronograma: 'Ninguno.',
           valorCosto: 280 * M,
-          impactoCosto: 'La reserva para contingencias pasa de COP 1.763 a 2.043 millones y la reserva de gestión de COP 1.400 a 1.120 millones; la línea base de costos pasa de COP 141.939 a 142.219 millones y el presupuesto del proyecto (COP 143.339 millones) no cambia. El pronóstico de utilidad del corte de septiembre se prepara con una provisión igual al valor monetario esperado de las amenazas abiertas (COP 2.043 millones), por lo que el traslado no lo cambia.',
+          impactoCosto: 'La reserva para contingencias disponible pasa de COP 1.763 a 2.043 millones (el total, de COP 2.363 a 2.643 millones) y la reserva de gestión de COP 1.400 a 1.120 millones; la línea base de costos pasa de COP 141.939 a 142.219 millones y el presupuesto del proyecto (COP 143.339 millones) no cambia. El pronóstico de utilidad del corte de septiembre se prepara con una provisión igual al valor monetario esperado de las amenazas abiertas (COP 2.043 millones), por lo que el traslado no lo cambia.',
           impactoCalidad: 'Ninguno.',
           impactoRiesgos: 'La reserva para contingencias vuelve a cubrir el valor monetario esperado de las amenazas abiertas. La reserva de gestión queda en COP 1.120 millones (0,80 % del presupuesto vigente de las actividades) para riesgos no identificados.',
           impactoOtros: 'Requiere la no objeción del banco y la fiduciaria porque modifica el presupuesto validado.',

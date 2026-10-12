@@ -281,6 +281,20 @@
     { id: 't05', name: 'Informe final, lecciones aprendidas y acta de cierre', wbsId: 'w14', duration: 3, deps: [FF('t34')], cost: mm(3.2), resources: res([R.dir, 0.5]), responsible: R.dir },
     { id: 't06', name: 'Cierre del proyecto', wbsId: 'w14', duration: 0, milestone: true, deps: [FS('t05'), FS('t34')], cost: 0, responsible: R.pat },
   ];
+  /* Categoría de costo (SPEC §10.1, PM.RES.COST_CATEGORIES) de cada actividad con presupuesto, para la estructura de desglose
+     de costos por categoría: tiempo del personal interno (dirección, facilitación, migración y conciliaciones) → Mano de obra;
+     consultores externos, implementador (iteraciones de precio fijo, capacitación y salidas en vivo), suscripción del ERP y
+     proveedor de facturación electrónica → Servicios; tabletas, lectores, impresoras y red de bodegas → Equipos. En t26
+     (mixta) es la categoría de la bolsa fija del implementador; en t34 (por recursos) cada línea va por el tipo del recurso.
+     Es un dato opcional: no cambia el costo ni el valor ganado. */
+  const COST_CAT = {
+    t02: 'Mano de obra', t03: 'Mano de obra', t04: 'Mano de obra', t35: 'Mano de obra', t05: 'Mano de obra',
+    t16: 'Mano de obra', t17: 'Mano de obra', t18: 'Mano de obra', t19: 'Mano de obra',
+    t07: 'Servicios', t08: 'Servicios', t09: 'Servicios', t10: 'Servicios', t12: 'Servicios', t13: 'Servicios', t15: 'Servicios', t20: 'Servicios',
+    t21: 'Servicios', t22: 'Servicios', t23: 'Servicios', t24: 'Servicios', t25: 'Servicios', t26: 'Servicios', t27: 'Servicios',
+    t28: 'Servicios', t30: 'Servicios', t32: 'Servicios', t34: 'Servicios',
+    t14: 'Equipos',
+  };
 
   /* ---------------------------------------------------------------- capa ágil: configuración, releases e iteraciones */
   const COLUMNS = [
@@ -827,6 +841,7 @@
       id: t.id, name: t.name, wbsId: t.wbsId, duration: durationOf(t), milestone: !!t.milestone, start: t.start || null,
       deps: t.deps.map((d) => ({ ...d })), progress, cost: t.cost,
       ...(t.costMode ? { costMode: t.costMode } : {}), ...(t.costMode === 'mixto' ? { costFixed: t.costFixed } : {}),
+      ...(COST_CAT[t.id] ? { costCategory: COST_CAT[t.id] } : {}),
       resources: (t.resources || []).map((r) => ({ ...r })),
       responsible: t.responsible || '', actualStart, actualFinish, notes: plan ? '' : t.notes || '',
     };
