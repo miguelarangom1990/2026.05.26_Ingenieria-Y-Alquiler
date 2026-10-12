@@ -128,6 +128,7 @@ const overflowOk = async (page, where) => { const ov = await horizontalOverflow(
 const noErrorCards = async (page, where) => { const c = await errorCards(page); check(!c.length, 'sin tarjetas de error en ' + where + (c.length ? ': ' + c[0].slice(0, 300) : '')); };
 const barBtn = (page, text) => page.locator('.docs-bar button', { hasText: text });
 const footBtn = (page, text) => page.locator('.modal-foot button', { hasText: text }).last();
+const AP_SEL = 'select[aria-label="Filtrar por enfoque de la metodología"]';
 async function ready(page) { await page.waitForFunction(() => window.PM && PM.getState().mode !== 'loading', null, { timeout: 15000 }); }
 
 const PROPOSITO = 'Suministrar y montar el andamio multidireccional de la Torre 2 con certificación de trabajo en alturas.';
@@ -820,6 +821,218 @@ try {
   } catch (e) { failures++; console.log('EXCEPCIÓN', e); } finally { await ex.browser.close(); }
 }
 
+/* ================================================================ enfoque de la metodología (plantillas reales, ejemplo ágil del ERP) */
+{
+  const en = await openApp({ file, width: 1360, height: 900 });
+  const p = en.page;
+  try {
+    const full = await p.evaluate(() => !!(Array.isArray(PM.DOC_APPROACHES) && typeof PM.docApproach === 'function' && PM.templates['vision-producto'] && PM.templates['plan-gestion-alcance'] && PM.getExample && PM.getExample('erp')));
+    if (!full) console.log('\n# Enfoque de la metodología: omitida (la página no incluye 11-doc-approach, las plantillas o el ejemplo del ERP)');
+    else {
+      await createExample(p, 'erp');
+      await p.waitForTimeout(900);
+      /* un documento sin plantilla disponible: su enfoque es «—» y ningún filtro de enfoque lo muestra */
+      await p.evaluate(() => PM.store.set(PM.paths.doc(PM.getState().projectId, 'plantilla-retirada'), { template: 'plantilla-retirada', title: 'Formato retirado', status: 'borrador', rev: null, fields: {}, titleBlock: {}, updatedAt: new Date().toISOString() }));
+      await p.evaluate(() => { window.__dl = []; PM.download = async (n, data) => { window.__dl.push({ n, data }); return true; }; });
+      /* Conteo esperado de un filtro de enfoque, calculado con PM.docApproach sobre PM.templateList y los documentos guardados. */
+      const expectFor = (value) => p.evaluate(async (value) => {
+        const set = new Set(value.split('+'));
+        const docs = await PM.store.list(PM.paths.docs(PM.getState().projectId));
+        const by = {}; for (const d of docs) { const t = d.data && d.data.template; (by[t] = by[t] || []).push(d); }
+        const tpls = PM.templateList.filter((t) => { const a = PM.docApproach(t); return a && set.has(a.id); });
+        const c = { tpl: tpls.length, ids: tpls.map((t) => t.id).sort(), total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0 };
+        for (const t of tpls) {
+          const ds = by[t.id] || [];
+          if (!ds.length) { c.total++; c.sin++; continue; }
+          if (t.multiple) { for (const d of ds) { c.total++; c[d.data.status || 'borrador']++; } continue; }
+          const d = ds.find((x) => x.id === t.id) || ds[0];
+          c.total++; c[d.data.status || 'borrador']++;
+        }
+        return c;
+      }, value);
+      const listState = () => p.evaluate(() => {
+        const rows = [...document.querySelectorAll('section[data-area] tbody tr:not(.docs-inst)')];
+        const f = document.querySelector('[data-filtered]');
+        return { ids: rows.map((tr) => tr.dataset.tid || tr.dataset.doc).sort(), aps: [...new Set(rows.map((tr) => tr.dataset.approach || '—'))].sort(), shown: f ? Number(f.querySelector('[data-shown]').dataset.shown) : null, text: f ? f.textContent.replace(/\s+/g, ' ') : '', sel: document.querySelector('select[aria-label="Filtrar por enfoque de la metodología"]').value };
+      });
+      const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+      const breakdownOk = (txt, c) => [pl(c.aprobado, 'aprobado', 'aprobados'), c.revision + ' en revisión', pl(c.borrador, 'borrador', 'borradores'), c.sin + ' sin iniciar'].every((s) => txt.includes(s));
+
+      step('Enfoque: columna de la lista maestra (cada fila según PM.docApproach)');
+      await gotoView(p, 'documentos');
+      const statsBefore = await p.locator('.docs-stats').innerText();
+      const col = await p.evaluate(() => {
+        const out = { rows: 0, bad: [], inst: 0, instBad: [], orphan: [], nTpl: PM.templateList.length };
+        const ths = [...document.querySelector('section[data-area] .docs-table thead tr').children].map((th) => th.textContent.trim());
+        out.order = ths.indexOf('Enfoque') === ths.indexOf('Proceso') + 1 && ths.indexOf('Estado') === ths.indexOf('Enfoque') + 1;
+        out.cols = document.querySelector('section[data-area] .docs-table colgroup').children.length === ths.length;
+        for (const tr of document.querySelectorAll('.docs-table tbody tr')) {
+          const td = tr.querySelector('td.docs-c-ap');
+          if (tr.classList.contains('docs-inst')) { out.inst++; if (!td || td.textContent.trim() || td.children.length) out.instBad.push(tr.dataset.doc); continue; }
+          const tid = tr.dataset.tid || tr.dataset.doc;
+          const t = PM.templates[tid];
+          if (!t) { out.orphan.push(td ? td.textContent.trim() : null); continue; }
+          out.rows++;
+          const a = PM.docApproach(t); const chip = td && td.querySelector('.docs-ap');
+          const ok = chip && chip.dataset.approach === a.id && tr.dataset.approach === a.id && chip.textContent.trim() === a.short && !!chip.querySelector('svg.icon') && chip.classList.contains('chip-' + a.tone) && chip.title.includes(a.why) && (!a.replacement || chip.title.includes(a.replacement));
+          if (!ok) out.bad.push(tid + ':' + (chip ? chip.textContent.trim() + '/' + chip.dataset.approach : 'sin distintivo'));
+        }
+        return out;
+      });
+      check(col.order && col.cols, 'la columna «Enfoque» va entre «Proceso» y «Estado» y el colgroup tiene una columna por encabezado');
+      check(col.rows === col.nTpl && !col.bad.length, 'cada plantilla (' + col.rows + ' de ' + col.nTpl + ') muestra su enfoque: icono, texto corto, tono y el porqué con lo que cambia en el otro enfoque en el título' + (col.bad.length ? ' — ' + col.bad.slice(0, 5).join(', ') : ''));
+      check(col.inst > 0 && !col.instBad.length, 'las instancias de plantillas múltiples heredan el enfoque de su fila madre (celda vacía, ' + col.inst + ' instancias)');
+      check(col.orphan.length === 1 && col.orphan[0] === '—', 'un documento sin plantilla muestra «—» en el enfoque (' + JSON.stringify(col.orphan) + ')');
+      const opts = await p.$eval(AP_SEL, (s) => ({ cls: s.className, first: s.options[0].value + '|' + s.options[0].textContent, groups: [...s.querySelectorAll('optgroup')].map((g) => g.label + ': ' + [...g.querySelectorAll('option')].map((o) => o.value + '=' + o.textContent).join(', ')), inFilters: !!s.closest('.docs-filters') }));
+      check(opts.inFilters && /\bselect\b/.test(opts.cls) && opts.first === '|Todos los enfoques', 'el filtro es una lista nativa en la barra de filtros con la opción vacía «Todos los enfoques»');
+      check(JSON.stringify(opts.groups) === JSON.stringify(['Enfoque del documento: predictivo=Predictivo / tradicional, adaptativo=Ágil / adaptativo, ambos=Ambos enfoques', 'Documentos que aplican a un proyecto: predictivo+ambos=Proyecto predictivo (predictivos y de ambos enfoques), adaptativo+ambos=Proyecto ágil (ágiles y de ambos enfoques)']), 'dos grupos de opciones: enfoque exacto y documentos que aplican a un proyecto (' + opts.groups.join(' | ') + ')');
+
+      step('Enfoque: filtros exactos y combinados');
+      const exp = {};
+      for (const v of ['predictivo', 'adaptativo', 'ambos', 'predictivo+ambos', 'adaptativo+ambos']) {
+        exp[v] = await expectFor(v);
+        await p.selectOption(AP_SEL, v);
+        await p.waitForTimeout(120);
+        const ls = await listState();
+        const want = v.split('+').sort();
+        check(ls.sel === v && JSON.stringify(ls.ids) === JSON.stringify(exp[v].ids) && JSON.stringify(ls.aps) === JSON.stringify(want), 'filtro «' + v + '»: ' + ls.ids.length + ' plantillas, todas del enfoque pedido (esperadas ' + exp[v].tpl + ')');
+        check(ls.shown === exp[v].total && ls.text.includes(exp[v].total + ' de ') && breakdownOk(ls.text, exp[v]), 'filtro «' + v + '»: la línea de resumen dice ' + exp[v].total + ' documentos y su desglose por estado (' + ls.text.slice(0, 160) + ')');
+        check(await p.locator('.docs-stats').innerText() === statsBefore, 'filtro «' + v + '»: los indicadores del avance documental no cambian');
+      }
+      check(exp['predictivo+ambos'].tpl === exp.predictivo.tpl + exp.ambos.tpl && exp['adaptativo+ambos'].tpl === exp.adaptativo.tpl + exp.ambos.tpl && exp.predictivo.tpl + exp.adaptativo.tpl + exp.ambos.tpl === col.nTpl, 'los filtros combinados suman el enfoque del proyecto y los de ambos enfoques; los tres exactos cubren todas las plantillas (' + [exp.predictivo.tpl, exp.adaptativo.tpl, exp.ambos.tpl].join(' + ') + ')');
+      check((await listState()).text.includes('enfoque: Proyecto ágil (ágiles y de ambos enfoques)'), 'la línea de resumen nombra el filtro combinado completo');
+      await p.selectOption('select[aria-label="Filtrar por área de conocimiento"]', 'cronograma');
+      await p.waitForTimeout(120);
+      const cron = await listState();
+      const cronWant = await p.evaluate(() => PM.templateList.filter((t) => t.area === 'cronograma' && ['adaptativo', 'ambos'].includes(PM.docApproach(t).id)).map((t) => t.id).sort());
+      check(JSON.stringify(cron.ids) === JSON.stringify(cronWant), 'enfoque combinado con el área: ' + cron.ids.join(', '));
+      await p.locator('[data-filtered] button', { hasText: 'Limpiar filtros' }).click();
+      await p.waitForTimeout(150);
+      const cleared = await listState();
+      check(cleared.sel === '' && cleared.shown === null && await p.$eval('select[aria-label="Filtrar por área de conocimiento"]', (s) => s.value) === '' && cleared.ids.length === col.nTpl + 1, '«Limpiar filtros» también limpia el enfoque y vuelve a la lista completa');
+      await p.focus(AP_SEL);
+      await p.keyboard.press('ArrowDown');
+      await p.waitForTimeout(150);
+      const kb = await listState();
+      check(kb.sel === 'predictivo' && kb.ids.length === exp.predictivo.tpl, 'el filtro se maneja con el teclado (flecha abajo elige «Predictivo / tradicional»)');
+      const focusRing = await p.$eval(AP_SEL, (el) => getComputedStyle(el).boxShadow);
+      check(focusRing && focusRing !== 'none', 'la lista del filtro muestra el foco del teclado (' + focusRing + ')');
+      await p.locator('[data-filtered] button', { hasText: 'Limpiar filtros' }).click();
+
+      step('Enfoque: parámetro de navegación approach');
+      await p.evaluate(() => PM.navigate('documentos', { approach: 'adaptativo' }));
+      await p.waitForTimeout(250);
+      let nav = await listState();
+      check(nav.sel === 'adaptativo' && JSON.stringify(nav.ids) === JSON.stringify(exp.adaptativo.ids), 'approach: «adaptativo» preselecciona el filtro con la vista ya abierta');
+      await gotoView(p, 'tablero');
+      await p.evaluate(() => PM.navigate('documentos', { approach: ['ambos', 'predictivo'] }));
+      await p.waitForTimeout(300);
+      nav = await listState();
+      check(nav.sel === 'predictivo+ambos' && nav.ids.length === exp['predictivo+ambos'].tpl, 'approach: los dos combinados en un arreglo (["ambos", "predictivo"]) preseleccionan «Proyecto predictivo»');
+      await p.evaluate(() => PM.navigate('documentos', { approach: 'ágil+ambos' }));
+      await p.waitForTimeout(250);
+      check((await listState()).sel === 'adaptativo+ambos', 'approach: «ágil+ambos» equivale a «Proyecto ágil»');
+      await p.evaluate(() => PM.navigate('documentos', { approach: 'ambos', area: 'riesgos' }));
+      await p.waitForTimeout(250);
+      check((await listState()).sel === 'ambos', 'approach: «ambos»');
+      await p.locator('[data-filtered] button', { hasText: 'Limpiar filtros' }).click();
+      await gotoView(p, 'tablero');
+      await p.evaluate(() => PM.navigate('documentos', { approach: 'otro' }));
+      await p.waitForTimeout(250);
+      nav = await listState();
+      check(nav.sel === '' && nav.shown === null, 'un valor desconocido de approach no filtra');
+
+      step('Enfoque: exportar lista (CSV)');
+      await p.evaluate(() => { window.__dl = []; });
+      await p.locator('.page-actions button', { hasText: 'Exportar lista (CSV)' }).click();
+      await p.waitForTimeout(200);
+      const csv = (await p.evaluate(() => window.__dl))[0];
+      const lines = csv ? csv.data.replace(/^﻿/, '').split(/\r?\n/) : [];
+      const head = (lines[0] || '').split(';');
+      check(head.indexOf('Enfoque') === head.indexOf('Tipo') + 1 && head.indexOf('Estado') === head.indexOf('Enfoque') + 1, 'CSV: columna «Enfoque» después de «Tipo» (' + lines[0] + ')');
+      const csvAp = await p.evaluate((lines) => {
+        const head = lines[0].split(';'); const iT = head.indexOf('Plantilla'), iA = head.indexOf('Enfoque');
+        const byName = Object.fromEntries(PM.templateList.map((t) => [t.name, t]));
+        let n = 0; const bad = [];
+        for (const l of lines.slice(1)) { if (!l.trim()) continue; const c = l.split(';'); const t = byName[c[iT]]; if (!t) continue; n++; if (c[iA] !== PM.docApproach(t).label) bad.push(c[iT] + '=' + c[iA]); }
+        return { n, bad };
+      }, lines);
+      check(csvAp.n > 50 && !csvAp.bad.length, 'CSV: el enfoque de cada fila (también de las instancias) es la etiqueta larga de su plantilla (' + csvAp.n + ' filas' + (csvAp.bad.length ? '; ' + csvAp.bad.slice(0, 3).join(', ') : '') + ')');
+
+      step('Enfoque: nota «¿Qué indica el enfoque?» con el teclado');
+      await gotoView(p, 'documentos');
+      const note = p.locator('[data-approach-note]');
+      check(await note.count() === 1 && !(await note.evaluate((d) => d.open)), 'la nota está plegada al abrir la lista');
+      await p.focus('[data-approach-note] summary');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(120);
+      const nt = await p.evaluate(() => {
+        const d = document.querySelector('[data-approach-note]');
+        return { open: d.open, text: d.textContent.replace(/\s+/g, ' '), hints: PM.DOC_APPROACHES.every((a) => (d.querySelector('[data-approach-hint="' + a.id + '"]') || {}).textContent.includes(a.hint) && (d.querySelector('[data-approach-hint="' + a.id + '"]') || {}).textContent.includes(a.label)), sum: [...d.querySelectorAll('[data-approach-count]')].reduce((s, e) => s + Number(e.dataset.approachCount), 0), n: PM.templateList.length, ring: getComputedStyle(d.querySelector('summary')).boxShadow };
+      });
+      check(nt.open && nt.hints, 'Enter abre la nota con los tres valores y su explicación (PM.DOC_APPROACHES[].hint)');
+      check(/orientativa: indica a qué enfoque pertenece el documento, no que esté prohibido en el otro; un proyecto híbrido usa documentos de los tres/.test(nt.text), 'la nota aclara que es orientativo y que un proyecto híbrido usa de los tres');
+      check(nt.sum === nt.n && nt.ring !== 'none', 'la nota cuenta las plantillas de cada enfoque (' + nt.sum + ') y su resumen muestra el foco del teclado');
+      await p.keyboard.press('Tab');
+      check(await p.evaluate(() => document.activeElement && document.activeElement.dataset.approachPick) === 'adaptativo+ambos', 'Tab lleva al botón que filtra los documentos que aplican a este proyecto (ágil)');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(150);
+      check((await listState()).sel === 'adaptativo+ambos', 'el botón aplica el filtro «Proyecto ágil»');
+      await p.focus('[data-approach-note] summary');
+      await p.keyboard.press('Space');
+      await p.waitForTimeout(100);
+      check(!(await note.evaluate((d) => d.open)), 'Espacio vuelve a plegar la nota');
+      await overflowOk(p, 'lista con el filtro de enfoque');
+      await shot(p, 'documentos-enfoque');
+
+      step('Enfoque: rejilla de filtros (6 controles) por ancho');
+      for (const [w, rowsWant] of [[1920, 1], [1440, 2], [1360, 2], [1100, 2], [400, 4]]) {
+        await p.setViewportSize({ width: w, height: 900 });
+        await p.waitForTimeout(250);
+        const g = await p.evaluate(() => {
+          const f = document.querySelector('.docs-filters'); const fr = f.getBoundingClientRect(); const page = f.closest('.page').getBoundingClientRect();
+          const ctl = [...f.children]; const tops = new Set(ctl.map((c) => { const r = c.getBoundingClientRect(); return Math.round((r.top + r.bottom) / 2); }));
+          const sels = [...f.querySelectorAll('select')];
+          return { n: ctl.length, rows: tops.size, minSel: Math.round(Math.min(...sels.map((s) => s.getBoundingClientRect().width))), inside: ctl.every((c) => { const r = c.getBoundingClientRect(); return r.left >= fr.left - 1 && r.right <= fr.right + 1; }), full: Math.abs(fr.width - page.width) <= 1, ov: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        check(g.n === 6 && g.rows === rowsWant && g.inside && g.full && g.minSel >= 150 && g.ov <= 0, w + ' px: 6 controles en ' + g.rows + ' fila(s) (esperadas ' + rowsWant + '), listas de al menos 150 px, a todo el ancho y sin desborde (' + JSON.stringify(g) + ')');
+      }
+      await p.setViewportSize({ width: 1360, height: 900 });
+      await p.waitForTimeout(200);
+
+      step('Enfoque: la vista de un documento muestra el enfoque de su plantilla');
+      await p.evaluate(() => PM.openDocument('vision-producto'));
+      await p.waitForTimeout(500);
+      const dv = p.locator('[data-doc-approach]');
+      const vis = await p.evaluate(() => PM.docApproach('vision-producto'));
+      check(await dv.getAttribute('data-doc-approach') === 'adaptativo' && (await dv.locator('summary').innerText()).includes('Ágil / adaptativo') && await p.evaluate(() => { const d = document.querySelector('[data-doc-approach]'); const tb = document.querySelector('.title-block'); return !!(d && tb && d.compareDocumentPosition(tb) & Node.DOCUMENT_POSITION_FOLLOWING); }), 'Visión del producto: el enfoque «Ágil / adaptativo» aparece junto al cajetín');
+      await p.focus('[data-doc-approach] summary');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(120);
+      check(await dv.evaluate((d) => d.open) && (await p.locator('[data-approach-why]').innerText()).trim() === vis.why && (await p.locator('[data-approach-other]').innerText()).trim() === vis.replacement && await p.locator('[data-approach-off]').count() === 0, 'Enter despliega el porqué y lo que cambia en el otro enfoque (proyecto ágil: sin aviso de otro enfoque)');
+      await p.evaluate(() => PM.openDocument('plan-gestion-alcance'));
+      await p.waitForTimeout(500);
+      const pga = await p.evaluate(() => PM.docApproach('plan-gestion-alcance'));
+      check(await dv.getAttribute('data-doc-approach') === 'predictivo' && pga.id === 'predictivo', 'Plan de gestión del alcance: enfoque predictivo');
+      await p.focus('[data-doc-approach] summary');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(120);
+      check((await p.locator('[data-doc-approach] dt').allInnerTexts()).includes('Qué lo reemplaza en un proyecto ágil') && (await p.locator('[data-approach-other]').innerText()).trim() === pga.replacement && (await p.locator('[data-approach-off]').innerText()).includes('Adaptativo (ágil)'), 'un documento predictivo en un proyecto ágil dice qué lo reemplaza y avisa que es de otro enfoque');
+      await overflowOk(p, 'documento con el enfoque desplegado');
+      await shot(p, 'documento-enfoque');
+      await p.focus('[data-approach-list]');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(300);
+      check((await stateOf(p)).view === 'documentos' && (await listState()).sel === 'predictivo', '«Ver los documentos de este enfoque» abre la lista filtrada por ese enfoque');
+      await p.evaluate(() => PM.openDocument('plantilla-retirada'));
+      await p.waitForTimeout(400);
+      check(await p.locator('[data-doc-approach]').count() === 0, 'un documento sin plantilla no muestra enfoque');
+      await noErrorCards(p, 'enfoque');
+      check(!en.errors.length, 'sin errores de consola (enfoque)' + (en.errors.length ? ': ' + en.errors.join(' | ').slice(0, 600) : ''));
+    }
+  } catch (e) { failures++; console.log('EXCEPCIÓN', e); } finally { await en.browser.close(); }
+}
+
 /* ================================================================ tema oscuro */
 {
   const dk = await openApp({ file, width: 1360, height: 900, dark: true });
@@ -838,6 +1051,24 @@ try {
     await shot(dk.page, 'documento-dark');
     await gotoView(dk.page, 'documentos');
     await shot(dk.page, 'documentos-dark');
+    if (await dk.page.locator(AP_SEL).count() && await dk.page.evaluate(() => !!PM.templates['retrospectiva'])) {
+      const na = await dk.page.evaluate(() => { const sec = document.querySelector('[data-na-section]'); const rows = sec ? [...sec.querySelectorAll('tbody tr')] : []; return { n: rows.length, agile: rows.filter((tr) => { const c = tr.querySelector('td.docs-c-ap .docs-ap'); return c && c.dataset.approach === 'adaptativo' && c.textContent.trim() === 'Ágil'; }).length }; });
+      check(na.n > 0 && na.agile === na.n, 'proyecto predictivo: la sección de plantillas ágiles que no aplican también muestra el enfoque «Ágil» (' + na.agile + ' de ' + na.n + ')');
+      await dk.page.selectOption(AP_SEL, 'adaptativo');
+      await dk.page.waitForTimeout(150);
+      check(await dk.page.locator('[data-na-section]').evaluate((d) => d.open) && await dk.page.locator('section[data-area]').count() === 0, 'filtrar «Ágil / adaptativo» en un proyecto predictivo abre la sección de las que no aplican');
+      await dk.page.selectOption(AP_SEL, 'predictivo+ambos');
+      await dk.page.waitForTimeout(150);
+      check(await dk.page.locator('[data-na-section]').count() === 0 && await dk.page.locator('section[data-area] tr[data-approach="adaptativo"]').count() === 0, '«Proyecto predictivo» deja fuera las plantillas ágiles');
+      await dk.page.locator('[data-approach-note] summary').click();
+      check(await dk.page.locator('[data-approach-note] [data-approach-pick="predictivo+ambos"]').count() === 1, 'en un proyecto predictivo la nota ofrece los documentos de un proyecto predictivo');
+      await shot(dk.page, 'documentos-enfoque-dark');
+      await dk.page.evaluate(() => PM.openDocument('acta-constitucion'));
+      await dk.page.waitForTimeout(300);
+      await dk.page.locator('[data-doc-approach] summary').click();
+      check(await dk.page.locator('[data-doc-approach]').getAttribute('data-doc-approach') === 'ambos' && (await dk.page.locator('[data-doc-approach]').innerText()).includes('Cómo cambia en el otro enfoque'), 'tema oscuro: el documento muestra su enfoque (ambos) y cómo cambia en el otro');
+      await shot(dk.page, 'documento-enfoque-dark');
+    }
     await noErrorCards(dk.page, 'tema oscuro');
     check(!dk.errors.length, 'sin errores de consola (oscuro)' + (dk.errors.length ? ': ' + dk.errors.join(' | ').slice(0, 600) : ''));
   } catch (e) { failures++; console.log('EXCEPCIÓN', e); } finally { await dk.browser.close(); }
@@ -869,6 +1100,16 @@ try {
     await gotoView(p, 'documentos');
     await overflowOk(p, 'lista maestra móvil');
     await shot(p, 'documentos-m');
+    if (await p.locator(AP_SEL).count()) {
+      await p.selectOption(AP_SEL, 'predictivo+ambos');
+      await p.locator('[data-approach-note] summary').click();
+      await p.waitForTimeout(150);
+      await overflowOk(p, 'lista móvil con el filtro de enfoque y la nota abierta');
+      const mg = await p.evaluate(() => { const f = document.querySelector('.docs-filters').getBoundingClientRect(); const s = document.querySelector('select[aria-label="Filtrar por enfoque de la metodología"]').getBoundingClientRect(); const chip = document.querySelector('tr[data-doc="enunciado-alcance"] .docs-ap'); const cr = chip && chip.getBoundingClientRect(); const row = document.querySelector('tr[data-doc="enunciado-alcance"]').getBoundingClientRect(); return { full: Math.abs(s.width - f.width) <= 1, chip: !!cr && cr.width > 0 && cr.left >= row.left && cr.right <= row.right + 0.5 }; });
+      check(mg.full && mg.chip, 'móvil: el filtro de enfoque ocupa el ancho de la barra y el distintivo cabe en la tarjeta del documento (' + JSON.stringify(mg) + ')');
+      await shot(p, 'documentos-enfoque-m');
+      await p.locator('[data-filtered] button', { hasText: 'Limpiar filtros' }).click();
+    }
     await p.evaluate(() => PM.openDocument('acta-constitucion'));
     await p.waitForTimeout(300);
     await p.fill('#docs-f-proposito', PROPOSITO);
@@ -876,6 +1117,7 @@ try {
     await p.keyboard.type('Objetivo en móvil');
     await p.locator('[data-field="hitos"] button', { hasText: 'Agregar fila' }).click();
     await p.waitForTimeout(900);
+    if (await p.locator('[data-doc-approach] summary').count()) { await p.locator('[data-doc-approach] summary').click(); await p.waitForTimeout(100); }
     await overflowOk(p, 'editor móvil');
     await shot(p, 'documento-m');
     await p.locator('button[aria-label="Exportar documento"]').click();

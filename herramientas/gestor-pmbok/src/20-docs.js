@@ -7,7 +7,10 @@
    PM.templateApplies(t|id, project, byTemplate) y PM.applicableTemplates(project,
    byTemplate): las plantillas ágiles (SPEC §9.5) solo cuentan en el avance
    documental con ciclo de vida adaptativo o híbrido, o si ya tienen documentos.
-   La vista `documentos` acepta los parámetros area, status y template.
+   La vista `documentos` acepta los parámetros area, status, template y approach
+   (enfoque de la metodología, 11-doc-approach: 'predictivo' | 'adaptativo' |
+   'ambos', o combinado con «ambos»: 'predictivo+ambos' | 'adaptativo+ambos';
+   también se acepta un arreglo, p. ej. ['adaptativo', 'ambos']).
    ========================================================================== */
 (function () {
   'use strict';
@@ -86,9 +89,46 @@
 .docs-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .docs-stats > .stat + .stat { border-left: 1px solid var(--line); }
 .docs-stats-foot { display: flex; align-items: center; gap: 10px; padding: 0 16px 14px; font-size: var(--fs-xs); color: var(--fg-3); }
-.docs-filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(0, 1fr)); gap: 8px; align-items: center; }
-.docs-tablewrap { border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); }
-.docs-table { table-layout: fixed; min-width: 860px; }
+/* Barra de filtros (búsqueda + 5 listas): la rejilla responde al ancho del contenido (riel desplegado o plegado), no al
+   de la ventana. Ancho (≥ 1440 px de contenido, p. ej. 1920 px de ventana): una fila; búsqueda y enfoque más anchos.
+   Medio (1360, 1440 y 1100 px de ventana): dos filas de cuatro columnas. Angosto (móvil): dos columnas. */
+.docs-fbar { container: docsflt / inline-size; min-width: 0; }
+.docs-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "q q a g" "s k ap ap"; gap: 8px; align-items: center; }
+.docs-filters > .docs-f-q { grid-area: q; } .docs-filters > .docs-f-a { grid-area: a; } .docs-filters > .docs-f-g { grid-area: g; }
+.docs-filters > .docs-f-s { grid-area: s; } .docs-filters > .docs-f-k { grid-area: k; } .docs-filters > .docs-f-ap { grid-area: ap; }
+.docs-filters .select { text-overflow: ellipsis; }
+@container docsflt (min-width: 1440px) { .docs-filters { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) minmax(0, 2fr); grid-template-areas: "q a g s k ap"; } }
+@container docsflt (max-width: 639.98px) { .docs-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "q q" "a g" "s k" "ap ap"; } }
+.docs-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.docs-sum-n { font-variant-numeric: tabular-nums; }
+/* Enfoque de la metodología (11-doc-approach): distintivo de la lista, nota explicativa y franja del editor. */
+.docs-ap .icon { flex: none; }
+.docs-c-ap .docs-ap { vertical-align: middle; }
+.docs-apn { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
+.docs-apn > summary, .docs-apx > summary { cursor: pointer; list-style-position: inside; border-radius: var(--r-md); }
+.docs-apn > summary { padding: 9px 12px; font-size: var(--fs-sm); font-weight: 600; color: var(--fg); }
+.docs-apn > summary .icon { vertical-align: -2px; margin: 0 6px 0 2px; color: var(--fg-3); }
+.docs-apn > summary:hover, .docs-apx > summary:hover { background: var(--surface-2); }
+.docs-apn[open] > summary, .docs-apx[open] > summary { border-bottom: 1px solid var(--line); border-radius: var(--r-md) var(--r-md) 0 0; }
+.docs-apn-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 12px; font-size: var(--fs-sm); color: var(--fg-2); }
+.docs-apn-body > p { margin: 0; max-width: 80ch; }
+.docs-apn-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px 16px; }
+.docs-apn-list > li { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.docs-apn-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--fg); }
+.docs-apn-proj { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.docs-apx { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
+.docs-apx > summary { display: flex; align-items: center; gap: 8px; list-style: none; padding: 8px 12px; font-size: var(--fs-sm); color: var(--fg-2); }
+.docs-apx > summary::-webkit-details-marker { display: none; }
+.docs-apx > summary > .icon { flex: none; color: var(--fg-3); transition: transform 120ms ease; }
+.docs-apx[open] > summary > .icon { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .docs-apx > summary > .icon { transition: none; } }
+.docs-apx-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.docs-apx-k { font-weight: 600; color: var(--fg); }
+.docs-apx-body { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px 12px; font-size: var(--fs-sm); color: var(--fg-2); }
+.docs-apx-body .docs-meta { font-size: var(--fs-sm); gap: 6px 14px; max-width: 110ch; }
+.docs-apx-body > p { margin: 0; max-width: 90ch; }
+.docs-tablewrap { border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); container: docstbl / inline-size; }
+.docs-table { table-layout: fixed; min-width: 1000px; }
 .docs-table td { vertical-align: middle; overflow-wrap: anywhere; }
 .docs-table .docs-act { text-align: right; white-space: nowrap; }
 .docs-link { border: 0; background: none; padding: 0; color: var(--fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
@@ -96,18 +136,19 @@
 .docs-inst td:nth-child(2) { padding-left: 26px; }
 .docs-inst .docs-link { font-weight: 500; }
 .docs-parent td { background: var(--surface-2); }
-@media (max-width: 1100px) { .docs-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .docs-filters > :first-child { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .docs-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .docs-stats > .stat { border-left: 0 !important; border-top: 1px solid var(--line); } .docs-stats > .stat:first-child { grid-column: 1 / -1; border-top: 0; } }
-@media (max-width: 520px) { .docs-filters { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 680px) {
+/* La lista pasa a tarjetas cuando su tarjeta mide menos que el ancho mínimo de la tabla (móvil, o 1100 px con el riel
+   desplegado), en vez de esconder columnas detrás de un desplazamiento horizontal. */
+@container docstbl (max-width: 999.98px) {
   .docs-table { table-layout: auto; min-width: 0; }
   .docs-table, .docs-table tbody { display: block; }
   .docs-table colgroup, .docs-table thead { display: none; }
-  .docs-table tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "name name name name act" "code code code code act" "status rev proc upd upd"; gap: 4px 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .docs-table tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "name name name name act" "code code code code ap" "status rev proc upd upd"; gap: 4px 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .docs-table tr:last-child { border-bottom: 0; }
   .docs-table td { display: block; padding: 0; border: 0; min-width: 0; }
   .docs-table tbody tr:hover td { background: transparent; }
   .docs-table .docs-c-code { grid-area: code; } .docs-table .docs-c-name { grid-area: name; } .docs-table .docs-c-proc { grid-area: proc; }
+  .docs-table .docs-c-ap { grid-area: ap; justify-self: end; } .docs-table .docs-c-ap:empty { display: none; }
   .docs-table .docs-c-status { grid-area: status; } .docs-table .docs-c-rev { grid-area: rev; } .docs-table .docs-c-upd { grid-area: upd; text-align: right; }
   .docs-table .docs-act { grid-area: act; }
   .docs-table tr.docs-parent { background: var(--surface-2); }
@@ -216,6 +257,9 @@
   .docs-hist .docs-h-rev { grid-area: rev; } .docs-hist .docs-h-status { grid-area: status; } .docs-hist .docs-h-date { grid-area: date; text-align: right; }
   .docs-hist .docs-h-by { grid-area: by; } .docs-hist .docs-h-note { grid-area: note; min-width: 0; } .docs-hist .docs-h-act { grid-area: act; }
   .docs-hist .docs-h-act .row { flex-wrap: wrap !important; }
+  .docs-hist .docs-m-only { display: inline; }
+  .docs-apx-body .docs-meta { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .docs-apx-body .docs-meta dd + dt { margin-top: 8px; }
 }
 .docs-tbl .table td { min-width: 92px; }
 .docs-tbl .table td.num .cell-calc { white-space: nowrap !important; }
@@ -269,6 +313,36 @@
     documento: ['Documento', 'Documentos'], formato: ['Formato', 'Formatos'],
   };
   const kindLabel = (k) => (KIND[k] ? KIND[k][0] : '');
+
+  /* ------------------------------------------------------------------ enfoque de la metodología (11-doc-approach)
+     Orientativo: indica a qué enfoque pertenece el documento, no que esté prohibido en el otro. Si el módulo 11 no
+     está en la página, la lista no muestra la columna, el filtro ni la nota. */
+  const apReady = () => Array.isArray(PM.DOC_APPROACHES) && PM.DOC_APPROACHES.length > 0 && typeof PM.docApproach === 'function';
+  const apOf = (t) => { if (!t || !apReady()) return null; try { return PM.docApproach(t) || null; } catch (e) { return null; } };
+  const AP_IDS = ['predictivo', 'adaptativo', 'ambos'];
+  /* Filtros combinados («Documentos que aplican a un proyecto»): el enfoque del proyecto más los de ambos enfoques. */
+  const AP_COMBOS = [
+    { value: 'predictivo+ambos', label: 'Proyecto predictivo (predictivos y de ambos enfoques)', mode: 'predictivo' },
+    { value: 'adaptativo+ambos', label: 'Proyecto ágil (ágiles y de ambos enfoques)', mode: 'adaptativo' },
+  ];
+  const AP_ALIAS = { agil: 'adaptativo', tradicional: 'predictivo', 'proyecto-predictivo': 'predictivo+ambos', 'proyecto-agil': 'adaptativo+ambos', 'proyecto-adaptativo': 'adaptativo+ambos' };
+  /* Valor del filtro a partir del parámetro de navegación `approach` (cadena, «a+b», «a,b» o arreglo); '' si no es válido. */
+  function approachFilter(v) {
+    if (v === undefined || v === null || v === '') return '';
+    const raw = Array.isArray(v) ? v : [AP_ALIAS[norm(String(v).trim())] || String(v)];
+    const set = new Set();
+    for (const x of raw) for (const p of String(x ?? '').split(/[\s+,|/]+/)) { const k = norm(p.trim()); const id = AP_ALIAS[k] || k; if (AP_IDS.includes(id)) set.add(id); }
+    if (set.size === 1) return [...set][0];
+    if (set.size === 2 && set.has('ambos')) return set.has('predictivo') ? 'predictivo+ambos' : 'adaptativo+ambos';
+    return '';
+  }
+  const apFilterLabel = (v) => { const c = AP_COMBOS.find((x) => x.value === v); if (c) return c.label; const a = apReady() ? PM.DOC_APPROACHES.find((x) => x.id === v) : null; return a ? a.label : ''; };
+  /* Qué pasa con el documento en el otro enfoque: rótulo según el enfoque de la plantilla. */
+  const apOtherLabel = (ap) => (ap.id === 'predictivo' ? 'Qué lo reemplaza en un proyecto ágil' : ap.id === 'adaptativo' ? 'Qué lo cubre en un proyecto predictivo' : 'Cómo cambia en el otro enfoque');
+  const apTitle = (ap) => ap.label + '. ' + ap.why + (ap.replacement ? ' ' + apOtherLabel(ap) + ': ' + ap.replacement : '');
+  function ApChip({ ap, long }) {
+    return html`<${ui.Chip} tone=${ap.tone} icon=${ap.icon} class="docs-ap" data-approach=${ap.id} title=${apTitle(ap)}>${long ? ap.label : ap.short}</${ui.Chip}>`;
+  }
   /* Documentos que integran líneas base: sus cambios después de aprobados pasan por 4.6. */
   const BASELINE_DOCS = new Set(['enunciado-alcance', 'plan-direccion']);
   /* Documentos aprobados que Claude lee para mantener coherencia. */
@@ -853,7 +927,8 @@
       known.add(t.id);
       const insts = sortedInstances(idx.byTemplate[t.id]);
       /* na: plantilla ágil que no aplica al proyecto (predictivo y sin documentos): se lista aparte y no cuenta. */
-      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate) };
+      /* ap: enfoque de la metodología de la plantilla (las instancias lo heredan). */
+      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate), ap: apOf(t) };
       if (!t.multiple) {
         const doc = insts.find((d) => d.id === t.id) || insts[0] || null;
         out.push({ ...base, type: 'single', key: t.id, doc, status: doc ? statusOf(doc) : 'sin', code: baseCode(project, t.id), name: t.name });
@@ -865,20 +940,29 @@
     }
     for (const d of idx.list) {
       if (known.has(d.template)) continue;
-      out.push({ tid: d.template, t: null, area: 'otros', group: '', kind: '', process: '', type: 'orphan', key: d.id, doc: d, status: statusOf(d), code: docCode(project, d.template, d, idx.byTemplate[d.template]), name: d.title || prettyId(d.template) });
+      out.push({ tid: d.template, t: null, area: 'otros', group: '', kind: '', process: '', ap: null, type: 'orphan', key: d.id, doc: d, status: statusOf(d), code: docCode(project, d.template, d, idx.byTemplate[d.template]), name: d.title || prettyId(d.template) });
     }
     return out;
   }
   const countable = (e) => !e.na && (e.type !== 'parent' || !e.count);
   const NaStatus = () => html`<${ui.Chip} title="Plantilla del enfoque ágil o híbrido: no aplica al ciclo de vida predictivo y no cuenta en el avance documental">No aplica</${ui.Chip}>`;
+  /* Celda «Enfoque»: distintivo en cada plantilla (en las múltiples, en la fila madre); las instancias lo heredan (celda
+     vacía); los documentos sin plantilla, «—». */
+  function ApCell({ e }) {
+    if (e.type === 'instance') return html`<td class="docs-c-ap"></td>`;
+    return html`<td class="docs-c-ap">${e.ap ? html`<${ApChip} ap=${e.ap} />` : html`<span class="faint" title="Sin plantilla disponible: no tiene enfoque asignado">—</span>`}</td>`;
+  }
 
-  function DocRow({ e, canWrite }) {
+  /* Filas memorizadas: las entradas de la lista conservan su identidad mientras no cambien los documentos, así que
+     cambiar un filtro solo dibuja las filas que entran o salen. */
+  const DocRow = PM.memo(function DocRow({ e, canWrite, apCol }) {
     const openIt = () => PM.openDocument(e.type === 'parent' ? e.tid : e.doc ? e.doc.id : e.tid);
     if (e.type === 'parent') {
-      return html`<tr class="docs-parent" data-tid=${e.tid}>
+      return html`<tr class="docs-parent" data-tid=${e.tid} data-approach=${e.ap ? e.ap.id : null}>
         <td class="docs-c-code mono xsmall">${e.code}-NN</td>
         <td class="docs-c-name"><div class="stack-sm" style="gap:0"><span style="font-weight:600">${e.name}</span><span class="xsmall faint">${kindLabel(e.kind)}${kindLabel(e.kind) ? ' · ' : ''}${e.count ? e.count + (e.count === 1 ? ' documento' : ' documentos') : 'Admite varios documentos por proyecto'}</span></div></td>
         <td class="docs-c-proc mono xsmall">${e.process}</td>
+        ${apCol ? html`<${ApCell} e=${e} />` : null}
         <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : html`<${StatusChip} status="sin" />`}</td>
         <td class="docs-c-rev"></td><td class="docs-c-upd"></td>
         <td class="docs-act">${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${openIt} aria-label=${'Nuevo: ' + e.name}>Nuevo</${ui.Button}>` : e.count ? null : html`<${ui.Button} size="sm" icon="eye" onClick=${openIt}>Ver plantilla</${ui.Button}>`}</td>
@@ -886,15 +970,57 @@
     }
     const d = e.doc;
     const btn = d ? 'Abrir' : canWrite ? 'Crear' : 'Ver plantilla';
-    return html`<tr class=${e.type === 'instance' ? 'docs-inst' : ''} data-doc=${e.key}>
+    return html`<tr class=${e.type === 'instance' ? 'docs-inst' : ''} data-doc=${e.key} data-approach=${e.ap ? e.ap.id : null}>
       <td class="docs-c-code mono xsmall">${e.code}</td>
       <td class="docs-c-name"><div class="stack-sm" style="gap:0"><button type="button" class="docs-link" onClick=${openIt}>${e.name}</button>${e.type !== 'instance' && kindLabel(e.kind) ? html`<span class="xsmall faint">${kindLabel(e.kind)}</span>` : e.type === 'orphan' ? html`<span class="xsmall faint">Plantilla no disponible</span>` : null}</div></td>
       <td class="docs-c-proc mono xsmall">${e.process}</td>
+      ${apCol ? html`<${ApCell} e=${e} />` : null}
       <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
       <td class="docs-c-rev mono">${d && d.rev ? html`<span class="docs-m-only">Rev. </span>${d.rev}` : html`<span class="faint">—</span>`}</td>
       <td class="docs-c-upd xsmall faint">${d ? PM.fmt.datetime(d.updatedAt) : '—'}</td>
       <td class="docs-act"><${ui.Button} size="sm" icon=${!d ? (canWrite ? 'plus' : 'eye') : 'file'} onClick=${openIt} aria-label=${btn + ': ' + e.name}>${btn}</${ui.Button}></td>
     </tr>`;
+  });
+
+  /* Filtro «Enfoque de la metodología»: lista nativa con dos grupos (enfoque exacto del documento y documentos que
+     aplican a un proyecto predictivo o ágil). */
+  function ApproachSelect({ value, onValue }) {
+    const label = apFilterLabel(value);
+    return html`<select class="select docs-f-ap" value=${value} aria-label="Filtrar por enfoque de la metodología" title=${label || 'Todos los enfoques'} onChange=${(ev) => onValue(ev.currentTarget.value)}>
+      <option value="">Todos los enfoques</option>
+      <optgroup label="Enfoque del documento">${PM.DOC_APPROACHES.map((a) => html`<option key=${a.id} value=${a.id}>${a.label}</option>`)}</optgroup>
+      <optgroup label="Documentos que aplican a un proyecto">${AP_COMBOS.map((c) => html`<option key=${c.value} value=${c.value}>${c.label}</option>`)}</optgroup>
+    </select>`;
+  }
+
+  /* Nota plegable «¿Qué indica el enfoque?» (detalles nativos: se abre con Enter o Espacio). */
+  function ApproachNote({ project, counts, onPick }) {
+    const mode = PM.agile && typeof PM.agile.mode === 'function' ? PM.agile.mode(project) : 'predictivo';
+    const combo = AP_COMBOS.find((c) => c.mode === mode) || null;
+    const lc = project.lifecycle || 'Predictivo';
+    return html`<details class="docs-apn" data-approach-note>
+      <summary><${ui.Icon} name="info" size=${15} />¿Qué indica el enfoque?</summary>
+      <div class="docs-apn-body">
+        <p>La columna «Enfoque» dice a qué enfoque de la metodología se acopla cada documento según la Guía del PMBOK® y la práctica ágil. Es orientativa: indica a qué enfoque pertenece el documento, no que esté prohibido en el otro; un proyecto híbrido usa documentos de los tres grupos.</p>
+        <ul class="docs-apn-list">${PM.DOC_APPROACHES.map((a) => html`<li key=${a.id} data-approach-hint=${a.id}>
+          <span class="docs-apn-head"><${ApChip} ap=${{ ...a, why: a.hint, replacement: '' }} /><strong>${a.label}</strong></span>
+          <span>${a.hint}</span>
+          <span class="xsmall faint" data-approach-count=${counts[a.id] || 0}>${plural(counts[a.id] || 0, 'plantilla', 'plantillas')} en la lista</span>
+        </li>`)}</ul>
+        <div class="docs-apn-proj">
+          <span>Ciclo de vida de este proyecto: <strong>${lc}</strong>.${mode === 'hibrido' ? ' Un proyecto híbrido combina documentos de los tres grupos según el enfoque de cada entregable.' : ''}</span>
+          ${combo ? html`<${ui.Button} size="sm" variant="ghost" icon="filter" data-approach-pick=${combo.value} onClick=${() => onPick(combo.value)}>Ver los que aplican a este proyecto</${ui.Button}>` : null}
+        </div>
+      </div>
+    </details>`;
+  }
+
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  /* «3 aprobados, 1 en revisión, 4 borradores y 2 sin iniciar» (y los obsoletos, si hay). */
+  function statusBreakdown(c) {
+    const parts = [plural(c.aprobado, 'aprobado', 'aprobados'), c.revision + ' en revisión', plural(c.borrador, 'borrador', 'borradores'), c.sin + ' sin iniciar'];
+    if (c.obsoleto) parts.push(plural(c.obsoleto, 'obsoleto', 'obsoletos'));
+    return parts.slice(0, -1).join(', ') + ' y ' + parts[parts.length - 1];
   }
 
   function DocumentsView({ project, params }) {
@@ -909,6 +1035,10 @@
     const [tpl, setTpl] = useState(() => (params && params.template && PM.templates[params.template] ? params.template : ''));
     const tplParam = params && params.template;
     useEffect(() => { if (tplParam && PM.templates[tplParam]) setTpl(tplParam); }, [tplParam]);
+    /* Filtro por enfoque de la metodología: parámetro approach, al abrir la vista y en cada navegación que lo traiga. */
+    const apOn = apReady();
+    const [ap, setAp] = useState(() => (apOn ? approachFilter(params && params.approach) : ''));
+    useEffect(() => { const v = apOn ? approachFilter(params && params.approach) : ''; if (v) setAp(v); }, [params]);
     const entries = useMemo(() => buildEntries(project, idx), [project, idx]);
     const counts = useMemo(() => {
       const c = { total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0, templates: 0, na: 0 };
@@ -918,6 +1048,32 @@
       }
       return c;
     }, [entries]);
+    /* Plantillas por enfoque (nota explicativa) e instancias por plantilla (filtrado sin recorrer toda la lista). */
+    const apCounts = useMemo(() => { const c = {}; for (const e of entries) if ((e.type === 'single' || e.type === 'parent') && e.ap) c[e.ap.id] = (c[e.ap.id] || 0) + 1; return c; }, [entries]);
+    const instOf = useMemo(() => { const m = new Map(); for (const e of entries) if (e.type === 'instance') { const l = m.get(e.parent); if (l) l.push(e); else m.set(e.parent, [e]); } return m; }, [entries]);
+    const ql = norm(q.trim());
+    /* Lista visible y su desglose por estado. Los indicadores de arriba (avance documental) no dependen de los filtros. */
+    const shown = useMemo(() => {
+      const apSet = ap ? new Set(ap.split('+')) : null;
+      const matchT = (e) => (!tpl || e.tid === tpl) && (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind) && (!apSet || !!(e.ap && apSet.has(e.ap.id)));
+      const matchQ = (e) => !ql || norm([e.code, e.name, e.t && e.t.name, e.t && e.t.abbr, e.process].join(' ')).includes(ql);
+      const matchS = (e) => !estado || e.status === estado;
+      const visible = [];
+      for (const e of entries) {
+        if (e.type === 'instance' || !matchT(e)) continue;
+        if (e.type === 'parent') {
+          const insts = instOf.get(e.tid) || [];
+          const pq = matchQ(e);
+          const vis = insts.filter((x) => (pq || matchQ(x)) && matchS(x));
+          const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length));
+          if (ok) visible.push(e, ...vis);
+        } else if (matchQ(e) && matchS(e)) visible.push(e);
+      }
+      const sc = { total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0 };
+      for (const e of visible) if (countable(e)) { sc.total++; sc[e.status] = (sc[e.status] || 0) + 1; }
+      /* Las plantillas ágiles que no aplican (proyecto predictivo sin documentos de ellas) van aparte, plegadas y sin contar. */
+      return { byArea: PM.groupBy(visible.filter((e) => !e.na), (e) => e.area || 'otros'), naRows: estado ? [] : visible.filter((e) => e.na), sc };
+    }, [entries, instOf, ql, tpl, area, grp, kind, estado, ap]);
     const A = areasList();
     const G = groupsList();
 
@@ -931,43 +1087,25 @@
       </div>`;
     }
 
-    const ql = norm(q.trim());
-    const matchT = (e) => (!tpl || e.tid === tpl) && (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind);
-    const matchQ = (e) => !ql || norm([e.code, e.name, e.t && e.t.name, e.t && e.t.abbr, e.process].join(' ')).includes(ql);
-    const matchS = (e) => !estado || e.status === estado;
-    const visible = [];
-    for (const e of entries) {
-      if (e.type === 'instance' || !matchT(e)) continue;
-      if (e.type === 'parent') {
-        const insts = entries.filter((x) => x.type === 'instance' && x.parent === e.tid);
-        const pq = matchQ(e);
-        const vis = insts.filter((x) => (pq || matchQ(x)) && matchS(x));
-        const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length));
-        if (ok) visible.push(e, ...vis);
-      } else if (matchQ(e) && matchS(e)) visible.push(e);
-    }
-    /* Las plantillas ágiles que no aplican (proyecto predictivo sin documentos de ellas) van aparte, plegadas y sin contar. */
-    const byArea = PM.groupBy(visible.filter((e) => !e.na), (e) => e.area || 'otros');
-    const naRows = estado ? [] : visible.filter((e) => e.na);
+    const { byArea, naRows, sc } = shown;
     const areaBlocks = [...A.map((a) => ({ id: a.id, num: a.num, name: a.name })), { id: 'otros', num: '—', name: 'Documentos sin plantilla disponible' }].filter((a) => byArea[a.id]);
-    const filtered = !!(ql || area || grp || estado || kind || tpl);
-    const shownCount = visible.filter(countable).length;
-    const clear = () => { setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); setTpl(''); };
-    const tableHead = () => html`<colgroup><col style="width:190px" /><col /><col style="width:74px" /><col style="width:122px" /><col style="width:62px" /><col style="width:148px" /><col style="width:132px" /></colgroup>
-            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th><th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>`;
+    const filtered = !!(ql || area || grp || estado || kind || tpl || ap);
+    const clear = () => { setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); setTpl(''); setAp(''); };
+    const tableHead = () => html`<colgroup><col style="width:164px" /><col /><col style="width:70px" />${apOn ? html`<col style="width:118px" />` : null}<col style="width:112px" /><col style="width:56px" /><col style="width:136px" /><col style="width:132px" /></colgroup>
+            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th>${apOn ? html`<th>Enfoque</th>` : null}<th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>`;
 
     const exportCsv = () => {
       const rows = entries.filter(countable).map((e) => {
         const d = e.doc; const a = areaOf(e.area); const g = groupOf(e.group); const tb = (d && d.titleBlock) || {};
         return {
           code: e.type === 'parent' ? e.code + '-NN' : e.code, name: e.name, template: e.t ? e.t.name : '', area: a ? a.num + '. ' + a.name : '', group: g ? g.name : '',
-          process: e.process, kind: kindLabel(e.kind), status: PM.docStatus(e.status).label, rev: (d && d.rev) || '', updated: d ? csvStamp(d.updatedAt) : '',
+          process: e.process, kind: kindLabel(e.kind), approach: e.ap ? e.ap.label : '', status: PM.docStatus(e.status).label, rev: (d && d.rev) || '', updated: d ? csvStamp(d.updatedAt) : '',
           approved: PM.date.valid(tb.fechaAprobacion) ? PM.fmt.date(tb.fechaAprobacion, 'short') : '', elaboro: tb.elaboro || '', reviso: tb.reviso || '', aprobo: tb.aprobo || '',
         };
       });
       const cols = [
         { key: 'code', label: 'Código' }, { key: 'name', label: 'Documento' }, { key: 'template', label: 'Plantilla' }, { key: 'area', label: 'Área de conocimiento' },
-        { key: 'group', label: 'Grupo de procesos' }, { key: 'process', label: 'Proceso' }, { key: 'kind', label: 'Tipo' }, { key: 'status', label: 'Estado' },
+        { key: 'group', label: 'Grupo de procesos' }, { key: 'process', label: 'Proceso' }, { key: 'kind', label: 'Tipo' }, ...(apOn ? [{ key: 'approach', label: 'Enfoque' }] : []), { key: 'status', label: 'Estado' },
         { key: 'rev', label: 'Revisión' }, { key: 'updated', label: 'Actualizado' }, { key: 'approved', label: 'Fecha de aprobación' },
         { key: 'elaboro', label: 'Elaboró' }, { key: 'reviso', label: 'Revisó' }, { key: 'aprobo', label: 'Aprobó' },
       ];
@@ -991,33 +1129,38 @@
         </div>
         <div class="docs-stats-foot"><div style="flex:1;max-width:420px;display:flex"><${SegMeter} total=${counts.total} done=${counts.aprobado} prog=${counts.borrador + counts.revision} label="Avance documental del proyecto" /></div><span>Avance documental</span></div>
       </div>
-      <div class="docs-filters">
-        <${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por nombre, código o proceso…" aria-label="Buscar documentos" />
-        <${ui.Select} value=${area} onValue=${setArea} placeholder="Todas las áreas" aria-label="Filtrar por área de conocimiento" options=${A.map((a) => ({ value: a.id, label: a.num + '. ' + areaShort(a) }))} />
-        <${ui.Select} value=${grp} onValue=${setGrp} placeholder="Todos los grupos" aria-label="Filtrar por grupo de procesos" options=${G.map((g) => ({ value: g.id, label: g.name }))} />
-        <${ui.Select} value=${estado} onValue=${setEstado} placeholder="Todos los estados" aria-label="Filtrar por estado" options=${statusOpts} />
-        <${ui.Select} value=${kind} onValue=${setKind} placeholder="Todos los tipos" aria-label="Filtrar por tipo de documento" options=${Object.keys(KIND).map((k) => ({ value: k, label: KIND[k][1] }))} />
-      </div>
-      ${filtered ? html`<div class="row small muted" data-filtered><span>${shownCount} de ${counts.total} documentos${tpl ? html` · plantilla: <strong>${docName(tpl)}</strong>` : null}</span><${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}></div>` : null}
-      ${!areaBlocks.length && !naRows.length ? html`<${ui.Empty} icon="filter" title="Ningún documento coincide con los filtros" actions=${html`<${ui.Button} onClick=${clear}>Limpiar filtros</${ui.Button}>`}>Cambia la búsqueda o quita alguno de los filtros de área, grupo, estado o tipo.</${ui.Empty}>` : null}
+      <div class="docs-fbar"><div class="docs-filters">
+        <div class="docs-f-q"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por nombre, código o proceso…" aria-label="Buscar documentos" /></div>
+        <${ui.Select} class="docs-f-a" value=${area} onValue=${setArea} placeholder="Todas las áreas" aria-label="Filtrar por área de conocimiento" options=${A.map((a) => ({ value: a.id, label: a.num + '. ' + areaShort(a) }))} />
+        <${ui.Select} class="docs-f-g" value=${grp} onValue=${setGrp} placeholder="Todos los grupos" aria-label="Filtrar por grupo de procesos" options=${G.map((g) => ({ value: g.id, label: g.name }))} />
+        <${ui.Select} class="docs-f-s" value=${estado} onValue=${setEstado} placeholder="Todos los estados" aria-label="Filtrar por estado" options=${statusOpts} />
+        <${ui.Select} class="docs-f-k" value=${kind} onValue=${setKind} placeholder="Todos los tipos" aria-label="Filtrar por tipo de documento" options=${Object.keys(KIND).map((k) => ({ value: k, label: KIND[k][1] }))} />
+        ${apOn ? html`<${ApproachSelect} value=${ap} onValue=${setAp} />` : null}
+      </div></div>
+      ${filtered ? html`<div class="row small muted docs-sum" data-filtered>
+        <span aria-live="polite"><strong class="docs-sum-n" data-shown=${sc.total}>${sc.total} de ${counts.total} documentos</strong><span data-breakdown>: ${statusBreakdown(sc)}</span>${ap ? html` · enfoque: <strong data-approach-filter=${ap}>${apFilterLabel(ap)}</strong>` : null}${tpl ? html` · plantilla: <strong>${docName(tpl)}</strong>` : null}</span>
+        <${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}>
+      </div>` : null}
+      ${apOn ? html`<${ApproachNote} project=${project} counts=${apCounts} onPick=${setAp} />` : null}
+      ${!areaBlocks.length && !naRows.length ? html`<${ui.Empty} icon="filter" title="Ningún documento coincide con los filtros" actions=${html`<${ui.Button} onClick=${clear}>Limpiar filtros</${ui.Button}>`}>Cambia la búsqueda o quita alguno de los filtros de área, grupo, estado, tipo${apOn ? ' o enfoque' : ''}.</${ui.Empty}>` : null}
       ${areaBlocks.map((a) => {
         const rows = byArea[a.id];
         const n = rows.filter(countable).length;
-        const ap = rows.filter((e) => countable(e) && e.status === 'aprobado').length;
+        const ap1 = rows.filter((e) => countable(e) && e.status === 'aprobado').length;
         return html`<section class="card" key=${a.id} data-area=${a.id}>
-          <div class="card-head"><h2 class="h3"><span class="docs-sec-n">${a.num}</span>${a.name}</h2><span class="xsmall faint">${n} ${n === 1 ? 'documento' : 'documentos'} · ${ap} ${ap === 1 ? 'aprobado' : 'aprobados'}</span></div>
+          <div class="card-head"><h2 class="h3"><span class="docs-sec-n">${a.num}</span>${a.name}</h2><span class="xsmall faint">${n} ${n === 1 ? 'documento' : 'documentos'} · ${ap1} ${ap1 === 1 ? 'aprobado' : 'aprobados'}</span></div>
           <div class="table-wrap docs-tablewrap"><table class="table docs-table">
             ${tableHead()}
-            <tbody>${rows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} />`)}</tbody>
+            <tbody>${rows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} apCol=${apOn} />`)}</tbody>
           </table></div>
         </section>`;
       })}
-      ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl)}>
+      ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl || ap === 'adaptativo')}>
         <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naRows.filter((e) => e.type !== 'instance').length} · no cuentan en el avance</span></summary>
         <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido, que se elige en <${LifecycleWhere} />.</p>
         <div class="table-wrap docs-tablewrap"><table class="table docs-table" aria-label="Plantillas ágiles que no aplican a este proyecto">
           ${tableHead()}
-          <tbody>${naRows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} />`)}</tbody>
+          <tbody>${naRows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} apCol=${apOn} />`)}</tbody>
         </table></div>
       </details>` : null}
     </div>`;
@@ -1142,6 +1285,26 @@
         ${!(s.fields || []).length ? html`<p class="small faint">Esta sección no tiene campos.</p>` : null}
       </div></div>
     </section>`;
+  }
+
+  /* Enfoque de la metodología de la plantilla, junto al cajetín: distintivo a la vista y, al desplegar (Enter o
+     Espacio), por qué se acopla a ese enfoque y qué cambia o lo reemplaza en el otro. */
+  function DocApproach({ ap, project }) {
+    const mode = PM.agile && typeof PM.agile.mode === 'function' ? PM.agile.mode(project) : 'predictivo';
+    const lc = project.lifecycle || 'Predictivo';
+    const off = (mode === 'predictivo' && ap.id === 'adaptativo') || (mode === 'adaptativo' && ap.id === 'predictivo');
+    return html`<details class="docs-apx" data-doc-approach=${ap.id}>
+      <summary><${ui.Icon} name="chevron-right" size=${14} /><span class="docs-apx-sum"><span class="docs-apx-k">Enfoque de la metodología</span><${ApChip} ap=${ap} long /><span class="xsmall faint">Por qué y qué cambia en el otro enfoque</span></span></summary>
+      <div class="docs-apx-body">
+        <dl class="docs-meta">
+          <dt>Por qué este enfoque</dt><dd data-approach-why>${ap.why}</dd>
+          ${ap.replacement ? html`<dt>${apOtherLabel(ap)}</dt><dd data-approach-other>${ap.replacement}</dd>` : null}
+        </dl>
+        ${off ? html`<p data-approach-off>El ciclo de vida de este proyecto es ${lc}: este documento es del enfoque ${ap.id === 'adaptativo' ? 'ágil' : 'predictivo'}. Úsalo si el proyecto o un interesado lo necesita; si no, lo cubre lo indicado arriba.</p>` : null}
+        <p class="xsmall faint">Es orientativo: indica a qué enfoque pertenece el documento, no que esté prohibido en el otro; un proyecto híbrido usa documentos de los tres grupos.</p>
+        <div><${ui.Button} size="sm" variant="ghost" icon="files" data-approach-list=${ap.id} onClick=${() => PM.navigate('documentos', { approach: ap.id })}>Ver los documentos de este enfoque</${ui.Button}></div>
+      </div>
+    </details>`;
   }
 
   function TitleBlock({ project, doc, code, status, editable, onTb, exists }) {
@@ -1641,6 +1804,7 @@
       return set.slice(0, 8);
     }, [t, tid, kbReady()]);
     const a = areaOf(t.area), g = groupOf(t.group);
+    const ap = useMemo(() => (t.missing ? null : apOf(PM.templates[tid] || null)), [t, tid]);
     const tips = Array.isArray(t.tips) ? t.tips : [];
     const showChange = BASELINE_DOCS.has(tid) && status !== 'aprobado';
     return html`<aside class="stack" aria-label="Información del documento">
@@ -1653,6 +1817,7 @@
             ${kindLabel(t.kind) ? html`<dt>Tipo</dt><dd>${kindLabel(t.kind)}${t.multiple ? ' (admite varios por proyecto)' : ''}</dd>` : null}
             ${a ? html`<dt>Área</dt><dd>${a.num}. ${a.name}</dd>` : null}
             ${g ? html`<dt>Grupo</dt><dd>${g.name}</dd>` : null}
+            ${ap ? html`<dt>Enfoque</dt><dd data-side-approach=${ap.id}>${ap.label}</dd>` : null}
             ${exists ? html`<dt>Creado</dt><dd>${PM.fmt.datetime(doc.createdAt)}${doc.createdBy ? html` · <${ui.Person} id=${doc.createdBy} />` : null}</dd>` : null}
             ${exists ? html`<dt>Modificado</dt><dd>${PM.fmt.datetime(doc.updatedAt)}${doc.updatedBy ? html` · <${ui.Person} id=${doc.updatedBy} />` : null}</dd>` : null}
           </dl>
@@ -1978,6 +2143,7 @@
     const exists = !!(r.exists && r.data);
     const tid = (exists && r.data.template) || templateId || PM.docTemplateOf(docId);
     const realT = PM.templates[tid] || null;
+    const docAp = useMemo(() => apOf(realT), [realT]);
     const t = useMemo(() => realT || (exists ? pseudoTemplate(tid, r.data) : null), [realT, tid, exists ? r.data : null]);
     const multiple = !!(realT && realT.multiple);
     const virtual = useMemo(() => (realT ? PM.newDocBody(realT, project, { template: tid }) : null), [realT, tid]);
@@ -2269,6 +2435,7 @@
         regStatus=${clDoc.exists && clDoc.data ? statusOf(clDoc.data) : null} nextCode=${editable ? nextChangeCode(clDoc, idx.byTemplate[CR_TID]) : ''} currency=${currency} project=${project}
         onSync=${doSyncChange} onSetCode=${(c) => setField('codigoCambio', c)} />` : null}
       ${editable && LOADABLE[tid] ? html`<${ReportDataCallout} tid=${tid} t=${t} idx=${idx} docId=${docId} project=${project} getFields=${curFields} onApply=${(vals) => commit((b) => { Object.assign(b.fields, vals); })} />` : null}
+      ${docAp ? html`<${DocApproach} ap=${docAp} project=${project} />` : null}
       <${TitleBlock} project=${project} doc=${doc} code=${code} status=${exists ? status : 'sin'} exists=${exists} editable=${editable} onTb=${setTb} />
       <div class=${cx('docs-split', panel === 'abajo' && 'is-below')} data-panel=${panel}>
         <div class="stack-lg" style="gap:16px">
