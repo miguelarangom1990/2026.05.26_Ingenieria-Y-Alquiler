@@ -175,7 +175,7 @@ try {
   check('actividades: precios unitarios = 120 × $ 18.500 = $ 2.220.000 con «P. U.»', (await cellTxt('d')) === 'P. U. ' + money(2220000), await cellTxt('d'));
   check('actividades: precio global sin distintivo y editable en la celda (las de antes no cambian)', (await cellTxt('a')) === money(2500000) && (await costCell('a').locator('.sched-cm').count()) === 0 && (await costCell('a').locator('button[aria-label^="Costo, fila 1: "]').getAttribute('aria-label')).endsWith('Editar'));
   check('actividades: costo calculado no se edita en la celda (botón que abre el editor)', (await costCell('b').locator('button').getAttribute('aria-label')).includes('calculado por recursos. Abrir el editor'));
-  check('actividades: recursos en texto (trabajo ×unidades, consumible con cantidad y unidad)', (await page.locator('.sched-tbl tbody tr[data-id="b"] td.wrap').last().innerText()).includes('Anclajes químicos 100 unidad'));
+  check('actividades: recursos en texto (trabajo ×unidades, consumible con cantidad y unidad en plural)', (await page.locator('.sched-tbl tbody tr[data-id="b"] td.wrap').last().innerText()).includes('Anclajes químicos 100 unidades'), await page.locator('.sched-tbl tbody tr[data-id="b"] td.wrap').last().innerText());
 
   /* --------------- editor de una actividad calculada por recursos */
   await costCell('b').locator('button').click();
@@ -185,6 +185,7 @@ try {
   check('editor: el recurso de la fila es el del catálogo (combobox)', (await row1.locator('input[role="combobox"]').inputValue()) === 'Cuadrilla de montaje' && (await row1.locator('input[role="combobox"]').getAttribute('aria-label')) === 'Recurso 1');
   check('editor: trabajo → «Unidades por día»; costo de la línea 2 × 10 × $ 800.000', (await row1.locator('input[aria-label="Unidades del recurso 1"]').inputValue()) === '2' && (await row1.locator('[data-line-cost]').getAttribute('data-line-cost')) === '16000000');
   check('editor: consumible → «Cantidad» con su unidad; costo de la línea 100 × $ 25.000', (await row2.locator('input[aria-label="Cantidad del recurso 2 (unidad)"]').inputValue()) === '100' && (await row2.locator('.sched-te-unit').innerText()) === 'unidad' && (await row2.locator('[data-line-cost]').getAttribute('data-line-cost')) === '2500000');
+  check('editor: fórmula de la línea del consumible con la unidad en plural (100 unidades × $ 25.000)', (await row2.locator('[data-line-cost]').getAttribute('title')) === '100 unidades × ' + money(25000) + ' = ' + money(2500000), await row2.locator('[data-line-cost]').getAttribute('title'));
   check('editor: datos del recurso del catálogo (código, tipo, costo)', (await row1.locator('.sched-te-meta').innerText()).includes('REC-001 · Humano (personal) · Trabajo · cuadrilla · ' + money(800000) + ' por día'));
   check('editor: forma de costeo «Calculado por recursos» con su explicación', await modal.locator('[data-cost-choice="recursos"] input').isChecked() && (await modal.locator('[data-cost-choice="recursos"]').innerText()).includes('unidades por día × días × costo por unidad-día'));
   const bd = await modal.locator('[data-cost-breakdown] tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.trim())));
@@ -227,6 +228,19 @@ try {
   check('editor unitario: 120 m² × $ 20.000 = $ 2.400.000', (await page.locator('.modal [data-cost-total]').getAttribute('data-cost-total')) === '2400000' && (await page.locator('.modal [data-cost-total]').innerText()).includes('120 m² × ' + money(20000)), [await page.locator('.modal [data-cost-total]').getAttribute('data-cost-total'), await page.locator('.modal [data-cost-total]').innerText(), await page.locator('.modal #te-unit-price').inputValue()]);
   check('editor unitario: diferencia frente a la línea base (+$ 180.000)', (await page.locator('.modal [data-cost-baseline]').getAttribute('data-cost-diff')) === '180000');
   await shotEl('editor-unitario', '.modal [data-te-cost]');
+  /* la unidad de la fórmula concuerda con la cantidad: «6 viajes», «1 viaje», «6 unidades» sin unidad escrita */
+  const unitFormula = async () => (await page.locator('.modal [data-cost-total] .sub').innerText()).replace(/\s+/g, ' ').trim();
+  await page.locator('.modal #te-qty-unit').fill('viaje');
+  await page.locator('.modal #te-qty').fill('6');
+  check('editor unitario: unidad en plural en la fórmula (6 viajes × $ 20.000)', (await unitFormula()) === '6 viajes × ' + money(20000) && (await page.locator('.modal [data-cost-total]').getAttribute('data-cost-total')) === '120000', await unitFormula());
+  await page.locator('.modal #te-qty').fill('1');
+  check('editor unitario: unidad en singular con cantidad 1 (1 viaje × $ 20.000)', (await unitFormula()) === '1 viaje × ' + money(20000), await unitFormula());
+  await page.locator('.modal #te-qty-unit').fill('');
+  await page.locator('.modal #te-qty').fill('6');
+  check('editor unitario: sin unidad escrita, «unidades» (6 unidades × $ 20.000)', (await unitFormula()) === '6 unidades × ' + money(20000), await unitFormula());
+  await page.locator('.modal #te-qty-unit').fill('m²');
+  await page.locator('.modal #te-qty').fill('120');
+  check('editor unitario: los símbolos no cambian (120 m² × $ 20.000)', (await unitFormula()) === '120 m² × ' + money(20000) && (await page.locator('.modal [data-cost-total]').getAttribute('data-cost-total')) === '2400000', await unitFormula());
   await page.click('.modal button:has-text("Guardar cambios")');
   await page.waitForSelector('.modal', { state: 'detached' });
   check('guardar unitario: unitPrice y costo efectivo', (await stored()).tasks.find((t) => t.id === 'd').unitPrice === 20000 && (await effCost('d')) === 2400000);
@@ -292,7 +306,8 @@ try {
   res = await stored('resources', 0);
   const andamio = res.items.find((x) => x.name === 'Andamio multidireccional');
   const te = sch.tasks.find((t) => t.id === 'e');
-  check('crear recurso: guardado en el catálogo y asignado con resourceId', !!andamio && andamio.code === 'REC-007' && andamio.unitCost === 50000 && andamio.planned === true && te.resources[1].resourceId === andamio.id && te.resources[1].units === 3, { andamio, r: te.resources });
+  /* el catálogo se guarda compacto (PM.res.compact): «planificado» es el valor por defecto y puede no escribirse */
+  check('crear recurso: guardado en el catálogo y asignado con resourceId', !!andamio && andamio.code === 'REC-007' && andamio.unitCost === 50000 && andamio.planned !== false && te.resources[1].resourceId === andamio.id && te.resources[1].units === 3, { andamio, r: te.resources });
   check('actividad global con recursos nuevos: su costo no cambia', te.cost === 900000 && (await effCost('e')) === 900000);
 
   /* --------------- consumible nuevo sin cantidad: pide la cantidad */

@@ -316,9 +316,12 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const catalogOf = (data, schedule) => (PM.res ? PM.res.catalog(data || EMPTY_RES, schedule) : null);
   const kindOfItem = (cat, item) => (item && cat ? cat.kindOf(item) : 'trabajo');
   const unitOf = (item) => (item && String(item.unit || '').trim()) || 'unidad';
-  /* unidad en plural cuando la cantidad no es 1 (solo palabras: m³, kg o m² no cambian) */
-  const PLURAL = { unidad: 'unidades', persona: 'personas', cuadrilla: 'cuadrillas', equipo: 'equipos', hora: 'horas', 'día': 'días', mes: 'meses', 'galón': 'galones', licencia: 'licencias' };
-  const unitN = (n, unit) => (Math.abs(n - 1) < 1e-9 ? unit : PLURAL[unit] || unit);
+  /* unidad en plural cuando la cantidad no es 1 (solo palabras: m³, kg o m² no cambian). Usa la pluralización común del
+     núcleo (PM.RES.unitN: «viaje» → «viajes», «usuario-mes» → «usuarios-mes»); la tabla local queda de respaldo. */
+  const PLURAL = { unidad: 'unidades', persona: 'personas', cuadrilla: 'cuadrillas', equipo: 'equipos', hora: 'horas', 'día': 'días', mes: 'meses', 'galón': 'galones', licencia: 'licencias', viaje: 'viajes' };
+  const unitN = (n, unit) => (PM.RES && typeof PM.RES.unitN === 'function' ? PM.RES.unitN(n, unit) : Math.abs(n - 1) < 1e-9 ? unit : PLURAL[unit] || unit);
+  /* «6 viajes», «1 viaje», «12,5 m³»: cantidad con dos decimales y la unidad concordando con la cifra que se ve */
+  const qtyTxt = (q, unit) => { const n = Math.round(num(q) * 100) / 100; return fmt.num(n, 2) + ' ' + unitN(n, unit); };
   /* ui.NumberInput muestra el valor sin separadores al enfocarse y eso borra la selección del navegador: al entrar con
      Tab y escribir, los dígitos se sumaban al final. Se vuelve a seleccionar todo justo después de ese dibujo (microtarea,
      antes de la siguiente tecla; solución local). */
@@ -332,7 +335,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
   const resTextOf = (t, cat) => arrOf(t && t.resources).filter((r) => isObj(r) && String(r.name || '').trim()).map((r) => {
     const item = cat ? cat.resolve(r) : null;
     const name = item ? item.name : String(r.name).trim();
-    if (item && PM.res && cat.kindOf(item) === 'consumible') return name + ' ' + fmt.num(PM.res.assignment(cat, t, r).qty, 2) + ' ' + unitOf(item);
+    if (item && PM.res && cat.kindOf(item) === 'consumible') return name + ' ' + qtyTxt(PM.res.assignment(cat, t, r).qty, unitOf(item));
     return name + ' ×' + fmt.num(num(r.units), 2);
   }).join('; ');
   /* Celda de costo de una actividad calculada (no se edita en la celda: abre el editor de la actividad) */
@@ -957,7 +960,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const named = !!String(r.name || '').trim();
       const saved = item && !item.virtual ? item : null;
       const ty = saved ? cat.typeOf(saved) : null;
-      const formula = l && l.priced ? (kind === 'consumible' ? fmt.num(l.qty, 2) + ' ' + unitOf(item) + ' × ' + money(l.unitCost) : fmt.num(l.units, 2) + ' por día × ' + fmt.num(durNow) + (durNow === 1 ? ' día × ' : ' días × ') + money(l.unitCost)) + ' = ' + money(l.cost) : undefined;
+      const formula = l && l.priced ? (kind === 'consumible' ? qtyTxt(l.qty, unitOf(item)) + ' × ' + money(l.unitCost) : fmt.num(l.units, 2) + ' por día × ' + fmt.num(durNow) + (durNow === 1 ? ' día × ' : ' días × ') + money(l.unitCost)) + ' = ' + money(l.cost) : undefined;
       const meta = !named ? null
         : saved ? html`<span>${[saved.code, ty ? ty.name : null, (kind === 'consumible' ? 'Consumible' : 'Trabajo') + ' · ' + unitOf(saved), itemCostTxt(saved, kind, currency)].filter(Boolean).join(' · ')}</span>
             ${saved.planned === false ? html`<${ui.Chip} tone="warn" icon="alert">No planificado</${ui.Chip}>` : null}
@@ -1028,7 +1031,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
             <${ui.Field} label="Unidad" for="te-qty-unit"><${ui.Input} id="te-qty-unit" list=${uidE + '-units'} value=${d.qtyUnit || ''} onValue=${set('qtyUnit')} placeholder="m², m³, global…" disabled=${ro} /><datalist id=${uidE + '-units'}>${RES_UNITS.map((u) => html`<option key=${u} value=${u}></option>`)}</datalist></${ui.Field}>
             <${ui.Field} label=${'Precio unitario (' + currency + ')'} for="te-unit-price"><${ui.NumberInput} onFocus=${selectOnFocus} id="te-unit-price" money currency=${currency} value=${d.unitPrice} min=${0} onValue=${set('unitPrice')} disabled=${ro} /></${ui.Field}>
             ${catField}
-          </div>${totalBox('Costo: cantidad × precio unitario', fmt.num(ci.unitario.qty, 2) + ' ' + (String(ci.unitario.unit || '').trim() || 'unidades') + ' × ' + money(ci.unitario.price))}`;
+          </div>${totalBox('Costo: cantidad × precio unitario', qtyTxt(ci.unitario.qty, String(ci.unitario.unit || '').trim() || 'unidad') + ' × ' + money(ci.unitario.price))}`;
       }
       /* comparación con la línea base de costos vigente: la línea base no cambia al editar (solo con un cambio aprobado) */
       const blDoc = ctx.baselines && ctx.baselines.cost;
@@ -2758,7 +2761,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const showTip = (e, p, i) => {
       if (!tipApi.current) return;
       tipApi.current.show(e, html`<div><strong>${periodTxt(p, bucket)}</strong><div class="sched-tipgrid">
-        ${single ? html`<span>${single.C.name}</span><span>${fmt.num(single.q[i], 2)} ${single.C.unit}</span>${single.C.priced ? html`<span>Costo</span><span>${fmt.money(single.c[i], currency)}</span>` : null}`
+        ${single ? html`<span>${single.C.name}</span><span>${qtyTxt(single.q[i], single.C.unit)}</span>${single.C.priced ? html`<span>Costo</span><span>${fmt.money(single.c[i], currency)}</span>` : null}`
           : html`${stacks[i].filter((s) => s.v > 0).map((s) => html`<span key=${s.id} class="row" style="gap:5px;flex-wrap:nowrap"><span class="swatch" style=${'background:' + s.color}></span>${s.name}</span><span>${fmt.money(s.v, currency)}</span>`)}
             <span>Total</span><span>${fmt.money(totals[i], currency)}</span>`}
       </div></div>`);
@@ -2819,7 +2822,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     };
     return html`<div class="stack" data-rec-tab="consumo">
       <div class="sched-note"><${ui.Icon} name="info" size=${15} /><div>Los consumibles se asignan por cantidad total a cada actividad; aquí la cantidad se reparte en partes iguales entre los días hábiles de la actividad. El costo usa el costo unitario del catálogo y la existencia es la registrada en el catálogo.</div></div>
-      ${shortList.length ? html`<div class="sched-banner" role="status" data-cons-short=${shortList.length}><${ui.Icon} name="alert" size=${16} /><div><strong>${shortList.length === 1 ? '1 consumible no alcanza' : shortList.length + ' consumibles no alcanzan'} con la existencia del catálogo:</strong> ${shortList.map((C) => C.name + ' (faltan ' + fmt.num(C.short, 2) + ' ' + unitN(C.short, C.unit) + ')').join('; ')}. Programa la compra o el suministro (9.3 Adquirir recursos).</div></div>` : null}
+      ${shortList.length ? html`<div class="sched-banner" role="status" data-cons-short=${shortList.length}><${ui.Icon} name="alert" size=${16} /><div><strong>${shortList.length === 1 ? '1 consumible no alcanza' : shortList.length + ' consumibles no alcanzan'} con la existencia del catálogo:</strong> ${shortList.map((C) => C.name + ' (faltan ' + qtyTxt(C.short, C.unit) + ')').join('; ')}. Programa la compra o el suministro (9.3 Adquirir recursos).</div></div>` : null}
       <${ui.Card} title="Consumibles" subtitle=${list.length + (list.length === 1 ? ' consumible' : ' consumibles') + (anyPriced ? ' · costo total ' + fmt.money(totalCost, currency) : '')} pad=${false}>
         <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-cons-tbl">
           <thead><tr><th>Consumible</th><th>Tipo</th><th class="num">Cantidad total</th><th>Unidad</th><th class="num">Costo unitario</th><th class="num">Costo total</th><th class="num">Existencia</th><th>Actividades</th><th>Estado</th></tr></thead>
@@ -2832,7 +2835,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
             <td class="num" data-col="cost">${C.priced ? fmt.money(C.cost, currency) : '—'}</td>
             <td class="num">${C.stock === null ? html`<span class="faint">—</span>` : fmt.num(C.stock, 2)}</td>
             <td class="wrap"><div class="sched-tasklinks">${C.tasks.slice(0, 3).map((t) => html`<button key=${t.id} type="button" class="btn btn-ghost btn-sm" title=${canWrite ? 'Abrir la actividad' : 'Ver la actividad'} onClick=${() => openTask(t.id)}>${idx.get(t.id)} · ${taskName(t)}</button>`)}${C.tasks.length > 3 ? html`<span class="xsmall faint">y ${C.tasks.length - 3} más</span>` : null}</div></td>
-            <td>${C.short > 0 ? html`<${ui.Chip} tone="crit" icon="alert" title="La existencia del catálogo no alcanza para la cantidad asignada">Faltan ${fmt.num(C.short, 2)} ${unitN(C.short, C.unit)}</${ui.Chip}>` : C.stock !== null ? html`<${ui.Chip} tone="good" icon="check" title="La existencia del catálogo cubre la cantidad asignada">Suficiente</${ui.Chip}>` : html`<${ui.Chip} tone="outline" title="El catálogo no registra existencia de este consumible">Sin existencia</${ui.Chip}>`}</td>
+            <td>${C.short > 0 ? html`<${ui.Chip} tone="crit" icon="alert" title="La existencia del catálogo no alcanza para la cantidad asignada">Faltan ${qtyTxt(C.short, C.unit)}</${ui.Chip}>` : C.stock !== null ? html`<${ui.Chip} tone="good" icon="check" title="La existencia del catálogo cubre la cantidad asignada">Suficiente</${ui.Chip}>` : html`<${ui.Chip} tone="outline" title="El catálogo no registra existencia de este consumible">Sin existencia</${ui.Chip}>`}</td>
           </tr>`)}</tbody>
           ${anyPriced ? html`<tfoot><tr><td colspan="5">Total</td><td class="num">${fmt.money(totalCost, currency)}</td><td colspan="3"></td></tr></tfoot>` : null}
         </table></div>
