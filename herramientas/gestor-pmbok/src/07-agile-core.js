@@ -13,7 +13,7 @@
   if (!PM || PM.failed || !PM.lib) return;
   const D = PM.date;
   const num = PM.num;
-  const { useMemo, useCallback } = PM.lib;
+  const { useMemo, useCallback, useRef } = PM.lib;
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
   const arr = (x) => (Array.isArray(x) ? x : []);
 
@@ -162,6 +162,37 @@
     return out;
   };
 
+  /* Pertenencia: al pasar un elemento a otro release, o al sacarlo de una iteración en curso o cerrada, se registran las
+     fechas (releaseAddedDate, releaseExits, sprintExits) para que el burnup y el burndown no reescriban el pasado.
+     useAgileModel().saveItem lo aplica comparando con la versión guardada; no hace falta llamarlo desde las vistas. */
+  agile.trackMembership = function (prev, next, sprints, date) {
+    if (!isObj(prev) || !isObj(next)) return next;
+    const d = D.valid(date) ? date : D.today();
+    let out = next;
+    const set = (k, v) => { if (out === next) out = { ...next }; out[k] = v; };
+    const pr = prev.releaseId || null, nr = next.releaseId || null;
+    if (pr !== nr) {
+      if (pr) set('releaseExits', [...arr(next.releaseExits), { releaseId: pr, added: D.valid(prev.releaseAddedDate) ? prev.releaseAddedDate : null, removed: d, estimate: agile.estimate(prev) }].slice(-20));
+      if (nr) { if (!(D.valid(next.releaseAddedDate) && next.releaseAddedDate !== prev.releaseAddedDate)) set('releaseAddedDate', d); }
+      else if (next.releaseAddedDate) set('releaseAddedDate', null);
+    }
+    const ps = prev.sprintId || null, ns = next.sprintId || null;
+    if (ps && ps !== ns) {
+      const sp = arr(sprints).find((x) => isObj(x) && x.id === ps);
+      if (sp && (sp.status === 'en-curso' || sp.status === 'cerrado')) {
+        /* al cerrar la iteración (o después) el elemento cuenta en su alcance hasta el último día */
+        const removed = D.valid(sp.end) && d <= sp.end && sp.status === 'cerrado' ? D.add(sp.end, 1) : D.valid(sp.end) && d > sp.end ? D.add(sp.end, 1) : d;
+        set('sprintExits', [...arr(next.sprintExits), { sprintId: ps, added: D.valid(prev.sprintAddedDate) ? prev.sprintAddedDate : null, removed, estimate: agile.estimate(prev) }].slice(-20));
+      }
+    }
+    return out;
+  };
+  const exitsOf = (items, key, id) => {
+    const out = [];
+    for (const it of arr(items)) if (agile.countable(it)) for (const e of arr(it[key])) if (isObj(e) && e[key === 'sprintExits' ? 'sprintId' : 'releaseId'] === id && D.valid(e.removed)) out.push(e);
+    return out;
+  };
+
   /* línea base del release con contenido (fecha, puntos o fin); un objeto vacío o mal formado no cuenta */
   agile.hasBaseline = (release) => { const b = isObj(release) ? release.baseline : null; return isObj(b) && (D.valid(b.date) || Number.isFinite(num(b.points, NaN)) || D.valid(b.end)); };
   /* release activo: el de la iteración en curso; si no, el primero en curso, comprometido o planeado (no cerrado) */
@@ -203,7 +234,10 @@
     const workdays = []; let d = start, guard = 0;
     while (d <= end && guard++ < 400) { if (cal.isWork(d)) workdays.push(d); d = D.add(d, 1); }
     const n = workdays.length || 1;
-    const scopeAt = (day) => sumEst(list.filter((i) => (D.valid(i.sprintAddedDate) ? i.sprintAddedDate : start) <= day));
+    /* alcance: elementos actuales desde su ingreso y los que salieron de la iteración mientras estuvieron (sprintExits) */
+    const exits = exitsOf(items, 'sprintExits', sprint.id);
+    const exitAt = (day) => exits.reduce((a, e) => a + ((D.valid(e.added) ? e.added : start) <= day && day < e.removed ? Math.max(0, num(e.estimate, 0)) : 0), 0);
+    const scopeAt = (day) => sumEst(list.filter((i) => (D.valid(i.sprintAddedDate) ? i.sprintAddedDate : start) <= day)) + exitAt(day);
     const doneAt = (day) => sumEst(list.filter((i) => agile.isDone(st, i) && D.valid(i.doneDate) && i.doneDate <= day));
     const base = out.committed;
     /* día 0: día hábil anterior al inicio (compromiso al planificar la iteración) */
@@ -247,7 +281,10 @@
     const list = arr(items).filter((i) => agile.countable(i) && i.releaseId === release.id);
     const rs = calc.sprintsOfRelease(sprints, release.id);
     const cut = D.valid(statusDate) ? statusDate : D.today();
-    const scopeAt = (day) => sumEst(list.filter((i) => !D.valid(i.createdAt) || i.createdAt <= day));
+    /* alcance: elementos actuales desde su creación o su ingreso al release (releaseAddedDate) y los que salieron mientras estuvieron */
+    const exits = exitsOf(items, 'releaseExits', release.id);
+    const since = (i) => D.max(...[i.createdAt, i.releaseAddedDate].filter((x) => D.valid(x)));
+    const scopeAt = (day) => sumEst(list.filter((i) => { const f = since(i); return !f || f <= day; })) + exits.reduce((a, e) => a + ((!D.valid(e.added) || e.added <= day) && day < e.removed ? Math.max(0, num(e.estimate, 0)) : 0), 0);
     const doneAt = (day) => sumEst(list.filter((i) => agile.isDone(st, i) && D.valid(i.doneDate) && i.doneDate <= day));
     const pts = [];
     const first = rs[0] && D.valid(rs[0].start) ? D.add(rs[0].start, -1) : D.valid(release.start) ? release.start : null;
@@ -264,7 +301,8 @@
     const vel = calc.velocity({ sprints: arr(sprints).filter((s) => s.releaseId === release.id), items, settings: st });
     const velAll = vel.closed ? vel : calc.velocity({ sprints, items, settings: st });
     const avg = velAll.avg3;
-    const out = { ...prog, velocity: avg, sprintsNeeded: null, finish: null, finishBest: null, finishWorst: null };
+    /* base de la velocidad: la del release si tiene iteraciones cerradas; si no, la del equipo (todas las iteraciones) */
+    const out = { ...prog, velocity: avg, velocityBasis: vel.closed ? 'release' : 'equipo', velocitySprints: Math.min(3, velAll.closed), sprintsNeeded: null, finish: null, finishBest: null, finishWorst: null };
     if (!prog.remaining) { out.sprintsNeeded = 0; out.finish = prog.lastDone; return out; }
     if (!avg || avg <= 0 || !cal) return out;
     const cut = D.valid(statusDate) ? statusDate : D.today();
@@ -401,13 +439,14 @@
     const thr = (settings ? settings.scopeChangeThreshold : 10) / 100;
     const dateChange = D.valid(b.end) && D.valid(release.end) ? D.diff(b.end, release.end) : 0;
     const budgetChange = num(release.budget, 0) - num(b.budget, 0);
-    /* con las iteraciones (opcional): más o menos iteraciones que la línea base, o iteraciones que terminan después del fin */
+    /* con las iteraciones (opcional): más iteraciones que la línea base, o iteraciones que terminan después del fin
+       (menos iteraciones creadas que las de la línea base solo significa que aún no se han generado) */
     const rs = Array.isArray(sprints) ? calc.sprintsOfRelease(sprints, release.id) : null;
     const bs = Math.round(num(b.sprints, 0));
     const sprintChange = rs && bs > 0 ? rs.length - bs : 0;
     const endRef = D.valid(release.end) ? release.end : D.valid(b.end) ? b.end : null;
     const sprintsAfterEnd = rs && endRef ? rs.filter((s) => D.valid(s.end) && s.end > endRef).map((s) => s.id) : [];
-    return { hasBaseline: true, ...prog, baselinePoints: bp, scopePct, dateChange, budgetChange, sprintChange, sprintsAfterEnd, needsChangeControl: Math.abs(scopePct) > thr + 1e-9 || dateChange !== 0 || Math.abs(budgetChange) > 0.5 || sprintChange !== 0 || sprintsAfterEnd.length > 0 };
+    return { hasBaseline: true, ...prog, baselinePoints: bp, scopePct, dateChange, budgetChange, sprintChange, sprintsAfterEnd, needsChangeControl: Math.abs(scopePct) > thr + 1e-9 || dateChange !== 0 || Math.abs(budgetChange) > 0.5 || sprintChange > 0 || sprintsAfterEnd.length > 0 };
   };
 
   /* Aplica el avance ágil a las actividades del cronograma vinculadas a releases (task.releaseId o release.taskId):
@@ -494,9 +533,12 @@
     const items = model.agileItems;
     const releases = useMemo(() => arr(data.releases).filter((r) => isObj(r) && r.id), [data]);
     const sprints = useMemo(() => sortByStart(data.sprints), [data]);
+    /* versión guardada de cada elemento y de las iteraciones, para registrar la pertenencia al guardar */
+    const live = useRef({ items, sprints }); live.current = { items, sprints };
     const saveItem = useCallback((item) => {
       if (!pid || !item || !item.id) return Promise.resolve();
-      const { id, ...body } = item;
+      const prev = live.current.items.find((x) => x.id === item.id);
+      const { id, ...body } = prev ? agile.trackMembership(prev, item, live.current.sprints, D.today()) : item;
       PM.touchProject(pid);
       return PM.store.set(PM.paths.backlogItem(pid, id), PM.clone(body));
     }, [pid]);

@@ -31,6 +31,9 @@
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const NONE = '__none__';
 
+  /* elementos del release al fijar su línea base: [{id, estimate}] (para comparar en la solicitud de cambio) */
+  const baselineItems = (cur, relId) => (cur.idx.byRelease.get(relId) || []).filter((it) => PM.agile.countable(it)).map((it) => ({ id: it.id, estimate: PM.agile.estimate(it) }));
+
   /* ---------------------------------------------------------------- estilos del módulo */
   const CSS = `
 .ags-root { container: agsroot / inline-size; }
@@ -359,6 +362,8 @@ td.ags-actions { background: var(--surface); }
     const list = arr(sprint && sprint.unfinished);
     if (!list.length) return items;
     const inSprint = new Set(items.filter((it) => it.sprintId === sprint.id).map((it) => it.id));
+    /* los que ya registran su salida (sprintExits, PM.agile.trackMembership) los cuenta el núcleo: no se duplican */
+    for (const it of items) if (arr(it.sprintExits).some((e) => e.sprintId === sprint.id)) inSprint.add(it.id);
     const extra = list.filter((u) => u.id && !inSprint.has(u.id)).map((u) => ({ id: u.id + '@' + sprint.id, code: u.code || '', title: u.title || '', type: 'historia', estimate: nOr(u.estimate), status: PM.AGILE.BACKLOG, sprintId: sprint.id, sprintAddedDate: D.valid(u.sprintAddedDate) ? u.sprintAddedDate : null, unfinished: true }));
     return extra.length ? [...items, ...extra] : items;
   }
@@ -804,7 +809,7 @@ td.ags-actions { background: var(--surface); }
         const nSpr = baselineSprints(relOf(r.id) || r, cur.relInfo.get(r.id).sprints);
         commitAgile((d) => {
           const x = d.releases.find((y) => y.id === r.id); if (!x) return;
-          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: null };
+          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: null, items: baselineItems(cur, r.id) };
           x.pendingChange = null;
           if (x.status !== 'en-curso' && x.status !== 'cerrado') x.status = 'comprometido';
         });
@@ -829,8 +834,23 @@ td.ags-actions { background: var(--surface); }
         const info = S().relInfo.get(r.id);
         const v = info.v, det = varianceDetail(rel, v, m.settings, m.unit, m.currency, cal, info.sprints);
         const b = rel.baseline || {};
-        const added = (S().idx.byRelease.get(rel.id) || []).filter((it) => D.valid(it.createdAt) && D.valid(b.date) && it.createdAt > b.date);
-        const addedText = added.length ? ' Elementos agregados después de la línea base: ' + added.slice(0, 12).map((it) => it.code + ' ' + (it.title || '') + ' (' + fpts(A.estimate(it), m.unit) + ')').join('; ') + (added.length > 12 ? '; y ' + (added.length - 12) + ' más' : '') + '.' : '';
+        const nowItems = (S().idx.byRelease.get(rel.id) || []).filter(A.countable);
+        const list12 = (xs, f) => xs.slice(0, 12).map(f).join('; ') + (xs.length > 12 ? '; y ' + (xs.length - 12) + ' más' : '');
+        let addedText;
+        if (Array.isArray(b.items)) {
+          /* con los elementos de la línea base: agregados, retirados y reestimados */
+          const base = new Map(b.items.filter((x) => x && x.id).map((x) => [x.id, num(x.estimate, 0)]));
+          const byId = new Map(m.items.map((it) => [it.id, it]));
+          const added = nowItems.filter((it) => !base.has(it.id));
+          const removed = [...base.keys()].filter((id) => !nowItems.some((it) => it.id === id));
+          const reest = nowItems.filter((it) => base.has(it.id) && base.get(it.id) !== A.estimate(it));
+          addedText = (added.length ? ' Agregados después de la línea base: ' + list12(added, (it) => it.code + ' ' + (it.title || '') + ' (' + fpts(A.estimate(it), m.unit) + ')') + '.' : '')
+            + (removed.length ? ' Retirados del release: ' + list12(removed, (id) => { const it = byId.get(id); return it ? it.code + ' ' + (it.title || '') : id; }) + '.' : '')
+            + (reest.length ? ' Reestimados: ' + list12(reest, (it) => it.code + ' (' + fpts(base.get(it.id), m.unit) + ' → ' + fpts(A.estimate(it), m.unit) + ')') + '.' : '');
+        } else {
+          const added = nowItems.filter((it) => D.valid(b.date) && ((D.valid(it.createdAt) && it.createdAt > b.date) || (D.valid(it.releaseAddedDate) && it.releaseAddedDate > b.date)));
+          addedText = added.length ? ' Elementos agregados después de la línea base: ' + list12(added, (it) => it.code + ' ' + (it.title || '') + ' (' + fpts(A.estimate(it), m.unit) + ')') + '.' : '';
+        }
         const changed = det.lines.filter((l) => l.flag);
         const scopeText = 'Release «' + relName(rel) + '»: ' + fpts(v.total, m.unit) + ' frente a ' + fpts(v.baselinePoints, m.unit) + ' de la línea base (' + signedPts(v.total - v.baselinePoints, m.unit) + ', ' + signedPct(v.scopePct) + ').' + addedText;
         const node = rel.wbsId ? m.tree.byId.get(rel.wbsId) : null;
@@ -885,7 +905,7 @@ td.ags-actions { background: var(--surface); }
           if (lastEnd && D.valid(x.end) && lastEnd > x.end) x.end = lastEnd;
           const nSpr = baselineSprints(x, info1.sprints);
           if (nSpr > Math.round(num(x.plannedSprints, 0))) x.plannedSprints = nSpr;
-          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: code };
+          x.baseline = { date: cur.m.statusDate, points: prog.total, end: x.end || null, budget: num(x.budget, 0), sprints: nSpr, changeRef: code, items: baselineItems(cur, r.id) };
           x.pendingChange = null;
         });
         PM.toast('Línea base del release actualizada con ' + code + '.');

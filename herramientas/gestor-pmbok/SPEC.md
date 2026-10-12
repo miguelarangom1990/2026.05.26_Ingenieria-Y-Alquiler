@@ -450,6 +450,10 @@ Item     = { code ('HU-001'; PM.agile.nextCode), type: 'epica'|'historia'|'tarea
 - `costs.actuals[]` admite `releaseId` (opcional) para imputar costos reales a un release (AgileEVM).
 - `tools/schedule.tasks[]` admite `releaseId` (opcional): la actividad representa un release (equivalente a `release.taskId`).
 - Las épicas agrupan (`epicId` de los hijos) y no cuentan en las métricas (`PM.agile.countable`).
+- Pertenencia (la registra `saveItem` con `PM.agile.trackMembership`, no las vistas): `releaseAddedDate` (ingreso al release actual),
+  `releaseExits` y `sprintExits` (`[{releaseId|sprintId, added, removed, estimate}]`, ≤ 20; solo salidas de iteraciones en curso o
+  cerradas). El burnup y el burndown cuentan cada elemento solo mientras perteneció. `release.baseline.items = [{id, estimate}]`
+  guarda los elementos al fijar la línea base: la solicitud de cambio lista agregados, retirados y reestimados.
 - Cambiar de estado SIEMPRE con `PM.agile.withStatus(settings, item, status, fecha)` (o `model.setStatus(item, status)`): registra
   el historial (flujo acumulado) y `doneDate` (burndown, burnup, velocidad).
 

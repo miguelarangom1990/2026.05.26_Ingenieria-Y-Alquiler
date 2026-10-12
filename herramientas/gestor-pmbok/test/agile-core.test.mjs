@@ -92,6 +92,22 @@ const results = await page.evaluate(() => {
   // Variación con iteraciones: más iteraciones que la línea base o después del fin
   const rvS = C.releaseVariance({ release: { ...release, baseline: { ...release.baseline, sprints: 3 } }, items, settings, sprints: [...sprints, { id: 's4', releaseId: 'r1', start: '2026-09-14', end: '2026-09-25' }] });
   eq('variación por iteraciones', [rvS.sprintChange, rvS.sprintsAfterEnd, rvS.needsChangeControl], [1, ['s4'], true]);
+  eq('menos iteraciones que la línea base no exige cambio', C.releaseVariance({ release: { ...release, baseline: { ...release.baseline, points: 34, sprints: 5 } }, items, settings, sprints }).needsChangeControl, false);
+  eq('base de la velocidad del pronóstico', [fc.velocityBasis, fc.velocitySprints, fut.velocityBasis], ['release', 1, 'equipo']);
+  // Pertenencia: entradas y salidas de releases e iteraciones con fecha
+  const sprIn = [{ id: 'sx', status: 'en-curso', start: '2026-08-03', end: '2026-08-14' }, { id: 'sc', status: 'cerrado', start: '2026-07-20', end: '2026-07-31' }];
+  const mv = A.trackMembership({ id: 'm1', releaseId: 'rA', releaseAddedDate: '2026-07-01', sprintId: 'sx', sprintAddedDate: '2026-08-05', estimate: 3 }, { id: 'm1', releaseId: 'rB', sprintId: null, estimate: 3 }, sprIn, '2026-08-10');
+  eq('pertenencia: cambio de release e iteración', [mv.releaseAddedDate, mv.releaseExits, mv.sprintExits], ['2026-08-10', [{ releaseId: 'rA', added: '2026-07-01', removed: '2026-08-10', estimate: 3 }], [{ sprintId: 'sx', added: '2026-08-05', removed: '2026-08-10', estimate: 3 }]]);
+  const same = { id: 'm2', releaseId: 'rA', sprintId: 'sx' };
+  eq('pertenencia: sin cambios, mismo objeto', A.trackMembership(same, { ...same }, sprIn, '2026-08-10').releaseExits, undefined);
+  eq('pertenencia: al cerrar cuenta hasta el último día', A.trackMembership({ id: 'm3', sprintId: 'sc', estimate: 2 }, { id: 'm3', sprintId: null, estimate: 2 }, sprIn, '2026-07-31').sprintExits[0].removed, '2026-08-01');
+  eq('pertenencia: iteración planeada no registra salida', A.trackMembership({ id: 'm4', sprintId: 'sp' }, { id: 'm4', sprintId: null }, [{ id: 'sp', status: 'planeado' }], '2026-08-10').sprintExits, undefined);
+  // burndown con una salida: el alcance incluye el elemento mientras estuvo en la iteración
+  const bdx = C.sprintBurndown({ sprint: { id: 'sx', start: '2026-08-03', end: '2026-08-14' }, items: [{ id: 'k1', type: 'historia', estimate: 5, sprintId: 'sx', status: 'por-hacer' }, { id: 'k2', type: 'historia', estimate: 3, sprintId: null, status: 'backlog', sprintExits: [{ sprintId: 'sx', added: null, removed: '2026-08-06', estimate: 3 }] }], settings, cal, statusDate: '2026-08-10' });
+  eq('burndown con salida de la iteración', [bdx.days[1].scope, bdx.days[3].scope, bdx.days[4].scope], [8, 8, 5]);
+  // burnup: un elemento que entra al release después cuenta desde su ingreso
+  const bux = C.releaseBurnup({ release: { id: 'rq', start: '2026-08-01' }, sprints: [{ id: 'q1', releaseId: 'rq', start: '2026-08-03', end: '2026-08-07' }, { id: 'q2', releaseId: 'rq', start: '2026-08-10', end: '2026-08-14' }], items: [{ id: 'u1', type: 'historia', estimate: 5, releaseId: 'rq', createdAt: '2026-07-01' }, { id: 'u2', type: 'historia', estimate: 8, releaseId: 'rq', createdAt: '2026-07-01', releaseAddedDate: '2026-08-11' }, { id: 'u3', type: 'historia', estimate: 2, releaseId: null, createdAt: '2026-07-01', releaseExits: [{ releaseId: 'rq', added: null, removed: '2026-08-12', estimate: 2 }] }], settings, statusDate: '2026-08-20' });
+  eq('burnup con ingreso y salida del release', bux.points.map((p) => p.scope), [7, 7, 13]);
   // Variación frente a la línea base: 34 vs 30 = +13,3 % > 10 % → control de cambios
   const rv = C.releaseVariance({ release, items, settings });
   eq('variación del release', [rv.hasBaseline, r3(rv.scopePct), rv.dateChange, rv.budgetChange, rv.needsChangeControl], [true, 0.133, 0, 0, true]);
