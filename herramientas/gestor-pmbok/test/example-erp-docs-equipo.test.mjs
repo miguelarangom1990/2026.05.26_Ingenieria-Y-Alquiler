@@ -13,7 +13,7 @@
 //      con Enter; abre «Documentos» con el riel, revisa la lista maestra (código, estado, revisión y enfoque), filtra por
 //      enfoque con el teclado, abre los documentos de prueba con Tab y Enter y una planificación con el teclado; en
 //      «Releases e iteraciones», la iteración 1 abre su planificación (PIT-01) sin crear otra.
-//   3) Sin --quick: los nueve documentos en el editor en tema oscuro, a 400 px (claro y oscuro) y a 1920 px, sin desborde de
+//   3) Sin --quick: los ocho documentos en el editor en tema oscuro, a 400 px (claro y oscuro) y a 1920 px, sin desborde de
 //      página ni tarjetas de error.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -367,7 +367,7 @@ section('Interacción: selector de ejemplos, lista de documentos, filtro de enfo
     const want = { 'acta-constitucion-equipo': ['ACE', 'Aprobado', '1', 'ambos'], 'plan-involucramiento-interesados': ['PIIN', 'Aprobado', '1', 'ambos'], 'documentos-prueba': ['DPE', 'En revisión', '2A', 'ambos'] };
     PLANS.forEach((k, i) => { want[k] = ['PIT-0' + (i + 1), 'Aprobado', '0', 'adaptativo']; });
     const rowBad = Object.entries(want).filter(([key, [ab, stt, rv, ap]]) => { const r = rowsInfo.find((x) => x.key === key); return !r || norm(r.code).trim() !== 'PRY-2026-021-' + ab || !norm(r.status).includes(stt) || !norm(r.rev).trim().endsWith(rv) || (r.ap !== null && r.ap !== ap); });
-    check(!rowBad.length, 'lista maestra: los nueve documentos con código, estado, revisión y enfoque', rowBad.map(([k]) => [k, rowsInfo.find((x) => x.key === k)]));
+    check(!rowBad.length, 'lista maestra: los ocho documentos con código, estado, revisión y enfoque', rowBad.map(([k]) => [k, rowsInfo.find((x) => x.key === k)]));
     const parent = await page.evaluate(() => { const tr = document.querySelector('tr.docs-parent[data-tid="planificacion-sprint"]'); return tr ? tr.textContent : ''; });
     check(/7 documentos/.test(norm(parent)), 'lista maestra: la fila de «Planificación de la iteración» agrupa las siete planificaciones', parent.slice(0, 200));
     if (shots) await page.screenshot({ path: shots + '/documentos.png', fullPage: false });
@@ -472,7 +472,7 @@ if (!quick) {
       await app.page.waitForTimeout(300);
       const ovList = await horizontalOverflow(app.page);
       if (ovList > 1) bad.push({ id: 'documentos', ov: ovList });
-      check(!bad.length, 'editor de los nueve documentos y lista sin desborde de página ni tarjetas de error' + (variant.width === 1920 ? ', a todo el ancho' : ''), bad);
+      check(!bad.length, 'editor de los ocho documentos y lista sin desborde de página ni tarjetas de error' + (variant.width === 1920 ? ', a todo el ancho' : ''), bad);
       check(!app.errors.length, 'sin errores de consola', app.errors);
     } finally { await app.browser.close(); }
   }

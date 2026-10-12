@@ -713,7 +713,7 @@
       'registro-lecciones': { status: 'revision', rev: 'B', date: '2026-10-08', created: '2026-06-22', titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: leccionesFields,
         revs: [{ rev: 'A', status: 'revision', date: '2026-09-11', note: 'Primera emisión para revisión: selección, CC-001, depuración de datos, retrospectivas de las iteraciones 1 a 4 y salida del release 1.', fields: { ...cp(leccionesFields), lecciones: leccionesAll.filter((l) => l.fecha <= '2026-09-11') } }] },
       'registro-cambios': { status: 'revision', rev: '1A', date: '2026-10-08', created: F.cc1Request, titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: registroCambiosFields,
-        revs: [{ rev: '0', status: 'aprobado', date: F.cc1Date, note: 'Emisión con la decisión del CC-001.', fields: registroCambiosRev0 }] },
+        revs: [{ rev: '0', status: 'aprobado', date: F.cc1Date, aprobo: ROLE.ccb, note: 'Emisión con la decisión del CC-001.', fields: registroCambiosRev0 }] },
       'solicitud-cambio': { instances: [
         { key: 'cc001', title: 'Solicitud de cambio CC-001 — ' + relName('rel-1'), status: 'aprobado', rev: '0', date: F.cc1Date, created: F.cc1Request, titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: ROLE.ccb }, fields: solicitud },
       ] },

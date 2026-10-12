@@ -1063,8 +1063,9 @@
         }
         const revs = (Array.isArray(e.revs) ? e.revs : []).filter((r) => r && D.valid(r.date)).map((r) => ({
           id: 'rev-' + String(r.rev),
-          /* una revisión aprobada lleva quien la aprobó aunque la emisión vigente esté en revisión (cajetín sin «Aprobó») */
-          data: { rev: r.rev, status: r.status || 'aprobado', date: ts(r.date), byId: null, note: r.note || '', fields: PM.clone(r.fields || fields), titleBlock: { ...titleBlock, aprobo: titleBlock.aprobo || ((r.status || 'aprobado') === 'aprobado' ? R.pat : ''), fechaAprobacion: (r.status || 'aprobado') === 'aprobado' ? r.date : null }, title },
+          /* una revisión aprobada lleva quien la aprobó (r.aprobo, o el del cajetín vigente, o la Gerencia General) aunque la
+             emisión vigente esté en revisión y su cajetín no tenga «Aprobó» */
+          data: { rev: r.rev, status: r.status || 'aprobado', date: ts(r.date), byId: null, note: r.note || '', fields: PM.clone(r.fields || fields), titleBlock: { ...titleBlock, aprobo: r.aprobo || titleBlock.aprobo || ((r.status || 'aprobado') === 'aprobado' ? R.pat : ''), fechaAprobacion: (r.status || 'aprobado') === 'aprobado' ? r.date : null }, title },
         }));
         const created = D.valid(e.created) ? e.created : revs.length ? D.min(date, ...revs.map((r) => r.data.date.slice(0, 10))) : date;
         const body = PM.newDocBody(t, project, { title, status, rev: e.rev !== undefined ? e.rev : null, titleBlock, createdAt: ts(created, '13:00'), updatedAt: ts(date), createdBy: null, updatedBy: null });

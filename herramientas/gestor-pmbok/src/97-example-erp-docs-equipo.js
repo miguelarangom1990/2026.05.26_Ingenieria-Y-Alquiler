@@ -410,8 +410,8 @@
       'documentos-prueba': {
         status: 'revision', rev: '2A', date: STATUS_DATE, created: LB0, titleBlock: { elaboro: R.ap, reviso: R.sm, aprobo: '' }, fields: testDoc(2),
         revs: [
-          { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con la definición de terminado (rev. 0).', fields: testDoc(0) },
-          { rev: '1', status: 'aprobado', date: DOD_REV1, note: 'Retrospectiva de la ' + lcFirst(it(3).name) + ' (prueba con datos migrados y columna «Pruebas de usuario») y prueba de la integración con las básculas del CC-001.', fields: testDoc(1) },
+          { rev: '0', status: 'aprobado', date: LB0, aprobo: ROLE.po, note: 'Emisión inicial con la definición de terminado (rev. 0).', fields: testDoc(0) },
+          { rev: '1', status: 'aprobado', date: DOD_REV1, aprobo: ROLE.po, note: 'Retrospectiva de la ' + lcFirst(it(3).name) + ' (prueba con datos migrados y columna «Pruebas de usuario») y prueba de la integración con las básculas del CC-001.', fields: testDoc(1) },
         ],
       },
       'planificacion-sprint': {
