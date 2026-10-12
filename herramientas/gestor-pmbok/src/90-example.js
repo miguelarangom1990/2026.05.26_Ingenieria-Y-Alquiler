@@ -9,6 +9,10 @@
    y fecha de aprobación se ajustan para que ningún documento aprobado cite
    hechos posteriores (incidentes, cambios, LB1) y sus revisiones anteriores
    se derivan quitando esos hechos.
+   Catálogo de recursos (herramienta «resources», SPEC §10): un recurso por
+   cada nombre de las asignaciones, con las tarifas de la EDR y de las
+   estimaciones de costos; t26 se costea por recursos y t35 a precios
+   unitarios, con el mismo costo presupuestado.
    Se usan roles, no nombres de personas; el proyecto y el cliente son
    ficticios y se identifican como ejemplo.
    ========================================================================== */
@@ -178,43 +182,101 @@
   const FS = (id, lag) => ({ id, type: 'FS', lag: lag || 0 });
   const SS = (id, lag) => ({ id, type: 'SS', lag: lag || 0 });
   const FF = (id, lag) => ({ id, type: 'FF', lag: lag || 0 });
-  const res = (...pairs) => pairs.map(([name, units]) => ({ name, units }));
+
+  /* ---------------------------------------------------------------- catálogo de recursos (SPEC §10)
+     Un recurso por cada nombre de las asignaciones del cronograma (mismo nombre; las asignaciones llevan resourceId), más
+     los equipos, herramientas, insumos y servicios de la estructura de desglose de recursos (EDR) y de las estimaciones de
+     costos. Costo unitario: recursos de trabajo por unidad y día hábil (jornada de lunes a sábado: las tarifas mensuales de
+     la EDR se dividen entre 26 días hábiles); consumibles por unidad de medida. Disponibilidad: la de los límites del
+     cronograma (resourceLimits). Tipos del preset «Alquiler y montaje de equipos». Los recursos no planificados cuentan su
+     historia: el subarriendo de diagonales del INC-001 y la jornada extendida del INC-002 consumen COP 6,08 millones de la
+     reserva para contingencias (informe de riesgos: «se usaron COP 6,1 millones»); la llave de impacto de reemplazo es una
+     sustitución equivalente. */
+  const PLANNED_ON = '2026-08-06';
+  /* [clave, nombre, tipo, subtipo, unidad, disponibilidad, costo unitario, origen, extra] */
+  const CATALOG = [
+    ['dir', R.dir, 'personal', 'Dirección del proyecto', 'persona', 1, 400000, 'Interno', { responsible: 'Gerencia General', notes: 'EDR 1.1: COP 5,2 millones al mes con dedicación del 50 % (COP 10,4 millones a tiempo completo ÷ 26 días hábiles).' }],
+    ['res', R.res, 'personal', 'Dirección del proyecto', 'persona', 1, 154000, 'Interno', { responsible: R.dir, notes: 'EDR 1.3: COP 4,0 millones al mes ÷ 26 días hábiles. Coordina la obra, las inspecciones semanales y las actas de corte.' }],
+    ['sst', R.sst, 'personal', 'Seguridad y salud en el trabajo', 'persona', 1, 146000, 'Interno', { responsible: R.dir, notes: 'EDR 1.6: COP 3,8 millones al mes ÷ 26 días hábiles. Licencia SST y curso de 50 horas del SG-SST.' }],
+    ['log', R.log, 'personal', 'Logística y bodega', 'persona', 1, 160000, 'Interno', { responsible: R.dir, notes: 'Coordinador de bodega con dedicación del 40 % al proyecto (asignaciones de recursos).' }],
+    ['ope', R.ope, 'personal', 'Logística y bodega', 'persona', 4, 150000, 'Interno', { responsible: R.log, notes: 'EDR 1.7: COP 150.000 por jornal. Alistamiento, inspección y clasificación de piezas.' }],
+    ['ing', R.ing, 'personal', 'Ingeniería', 'persona', 1, 800000, 'Interno', { responsible: R.dir, status: 'liberado', availableFrom: '2026-08-03', availableTo: '2026-08-21', notes: 'EDR 1.2: COP 100.000 por hora × 8 horas. Liberado al terminar la ingeniería (diseño aprobado el 21 de agosto).' }],
+    ['sup', R.sup, 'personal', 'Montaje y desmontaje', 'persona', 2, 150000, 'Interno', { responsible: R.res, notes: 'EDR 1.4: COP 3,9 millones al mes ÷ 26 días hábiles. Coordinador de trabajo en alturas; el segundo supervisor (frente 2) entra el 13 de octubre.' }],
+    ['cua', R.cua, 'personal', 'Montadores certificados', 'persona', 8, 380000, 'Interno', { responsible: R.sup, notes: 'Costo por montador certificado y día hábil, con prestaciones, seguridad social, dotación y EPP. Lo respaldan el día de cuadrilla de la estimación (COP 2,8 millones: seis montadores, supervisor, malacate y herramienta) y la nómina de septiembre (COP 14,7 millones por semana). Disponibles: ocho montadores con certificado de alturas vigente.' }],
+    ['top', R.top, 'servicio', 'Topografía y ensayos', 'persona', 2, 450000, 'Contratado', { supplier: 'Firma de topografía', contract: 'OS-2026-089', responsible: R.ing, status: 'liberado', notes: 'Comisión de dos topógrafos con estación total: COP 3,6 millones por cuatro días (estimación E-05).' }],
+    ['lab', 'Laboratorio de ensayos de anclajes', 'servicio', 'Topografía y ensayos', 'servicio', 1, 1900000, 'Contratado', { supplier: 'Laboratorio de ensayos', responsible: R.ing, status: 'liberado', notes: 'Ensayo de arrancamiento de anclajes en losa antes del diseño definitivo (EDR 5.2, estimación E-06).' }],
+    ['ins', R.ins, 'servicio', 'Inspección y certificación', 'persona', 1, 1600000, 'Contratado', { supplier: 'Inspector de andamios independiente', contract: 'OS-2026-118', responsible: R.sst, notes: 'Persona competente independiente del montador: COP 1,6 millones por jornada (EDR 5.3); seis jornadas contratadas (etapas 1 y 2 y andamio completo).' }],
+    ['cam', R.cam, 'izaje', 'Izaje en obra', 'equipo', 1, 950000, 'Interno', { responsible: R.log, notes: 'Tarifa interna con operador y combustible: descargue en obra y cargue de retorno.' }],
+    ['mon', R.mon, 'izaje', 'Movimiento en bodega', 'equipo', 1, 250000, 'Interno', { responsible: R.log, notes: 'Tarifa interna del montacargas de la bodega principal.' }],
+    ['tra', 'Tractomula con conductor', 'izaje', 'Transporte de carga', 'vehículo', 2, 1900000, 'Contratado', { supplier: 'Transportador B', contract: 'OS-2026-101', responsible: R.log, notes: 'Un viaje nocturno por tractomula y noche, en las franjas permitidas para carga en Bogotá: COP 1,9 millones por viaje (EDR 4.1); 12 viajes contratados, ida y retorno.' }],
+    ['gru', 'Grúa torre del cliente', 'izaje', 'Izaje en obra', 'hora', 2.5, 0, 'Suministro del cliente', { responsible: R.res, notes: 'Izaje de material desde el nivel 6 sin costo para el proyecto. Se previeron 4 horas diarias; desde el 15 de septiembre está disponible 2,5 horas diarias (INC-003) y desde el 1 de octubre en la ventana fija de 7:00 a 9:00.' }],
+    ['and', R.and, 'equipo-alquiler', 'Andamio multidireccional', 'juego', 1, 561500, 'Interno', { responsible: R.log, notes: '4.800 m² de la bodega propia; tarifa interna de alquiler de COP 14,6 millones al mes (EDR 2.1) ÷ 26 días hábiles.' }],
+    ['sub', 'Diagonales y plataformas subarrendadas', 'equipo-alquiler', 'Subarriendo', 'lote', 1, 92300, 'Alquilado', { supplier: 'Proveedor aliado de andamio', contract: 'CA-2026-045', responsible: R.log, notes: 'Piezas compatibles con el sistema (cerca del 10 % del inventario): COP 2,4 millones al mes (EDR 2.2) ÷ 26 días hábiles.' }],
+    ['mal', 'Malacate eléctrico y herramienta de montaje', 'herramienta', 'Izaje manual y herramienta', 'equipo', 1, 270000, 'Alquilado', { responsible: R.sup, notes: 'Malacate de 200 kg por izada con la herramienta menor: COP 4,6 millones del 31 de agosto al 19 de septiembre (17 días hábiles, FE-2240).' }],
+    ['tor', 'Torquímetro calibrado', 'herramienta', 'Herramienta de montaje', 'unidad', 2, 12000, 'Interno', { responsible: R.sup, notes: 'Con certificado de calibración vigente, para el apriete de anclajes (salida de almacén 1142).' }],
+    ['lla', 'Llave de impacto', 'herramienta', 'Herramienta de montaje', 'unidad', 1, 35000, 'Interno', { responsible: R.sup, status: 'liberado', availableTo: '2026-09-30', notes: 'En el taller de mantenimiento de la bodega desde el 1 de octubre (salida de almacén 1143).' }],
+    ['anc', 'Anclajes químicos, tornillería y amarres', 'insumo', 'Anclajes y fijaciones', 'etapa', null, 10000000, 'Compra', { responsible: R.log, notes: 'Juego por etapa de cinco niveles según la memoria de cálculo (EDR 3.1).' }],
+    ['epp', 'Líneas de vida, arneses de repuesto y EPP', 'insumo', 'Protección contra caídas', 'kit', null, 310000, 'Compra', { responsible: R.sst, notes: 'Kits de reposición para el montaje (OC-035: diez kits en la etapa 1).' }],
+    ['rep', 'Repuestos y mantenimiento de piezas', 'insumo', 'Repuestos', 'global', null, 2300000, 'Compra', { responsible: R.log, status: 'liberado', notes: 'Cuñas, pasadores, pintura y enderezado antes del despacho (EDR 3.2, estimación E-10).' }],
+    ['exm', 'Exámenes médicos ocupacionales', 'servicio', 'Salud ocupacional', 'persona', null, 230000, 'Contratado', { kind: 'consumible', supplier: 'IPS de salud ocupacional', contract: 'OS-2026-097', responsible: R.sst, status: 'liberado', notes: 'Con énfasis en trabajo en alturas para las 12 personas del equipo inicial (EDR 5.4).' }],
+    /* no planificados (agregados después de la línea base LB0) */
+    ['dia', 'Diagonales de 2,57 m subarrendadas (otrosí n.º 1)', 'equipo-alquiler', 'Subarriendo', 'unidad', 180, null, 'Alquilado', { planned: false, reason: 'riesgo', riskId: 'R-003', reserveAmount: 3880000, addedDate: '2026-08-25', availableFrom: '2026-08-27', supplier: 'Proveedor aliado de andamio', contract: 'CA-2026-045, otrosí n.º 1 (OC-031)', responsible: R.log, notes: 'Las 180 diagonales que faltaron en bodega (INC-001): respuesta al riesgo R-003 con el subarriendo preacordado. Valor global de COP 3,88 millones con cargo a la reserva para contingencias (registro de contratos). Son de otra referencia y requieren adaptadores en las rosetas.' }],
+    ['hex', 'Horas extra de la cuadrilla (jornada extendida de septiembre)', 'personal', 'Montadores certificados', 'hora', null, 59400, 'Interno', { kind: 'consumible', planned: false, reason: 'riesgo', riskId: 'R-001', reserveAmount: 2200000, addedDate: '2026-09-10', status: 'liberado', responsible: R.sup, notes: 'Jornada extendida de 10 horas en días secos después de las lluvias del 8 y 9 de septiembre (INC-002): respuesta al riesgo R-001 con COP 2,2 millones de la reserva para contingencias (informe de riesgos). Hora extra de un montador: 1,25 × COP 47.500.' }],
+    ['llr', 'Llave de impacto de reemplazo', 'herramienta', 'Herramienta de montaje', 'unidad', 1, 35000, 'Interno', { planned: false, reason: 'sustitucion', addedDate: '2026-10-01', availableFrom: '2026-10-01', responsible: R.sup, notes: 'Reemplaza la llave de impacto que entró al taller el 1 de octubre, con la misma tarifa interna: costo y fechas no cambian.' }],
+  ];
+  const RES_ID = Object.fromEntries(CATALOG.map(([key, name]) => [name, 'rec-' + key]));
+  const RES_NAME = Object.fromEntries(CATALOG.map(([key, name]) => [key, name]));
+  /* asignaciones de trabajo (unidades por día) y de consumibles (cantidad total), enlazadas al catálogo */
+  const res = (...pairs) => pairs.map(([name, units]) => ({ resourceId: RES_ID[name] || null, name, units }));
+  const qty = (key, q) => ({ resourceId: 'rec-' + key, name: RES_NAME[key], units: 0, qty: q });
+  const resourcesData = () => ({
+    preset: 'alquiler',
+    types: PM.RES && PM.RES.PRESETS && PM.RES.PRESETS.alquiler ? PM.clone(PM.RES.PRESETS.alquiler.types) : [],
+    items: CATALOG.map(([key, name, typeId, subtype, unit, availability, unitCost, origin, x], i) => ({
+      id: 'rec-' + key, code: 'REC-' + String(i + 1).padStart(3, '0'), name, typeId, subtype, ...(x.kind ? { kind: x.kind } : {}),
+      unit, availability, availableFrom: x.availableFrom || null, availableTo: x.availableTo || null, unitCost,
+      origin, supplier: x.supplier || '', contract: x.contract || '', responsible: x.responsible || '', status: x.status || 'disponible',
+      planned: x.planned !== false, addedDate: x.addedDate || PLANNED_ON, reason: x.reason || null, riskId: x.riskId || null,
+      reserveAmount: x.reserveAmount === undefined ? null : x.reserveAmount, changeRef: x.changeRef || null,
+      agileTeam: false, dedication: 100, hoursPerDay: 8, absences: [], notes: x.notes || '',
+    })),
+  });
   const TASKS = [
     { id: 't01', name: 'Acta de constitución aprobada', wbsId: 'w111', duration: 0, milestone: true, deps: [], cost: 0, resources: [], responsible: 'Gerencia General', progress: 100, notes: 'Firmada el 3 de agosto por el patrocinador y el director de proyecto.' },
     { id: 't02', name: 'Registro de interesados y reunión de arranque', wbsId: 'w111', duration: 2, deps: [FS('t01')], cost: 1400000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-04' },
     { id: 't03', name: 'Plan para la dirección del proyecto y líneas base', wbsId: 'w112', duration: 4, deps: [FS('t01')], cost: 5600000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-06', notes: 'Plan y línea base LB0 aprobados por la Gerencia General el 6 de agosto (el 7 es festivo).' },
-    { id: 't04', name: 'Programa de protección contra caídas y certificación del personal', wbsId: 'w112', duration: 3, deps: [SS('t03', 1)], cost: 2600000, resources: res([R.sst, 1]), responsible: R.sst, progress: 100, actualStart: '2026-08-04', actualFinish: '2026-08-06' },
+    { id: 't04', name: 'Programa de protección contra caídas y certificación del personal', wbsId: 'w112', duration: 3, deps: [SS('t03', 1)], cost: 2600000, resources: [...res([R.sst, 1]), qty('exm', 12)], responsible: R.sst, progress: 100, actualStart: '2026-08-04', actualFinish: '2026-08-06' },
     { id: 't05', name: 'Seguimiento y control: comités de obra, informes y control de cambios', wbsId: 'w113', duration: 106, base: { duration: 103 }, deps: [SS('t03', 5), FS('t02')], cost: 24800000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 43, actualStart: '2026-08-10', notes: 'Esfuerzo de nivel: el avance es proporcional al tiempo transcurrido.' },
     { id: 't06', name: 'Levantamiento topográfico y de fachada', wbsId: 'w121', duration: 4, deps: [FS('t01')], cost: 3600000, resources: res([R.top, 2]), responsible: R.ing, progress: 100, actualStart: '2026-08-03', actualFinish: '2026-08-06' },
-    { id: 't07', name: 'Ensayo de arrancamiento de anclajes en losa', wbsId: 'w121', duration: 1, deps: [FS('t06', 2)], cost: 1900000, resources: [], responsible: R.ing, progress: 100, actualStart: '2026-08-11', actualFinish: '2026-08-11', notes: 'Laboratorio subcontratado; resultado conforme.' },
+    { id: 't07', name: 'Ensayo de arrancamiento de anclajes en losa', wbsId: 'w121', duration: 1, deps: [FS('t06', 2)], cost: 1900000, resources: res([RES_NAME.lab, 1]), responsible: R.ing, progress: 100, actualStart: '2026-08-11', actualFinish: '2026-08-11', notes: 'Laboratorio subcontratado; resultado conforme.' },
     { id: 't08', name: 'Diseño, planos de montaje y memoria de cálculo', wbsId: 'w122', duration: 9, deps: [FS('t06')], cost: 14200000, resources: res([R.ing, 1]), responsible: R.ing, progress: 100, actualStart: '2026-08-08', actualFinish: '2026-08-19' },
     { id: 't09', name: 'Revisión del diseño con la interventoría y ajustes', wbsId: 'w122', duration: 2, deps: [FS('t08'), FS('t07')], cost: 1800000, resources: res([R.ing, 1]), responsible: R.ing, progress: 100, actualStart: '2026-08-20', actualFinish: '2026-08-21' },
     { id: 't10', name: 'Diseño aprobado por la interventoría', wbsId: 'w122', duration: 0, milestone: true, deps: [FS('t09'), FS('t11'), FS('t12')], cost: 0, resources: [], responsible: R.ing, progress: 100, actualStart: '2026-08-21', actualFinish: '2026-08-21' },
     { id: 't11', name: 'Plan de montaje y desmontaje y plan de rescate', wbsId: 'w123', duration: 4, deps: [SS('t08', 5)], cost: 4400000, resources: res([R.sst, 1]), responsible: R.ing, progress: 100, actualStart: '2026-08-14', actualFinish: '2026-08-19' },
     { id: 't12', name: 'Plan de izaje con la grúa del cliente', wbsId: 'w123', duration: 2, deps: [SS('t11', 2)], cost: 2200000, resources: res([R.sup, 1]), responsible: R.ing, progress: 100, actualStart: '2026-08-18', actualFinish: '2026-08-19' },
-    { id: 't13', name: 'Alistamiento y clasificación de piezas en bodega', wbsId: 'w131', duration: 5, deps: [SS('t08', 7)], cost: 9800000, resources: res([R.ope, 4], [R.mon, 1]), responsible: R.log, progress: 100, actualStart: '2026-08-18', actualFinish: '2026-08-22', notes: 'INC-001: faltaron 180 diagonales de 2,57 m; se subarrendaron.' },
+    { id: 't13', name: 'Alistamiento y clasificación de piezas en bodega', wbsId: 'w131', duration: 5, deps: [SS('t08', 7)], cost: 9800000, resources: [...res([R.ope, 4], [R.mon, 1]), qty('rep', 1)], responsible: R.log, progress: 100, actualStart: '2026-08-18', actualFinish: '2026-08-22', notes: 'INC-001: faltaron 180 diagonales de 2,57 m; se subarrendaron.' },
     { id: 't14', name: 'Inspección de salida y remisiones', wbsId: 'w132', duration: 2, deps: [FS('t13')], cost: 2600000, resources: res([R.ope, 2], [R.mon, 1]), responsible: R.log, progress: 100, actualStart: '2026-08-24', actualFinish: '2026-08-25' },
-    { id: 't15', name: 'Transporte a obra (seis viajes nocturnos)', wbsId: 'w133', duration: 3, deps: [FS('t14'), FS('t10')], cost: 11400000, resources: [], responsible: R.log, progress: 100, actualStart: '2026-08-26', actualFinish: '2026-08-28', notes: 'Tractomulas contratadas con el transportador (ver el enunciado del trabajo de la adquisición). Diagonales subarrendadas recibidas el 27 de agosto.' },
+    { id: 't15', name: 'Transporte a obra (seis viajes nocturnos)', wbsId: 'w133', duration: 3, deps: [FS('t14'), FS('t10')], cost: 11400000, resources: res([RES_NAME.tra, 2]), responsible: R.log, progress: 100, actualStart: '2026-08-26', actualFinish: '2026-08-28', notes: 'Tractomulas contratadas con el transportador (ver el enunciado del trabajo de la adquisición). Diagonales subarrendadas recibidas el 27 de agosto.' },
     { id: 't16', name: 'Recepción, descargue e inspección en obra', wbsId: 'w134', duration: 3, deps: [SS('t15', 1)], cost: 3600000, resources: res([R.res, 1], [R.cua, 4], [R.cam, 1]), responsible: R.res, progress: 100, actualStart: '2026-08-27', actualFinish: '2026-08-29' },
     { id: 't17', name: 'Equipo despachado completo a obra', wbsId: 'w134', duration: 0, milestone: true, deps: [FS('t15'), FS('t16')], cost: 0, resources: [], responsible: R.log, progress: 100, actualStart: '2026-08-29', actualFinish: '2026-08-29' },
-    { id: 't18', name: 'Montaje niveles 1 a 5 (con torre de escaleras y anclajes)', wbsId: 'w141', duration: 17, deps: [FS('t17'), FS('t04'), FS('t10')], cost: 58500000, resources: res([R.cua, 6], [R.sup, 1]), responsible: R.sup, progress: 100, actualStart: '2026-08-31', actualFinish: '2026-09-19', notes: 'Lluvias del 8 y 9 de septiembre (INC-002): un día hábil de atraso, recuperado en parte con jornada extendida.' },
-    { id: 't19', name: 'Montaje niveles 6 a 10', wbsId: 'w142', duration: 22, base: { duration: 18 }, deps: [FS('t18')], cost: 62000000, resources: res([R.cua, 6], [R.sup, 1]), responsible: R.sup, progress: 60, actualStart: '2026-09-21', notes: 'Grúa del cliente disponible 2,5 horas diarias frente a 4 horas previstas (INC-003). Duración re-estimada de 18 a 22 días hábiles.' },
-    { id: 't20', name: 'Montaje niveles 11 a 15', wbsId: 'w143', duration: 16, base: { duration: 18, resources: res([R.cua, 6], [R.sup, 1]) }, deps: [FS('t19')], cost: 60400000, resources: res([R.cua, 8], [R.sup, 1]), responsible: R.sup, progress: 0, notes: 'Refuerzo de dos montadores para recuperar el atraso: duración re-estimada de 18 a 16 días hábiles.' },
+    { id: 't18', name: 'Montaje niveles 1 a 5 (con torre de escaleras y anclajes)', wbsId: 'w141', duration: 17, deps: [FS('t17'), FS('t04'), FS('t10')], cost: 58500000, resources: [...res([R.cua, 6], [R.sup, 1], [RES_NAME.mal, 1], [RES_NAME.tor, 2], [RES_NAME.lla, 1]), qty('anc', 1), qty('epp', 10)], responsible: R.sup, progress: 100, actualStart: '2026-08-31', actualFinish: '2026-09-19', notes: 'Lluvias del 8 y 9 de septiembre (INC-002): un día hábil de atraso, recuperado en parte con jornada extendida.' },
+    { id: 't19', name: 'Montaje niveles 6 a 10', wbsId: 'w142', duration: 22, base: { duration: 18 }, deps: [FS('t18')], cost: 62000000, resources: [...res([R.cua, 6], [R.sup, 1], [RES_NAME.mal, 1], [RES_NAME.tor, 2]), qty('anc', 1)], responsible: R.sup, progress: 60, actualStart: '2026-09-21', notes: 'Grúa del cliente disponible 2,5 horas diarias frente a 4 horas previstas (INC-003). Duración re-estimada de 18 a 22 días hábiles.' },
+    { id: 't20', name: 'Montaje niveles 11 a 15', wbsId: 'w143', duration: 16, base: { duration: 18, resources: [...res([R.cua, 6], [R.sup, 1], [RES_NAME.mal, 1], [RES_NAME.tor, 2]), qty('anc', 1)] }, deps: [FS('t19')], cost: 60400000, resources: [...res([R.cua, 8], [R.sup, 1], [RES_NAME.mal, 1], [RES_NAME.tor, 2], [RES_NAME.llr, 1]), qty('anc', 1)], responsible: R.sup, progress: 0, notes: 'Refuerzo de dos montadores para recuperar el atraso: duración re-estimada de 18 a 16 días hábiles.' },
     { id: 't21', name: 'Plataforma de descargue en piso 8 (CC-002)', wbsId: 'w144', duration: 4, lb0: false, start: '2026-10-05', base: { start: null }, deps: [SS('t19', 7)], cost: 9800000, resources: res([R.cua, 2], [R.sup, 1]), responsible: R.sup, progress: 0, notes: 'Agregada por el CC-002, aprobado el 11 de septiembre. Reprogramada para iniciar el 5 de octubre porque el montaje del piso 8 se atrasó.' },
     { id: 't22', name: 'Pasarelas de acceso a losas y marquesina peatonal', wbsId: 'w144', duration: 4, deps: [SS('t20', 10)], cost: 9600000, resources: res([R.cua, 2], [R.sup, 1]), responsible: R.sup, progress: 0, notes: 'Con el refuerzo de los niveles 11 a 15 la cuadrilla queda sobreasignada en estos días: nivelar antes del 20 de octubre.' },
     { id: 't23', name: 'Malla de cerramiento, rodapiés y barandas definitivas', wbsId: 'w144', duration: 5, deps: [FS('t20')], cost: 13200000, resources: res([R.cua, 6], [R.sup, 1]), responsible: R.sup, progress: 0 },
     { id: 't24', name: 'Inspección y liberación niveles 1 a 5', wbsId: 'w151', duration: 1, deps: [FS('t18')], cost: 1600000, resources: res([R.ins, 1]), responsible: R.sst, progress: 100, actualStart: '2026-09-21', actualFinish: '2026-09-21' },
     { id: 't25', name: 'Andamio certificado niveles 1 a 5', wbsId: 'w151', duration: 0, milestone: true, deps: [FS('t24')], cost: 0, resources: [], responsible: R.sst, progress: 100, actualStart: '2026-09-21', actualFinish: '2026-09-21', notes: 'Etapa 1 aceptada por el cliente con el acta parcial No. 2.' },
-    { id: 't26', name: 'Inspección y liberación niveles 6 a 10', wbsId: 'w151', duration: 1, deps: [FS('t19')], cost: 1600000, resources: res([R.ins, 1]), responsible: R.sst, progress: 0 },
+    { id: 't26', name: 'Inspección y liberación niveles 6 a 10', wbsId: 'w151', duration: 1, deps: [FS('t19')], cost: 1600000, costMode: 'recursos', resources: res([R.ins, 1]), responsible: R.sst, progress: 0, notes: 'Costo calculado por recursos: una jornada de la persona competente (COP 1,6 millones, orden de servicio OS-2026-118).' },
     { id: 't27', name: 'Andamio certificado niveles 6 a 10', wbsId: 'w151', duration: 0, milestone: true, deps: [FS('t26')], cost: 0, resources: [], responsible: R.sst, progress: 0 },
     { id: 't28', name: 'Inspección final y certificación del andamio completo', wbsId: 'w151', duration: 4, deps: [FS('t23'), FS('t22'), FS('t21'), FS('t27')], cost: 6400000, resources: res([R.ins, 1], [R.sst, 1]), responsible: R.sst, progress: 0 },
     { id: 't29', name: 'Certificación final del andamio completo', wbsId: 'w151', duration: 0, milestone: true, deps: [FS('t28')], cost: 0, resources: [], responsible: R.sst, progress: 0 },
-    { id: 't30', name: 'Alquiler del andamio en obra', wbsId: 'w152', duration: 92, base: { duration: 89 }, deps: [SS('t16'), FF('t33')], cost: 62900000, resources: res([R.and, 1]), responsible: R.dir, progress: 35, actualStart: '2026-08-27', notes: 'Termina con el desmontaje. El avance es proporcional al tiempo en obra; el alquiler se factura por mes vencido.' },
+    { id: 't30', name: 'Alquiler del andamio en obra', wbsId: 'w152', duration: 92, base: { duration: 89 }, deps: [SS('t16'), FF('t33')], cost: 62900000, resources: res([R.and, 1], [RES_NAME.sub, 1]), responsible: R.dir, progress: 35, actualStart: '2026-08-27', notes: 'Termina con el desmontaje. El avance es proporcional al tiempo en obra; el alquiler se factura por mes vencido.' },
     { id: 't31', name: 'Inducción en uso seguro del andamio al personal del cliente', wbsId: 'w153', duration: 1, deps: [FS('t25')], cost: 1200000, resources: res([R.sst, 1]), responsible: R.sst, progress: 100, actualStart: '2026-09-22', actualFinish: '2026-09-22' },
     { id: 't32', name: 'Inspecciones semanales y mantenimiento en obra', wbsId: 'w153', duration: 58, base: { duration: 55 }, deps: [FS('t25')], cost: 13600000, resources: res([R.res, 0.5]), responsible: R.res, progress: 19, actualStart: '2026-09-21', notes: 'Esfuerzo de nivel hasta el inicio del desmontaje.' },
-    { id: 't33', name: 'Desmontaje del andamio (niveles 15 a 1)', wbsId: 'w161', duration: 13, deps: [FS('t29', 11)], cost: 39500000, resources: res([R.cua, 8], [R.sup, 1]), responsible: R.sup, progress: 0, notes: 'Inicia once días hábiles después de la certificación final, cuando el cliente termina los trabajos de fachada.' },
+    { id: 't33', name: 'Desmontaje del andamio (niveles 15 a 1)', wbsId: 'w161', duration: 13, deps: [FS('t29', 11)], cost: 39500000, resources: res([R.cua, 8], [R.sup, 1], [RES_NAME.mal, 1]), responsible: R.sup, progress: 0, notes: 'Inicia once días hábiles después de la certificación final, cuando el cliente termina los trabajos de fachada.' },
     { id: 't34', name: 'Entrega al cliente del frente libre de equipo', wbsId: 'w161', duration: 0, milestone: true, deps: [FS('t33')], cost: 0, resources: [], responsible: R.res, progress: 0 },
-    { id: 't35', name: 'Transporte de retorno a bodega', wbsId: 'w162', duration: 3, deps: [FS('t33')], cost: 11400000, resources: res([R.cam, 1]), responsible: R.log, progress: 0, notes: 'Cargue en obra con camión grúa; tractomulas contratadas con el transportador.' },
+    { id: 't35', name: 'Transporte de retorno a bodega', wbsId: 'w162', duration: 3, deps: [FS('t33')], cost: 11400000, costMode: 'unitario', quantity: 6, unitPrice: 1900000, qtyUnit: 'viaje', resources: res([R.cam, 1], [RES_NAME.tra, 2]), responsible: R.log, progress: 0, notes: 'Cargue en obra con camión grúa; tractomulas contratadas con el transportador. Precios unitarios: seis viajes a COP 1,9 millones (estimación E-30).' },
     { id: 't36', name: 'Inspección de retorno y clasificación de piezas', wbsId: 'w163', duration: 3, deps: [SS('t35', 1)], cost: 4600000, resources: res([R.ope, 4], [R.mon, 1]), responsible: R.log, progress: 0 },
     { id: 't37', name: 'Liquidación de faltantes y daños con el cliente', wbsId: 'w164', duration: 1, deps: [FS('t36')], cost: 1600000, resources: res([R.dir, 0.5], [R.log, 0.5]), responsible: R.dir, progress: 0 },
     { id: 't38', name: 'Acta de cierre, facturación final y lecciones aprendidas', wbsId: 'w114', duration: 3, deps: [SS('t36', 1)], cost: 4200000, resources: res([R.dir, 0.5]), responsible: R.dir, progress: 0 },
@@ -225,6 +287,23 @@
     [R.ins]: 1, [R.dir]: 1, [R.res]: 1, [R.log]: 1, [R.and]: 1,
   };
 
+  /* Categoría de costo de las actividades de precio global (desglose de costos por categoría; estimaciones E-01 a E-32). */
+  const COST_CAT = {
+    t02: 'Mano de obra', t03: 'Mano de obra', t04: 'Servicios', t05: 'Mano de obra', t06: 'Subcontratos', t07: 'Subcontratos',
+    t08: 'Mano de obra', t09: 'Mano de obra', t11: 'Mano de obra', t12: 'Mano de obra', t13: 'Mano de obra', t14: 'Mano de obra',
+    t15: 'Transporte', t16: 'Mano de obra', t18: 'Mano de obra', t19: 'Mano de obra', t20: 'Mano de obra', t21: 'Mano de obra',
+    t22: 'Mano de obra', t23: 'Mano de obra', t24: 'Servicios', t26: 'Servicios', t28: 'Servicios', t30: 'Equipos', t31: 'Servicios',
+    t32: 'Mano de obra', t33: 'Mano de obra', t35: 'Transporte', t36: 'Mano de obra', t37: 'Indirectos', t38: 'Mano de obra',
+  };
+  /* Forma de costeo: todas «global» (precio a todo costo escrito a mano) salvo dos cuyo costo calculado es exactamente el
+     presupuestado: t26 por recursos (1 jornada × COP 1,6 millones) y t35 a precios unitarios (6 viajes × COP 1,9 millones). */
+  const costFields = (t) => {
+    const o = {};
+    if (t.costMode) o.costMode = t.costMode;
+    if (t.costMode === 'unitario') { o.quantity = t.quantity; o.unitPrice = t.unitPrice; o.qtyUnit = t.qtyUnit; }
+    if (COST_CAT[t.id]) o.costCategory = COST_CAT[t.id];
+    return o;
+  };
   /* Actividad completa (forma de SPEC §3). */
   const taskOut = (t, variant) => {
     const b = variant === 'plan' ? t.base || {} : {};
@@ -237,6 +316,7 @@
       deps: t.deps.map((d) => ({ ...d })),
       progress: plan ? 0 : t.progress || 0,
       cost: t.cost,
+      ...costFields(t),
       resources: pick('resources', []).map((r) => ({ ...r })),
       responsible: t.responsible || '',
       actualStart: plan ? null : t.actualStart || null,
@@ -772,6 +852,7 @@
           { id: 'costs', data: costsData() },
           { id: 'raci', data: raciData() },
           { id: 'quality', data: qualityData() },
+          { id: 'resources', data: resourcesData() },
         ],
         baselines: baselinesData(docs.find((d) => d.id === 'enunciado-alcance') || null),
         flows: flowsData(),

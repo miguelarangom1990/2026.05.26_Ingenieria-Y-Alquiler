@@ -97,7 +97,66 @@
     [RS.tie]: 1, [RS.pil]: 1, [RS.cim]: 2, [RS.est2]: 3, [RS.for]: 2, [RS.gru]: 2, [RS.mam]: 3, [RS.ins]: 6, [RS.aca]: 6, [RS.fac]: 2,
     [RS.urb]: 3, [RS.sup]: 1,
   };
-  const res = (...pairs) => pairs.map(([name, units]) => ({ name, units }));
+  /* ---------------------------------------------------------------- catálogo de recursos (SPEC §10)
+     Un recurso por cada nombre de las asignaciones del cronograma (mismo nombre; las asignaciones llevan resourceId), con las
+     tarifas de la estructura de desglose de recursos (EDR, marzo de 2025): las mensuales se dividen entre 26 días hábiles
+     (calendario de lunes a sábado) y las cuadrillas suman los jornales de oficiales y ayudantes. Disponibilidad: la de los
+     límites del cronograma (resourceLimits). Consumibles: concreto y acero de la estructura de la etapa 1 con las cantidades de
+     los requisitos de recursos (7.500 m³ y 605 t). No planificados: el subcontrato de la pantalla anclada (CC-003, aprobado) y
+     el turno extendido de formaleta (acción correctiva del INC-006); ninguno cambia costos registrados ni consume reserva (la
+     reserva disponible ya descuenta los COP 600 millones del CC-003). El equipo de la capa ágil lo agrega 96 (layer.team).
+     Tipos: preset «Construcción y obra» más consultoría de diseños y equipo comercial y digital. */
+  const RES_TYPES = () => [
+    ...(PM.RES && PM.RES.PRESETS && PM.RES.PRESETS.construccion ? PM.clone(PM.RES.PRESETS.construccion.types) : []),
+    { id: 'diseno', name: 'Consultoría de diseños', kind: 'trabajo', edr: 'Servicios' },
+    { id: 'comercial', name: 'Equipo comercial y digital', kind: 'trabajo', edr: 'Personal' },
+  ];
+  const CONSTRUCTOR = 'Constructor (administración delegada, contrato CT-015)';
+  /* [clave, nombre, tipo, subtipo, unidad, disponibilidad, costo unitario, origen, extra] */
+  const CATALOG = [
+    ['ger', RS.ger, 'profesional', 'Gerencia del promotor', 'persona', 1, 1231000, 'Interno', { notes: 'EDR 1.1: COP 32 millones al mes con prestaciones ÷ 26 días hábiles; dedicación completa.' }],
+    ['est', RS.est, 'profesional', 'Gerencia del promotor', 'persona', 1, 692000, 'Interno', { notes: 'EDR 1.2: COP 9 millones al mes con dedicación del 50 % (COP 18 millones a tiempo completo ÷ 26 días hábiles).' }],
+    ['abo', RS.abo, 'profesional', 'Asesoría legal y tributaria', 'persona', 1, 615000, 'Interno', { notes: 'Dedicación del 25 % (asignaciones de recursos); tarifa de referencia de COP 16 millones al mes a tiempo completo ÷ 26 días hábiles.' }],
+    ['com', RS.com, 'comercial', 'Fuerza de ventas', 'persona', 1, 692000, 'Interno', { notes: 'EDR 1.3: COP 18 millones al mes con prestaciones ÷ 26 días hábiles. Dueño del producto del release de canales digitales.' }],
+    ['ase', RS.ase, 'comercial', 'Fuerza de ventas', 'persona', 6, 115000, 'Contratado', { supplier: 'Comercializadora', notes: 'Salario básico con prestaciones (unos COP 3 millones al mes ÷ 26 días hábiles); la comisión por venta está en el rubro de comisiones de ventas. Seis en los lanzamientos y cuatro en las preventas.' }],
+    ['arq', RS.arq, 'diseno', 'Arquitectura', 'equipo', 1, 6000000, 'Contratado', { supplier: 'Firma de arquitectura', notes: 'Consultoría a precio fijo por fases (paquete 1.3); tarifa de referencia del equipo por día hábil.' }],
+    ['ing', RS.ing, 'diseno', 'Ingenierías', 'equipo', 2, 3500000, 'Contratado', { supplier: 'Firmas de geotecnia, estructuras y redes', notes: 'Consultorías a precio fijo (paquete 1.3); tarifa de referencia de cada equipo por día hábil.' }],
+    ['dob', RS.dob, 'profesional', 'Dirección de obra', 'persona', 1, 846000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'EDR 1.4: COP 22 millones al mes ÷ 26 días hábiles; reembolsable dentro de la administración de obra.' }],
+    ['res', RS.res, 'profesional', 'Dirección de obra', 'persona', 3, 365000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'EDR 1.5: COP 9,5 millones al mes ÷ 26 días hábiles: uno para la edificación y otro para el urbanismo.' }],
+    ['sst', RS.sst, 'profesional', 'Dirección de obra', 'persona', 2, 269000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'EDR 1.6: COP 7 millones al mes ÷ 26 días hábiles; licencia en SST y coordinador de trabajo en alturas.' }],
+    ['sup', RS.sup, 'subcontrato', 'Supervisión e interventoría', 'servicio', 1, 654000, 'Contratado', { supplier: 'Firma de supervisión técnica independiente', notes: 'EDR 5.3: COP 17 millones al mes a precio fijo ÷ 26 días hábiles (Ley 1796 de 2016).' }],
+    ['tie', RS.tie, 'maquinaria', 'Movimiento de tierras', 'frente', 1, 12000000, 'Alquilado', { supplier: CONSTRUCTOR, notes: 'Dos excavadoras de 20 t (EDR 2.3: COP 230.000 por hora), un bulldozer, seis volquetas de 14 m³ y un vibrocompactador, con operadores y combustible.' }],
+    ['pil', RS.pil, 'maquinaria', 'Cimentación profunda', 'equipo', 1, 9500000, 'Contratado', { supplier: 'Subcontratista de pilas', notes: 'EDR 2.4: COP 380.000 por metro perforado, con un rendimiento de unos 25 m por día.' }],
+    ['for', RS.for, 'maquinaria', 'Formaleta e izaje', 'juego', 2, 2885000, 'Alquilado', { supplier: 'Proveedor de formaleta de aluminio', notes: 'EDR 2.1: COP 75 millones al mes ÷ 26 días hábiles; muros y losa de un piso de un bloque, con asesoría técnica del proveedor.' }],
+    ['gru', RS.gru, 'maquinaria', 'Formaleta e izaje', 'grúa', 2, 1462000, 'Alquilado', { supplier: 'Proveedor de grúas torre', notes: 'EDR 2.2: COP 38 millones al mes ÷ 26 días hábiles; pluma de 50 m y 1,5 t en punta, con operador.' }],
+    ['urb', RS.urb, 'maquinaria', 'Urbanismo y redes', 'frente', 3, 3800000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Retroexcavadora, vibrocompactador y cuadrillas de redes y de pavimentos.' }],
+    ['cim', RS.cim, 'mano-obra', 'Obra gris', 'cuadrilla', 2, 630000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Un oficial y cuatro ayudantes: jornales de COP 190.000 y COP 110.000 (EDR 1.7 y 1.8).' }],
+    ['est2', RS.est2, 'mano-obra', 'Obra gris', 'cuadrilla', 3, 2460000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Unas 18 personas por bloque (seis oficiales y doce ayudantes) para formaleta, refuerzo y vaciado de un piso cada 8,5 días hábiles.' }],
+    ['mam', RS.mam, 'mano-obra', 'Obra gris', 'cuadrilla', 3, 600000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Dos oficiales de mampostería y dos ayudantes.' }],
+    ['ins', RS.ins, 'mano-obra', 'Instalaciones técnicas', 'cuadrilla', 6, 680000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Tres técnicos con matrícula del CONTE o instaladores de gas certificados y un ayudante.' }],
+    ['aca', RS.aca, 'mano-obra', 'Acabados y fachadas', 'cuadrilla', 6, 600000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Dos oficiales y dos ayudantes de pañetes, estucos, pintura, enchapes y carpintería.' }],
+    ['fac', RS.fac, 'mano-obra', 'Acabados y fachadas', 'cuadrilla', 2, 680000, 'Contratado', { supplier: CONSTRUCTOR, notes: 'Tres oficiales certificados en trabajo en alturas y un ayudante; montaje desde andamio multidireccional.' }],
+    ['con', 'Concreto premezclado de 28 MPa fluido', 'material', 'Concreto y acero', 'm³', null, 485000, 'Compra', { supplier: 'Planta de concreto premezclado', notes: 'EDR 3.1: para muros y losas, con bombeo (NTC 3318). Etapa 1: unos 7.500 m³ (requisitos de recursos).' }],
+    ['ace', 'Acero de refuerzo de 420 MPa', 'material', 'Concreto y acero', 'kg', null, 4100, 'Compra', { supplier: 'Siderúrgica (barras figuradas en planta)', notes: 'EDR 3.2: barras corrugadas (NTC 2289). Etapa 1: unos 605.000 kg (requisitos de recursos).' }],
+    /* no planificados */
+    ['pan', 'Subcontratista de pantalla anclada y drenajes', 'subcontrato', 'Geotecnia y contención', 'm', null, 10000000, 'Contratado', { kind: 'consumible', planned: false, reason: 'cambio-alcance', changeRef: 'CC-003', status: 'liberado', addedDate: '2026-05-19', supplier: 'Subcontratista de anclajes y pantallas', notes: 'Pantalla anclada de 60 m y drenajes del talud oriental después del deslizamiento del 7 de mayo de 2026 (INC-004, materialización del R-004). Aprobada con el CC-003 el 19 de mayo por COP 600 millones de la reserva para contingencias, sin nueva línea base. Subcontrato a precios unitarios: COP 10 millones por metro de pantalla con anclajes y drenajes.' }],
+    ['tur', 'Turno extendido de formaleta del bloque B', 'mano-obra', 'Obra gris', 'cuadrilla', 1, 910000, 'Contratado', { planned: false, reason: 'rendimiento', addedDate: '2026-09-14', availableFrom: '2026-09-14', supplier: CONSTRUCTOR, notes: 'Respuesta al INC-006 (rotación de oficiales de formaleta): turno hasta las 8:00 p. m. en el bloque B desde el 14 de septiembre de 2026, sin maquinaria ruidosa después de las 7:00 p. m. Seis oficiales y seis ayudantes con tres horas extra diarias. Acción correctiva por menor rendimiento: su costo es una variación y no cambia la línea base.' }],
+  ];
+  const RES_ID = Object.fromEntries(CATALOG.map(([key, name]) => [name, 'rec-' + key]));
+  /* asignaciones de trabajo (unidades por día) y de consumibles (cantidad total), enlazadas al catálogo */
+  const res = (...pairs) => pairs.map(([name, units]) => ({ resourceId: RES_ID[name] || null, name, units }));
+  const qty = (key, q) => { const c = CATALOG.find((x) => x[0] === key); return { resourceId: 'rec-' + key, name: c[1], units: 0, qty: q }; };
+  const resItem = ([key, name, typeId, subtype, unit, availability, unitCost, origin, x], i) => ({
+    id: 'rec-' + key, code: 'REC-' + String(i + 1).padStart(3, '0'), name, typeId, subtype, ...(x.kind ? { kind: x.kind } : {}),
+    unit, availability, availableFrom: x.availableFrom || null, availableTo: x.availableTo || null, unitCost,
+    origin, supplier: x.supplier || '', contract: x.contract || '', responsible: x.responsible || '', status: x.status || 'disponible',
+    planned: x.planned !== false, addedDate: x.addedDate || LB0_DATE, reason: x.reason || null, riskId: x.riskId || null,
+    reserveAmount: x.reserveAmount === undefined ? null : x.reserveAmount, changeRef: x.changeRef || null,
+    agileTeam: !!x.agileTeam, dedication: x.dedication === undefined ? 100 : x.dedication, hoursPerDay: x.hoursPerDay || 8,
+    absences: (x.absences || []).map((a) => ({ ...a })), notes: x.notes || '',
+  });
+  /* team: recursos de la capa ágil (96) con el mismo formato de CATALOG; continúan la numeración REC-### */
+  const resourcesData = (team) => ({ preset: 'construccion', types: RES_TYPES(), items: [...CATALOG, ...(team || [])].map(resItem) });
 
   /* ---------------------------------------------------------------- capítulos de costos directos (LB1, millones)
      Totales del presupuesto de factibilidad; la LB1 agrega al capítulo de urbanismo la mitigación vial del CC-002.
@@ -463,13 +522,13 @@
   M('K01', 'w1511', 'Acta de inicio de obra de la etapa 1', { b0: '2026-02-16', p: '2026-03-16', a: ['2026-03-16', '2026-03-16'], deps: ['P01', 'C06', 'D15'], resp: ROLE.ger });
   A('K02', 'w1511', 'Preliminares de la etapa 1: cerramiento, campamento, topografía y plan de manejo de tránsito', { ...E1('2026-02-17', '2026-03-13'), a: ['2026-03-17', '2026-04-10'], deps: ['K01'], cost: 1020, k: 'dir', cap: { pre: 1020 }, st: 'E1', resp: ROLE.con, res: res([RS.res, 1], [RS.cim, 1]), f: 1.03 });
   A('K03', 'w1511', 'Movimiento de tierras, contención y estabilización de taludes de la etapa 1', { ...E1('2026-03-02', '2026-05-29'), a: ['2026-03-30', '2026-07-17'], deps: ['K02:SS+11'], cost: 2859, k: 'dir', cap: { tie: 2859 }, st: 'E1', resp: ROLE.con, res: res([RS.tie, 1]), f: 1.08, notes: 'Lluvias de abril y mayo y deslizamiento superficial del talud oriental (INC-004): terminó tres semanas tarde.' });
-  A('K03C', 'w1511', 'Contención adicional del talud oriental: pantalla anclada y drenajes (CC-003)', { b0: null, lb1: false, a: ['2026-05-19', '2026-07-11'], deps: ['K03:SS+42'], cost: 600, k: 'dir', cap: { tie: 600 }, st: 'E1', resp: ROLE.con, notes: 'Aprobada con el CC-003 el 19 de mayo de 2026 con cargo a la reserva para contingencias (COP 600 millones). No está en la LB1.' });
+  A('K03C', 'w1511', 'Contención adicional del talud oriental: pantalla anclada y drenajes (CC-003)', { b0: null, lb1: false, a: ['2026-05-19', '2026-07-11'], deps: ['K03:SS+42'], cost: 600, k: 'dir', cap: { tie: 600 }, st: 'E1', resp: ROLE.con, res: [qty('pan', 60)], cm: { costMode: 'unitario', quantity: 60, unitPrice: 10 * MM, qtyUnit: 'm' }, notes: 'Aprobada con el CC-003 el 19 de mayo de 2026 con cargo a la reserva para contingencias (COP 600 millones). No está en la LB1. Subcontrato a precios unitarios: 60 m de pantalla con anclajes y drenajes a COP 10 millones por metro.' });
   A('K04', 'w1511', 'Pilas pre-excavadas de la etapa 1 (bloques A y B y plataforma)', { ...E1('2026-04-06', '2026-06-05'), a: ['2026-05-04', '2026-07-11'], deps: ['K03:SS+30'], cost: 2175, k: 'dir', cap: { cim: 2175 }, st: 'E1', resp: ROLE.con, res: res([RS.pil, 1], [RS.cim, 1]), f: 1.05 });
   A('K05', 'w1511', 'Zapatas, dados y vigas de amarre de la etapa 1', { ...E1('2026-05-04', '2026-07-10'), a: ['2026-06-01', '2026-08-21'], deps: ['K04:SS+24'], cost: 1450, k: 'dir', cap: { cim: 1450 }, st: 'E1', resp: ROLE.con, res: res([RS.cim, 1]), f: 1.05 });
-  A('K06', 'w1512', 'Estructura de la plataforma de parqueaderos de la etapa 1', { ...E1('2026-05-19', '2026-08-07'), a: ['2026-06-16', '2026-09-18'], deps: ['K05:SS+12'], cost: 2601, k: 'dir', cap: { est: 2601 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1]), f: 1.05 });
-  A('K07', 'w1512', 'Estructura del bloque A (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-06-16', '2026-09-04'), a: ['2026-07-13', null], prog: 75, deps: ['K06:SS+21'], cost: 3774, k: 'dir', cap: { est: 3774 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), f: 1.05, notes: 'Piso 6 de 8 al corte; un piso cada 11 días hábiles (8,5 planificados), por la rotación de oficiales (INC-006).' });
+  A('K06', 'w1512', 'Estructura de la plataforma de parqueaderos de la etapa 1', { ...E1('2026-05-19', '2026-08-07'), a: ['2026-06-16', '2026-09-18'], deps: ['K05:SS+12'], cost: 2601, k: 'dir', cap: { est: 2601 }, st: 'E1', resp: ROLE.con, res: [...res([RS.est2, 1]), qty('con', 2500), qty('ace', 200000)], f: 1.05 });
+  A('K07', 'w1512', 'Estructura del bloque A (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-06-16', '2026-09-04'), a: ['2026-07-13', null], prog: 75, deps: ['K06:SS+21'], cost: 3774, k: 'dir', cap: { est: 3774 }, st: 'E1', resp: ROLE.con, res: [...res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), qty('con', 2220), qty('ace', 180000)], f: 1.05, notes: 'Piso 6 de 8 al corte; un piso cada 11 días hábiles (8,5 planificados), por la rotación de oficiales (INC-006).' });
   M('K08', 'w1512', 'Fin de la estructura del bloque A', { b0: '2026-09-04', p: '2026-10-02', deps: ['K07'], resp: ROLE.con });
-  A('K09', 'w1512', 'Estructura del bloque B (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-07-27', '2026-10-16'), a: ['2026-08-24', null], prog: 36, deps: ['K07:SS+36'], cost: 4727, k: 'dir', cap: { est: 4727 }, st: 'E1', resp: ROLE.con, res: res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), f: 1.05 });
+  A('K09', 'w1512', 'Estructura del bloque B (8 pisos, muros vaciados con formaleta industrializada)', { ...E1('2026-07-27', '2026-10-16'), a: ['2026-08-24', null], prog: 36, deps: ['K07:SS+36'], cost: 4727, k: 'dir', cap: { est: 4727 }, st: 'E1', resp: ROLE.con, res: [...res([RS.est2, 1], [RS.for, 1], [RS.gru, 1]), qty('con', 2780), qty('ace', 225000)], f: 1.05 });
   M('K10', 'w1512', 'Fin de la estructura del bloque B', { b0: '2026-10-16', p: '2026-11-13', deps: ['K09'], resp: ROLE.con });
   /* bloque A */
   A('K11', 'w1513', 'Mampostería del bloque A', { ...E1('2026-08-10', '2026-11-13'), a: ['2026-09-07', null], fc: [null, '2027-01-08'], deps: ['K07:SS+48'], cost: 775, k: 'dir', cap: { mam: 775 }, st: 'E1', resp: ROLE.con, res: res([RS.mam, 1]), f: 1.06 });
@@ -664,7 +723,7 @@
     duration: x.duration, milestone: !!x.def.ms,
     start: x.def.fix ? x.dt.s : null,
     deps: x.deps.map((d) => ({ ...d })),
-    progress: 0, cost: 0, resources: (x.def.res || []).map((r) => ({ ...r })),
+    progress: 0, cost: 0, ...(x.def.cm || {}), resources: (x.def.res || []).map((r) => ({ ...r })),
     responsible: x.def.resp || '', actualStart: null, actualFinish: null, notes: '',
     ...extra,
   });
@@ -1148,6 +1207,8 @@
     const nodes = wbsNodes(schedule.tasks).map((n) => (layer && layer.wbs[n.id] ? { ...n, ...layer.wbs[n.id] } : n));
     const costs = costsData();
     if (layer) costs.actuals = layer.actuals(costs.actuals);
+    /* el equipo de la capa ágil trabaja en el release (C02D, costo 0 a precio global: las asignaciones no cambian su costo) */
+    if (layer && Array.isArray(layer.releaseResources)) schedule.tasks = schedule.tasks.map((t) => (t.id === 'C02D' ? { ...t, resources: layer.releaseResources.map((r) => ({ ...r })) } : t));
     return {
       format: 'gestor-pmbok',
       version: 1,
@@ -1161,6 +1222,7 @@
           { id: 'raci', data: layer ? layer.raci(raciData()) : raciData() },
           { id: 'quality', data: qualityData() },
           ...(layer ? [{ id: 'agile', data: layer.agile }] : []),
+          { id: 'resources', data: resourcesData(layer && layer.team) },
         ],
         baselines: baselinesData(docs.find((d) => d.id === 'enunciado-alcance') || null),
         flows: flowsData(),

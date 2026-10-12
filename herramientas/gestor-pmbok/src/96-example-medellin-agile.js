@@ -26,8 +26,10 @@
      (PM.agile.releaseActualCost) solo le imputa esos.
 
    Expone PM.exampleAgile.medellin(ctx) → {lifecycle, description, wbs, agile,
-   backlog, actuals(list), raci(base), facts}; 91-example-medellin.js lo
-   incorpora al construir el ejemplo. Agrega a PM.exampleDocs.medellin los
+   backlog, actuals(list), raci(base), team, releaseResources, facts};
+   91-example-medellin.js lo incorpora al construir el ejemplo (team: el equipo
+   de la capa en el catálogo de recursos; releaseResources: sus asignaciones en
+   la actividad C02D, de precio global y costo 0). Agrega a PM.exampleDocs.medellin los
    documentos ágiles (visión, definición de listo y de terminado, plan de
    releases, planificación de las iteraciones 8 y 9, revisión y retrospectiva
    de la iteración 8) y envía las lecciones de esa retrospectiva al registro de
@@ -395,6 +397,30 @@
   }
 
   PM.exampleAgile = PM.exampleAgile || {};
+  /* ---------------------------------------------------------------- equipo de la capa ágil (catálogo de recursos, SPEC §10)
+     Mismo formato que el catálogo de 91: [clave, nombre, tipo, subtipo, unidad, disponibilidad, costo unitario, origen, extra].
+     Los cuatro integrantes del equipo de desarrollo (agencia digital y analista de CRM) alimentan la capacidad sugerida de las
+     iteraciones (PM.res.teamCapacity): trabajan de lunes a viernes, 17 de los 20 días hábiles de una iteración del calendario de
+     obra (lunes a sábado), lo que se registra como dedicación del 85 %. El diseñador de contenidos tuvo 3 días de vacaciones en
+     la iteración 8 (65 días-persona, planificación de la iteración 8). El segundo desarrollador web de septiembre y octubre
+     (planificación de la iteración 9) es un recurso no planificado: refuerzo porque al ritmo de las iteraciones 6 a 8 el release
+     necesitaba una iteración más; su costo es una variación del release y no cambia su línea base. Tarifas por día hábil de la
+     parte de equipo de las facturas mensuales de la agencia (contrato CT-013); la pauta digital no es un recurso de trabajo. */
+  const DIGITAL_SUB = 'Canales digitales (agencia y CRM)';
+  const AGENCY = 'Agencia digital (contrato CT-013)';
+  const TEAM_ON = '2026-02-27';
+  const TEAM = [
+    ['ag-web', WHO.web, 'comercial', DIGITAL_SUB, 'persona', 1, 210000, 'Contratado', { supplier: AGENCY, agileTeam: true, dedication: 85, hoursPerDay: 8, addedDate: TEAM_ON, notes: 'Sitio web, páginas por tipología, disponibilidad y separación en línea. Lunes a viernes: 17 de los 20 días hábiles de cada iteración (dedicación del 85 %).' }],
+    ['ag-dis', WHO.dis, 'comercial', DIGITAL_SUB, 'persona', 1, 170000, 'Contratado', { supplier: AGENCY, agileTeam: true, dedication: 85, hoursPerDay: 8, addedDate: TEAM_ON, absences: [{ id: 'aus-dis-1', from: '2026-09-02', to: '2026-09-04', note: 'Vacaciones (iteración 8)' }], notes: 'Piezas, renders con leyendas y recorridos 360°. Lunes a viernes (dedicación del 85 %); 3 días de vacaciones en la iteración 8.' }],
+    ['ag-pau', WHO.pau, 'comercial', DIGITAL_SUB, 'persona', 1, 180000, 'Contratado', { supplier: AGENCY, agileTeam: true, dedication: 85, hoursPerDay: 8, addedDate: TEAM_ON, notes: 'Campañas por tipología y medición del costo por prospecto y por venta. Lunes a viernes (dedicación del 85 %).' }],
+    ['ag-crm', WHO.crm, 'comercial', DIGITAL_SUB, 'persona', 1, 150000, 'Interno', { agileTeam: true, dedication: 85, hoursPerDay: 8, addedDate: TEAM_ON, notes: 'CRM, embudo de ventas y calificación de prospectos con la comercializadora. Lunes a viernes (dedicación del 85 %).' }],
+    ['ag-coo', WHO.coo, 'comercial', DIGITAL_SUB, 'persona', 1, 230000, 'Interno', { dedication: 50, hoursPerDay: 8, addedDate: TEAM_ON, notes: 'Scrum Master / facilitador del release; no cuenta en la capacidad del equipo de desarrollo.' }],
+    ['ag-web2', 'Segundo desarrollador web de la agencia', 'comercial', DIGITAL_SUB, 'persona', 1, 210000, 'Contratado', { supplier: AGENCY, agileTeam: true, dedication: 85, hoursPerDay: 8, planned: false, reason: 'rendimiento', addedDate: '2026-09-16', availableFrom: '2026-09-17', availableTo: '2026-10-31', notes: 'Refuerzo de septiembre y octubre para la separación en línea (planificación de la iteración 9: 17 días-persona más). Al ritmo de las iteraciones 6 a 8 el release necesitaba una iteración más: es una acción correctiva y su costo es una variación; no cambia la línea base del release.' }],
+  ];
+  /* asignaciones del equipo en la actividad del release (C02D, costo 0 a precio global): unidades por día hábil */
+  const RELEASE_RESOURCES = [['ag-web', 0.85], ['ag-dis', 0.85], ['ag-pau', 0.85], ['ag-crm', 0.85], ['ag-coo', 0.5]]
+    .map(([key, units]) => ({ resourceId: 'rec-' + key, name: TEAM.find((x) => x[0] === key)[1], units }));
+
   PM.exampleAgile.medellin = function (ctx) {
     const cal = (ctx && ctx.cal) || PM.cal.make({ workweek: 6, holidaysCO: true, extraHolidays: [] }, '2025-01-13');
     return {
@@ -405,6 +431,8 @@
       backlog: buildBacklog(cal),
       actuals: splitActuals,
       raci: raciWithAgile,
+      team: TEAM.map((r) => [...r.slice(0, 8), { ...r[8], absences: (r[8].absences || []).map((a) => ({ ...a })) }]),
+      releaseResources: RELEASE_RESOURCES.map((r) => ({ ...r })),
       facts: { releaseId: REL, taskId: RELEASE_TASK, wbsId: WBS, releaseWbs: RELEASE_WBS, budget: BUDGET, basePoints: BASE_POINTS, plannedSprints: PLANNED_SPRINTS, digital: Object.fromEntries(Object.entries(DIGITAL).map(([k, v]) => [k, Math.round(v * M)])), raciRoles: RACI_ROLES.map(([id, name]) => ({ id, name })), raciEvents: RACI_EVENTS.map(([a]) => a), statusDate: CUT },
     };
   };

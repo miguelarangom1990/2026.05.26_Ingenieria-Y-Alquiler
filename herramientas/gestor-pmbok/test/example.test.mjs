@@ -9,7 +9,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openApp, root } from './harness.mjs';
+import { openApp, root, errorCards } from './harness.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
@@ -88,7 +88,7 @@ async function validateInPage(page) {
     ok(deps.filter((d) => d.type === 'FF').length === 1 && deps.filter((d) => d.type === 'SS' && d.lag > 0).length >= 3 && deps.filter((d) => d.type === 'FS').length > deps.length / 2, 'mayoría FS, varias SS con desfase y una FF');
     const ms = tasks.filter((t) => t.milestone);
     for (const re of [/^Acta de constitución aprobada/, /^Diseño aprobado/, /^Andamio certificado niveles 1 a 5/, /^Certificación final/, /^Entrega al cliente/, /^Cierre del proyecto/]) ok(ms.some((t) => re.test(t.name) && t.duration === 0), 'hito ' + re.source);
-    ok(tasks.every((t) => t.resources.every((r) => r.name && r.units > 0)), 'recursos con nombre y unidades');
+    ok(tasks.every((t) => t.resources.every((r) => r.name && (r.units > 0 || r.qty > 0))), 'recursos con nombre y unidades por día (trabajo) o cantidad (consumibles)');
     const sched = PM.calc.computeSchedule(schedule, meta.start);
     ok(sched.errors.length === 0, 'sin ciclos ni errores en el CPM', sched.errors);
     ok(sched.finish >= '2026-12-10' && sched.finish <= '2026-12-24', 'fin calculado entre el 10 y el 24 de diciembre', sched.finish);
@@ -167,6 +167,41 @@ async function validateInPage(page) {
     ok(evm.spi >= 0.90 && evm.spi <= 0.96, 'SPI entre 0,90 y 0,96', evm.spi);
     ok(evm.cpi >= 0.95 && evm.cpi <= 0.99, 'CPI entre 0,95 y 0,99', evm.cpi);
     ok(meta.budget === lb1.data.cost.bac + lb1.data.cost.contingency + lb1.data.cost.management, 'presupuesto = BAC + reservas', meta.budget);
+
+    /* Catálogo de recursos (SPEC §10): un recurso con tipo por cada nombre de las asignaciones, formas de costeo con el mismo
+       costo, recursos no planificados con su motivo y valor ganado idéntico al de antes del catálogo */
+    const resources = await P('/tools/resources');
+    ok(resources && resources.preset === 'alquiler' && resources.types.length === PM.RES.PRESETS.alquiler.types.length && resources.items.length >= 20, 'catálogo de recursos con los tipos del preset «Alquiler y montaje de equipos»', resources && { preset: resources.preset, n: resources.items.length });
+    const cat = PM.res.catalog(resources, schedule);
+    const typeIds = new Set(cat.types.map((t) => t.id));
+    const STATUS = PM.RES.STATUS.map((x) => x.value);
+    ok(resources.items.every((it) => typeIds.has(it.typeId) && /^REC-\d{3}$/.test(it.code) && it.unit && PM.RES.ORIGINS.includes(it.origin) && STATUS.includes(it.status) && it.subtype && it.notes) && new Set(resources.items.map((i) => i.code)).size === resources.items.length, 'cada recurso con tipo del proyecto, subtipo, código único, unidad, origen, estado y nota', resources.items.filter((it) => !typeIds.has(it.typeId) || !it.subtype).map((it) => it.name));
+    const asg = tasks.flatMap((t) => t.resources.map((a) => ({ t, a, it: cat.resolve(a) })));
+    ok(asg.length > 40 && asg.every((x) => x.it && !x.it.virtual && x.a.resourceId === x.it.id && x.it.name === x.a.name && typeIds.has(x.it.typeId)), 'cada asignación resuelve a un recurso del catálogo con tipo (mismo nombre y resourceId)', asg.filter((x) => !x.it || x.it.virtual || x.a.resourceId !== x.it.id).map((x) => x.t.id + ' ' + x.a.name));
+    ok(asg.every((x) => (cat.kindOf(x.it) === 'trabajo' ? x.a.units > 0 : x.a.qty > 0) && PM.isNum(x.it.unitCost)), 'recursos de trabajo con unidades por día, consumibles con cantidad y todos con costo unitario');
+    ok(Object.entries(schedule.settings.resourceLimits).every(([n, v]) => { const it = cat.byKey.get(PM.res.key(n)); return it && !it.virtual && it.availability === v; }), 'disponibilidad del catálogo = límites de recursos del cronograma');
+    ok(cat.byKey.get(PM.res.key('Cuadrilla de montaje')).subtype === 'Montadores certificados' && cat.byKey.get(PM.res.key('Cuadrilla de montaje')).unitCost === 380000 && cat.byKey.get(PM.res.key('Persona competente (inspector)')).unitCost === 1600000 && cat.byKey.get(PM.res.key('Tractomula con conductor')).unitCost === 1900000, 'tarifas coherentes con la EDR y las estimaciones (montador, inspector y tractomula)');
+    const modes = tasks.filter((t) => (t.costMode || 'global') !== 'global');
+    ok(modes.map((t) => t.id + ':' + t.costMode).join() === 't26:recursos,t35:unitario' && modes.every((t) => PM.res.taskCost(t, cat).total === t.cost) && tasks.every((t) => !t.costMode || PM.RES.COST_MODES.some((m) => m.value === t.costMode)), 'formas de costeo: t26 por recursos y t35 a precios unitarios (6 viajes × COP 1,9 millones), con el mismo costo; las demás a precio global', modes.map((t) => [t.id, t.costMode, PM.res.taskCost(t, cat).total, t.cost]));
+    ok(tasks.filter((t) => t.cost > 0).every((t) => PM.RES.COST_CATEGORIES.includes(t.costCategory)), 'categoría de costo en cada actividad con presupuesto');
+    const eff = PM.res.applyCosts(schedule, resources);
+    ok(eff.tasks.every((t, i) => t.cost === tasks[i].cost), 'los costos calculados no cambian el presupuesto de ninguna actividad');
+    const evmEff = PM.calc.evm({ sched: PM.calc.computeSchedule(eff, meta.start), costBaseline: actives.cost, costs, statusDate: st });
+    const EVM_EXPECTED = { bac: 452000000, pv: 213944791.82575187, ev: 198863000, ac: 204770000, spi: 0.929506151110071, cpi: 0.9711530009278703, eac: 465426147.64938676 };
+    const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    ok(Object.entries(EVM_EXPECTED).every(([k, v]) => near(evm[k], v) && near(evmEff[k], v)), 'valor ganado idéntico al esperado (BAC, PV, EV, AC, SPI, CPI y EAC), con y sin las formas de costeo', Object.keys(EVM_EXPECTED).map((k) => [k, evm[k], evmEff[k]]));
+    const unpl = resources.items.filter((i) => i.planned === false);
+    const reasonOf = (i) => PM.RES.REASONS.find((r) => r.value === i.reason);
+    ok(unpl.length === 3 && unpl.every((i) => reasonOf(i) && !reasonOf(i).baseline && D.valid(i.addedDate) && i.addedDate > '2026-08-06' && i.addedDate <= st), 'tres recursos no planificados, agregados después de la LB0, con motivo que no cambia la línea base', unpl.map((i) => [i.name, i.reason, i.addedDate]));
+    const used = PM.sum(unpl.filter((i) => i.reason === 'riesgo'), (i) => i.reserveAmount);
+    ok(used === 6080000 && unpl.filter((i) => i.reason === 'riesgo').map((i) => i.riskId).sort().join() === 'R-001,R-003' && costs.reserves.contingency - used === 16520000 && unpl.some((i) => i.reason === 'sustitucion'), 'consumo de la reserva para contingencias: COP 6,08 millones (R-003 diagonales y R-001 jornada extendida); quedan COP 16,52 millones', used);
+    ok(unpl.every((i) => !asg.some((x) => x.it.id === i.id) || i.reason === 'sustitucion'), 'los no planificados que consumen reserva no suman costo a ninguna actividad (su costo ya está en los costos reales)');
+    /* sobreasignaciones con la disponibilidad del catálogo (ausencias, rangos): las mismas que con los límites del cronograma */
+    const overBy = (avail) => { const daily = new Map(); for (const t of sched.tasks) { if (t.milestone || t.duration <= 0) continue; for (const a of t.resources) { const it = cat.resolve(a); if (cat.kindOf(it) !== 'trabajo') continue; for (let i = t.es; i < t.ef; i++) { const k = it.id + '|' + sched.cal.dateOf(i); daily.set(k, (daily.get(k) || 0) + a.units); } } } return [...daily].filter(([k, v]) => { const [id, d] = k.split('|'); const lim = avail(cat.byId.get(id), d); return lim !== null && v > lim + 1e-9; }).map(([k]) => k).sort(); };
+    const overCat = overBy((it, d) => PM.res.availableOn(it, d));
+    const overLim = overBy((it) => (it.name in schedule.settings.resourceLimits ? schedule.settings.resourceLimits[it.name] : null));
+    ok(overCat.join() === overLim.join() && overCat.every((k) => k.startsWith('rec-cua|')), 'sobreasignaciones del catálogo = las de los límites (solo la cuadrilla, advertida en las notas de t22)', { overCat, overLim });
+    out.resources = { items: resources.items.length, unplanned: unpl.length, used };
 
     /* RACI */
     const raci = await P('/tools/raci');
@@ -262,6 +297,18 @@ async function validateInPage(page) {
         const revs = await PM.store.list(PM.paths.revs(pid, 'registro-riesgos'));
         ok(revs.map((r) => r.data.rev).sort().join() === '0,1', 'revisiones 0 y 1 del registro de riesgos', revs.map((r) => r.data.rev));
         ok(docs.find((x) => x.id === 'registro-riesgos').data.rev === '1', 'registro de riesgos en rev. 1');
+        /* estructura de desglose de los riesgos completa: cada riesgo (y cada revisión) con una subcategoría del plan */
+        const planRows = ((docs.find((x) => x.id === 'plan-gestion-riesgos') || { data: { fields: {} } }).data.fields.edrRiesgos) || [];
+        const risks = docs.find((x) => x.id === 'registro-riesgos').data.fields.riesgos;
+        const n2 = new Set(planRows.map((r) => PM.res.key(r.nivel2)));
+        ok(planRows.length >= 8 && risks.every((k) => n2.has(PM.res.key(k.subcategoria))) && revs.every((r) => r.data.fields.riesgos.every((k) => n2.has(PM.res.key(k.subcategoria)))), 'cada riesgo del registro (y de sus revisiones) tiene una subcategoría del plan de gestión de los riesgos', risks.filter((k) => !n2.has(PM.res.key(k.subcategoria))).map((k) => k.id));
+        const rbr = PM.res.riskTree({ planRows, risks });
+        const leaves = []; const walk = (n, path) => { if (n.kind === 'leaf') leaves.push(path); n.children.forEach((c) => walk(c, path.concat(n.label))); };
+        walk(rbr, []);
+        ok(leaves.length === risks.length && leaves.every((p) => p.length === 3 && !/Sin subcategoría|Sin categoría/.test(p.join('|'))), 'estructura de desglose de los riesgos: cada riesgo bajo su categoría y subcategoría del plan', leaves.filter((p) => p.length !== 3));
+        ok(risks.some((k) => k.id === 'R-001') && risks.some((k) => k.id === 'R-003'), 'los riesgos que responden los recursos no planificados (R-001 y R-003) están en el registro');
+        const inf = docs.find((x) => x.id === 'informe-riesgos');
+        if (inf) ok(Math.round(out.resources.used / 1e5) * 1e5 === inf.data.fields.reservaUtilizada && /Quedan COP 16,5 millones/.test(inf.data.fields.comentarioReservas), 'informe de riesgos: reserva usada (COP 6,1 millones) = consumo de los recursos no planificados', [out.resources.used, inf.data.fields.reservaUtilizada]);
       }
       for (const id of ['plan-direccion', 'registro-interesados']) if (PM.templates[id]) { const b = docs.find((x) => x.id === id).data; ok(b.rev === '1' && b.titleBlock.fechaAprobacion >= '2026-09-14', id + ': rev. 1 aprobada después de la LB1', b.titleBlock.fechaAprobacion); }
       /* Coherencia temporal: nada aprobado cita un hecho posterior a su aprobación. */
@@ -410,6 +457,57 @@ if (!args.includes('--quick')) {
     for (const l of lines.filter((l) => !l.startsWith('OK'))) console.log('  ' + l);
     check(r.status === 0, 'smoke.mjs con todos los módulos' + (mode.length ? ' ' + mode[0] : ''), r.stderr.slice(0, 400));
   }
+
+  /* catálogo de recursos, reserva para contingencias y estructuras de desglose del ejemplo, con clics y teclado */
+  section('Recursos del ejemplo en las vistas (catálogo, valor ganado y estructuras de desglose)');
+  const before = { passes, failures };
+  const { browser, page, errors } = await openApp({ file: fileAll, width: 1440, height: 900 });
+  try {
+    await page.evaluate(() => PM.createExampleProject('andamio'));
+    await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 30000 });
+    await page.waitForTimeout(800);
+    const norm = (s) => String(s).replace(/[  ]/g, ' ').replace(/\s+/g, ' ');
+    await page.evaluate(() => PM.navigate('recursos', { tab: 'catalogo' }));
+    await page.waitForSelector('[data-rcat="1"] [data-tile="total"]', { timeout: 10000 });
+    const tile = async (id) => norm(await page.locator('[data-tile="' + id + '"] .rcat-tile-value').innerText());
+    check(await tile('total') === '27' && await tile('no-planificados') === '3' && await tile('sin-clasificar') === '0', 'catálogo: 27 recursos, 3 no planificados y ninguno sin clasificar', [await tile('total'), await tile('no-planificados'), await tile('sin-clasificar')]);
+    await page.getByLabel('Filtrar por planificación').selectOption('no-planificado');
+    await page.waitForTimeout(300);
+    const rows = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
+    check(rows.length === 3 && rows.some((n) => /Diagonales de 2,57 m/.test(n)) && rows.some((n) => /Llave de impacto de reemplazo/.test(n)), 'filtro «No planificados»: diagonales del otrosí, jornada extendida y llave de reemplazo', rows);
+    await page.getByLabel('Buscar recursos').fill('Cuadrilla');
+    await page.getByLabel('Filtrar por planificación').selectOption('');
+    await page.waitForTimeout(300);
+    const cua = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
+    check(cua.length === 1 && cua[0] === 'Cuadrilla de montaje', 'búsqueda en el catálogo: «Cuadrilla de montaje»', cua);
+    /* valor ganado: consumo de la reserva para contingencias por los recursos no planificados */
+    await page.evaluate(() => PM.navigate('valor-ganado'));
+    await page.waitForTimeout(400);
+    await page.getByRole('tab', { name: 'Presupuesto' }).click();
+    await page.waitForSelector('[data-role="reserve-use"]', { timeout: 8000 });
+    const reserve = norm(await page.locator('[data-role="reserve-use"]').innerText());
+    check(/6\.080\.000/.test(reserve) && /16\.520\.000/.test(reserve) && /R-003/.test(reserve) && /R-001/.test(reserve), 'valor ganado: la reserva para contingencias consumida (COP 6.080.000 por R-003 y R-001) y disponible (COP 16.520.000)', reserve.slice(0, 400));
+    /* estructuras de desglose: pestañas con el teclado (flechas) y riesgos ubicados por subcategoría */
+    await page.evaluate(() => PM.navigate('estructuras', { tab: 'costos' }));
+    await page.waitForTimeout(600);
+    const costTab = page.getByRole('tab', { name: /Costos/ }).first();
+    await costTab.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(500);
+    const sel = await page.evaluate(() => (document.activeElement && document.activeElement.getAttribute('aria-selected') === 'true' ? document.activeElement.textContent : ''));
+    if (!/Riesgos/.test(sel)) await page.getByRole('tab', { name: /Riesgos/ }).first().click();
+    await page.waitForSelector('[data-brk="riesgos"]', { timeout: 8000 });
+    check(/Riesgos/.test(sel), 'estructuras de desglose: la flecha derecha pasa de «Costos» a «Riesgos»', sel);
+    check(await page.locator('[data-brk="riesgos"] .brk-note').count() === 0, 'riesgos: todos tienen una subcategoría del plan (sin aviso de «Sin subcategoría»)');
+    await page.getByRole('tab', { name: /Recursos/ }).first().click();
+    await page.waitForTimeout(600);
+    await page.waitForSelector('[data-brk="recursos"]', { timeout: 8000 }).catch(() => null);
+    const rbs = norm(await page.evaluate(() => (document.querySelector('[data-brk="recursos"]') || document.querySelector('.view-host')).textContent));
+    check(/Personal y cuadrillas/.test(rbs) && /Montadores certificados/.test(rbs) && /No planificado/.test(rbs), 'estructura de desglose de recursos: tipos y subtipos del catálogo, con los no planificados marcados', rbs.slice(0, 300));
+    check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
+    if (shots) await page.screenshot({ path: join(shots, 'estructuras-recursos.png'), fullPage: true });
+  } finally { await browser.close(); }
+  console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);
 }
 
 console.log(`\n${failures ? 'FALLÓ' : 'OK'}: ${passes} verificaciones correctas, ${failures} fallidas.`);

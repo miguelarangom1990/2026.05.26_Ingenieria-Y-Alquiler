@@ -159,8 +159,15 @@
     };
 
     /* ============================================================ 11.2 · REGISTRO DE RIESGOS */
+    /* subcategoría (nivel 2) de la estructura de desglose de los riesgos del plan de gestión de los riesgos (edrRiesgos) */
+    const SUBCATEGORIA = {
+      'R-001': 'Datos maestros y migración', 'R-002': 'Usuarios clave y adopción', 'R-003': 'Usuarios clave y adopción',
+      'R-004': 'Facturación electrónica (DIAN y proveedor tecnológico)', 'R-005': 'Implementador y fabricante',
+      'R-006': 'Calendario contable y salidas en vivo', 'R-007': 'Alcance, velocidad y releases', 'R-008': 'Alcance, velocidad y releases',
+      'R-009': 'Integraciones y reutilización',
+    };
     const RISK = (id, descripcion, causa, efecto, categoria, tipo, probabilidad, impacto, propietario, estrategia, respuesta, disparador, reserva, estado) =>
-      ({ id, descripcion, causa, efecto, categoria, tipo, probabilidad, impacto, propietario, estrategia, respuesta, disparador, reserva, estado });
+      ({ id, descripcion, causa, efecto, categoria, subcategoria: SUBCATEGORIA[id] || '', tipo, probabilidad, impacto, propietario, estrategia, respuesta, disparador, reserva, estado });
     const riesgos = (stage) => {
       const res = stage >= 2 ? { 'R-001': 10, 'R-002': 5, 'R-003': 4, 'R-004': 12, 'R-005': 6, 'R-006': 6, 'R-007': 8, 'R-008': 9 } : { 'R-001': 10, 'R-002': 6, 'R-003': 5, 'R-004': 14, 'R-005': 7, 'R-006': 6, 'R-007': 12 };
       const list = [
@@ -195,6 +202,35 @@
       listaVigilancia: 'Riesgos bajos en observación: tasa de cambio de los equipos importados (materializado en julio, sin compras pendientes); disponibilidad de salas de capacitación en noviembre; renovación del certificado de firma digital en 2027.',
       residuales: 'Después de las respuestas quedan como residuales: rechazos puntuales de la DIAN por datos del adquirente (se atienden con la mesa de ayuda) y diferencias menores de inventario en las obras (inventario cíclico mensual). Riesgo secundario: más carga del analista de TI al documentar la parametrización (R-005).',
       planesReserva: 'Reserva para contingencias de ' + ms(F.reserves.contingency) + ' distribuida por riesgo (columna «Reserva»; R-008 se agregó el 8 de octubre sin aumentar el total). No se ha usado. El EAC al 9 de octubre (' + ms(E.eac) + ') se cubriría con ' + ms(E.eac - E.bac) + ' de esta reserva. La reserva de gestión (' + ms(F.reserves.management) + ') solo la autoriza la Gerencia General.',
+    };
+
+    /* ============================================================ 11.1 · PLAN DE GESTIÓN DE LOS RIESGOS (aprobado con la LB0)
+       Su estructura de desglose de los riesgos (edrRiesgos) ubica cada riesgo del registro por su subcategoría. */
+    const planRiesgosFields = {
+      estrategia: 'Gestionar los riesgos en dos niveles, como el control de cambios: dentro de cada iteración los atiende el equipo Scrum como impedimentos y en el refinamiento; los del proyecto se revisan cada quincena en el comité con el registro de riesgos. La prioridad son los datos maestros, la facturación electrónica y la disponibilidad de los usuarios clave.',
+      metodologia: 'Identificación en el taller de planificación de releases con el implementador (lista de verificación de implementaciones de ERP) y en cada retrospectiva; análisis cualitativo con la matriz 5 × 5 de este plan; reserva para contingencias asignada por riesgo según su valor monetario esperado; respuestas con propietario y disparador; revisión del registro cada quincena y al cerrar cada release.',
+      rolesRiesgo: rows('pgri-rol', [
+        { rol: ROLE.pat, responsabilidades: 'Aprueba el plan y el apetito al riesgo; autoriza el uso de la reserva de gestión.' },
+        { rol: ROLE.dir, responsabilidades: 'Mantiene el registro, convoca la revisión quincenal y autoriza el uso de la reserva para contingencias.' },
+        { rol: 'Dueño del producto', responsabilidades: 'Riesgos de alcance, de datos maestros y de adopción en las áreas usuarias.' },
+        { rol: ROLE.sm, responsabilidades: 'Impedimentos del equipo y riesgos del flujo de trabajo del tablero.' },
+        { rol: ROLE.imp, responsabilidades: 'Riesgos técnicos de la parametrización, las integraciones y su propio equipo.' },
+      ]),
+      financiamiento: 'Reserva para contingencias de ' + ms(F.reserves.contingency) + ' (cerca del 10 % del BAC) distribuida por riesgo en el registro, y reserva de gestión de ' + ms(F.reserves.management) + ' que solo autoriza la Gerencia General. Las respuestas con costo (plantillas de carga, ensayos de corte, capacitación) están presupuestadas en sus actividades.',
+      calendario: 'Revisión quincenal del registro en el comité; revisión de los impedimentos en cada reunión diaria; reevaluación completa al cerrar cada release y antes de cada salida a producción.',
+      edrRiesgos: rows('pgri-rbs', [
+        { nivel1: 'Técnico', nivel2: 'Datos maestros y migración', ejemplos: 'Datos incompletos o duplicados; conciliación del inventario y de los saldos de cartera.', categoriaRegistro: 'Técnico' },
+        { nivel1: 'Técnico', nivel2: 'Integraciones y reutilización', ejemplos: 'Conector con el proveedor tecnológico, básculas y plantillas de carga reutilizables.', categoriaRegistro: 'Técnico' },
+        { nivel1: 'De gestión', nivel2: 'Usuarios clave y adopción', ejemplos: 'Disponibilidad de los usuarios clave; resistencia al cambio en bodegas y obras.', categoriaRegistro: 'De la organización' },
+        { nivel1: 'De gestión', nivel2: 'Alcance, velocidad y releases', ejemplos: 'Crecimiento del alcance de los releases y velocidad del equipo frente al plan de releases.', categoriaRegistro: 'Dirección de proyectos' },
+        { nivel1: 'De gestión', nivel2: 'Calendario contable y salidas en vivo', ejemplos: 'Salidas a producción cercanas a los cierres mensual y anual.', categoriaRegistro: 'Dirección de proyectos' },
+        { nivel1: 'Comercial', nivel2: 'Implementador y fabricante', ejemplos: 'Rotación del equipo del implementador; condiciones de los contratos de implementación y de suscripción.', categoriaRegistro: 'Externo' },
+        { nivel1: 'Externo', nivel2: 'Facturación electrónica (DIAN y proveedor tecnológico)', ejemplos: 'Cambios del anexo técnico de la factura electrónica; estabilidad del ambiente del proveedor tecnológico.', categoriaRegistro: 'Externo' },
+        { nivel1: 'Externo', nivel2: 'Tasa de cambio y equipos importados', ejemplos: 'Precio y plazo de entrega de los equipos de bodega importados.', categoriaRegistro: 'Externo' },
+      ]),
+      apetito: 'Tolerancia baja a los riesgos que afecten la facturación o los estados financieros: ninguna salida a producción durante el cierre contable y facturas validadas por la DIAN antes de cada salida. Se acepta una variación del alcance de cada release de ±10 % sin control formal (nivel 1) y una variación del costo cubierta por la reserva para contingencias.',
+      formatosInformes: 'Registro de riesgos con su reserva por riesgo; resumen de los riesgos principales en el informe de desempeño; riesgos e impedimentos en las actas de revisión y en las retrospectivas de cada iteración.',
+      seguimiento: 'El director de proyecto actualiza el registro cada quincena con los propietarios; los riesgos materializados pasan al registro de incidentes y sus lecciones al registro de lecciones aprendidas.',
     };
 
     /* ============================================================ 4.2 · PLAN DE GESTIÓN DE CAMBIOS */
@@ -643,6 +679,7 @@
           { rev: '1', status: 'aprobado', date: '2026-08-14', note: 'Reevaluación con el CC-001 y la depuración de datos maestros del release 1.', fields: { ...cp(riesgosFields), riesgos: riesgos(1).map((r) => ({ ...r, reserva: r.reserva * 1e6 })), fechaRevision: '2026-08-14', planesReserva: 'Reserva para contingencias de ' + ms(F.reserves.contingency) + ' distribuida por riesgo (columna «Reserva»); no se ha usado. La reserva de gestión (' + ms(F.reserves.management) + ') solo la autoriza la Gerencia General.', listaVigilancia: 'Riesgos bajos en observación: tasa de cambio de los equipos importados (materializado en julio, sin compras pendientes); disponibilidad de salas de capacitación; renovación del certificado de firma digital en 2027.' } },
           { rev: '2', status: 'aprobado', date: '2026-10-08', note: 'Reevaluación después de la revisión de la iteración 6: nuevo R-008 (velocidad del release 2) y redistribución de la reserva sin aumentarla.' },
         ] },
+      'plan-gestion-riesgos': { status: 'aprobado', rev: '0', date: F.lb0Date, created: '2026-07-01', titleBlock: { elaboro: ROLE.dir, reviso: ROLE.sm, aprobo: ROLE.pat }, fields: planRiesgosFields },
       'plan-gestion-cambios': { status: 'aprobado', rev: '0', date: F.lb0Date, created: '2026-07-01', titleBlock: { elaboro: ROLE.dir, reviso: 'Gerente administrativo y financiero', aprobo: ROLE.pat }, fields: cambiosPlan },
       'vision-producto': { status: 'aprobado', rev: '0', date: F.lb0Date, created: '2026-06-23', titleBlock: { elaboro: 'Gerente administrativo y financiero', reviso: ROLE.dir, aprobo: ROLE.pat }, fields: vision },
       'definicion-terminado': { status: 'aprobado', rev: '1', date: dod.fechaAcuerdo, created: F.lb0Date, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: dod,

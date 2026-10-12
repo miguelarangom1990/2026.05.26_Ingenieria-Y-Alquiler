@@ -19,6 +19,10 @@
    aquí con las mismas funciones de la aplicación (PM.calc.*, PM.agile.*) y se
    entregan al módulo de documentos como «hechos» (facts).
    Fecha de corte: viernes 9 de octubre de 2026 (día 2 de la iteración 7).
+   Catálogo de recursos (herramienta «resources», SPEC §10): equipo Scrum con
+   dedicación y ausencias (capacidad sugerida de las iteraciones), implementador,
+   licencias y equipos; t26 se costea de forma mixta y t34 por recursos, con
+   el mismo costo presupuestado.
    Supuestos de costos y fuentes: docs/ejemplo-erp/supuestos-y-fuentes.md.
    Se usan roles, no nombres de personas.
    ========================================================================== */
@@ -174,7 +178,71 @@
   const FS = (id, lag) => ({ id, type: 'FS', lag: lag || 0 });
   const SS = (id, lag) => ({ id, type: 'SS', lag: lag || 0 });
   const FF = (id, lag) => ({ id, type: 'FF', lag: lag || 0 });
-  const res = (...pairs) => pairs.map(([name, units]) => ({ name, units }));
+  /* ---------------------------------------------------------------- catálogo de recursos (SPEC §10)
+     Un recurso por cada nombre de las asignaciones del cronograma (mismo nombre; las asignaciones llevan resourceId). Costo
+     unitario por día hábil (calendario de lunes a viernes) o por unidad de medida (consumibles). El equipo del implementador
+     cobra COP 82.500 por hora: consultor funcional, desarrollador ERP y la mitad del desarrollador de integraciones y del
+     analista de pruebas suman las 240 horas por iteración del precio fijo (COP 19,8 millones); el analista de TI interno cuesta
+     COP 4,2 millones por iteración. Por eso las actividades de los releases y de la estabilización cuadran con sus recursos:
+     t26 se calcula de forma mixta (bolsa fija de COP 8,0 millones del conector más el equipo) y t34 por recursos (208 horas
+     del implementador y trece días del analista de TI). El tiempo del dueño del producto no se imputa al proyecto.
+     Equipo Scrum (agileTeam): las cinco personas del equipo de desarrollo, dos al 50 % («4 personas equivalentes × 10 días
+     hábiles = 40 días-persona»), con las ausencias de las planificaciones: incapacidad del desarrollador ERP en la iteración 5
+     (37 días-persona), vacaciones del analista de TI en la iteración 6 (38) y vacaciones del analista de pruebas en la
+     iteración 8 (37,5), que la capacidad sugerida de esa iteración refleja. Tipos del preset «Tecnología y sistemas». */
+  const TEAM_ABS = {
+    de: [{ id: 'aus-de-1', from: '2026-09-15', to: '2026-09-17', note: 'Incapacidad médica (iteración 5)' }],
+    at: [{ id: 'aus-at-1', from: '2026-10-01', to: '2026-10-02', note: 'Vacaciones (iteración 6)' }],
+    ap: [{ id: 'aus-ap-1', from: '2026-10-26', to: '2026-10-30', note: 'Vacaciones (iteración 8)' }],
+  };
+  const IMPL = 'Socio implementador';
+  const IMPL_CT = 'Contrato de implementación por iteraciones de precio fijo';
+  /* [clave, nombre, tipo, subtipo, unidad, disponibilidad, costo unitario, origen, extra] */
+  const CATALOG = [
+    ['dir', R.dir, 'personas', 'Dirección y PMO', 'persona', 1, 628600, 'Interno', { dedication: 25, notes: 'Jefe de la PMO al 25 %: COP 3,3 millones al mes (COP 13,2 millones a tiempo completo ÷ 21 días hábiles).' }],
+    ['sm', R.sm, 'personas', 'Equipo Scrum', 'persona', 1, 360000, 'Interno', { dedication: 50, notes: 'Facilitador al 50 %: COP 1,8 millones por iteración de 10 días hábiles (COP 360.000 por día a tiempo completo). No cuenta en la capacidad del equipo de desarrollo.' }],
+    ['po', R.po, 'personas', 'Equipo Scrum', 'persona', 1, 0, 'Interno', { dedication: 25, notes: 'Gerente administrativo y financiero al 25 %: su tiempo es gasto de operación y no se imputa al presupuesto del proyecto (costo unitario 0).' }],
+    ['cf', R.cf, 'consultoria', 'Equipo del implementador', 'persona', 1, 660000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, agileTeam: true, notes: '8 horas × COP 82.500. Dedicación completa al equipo Scrum.' }],
+    ['de', R.de, 'consultoria', 'Equipo del implementador', 'persona', 1, 660000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, agileTeam: true, absences: TEAM_ABS.de, notes: '8 horas × COP 82.500. Incapacidad médica del 15 al 17 de septiembre (iteración 5: 37 días-persona).' }],
+    ['di', R.di, 'consultoria', 'Equipo del implementador', 'persona', 1, 660000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, agileTeam: true, dedication: 50, notes: '8 horas × COP 82.500, al 50 % en el equipo Scrum (conector con el proveedor tecnológico de facturación electrónica y básculas).' }],
+    ['ap', R.ap, 'consultoria', 'Equipo del implementador', 'persona', 1, 660000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, agileTeam: true, dedication: 50, absences: TEAM_ABS.ap, notes: '8 horas × COP 82.500, al 50 %. Vacaciones del 26 al 30 de octubre (iteración 8).' }],
+    ['at', R.at, 'personas', 'Equipo Scrum', 'persona', 1, 420000, 'Interno', { agileTeam: true, absences: TEAM_ABS.at, notes: 'COP 4,2 millones por iteración de 10 días hábiles. Vacaciones el 1 y el 2 de octubre (iteración 6: 38 días-persona).' }],
+    ['uc', R.uc, 'personas', 'Áreas usuarias', 'persona', 6, 180000, 'Interno', { notes: 'Costo promedio por día de un usuario clave de comercial, logística, almacén, mantenimiento, facturación y cartera (horas internas).' }],
+    ['alm', R.alm, 'personas', 'Áreas usuarias', 'persona', 8, 120000, 'Interno', { notes: 'Auxiliares de bodega de las bodegas principal y de Funza (horas internas; el conteo físico se pagó con horas extra).' }],
+    ['con', R.con, 'personas', 'Áreas usuarias', 'persona', 1, 250000, 'Interno', { notes: 'Contador de la empresa: conciliaciones de inventario y de cartera y aprobación de los saldos migrados.' }],
+    ['jti', R.jti, 'personas', 'Tecnología (TI)', 'persona', 1, 650000, 'Interno', { notes: 'Responsable de infraestructura, seguridad, equipos de bodega y transferencia al soporte.' }],
+    ['csel', R.csel, 'consultoria', 'Asesores externos', 'persona', 1, 780000, 'Contratado', { supplier: 'Consultor de selección de ERP (independiente)', status: 'liberado', notes: 'Descubrimiento, solicitud de propuestas y evaluación de ofertas (mayo y junio de 2026).' }],
+    ['cgc', R.cgc, 'consultoria', 'Asesores externos', 'persona', 1, 1300000, 'Contratado', { supplier: 'Consultor de gestión del cambio', status: 'liberado', notes: 'Plan de gestión del cambio, red de usuarios clave y comunicaciones (julio de 2026).' }],
+    ['jur', R.jur, 'consultoria', 'Asesores externos', 'persona', 1, 1080000, 'Contratado', { supplier: 'Firma de abogados', status: 'liberado', notes: 'Revisión de los contratos de suscripción e implementación (junio de 2026).' }],
+    ['ins', R.ins, 'consultoria', 'Equipo del implementador', 'persona', 1, 660000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, notes: '8 horas × COP 82.500: formación de usuarios clave y capacitación de usuarios finales de cada release.' }],
+    ['lim', R.lim, 'consultoria', 'Equipo del implementador', 'persona', 1, 760000, 'Contratado', { supplier: IMPL, contract: IMPL_CT, notes: '8 horas × COP 95.000: ambientes, perfiles y salidas a producción.' }],
+    ['suc', 'Suscripción del ERP: usuario completo', 'licencias', 'Suscripción del ERP', 'usuario-mes', null, 320000, 'Contratado', { supplier: 'Fabricante del ERP', contract: 'Contrato de suscripción', notes: '30 usuarios completos de julio de 2026 a enero de 2027 (siete meses).' }],
+    ['sul', 'Suscripción del ERP: usuario limitado', 'licencias', 'Suscripción del ERP', 'usuario-mes', null, 96000, 'Contratado', { supplier: 'Fabricante del ERP', contract: 'Contrato de suscripción', notes: '15 usuarios limitados de julio de 2026 a enero de 2027 (siete meses).' }],
+    ['fe', 'Paquete anual de facturación electrónica (6.000 documentos)', 'licencias', 'Facturación electrónica', 'paquete', null, 4200000, 'Contratado', { supplier: 'Proveedor tecnológico autorizado por la DIAN', status: 'liberado', notes: 'Habilitación y paquete anual de 6.000 documentos electrónicos.' }],
+    ['tab', 'Tableta robusta para bodega', 'equipos', 'Equipos de bodega', 'unidad', null, 2800000, 'Compra', { supplier: 'Distribuidor de equipos de cómputo', status: 'liberado', notes: 'Con funda y lápiz. Importadas: llegaron dos días hábiles tarde (INC-001) y la tasa de cambio las encareció.' }],
+    ['lec', 'Lector de código de barras inalámbrico', 'equipos', 'Equipos de bodega', 'unidad', null, 1100000, 'Compra', { supplier: 'Distribuidor de equipos de cómputo', status: 'liberado', notes: 'Seis lectores para despachos, devoluciones y conteos.' }],
+    ['imp', 'Impresora de etiquetas', 'equipos', 'Equipos de bodega', 'unidad', null, 1600000, 'Compra', { supplier: 'Distribuidor de equipos de cómputo', status: 'liberado', notes: 'Una por bodega para las etiquetas de los equipos serializados.' }],
+    ['red', 'Red inalámbrica de bodegas (puntos de acceso e instalación)', 'infraestructura', 'Conectividad de bodegas', 'global', null, 7000000, 'Contratado', { supplier: 'Integrador de redes', status: 'liberado', notes: 'Cobertura en patios y estanterías de las bodegas principal y de Funza.' }],
+    /* no planificados */
+    ['tpr', 'Tabletas de prueba del implementador', 'equipos', 'Equipos de bodega', 'unidad', 4, 0, 'Contratado', { kind: 'trabajo', planned: false, reason: 'todo-costo', supplier: IMPL, status: 'liberado', addedDate: '2026-07-22', notes: 'Mientras llegaban las tabletas importadas (INC-001), el equipo usó las tabletas de prueba del implementador en la iteración 2, a su costo dentro del precio fijo: sin costo para el proyecto.' }],
+    ['hex', 'Horas extra del equipo (ensayo de corte del release 1)', 'personas', 'Equipo Scrum', 'hora', null, 45000, 'Interno', { kind: 'consumible', planned: false, reason: 'rendimiento', status: 'liberado', addedDate: '2026-09-03', notes: 'Horas extra del ensayo de corte de la iteración 4 (COP 1,8 millones, nómina de septiembre): mayor costo del release 1 registrado como variación (CPI del release 0,98); no cambia la línea base.' }],
+  ];
+  const RES_ID = Object.fromEntries(CATALOG.map(([key, name]) => [name, 'rec-' + key]));
+  const qty = (key, q) => { const c = CATALOG.find((x) => x[0] === key); return { resourceId: 'rec-' + key, name: c[1], units: 0, qty: q }; };
+  const resourcesData = () => ({
+    preset: 'ti',
+    types: PM.RES && PM.RES.PRESETS && PM.RES.PRESETS.ti ? PM.clone(PM.RES.PRESETS.ti.types) : [],
+    items: CATALOG.map(([key, name, typeId, subtype, unit, availability, unitCost, origin, x], i) => ({
+      id: 'rec-' + key, code: 'REC-' + String(i + 1).padStart(3, '0'), name, typeId, subtype, ...(x.kind ? { kind: x.kind } : {}),
+      unit, availability, availableFrom: x.availableFrom || null, availableTo: x.availableTo || null, unitCost,
+      origin, supplier: x.supplier || '', contract: x.contract || '', responsible: x.responsible || '', status: x.status || 'disponible',
+      planned: x.planned !== false, addedDate: x.addedDate || START, reason: x.reason || null, riskId: null, reserveAmount: null, changeRef: null,
+      agileTeam: !!x.agileTeam, dedication: x.dedication === undefined ? 100 : x.dedication, hoursPerDay: 8,
+      absences: (x.absences || []).map((a) => ({ ...a })), notes: x.notes || '',
+    })),
+  });
+
+  const res = (...pairs) => pairs.map(([name, units]) => ({ resourceId: RES_ID[name] || null, name, units }));
   const TEAM = res([R.cf, 1], [R.de, 1], [R.di, 0.5], [R.ap, 0.5], [R.at, 1], [R.po, 0.25]);
   const TASKS = [
     { id: 't01', name: 'Acta de constitución aprobada', wbsId: 'w11', duration: 0, milestone: true, deps: [], cost: 0, responsible: R.pat, done: ['2026-05-04', '2026-05-04'], notes: 'Aprobada por la Gerencia General con un presupuesto preliminar; actualizada con los contratos y la LB0 el 10 de julio.' },
@@ -187,10 +255,10 @@
     { id: 't03', name: 'Plan para la dirección del proyecto, plan de releases y línea base LB0', wbsId: 'w12', duration: 8, deps: [FS('t11')], cost: mm(6.5), resources: res([R.dir, 0.5], [R.po, 0.25]), responsible: R.dir, done: ['2026-07-01', '2026-07-10'], notes: 'LB0 aprobada por la Gerencia General el 10 de julio de 2026.' },
     { id: 't04', name: 'Dirección del proyecto y comités (esfuerzo de nivel)', wbsId: 'w13', loe: true, deps: [SS('t01')], cost: mm(29.7), resources: res([R.dir, 0.25]), responsible: R.dir, actualStart: '2026-05-04', notes: 'Esfuerzo de nivel: el avance es proporcional al tiempo transcurrido. Jefe de la PMO al 25 % de mayo de 2026 a enero de 2027.' },
     { id: 't35', name: 'Facilitación ágil: Scrum Master de las iteraciones 1 a 11 (esfuerzo de nivel)', wbsId: 'w13', loe: true, deps: [SS('t25')], cost: mm(19.8), resources: res([R.sm, 0.5]), responsible: R.sm, actualStart: '2026-07-13', notes: 'Esfuerzo de nivel: Scrum Master al 50 % durante las once iteraciones (COP 1,8 millones por iteración).' },
-    { id: 't12', name: 'Suscripción del ERP en la nube (julio de 2026 a enero de 2027)', wbsId: 'w31', loe: true, deps: [FS('t11')], cost: mm(77.28), responsible: R.jti, actualStart: '2026-07-01', notes: '45 usuarios: 30 completos a COP 320.000 y 15 limitados a COP 96.000 por mes (COP 11,04 millones mensuales, facturación mensual vencida). Desde febrero de 2027 pasa al presupuesto de operación de TI.' },
+    { id: 't12', name: 'Suscripción del ERP en la nube (julio de 2026 a enero de 2027)', wbsId: 'w31', loe: true, deps: [FS('t11')], cost: mm(77.28), resources: [qty('suc', 210), qty('sul', 105)], responsible: R.jti, actualStart: '2026-07-01', notes: '45 usuarios: 30 completos a COP 320.000 y 15 limitados a COP 96.000 por mes (COP 11,04 millones mensuales, facturación mensual vencida). Desde febrero de 2027 pasa al presupuesto de operación de TI.' },
     { id: 't13', name: 'Aprovisionamiento de ambientes, usuarios, perfiles y seguridad', wbsId: 'w31', duration: 5, deps: [FS('t11')], cost: mm(3.1), resources: res([R.lim, 1], [R.jti, 0.5]), responsible: R.jti, done: ['2026-07-01', '2026-07-07'] },
-    { id: 't14', name: 'Tabletas, lectores de código de barras, impresoras de etiquetas y red inalámbrica de bodegas', wbsId: 'w32', duration: 15, deps: [FS('t11')], cost: mm(28), resources: res([R.jti, 0.5]), responsible: R.jti, done: ['2026-07-01', '2026-07-24'], notes: 'Las tabletas llegaron dos días hábiles tarde; la tasa de cambio encareció los equipos importados.' },
-    { id: 't15', name: 'Contrato y habilitación con el proveedor tecnológico de facturación electrónica', wbsId: 'w33', duration: 10, start: '2026-08-18', deps: [FS('t11')], cost: mm(4.2), resources: res([R.jti, 0.5], [R.con, 0.5]), responsible: R.jti, done: ['2026-08-18', '2026-08-31'] },
+    { id: 't14', name: 'Tabletas, lectores de código de barras, impresoras de etiquetas y red inalámbrica de bodegas', wbsId: 'w32', duration: 15, deps: [FS('t11')], cost: mm(28), resources: [...res([R.jti, 0.5]), qty('tab', 4), qty('lec', 6), qty('imp', 2), qty('red', 1)], responsible: R.jti, done: ['2026-07-01', '2026-07-24'], notes: 'Las tabletas llegaron dos días hábiles tarde; la tasa de cambio encareció los equipos importados.' },
+    { id: 't15', name: 'Contrato y habilitación con el proveedor tecnológico de facturación electrónica', wbsId: 'w33', duration: 10, start: '2026-08-18', deps: [FS('t11')], cost: mm(4.2), resources: [...res([R.jti, 0.5], [R.con, 0.5]), qty('fe', 1)], responsible: R.jti, done: ['2026-08-18', '2026-08-31'] },
     { id: 't16', name: 'Depuración de datos maestros: equipos, piezas, clientes, obras y tarifas', wbsId: 'w41', duration: 20, deps: [FS('t03')], cost: mm(12.6), resources: res([R.uc, 2], [R.alm, 2]), responsible: R.po, done: ['2026-07-13', '2026-08-14'], notes: 'Tres días hábiles más de lo previsto: 14 % de las referencias sin peso unitario y clientes duplicados (riesgo R-001).' },
     { id: 't17', name: 'Conteo físico y migración del inventario de la bodega principal', wbsId: 'w42', duration: 8, start: '2026-08-27', deps: [FS('t16')], cost: mm(14.8), resources: res([R.alm, 6], [R.uc, 1]), responsible: R.po, done: ['2026-08-27', '2026-09-07'], notes: 'Diferencia final de 0,4 % de las piezas frente al conteo físico.' },
     { id: 't18', name: 'Migración y conciliación de saldos de cartera', wbsId: 'w43', duration: 15, start: '2026-10-01', deps: [FS('t16')], cost: mm(8.4), resources: res([R.con, 1], [R.uc, 1]), responsible: R.con, progress: 30, actualStart: '2026-10-01', notes: 'En espera del auxiliar de cartera conciliado a 30 de septiembre (ver TA-011, bloqueado en la iteración 7).' },
@@ -201,7 +269,7 @@
     { id: 't23', name: 'Capacitación de usuarios finales del release 2', wbsId: 'w53', duration: 6, start: '2026-10-29', deps: [FS('t22')], cost: mm(7.4), resources: res([R.ins, 1]), responsible: R.po },
     { id: 't24', name: 'Capacitación de usuarios finales del release 3', wbsId: 'w53', duration: 6, start: '2026-12-14', deps: [FS('t23')], cost: mm(6.6), resources: res([R.ins, 1]), responsible: R.po },
     { id: 't25', name: 'Release 1: inventario y alquiler de equipos (iteraciones 1 a 4)', wbsId: 'w6', releaseId: 'rel-1', duration: 40, deps: [FS('t03')], cost: mm(96), resources: TEAM, responsible: R.po, notes: 'Avance calculado desde el backlog del release 1 (terminado ÷ alcance).' },
-    { id: 't26', name: 'Release 2: facturación electrónica y cartera (iteraciones 5 a 8)', wbsId: 'w7', releaseId: 'rel-2', duration: 40, deps: [FS('t25')], cost: mm(104), resources: TEAM, responsible: R.po, notes: 'Avance calculado desde el backlog del release 2 (terminado ÷ alcance).' },
+    { id: 't26', name: 'Release 2: facturación electrónica y cartera (iteraciones 5 a 8)', wbsId: 'w7', releaseId: 'rel-2', duration: 40, deps: [FS('t25')], cost: mm(104), costMode: 'mixto', costFixed: mm(8), resources: TEAM, responsible: R.po, notes: 'Avance calculado desde el backlog del release 2 (terminado ÷ alcance). Costo mixto: bolsa fija de COP 8,0 millones de horas del implementador para el conector más el equipo (40 días hábiles × COP 2,4 millones = COP 96,0 millones).' },
     { id: 't27', name: 'Release 3: mantenimiento y tablero gerencial (iteraciones 9 a 11)', wbsId: 'w8', releaseId: 'rel-3', duration: 30, deps: [FS('t26')], cost: mm(78), resources: TEAM, responsible: R.po, notes: 'Avance calculado desde el backlog del release 3 (terminado ÷ alcance).' },
     { id: 't28', name: 'Corte y salida a producción del release 1', wbsId: 'w91', duration: 1, deps: [FS('t25'), FS('t17'), FS('t22')], cost: mm(4.6), resources: res([R.lim, 1], [R.jti, 1], [R.alm, 2]), responsible: R.jti, done: ['2026-09-10', '2026-09-10'] },
     { id: 't29', name: 'Release 1 en producción', wbsId: 'w91', duration: 0, milestone: true, deps: [FS('t28')], cost: 0, responsible: R.po, done: ['2026-09-10', '2026-09-10'] },
@@ -209,7 +277,7 @@
     { id: 't31', name: 'Release 2 en producción', wbsId: 'w92', duration: 0, milestone: true, deps: [FS('t30')], cost: 0, responsible: R.po },
     { id: 't32', name: 'Corte y salida a producción del release 3', wbsId: 'w93', duration: 1, start: '2027-01-12', deps: [FS('t27'), FS('t19'), FS('t24')], cost: mm(4.6), resources: res([R.lim, 1], [R.jti, 1], [R.alm, 2]), responsible: R.jti, notes: 'Después del cierre anual y de los cinco primeros días hábiles de enero de 2027.' },
     { id: 't33', name: 'Release 3 en producción', wbsId: 'w93', duration: 0, milestone: true, deps: [FS('t32')], cost: 0, responsible: R.po },
-    { id: 't34', name: 'Estabilización (hypercare) y transición al soporte', wbsId: 'w94', duration: 13, deps: [FS('t32')], cost: mm(22.62), resources: res([R.cf, 1], [R.de, 1], [R.at, 1]), responsible: R.jti, notes: 'Consultor funcional y desarrollador ERP del implementador (208 horas a COP 82.500) y analista de TI durante trece días hábiles.' },
+    { id: 't34', name: 'Estabilización (hypercare) y transición al soporte', wbsId: 'w94', duration: 13, deps: [FS('t32')], cost: mm(22.62), costMode: 'recursos', resources: res([R.cf, 1], [R.de, 1], [R.at, 1]), responsible: R.jti, notes: 'Consultor funcional y desarrollador ERP del implementador (208 horas a COP 82.500) y analista de TI durante trece días hábiles. Costo calculado por recursos.' },
     { id: 't05', name: 'Informe final, lecciones aprendidas y acta de cierre', wbsId: 'w14', duration: 3, deps: [FF('t34')], cost: mm(3.2), resources: res([R.dir, 0.5]), responsible: R.dir },
     { id: 't06', name: 'Cierre del proyecto', wbsId: 'w14', duration: 0, milestone: true, deps: [FS('t05'), FS('t34')], cost: 0, responsible: R.pat },
   ];
@@ -757,7 +825,9 @@
     }
     const out = {
       id: t.id, name: t.name, wbsId: t.wbsId, duration: durationOf(t), milestone: !!t.milestone, start: t.start || null,
-      deps: t.deps.map((d) => ({ ...d })), progress, cost: t.cost, resources: (t.resources || []).map((r) => ({ ...r })),
+      deps: t.deps.map((d) => ({ ...d })), progress, cost: t.cost,
+      ...(t.costMode ? { costMode: t.costMode } : {}), ...(t.costMode === 'mixto' ? { costFixed: t.costFixed } : {}),
+      resources: (t.resources || []).map((r) => ({ ...r })),
       responsible: t.responsible || '', actualStart, actualFinish, notes: plan ? '' : t.notes || '',
     };
     if (t.releaseId) out.releaseId = t.releaseId;
@@ -996,6 +1066,7 @@
           { id: 'costs', data: data.costs },
           { id: 'raci', data: raciData() },
           { id: 'agile', data: data.agile },
+          { id: 'resources', data: resourcesData() },
         ],
         baselines: data.baselines,
         flows: [],
