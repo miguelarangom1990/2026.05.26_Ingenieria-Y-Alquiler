@@ -333,14 +333,15 @@
     ['spr-11', 'Iteración 11', 'r3', '2026-12-09', '2026-12-22', 'planeado', 28, null, null, 'Tablero gerencial de utilización del inventario, ingresos y cartera.'],
   ];
   const SPRINT_BY_KEY = Object.fromEntries(SPRINTS.map((s) => [s[0], s]));
-  /* documentos de cada iteración (los crea 95-example-erp-docs.js con estos ids): acta de revisión y retrospectiva de
-     cada iteración cerrada (1 a 6) y planificación de las iteraciones 6 y 7 */
+  /* documentos de cada iteración (los crean 95-example-erp-docs.js y 97-example-erp-docs-equipo.js con estos ids): acta
+     de revisión y retrospectiva de cada iteración cerrada (1 a 6) y planificación de las iteraciones 1 a 7 (la 1 a la 5
+     en 97-example-erp-docs-equipo.js; la 6 y la 7 en 95) */
   const SPRINT_DOCS = {
-    'spr-01': { revision: 'acta-revision-sprint--it1', retrospectiva: 'retrospectiva--it1' },
-    'spr-02': { revision: 'acta-revision-sprint--it2', retrospectiva: 'retrospectiva--it2' },
-    'spr-03': { revision: 'acta-revision-sprint--it3', retrospectiva: 'retrospectiva--it3' },
-    'spr-04': { revision: 'acta-revision-sprint--it4', retrospectiva: 'retrospectiva--it4' },
-    'spr-05': { revision: 'acta-revision-sprint--it5', retrospectiva: 'retrospectiva--it5' },
+    'spr-01': { planificacion: 'planificacion-sprint--it1', revision: 'acta-revision-sprint--it1', retrospectiva: 'retrospectiva--it1' },
+    'spr-02': { planificacion: 'planificacion-sprint--it2', revision: 'acta-revision-sprint--it2', retrospectiva: 'retrospectiva--it2' },
+    'spr-03': { planificacion: 'planificacion-sprint--it3', revision: 'acta-revision-sprint--it3', retrospectiva: 'retrospectiva--it3' },
+    'spr-04': { planificacion: 'planificacion-sprint--it4', revision: 'acta-revision-sprint--it4', retrospectiva: 'retrospectiva--it4' },
+    'spr-05': { planificacion: 'planificacion-sprint--it5', revision: 'acta-revision-sprint--it5', retrospectiva: 'retrospectiva--it5' },
     'spr-06': { planificacion: 'planificacion-sprint--it6', revision: 'acta-revision-sprint--it6', retrospectiva: 'retrospectiva--it6' },
     'spr-07': { planificacion: 'planificacion-sprint--it7' },
   };
