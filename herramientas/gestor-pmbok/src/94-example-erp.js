@@ -1016,9 +1016,22 @@
   function docsData(project, F, data) {
     const parts = [PM.exampleDocs && PM.exampleDocs.erp, ...((PM.exampleDocs && Array.isArray(PM.exampleDocs.erpParts)) ? PM.exampleDocs.erpParts : [])].filter((f) => typeof f === 'function');
     const ctx = { R, CODE, STATUS_DATE, data: { ...(data || {}), resources: resourcesData() } };
-    /* cada plantilla la aporta un solo módulo: la primera entrada gana */
+    /* una plantilla única la aporta un solo módulo (la primera entrada gana); las múltiples suman las instancias de todos
+       los módulos (sin repetir la clave) y se ordenan por fecha, así el consecutivo del código sigue la cronología */
     const src = {};
-    for (const fn of parts) { const part = fn(F, ctx) || {}; for (const k of Object.keys(part)) if (!(k in src)) src[k] = part[k]; }
+    for (const fn of parts) {
+      const part = fn(F, ctx) || {};
+      for (const k of Object.keys(part)) {
+        const t = PM.templates && PM.templates[k];
+        if (t && t.multiple && src[k] && Array.isArray(src[k].instances) && part[k] && Array.isArray(part[k].instances)) {
+          const keys = new Set(src[k].instances.map((e) => e && e.key));
+          src[k] = { ...src[k], instances: [...src[k].instances, ...part[k].instances.filter((e) => e && !keys.has(e.key))] };
+        } else if (!(k in src)) src[k] = part[k];
+      }
+    }
+    for (const k of Object.keys(src)) {
+      if (src[k] && Array.isArray(src[k].instances)) src[k] = { ...src[k], instances: src[k].instances.map((e, i) => [e, i]).sort((a, b) => String((a[0] && a[0].date) || '').localeCompare(String((b[0] && b[0].date) || '')) || a[1] - b[1]).map((x) => x[0]) };
+    }
     const out = [];
     for (const templateId of Object.keys(src)) {
       const t = PM.templates && PM.templates[templateId];
