@@ -18,7 +18,9 @@
    dirección cambia con el CC-001 y después del cierre del release 1 (con la
    rev. 2 del plan de releases); el registro de supuestos y los requisitos de
    financiamiento tienen una revisión en curso al corte. Los documentos aprobados (y sus revisiones) no citan hechos
-   posteriores a su fecha. Se usan roles, no nombres de personas.
+   posteriores a su fecha. El plan para la dirección cita cada plan y documento con la revisión vigente en la fecha de
+   cada emisión, también los de los otros módulos 97 (adquisiciones, comunicaciones y equipo) cuando la página los carga.
+   Se usan roles, no nombres de personas.
    ========================================================================== */
 (function () {
   'use strict';
@@ -117,6 +119,21 @@
     const connectorExtra = (costs.actuals || []).filter((a) => a.releaseId === 'rel-2' && /conector/.test(a.description) && a.date <= STATUS_DATE).reduce((s, a) => s + a.amount, 0);
     /* documentos de 95 que se citan: revisiones del registro de riesgos (reserva por riesgo) y del plan de releases */
     const base = PM.exampleDocs && typeof PM.exampleDocs.erp === 'function' ? PM.exampleDocs.erp(F) : null;
+    /* documentos de los otros módulos de 97 (adquisiciones, comunicaciones y equipo) que cita el plan para la dirección: su
+       revisión vigente a la fecha de cada emisión del plan. Si la página no carga esos módulos, la referencia va sin revisión.
+       Ninguno de ellos llama a este módulo; la marca evita una recursión si alguno lo hiciera. */
+    const peers = {};
+    if (!part.busy) {
+      part.busy = true;
+      try {
+        for (const fn of (PM.exampleDocs && Array.isArray(PM.exampleDocs.erpParts)) ? PM.exampleDocs.erpParts : []) {
+          if (fn === part || typeof fn !== 'function') continue;
+          let p = null;
+          try { p = fn(F, ctx); } catch (e) { p = null; }
+          if (p && typeof p === 'object') for (const k of Object.keys(p)) if (!(k in peers)) peers[k] = p[k];
+        }
+      } finally { part.busy = false; }
+    }
     const prelRevs = base && base['plan-release'] && Array.isArray(base['plan-release'].revs) ? base['plan-release'].revs : [];
     const prelRev = (r) => (prelRevs.find((x) => x.rev === r) || {}).date;
 
@@ -305,7 +322,7 @@
         S('S-11', 'Supuesto', 'Contabilidad entrega el auxiliar de cartera conciliado al cierre del mes anterior en los primeros días hábiles del mes de la migración de saldos.' + (stage >= 2 ? ' Por validar: el auxiliar a 30 de septiembre no ha llegado (INC-003, TA-011 bloqueado); compromiso para el 13 de octubre.' : ''), 'Recursos', ROLE.con,
           stage >= 2 ? '2026-10-13' : lbTask('t18').start, 'Por validar'),
         S('S-12', 'Restricción', 'Suscripción de ' + subTotalUsers + ' usuarios (' + andList(subUsers) + ') de ' + monthName(lbTask('t12').start) + ' a ' + monthName(lbTask('t12').finish) + ', con facturación mensual vencida; desde ' + monthName(D.addMonths(D.startOfMonth(lbTask('t12').finish), 1)) + ' pasa al presupuesto de operación de TI.', 'Contractual', ROLE.ti, F.milestones.t11.actual, 'Validado'),
-        S('S-13', 'Restricción', 'El implementador trabaja a precio fijo de ' + n0(implHours) + ' horas por iteración de ' + sprintDays + ' días hábiles; las horas adicionales solo entran con las bolsas del conector y del tablero gerencial o con una solicitud de cambio.', 'Contractual', R.dir, F.milestones.t11.actual, 'Validado'),
+        S('S-13', 'Restricción', 'El implementador trabaja a precio fijo de ' + n0(implHours) + ' horas por iteración de ' + sprintDays + ' días hábiles: las horas adicionales de las iteraciones solo entran con las bolsas del conector y del tablero gerencial o con una solicitud de cambio. Sus servicios fuera de los releases (ambientes, formación, capacitación, apoyo a la migración, salidas y estabilización) se contratan con órdenes de servicio a la tarifa del contrato.', 'Contractual', R.dir, F.milestones.t11.actual, 'Validado'),
       );
       if (stage >= 2) list.push(
         S('S-14', 'Supuesto', 'Las básculas de las bodegas principal y de Funza tienen salida de datos y se integran sin costo adicional (CC-001).', 'Técnico', ROLE.di, CC1, 'Validado'),
@@ -341,9 +358,10 @@
        (planificación de la iteración 6, en 95), que incorpora la línea base del release 2 */
     const PDP2 = prelRev('2') || sprintsOf('rel-2')[1].start;
     const pdDate = (stage) => [LB0, CC1, PDP2][stage];
-    /* última emisión aprobada de un documento de 95 a una fecha (sin el documento, la referencia va sin revisión) */
+    /* última emisión aprobada de un documento de 95 o de otro módulo de 97 a una fecha (sin el documento, la referencia va sin
+       revisión) */
     const revAt = (tid, at) => {
-      const e = base && base[tid];
+      const e = (base && base[tid]) || peers[tid];
       if (!e) return undefined;
       const list = [...(e.revs || []).map((r) => [r.rev, r.status || 'aprobado', r.date]), [e.rev, e.status, e.date]].filter(([rv, st, d]) => st === 'aprobado' && d && d <= at && /^\d+$/.test(String(rv)));
       list.sort((a, b) => String(a[2]).localeCompare(String(b[2])) || Number(a[0]) - Number(b[0]));
@@ -357,12 +375,12 @@
       { plan: 'Plan de gestión de los requisitos', estado: 'Incluido en este plan', referencia: 'Backlog del producto y definición de listo y de terminado (' + planRef('definicion-terminado', revAt('definicion-terminado', pdDate(stage))) + ')', responsable: 'Dueño del producto', resumen: 'Historias de usuario con criterios de aceptación, prioridad MoSCoW y estimación en puntos; se refinan cada semana con los usuarios clave.' },
       { plan: 'Plan de gestión del cronograma', estado: 'Incluido en este plan', referencia: 'Cronograma (LB0) y plan de releases', responsable: R.dir, resumen: 'Cronograma por ruta crítica para los entregables predictivos y las salidas a producción; iteraciones de ' + sprintDays + ' días hábiles y pronóstico por velocidad para los releases. Calendario de lunes a viernes con festivos de Colombia.' },
       { plan: 'Plan de gestión de los costos', estado: 'Incluido en este plan', referencia: 'Requisitos de financiamiento (' + planRef('requisitos-financiamiento', 0) + ')', responsable: R.dir, resumen: 'Pesos colombianos sin decimales, valor ganado del proyecto sobre la LB0 en cada corte quincenal y AgileEVM de cada release; reserva para contingencias por riesgo y reserva de gestión de la Gerencia General.' },
-      { plan: 'Plan de gestión de la calidad', estado: 'Incluido en este plan', referencia: 'Definición de listo y de terminado (' + planRef('definicion-terminado', revAt('definicion-terminado', pdDate(stage))) + ')', responsable: R.sm, resumen: 'La definición de terminado es el estándar de calidad de cada elemento; la prueba de aceptación firmada por los usuarios clave, el de cada release; facturas validadas por la DIAN en habilitación antes del release 2.' },
-      { plan: 'Plan de gestión de los recursos', estado: 'Incluido en este plan', referencia: 'Catálogo de recursos y capacidad de las iteraciones', responsable: R.dir, resumen: 'Equipo Scrum de cinco desarrolladores (dos al 50 %) del implementador y de TI, Scrum Master al 50 % y dueño del producto; la capacidad de cada iteración descuenta ausencias y festivos.' },
-      { plan: 'Plan de gestión de las comunicaciones', estado: 'Aprobado', referencia: planRef('plan-gestion-comunicaciones'), responsable: R.dir, resumen: 'Eventos de Scrum, comité quincenal con el informe de desempeño y reunión semanal con el implementador.' },
+      { plan: 'Plan de gestión de la calidad', estado: 'Incluido en este plan', referencia: 'Definición de listo y de terminado (' + planRef('definicion-terminado', revAt('definicion-terminado', pdDate(stage))) + ') y documentos de prueba y evaluación (' + planRef('documentos-prueba', revAt('documentos-prueba', pdDate(stage))) + ')', responsable: R.sm, resumen: 'La definición de terminado es el estándar de calidad de cada elemento; la prueba de aceptación firmada por los usuarios clave, el de cada release; facturas validadas por la DIAN en habilitación antes del release 2. Los documentos de prueba organizan las pruebas de cada elemento, de cada release y de cada migración.' },
+      { plan: 'Plan de gestión de los recursos', estado: 'Incluido en este plan', referencia: 'Catálogo de recursos, capacidad de las iteraciones y acta de constitución del equipo (' + planRef('acta-constitucion-equipo', revAt('acta-constitucion-equipo', pdDate(stage))) + ')', responsable: R.dir, resumen: 'Equipo Scrum de cinco desarrolladores (dos al 50 %) del implementador y de TI, Scrum Master al 50 % y dueño del producto; la capacidad de cada iteración descuenta ausencias y festivos. Los acuerdos de trabajo del equipo están en su acta de constitución.' },
+      { plan: 'Plan de gestión de las comunicaciones', estado: 'Aprobado', referencia: planRef('plan-gestion-comunicaciones', revAt('plan-gestion-comunicaciones', pdDate(stage))), responsable: R.dir, resumen: 'Comité quincenal con el informe de desempeño, reunión semanal con el implementador y eventos de Scrum con sus actas; carteleras, capacitación por grupos y acompañamiento en sitio para las bodegas, y registro de las comunicaciones formales (con terceros y de gobierno del proyecto).' },
       { plan: 'Plan de gestión de los riesgos', estado: 'Aprobado', referencia: planRef('plan-gestion-riesgos', revAt('plan-gestion-riesgos', pdDate(stage))), responsable: R.dir, resumen: 'Riesgos en dos niveles (impedimentos en la iteración y riesgos del proyecto en el comité quincenal), matriz 5 × 5 y reserva para contingencias asignada por riesgo.' },
-      { plan: 'Plan de gestión de las adquisiciones', estado: 'Aprobado', referencia: planRef('plan-gestion-adquisiciones'), responsable: R.dir, resumen: 'Selección del ERP y del socio implementador con solicitud de propuestas, demostraciones guiadas y evaluación ponderada; contratos de suscripción y de implementación por iteraciones de precio fijo.' },
-      { plan: 'Plan de involucramiento de los interesados', estado: 'Aprobado', referencia: planRef('plan-involucramiento-interesados'), responsable: R.dir, resumen: 'Red de usuarios clave, revisiones de iteración abiertas a las áreas y acompañamiento en las bodegas en cada salida a producción.' },
+      { plan: 'Plan de gestión de las adquisiciones', estado: 'Aprobado', referencia: planRef('plan-gestion-adquisiciones', revAt('plan-gestion-adquisiciones', pdDate(stage))), responsable: R.dir, resumen: 'Selección del ERP y del socio implementador con solicitud de propuestas, demostraciones guiadas y evaluación ponderada; contratos de suscripción y de implementación por iteraciones de precio fijo.' },
+      { plan: 'Plan de involucramiento de los interesados', estado: 'Aprobado', referencia: planRef('plan-involucramiento-interesados', revAt('plan-involucramiento-interesados', pdDate(stage))), responsable: R.dir, resumen: 'Red de usuarios clave, revisiones de iteración abiertas a las áreas y acompañamiento en las bodegas en cada salida a producción.' },
       { plan: 'Plan de gestión de cambios', estado: 'Aprobado', referencia: planRef('plan-gestion-cambios', revAt('plan-gestion-cambios', pdDate(stage))), responsable: R.dir, resumen: 'Control integrado de cambios en dos niveles: dentro de ±10 % del alcance de un release decide el dueño del producto; lo demás, el comité de control de cambios o la Gerencia General.' },
       { plan: 'Plan de gestión de la configuración', estado: 'Incluido en este plan', referencia: 'Ambientes del ERP y revisiones de los documentos', responsable: ROLE.ti, resumen: 'Ambientes de pruebas y producción, parametrización documentada en cada historia y revisiones controladas de los documentos del proyecto en el gestor.' },
       { plan: 'Plan de releases (hoja de ruta del producto)', estado: 'Aprobado', referencia: planRef('plan-release', revAt('plan-release', pdDate(stage))), responsable: 'Dueño del producto', resumen: 'Tres releases y ' + agile.sprints.length + ' iteraciones de ' + sprintDays + ' días hábiles con velocidad supuesta de ' + ((PM.templates['plan-release'] && PM.templates['plan-release'].example.velocidadSupuesta) || 30) + ' puntos; ' + relShort('rel-1').toLowerCase() + (stage >= 2 ? ' cerrado con ' + r1PointsCC + ' puntos de línea base (CC-001) y ' + relShort('rel-2').toLowerCase() + ' comprometido con ' + R2B.points + ' puntos el ' + dl(R2B.date) : ' con ' + (stage >= 1 ? r1PointsCC + ' puntos de línea base (CC-001)' : r1Points0 + ' puntos de línea base')) + '.' },
@@ -398,12 +416,12 @@
       revisiones: rows('rv', [
         { revision: 'Reunión diaria', momento: 'Diaria, 15 minutos', participantes: 'Desarrolladores y Scrum Master', proposito: 'Coordinar el trabajo del día y detectar impedimentos; el Scrum Master los escala en menos de un día hábil.' },
         { revision: 'Planificación de la iteración', momento: 'Primer día de cada iteración', participantes: 'Dueño del producto, Scrum Master y desarrolladores', proposito: 'Objetivo, capacidad y compromiso de la iteración; en la primera iteración de cada release se compromete su línea base.' },
-        { revision: 'Revisión de la iteración', momento: 'Último día de cada iteración', participantes: 'Equipo Scrum, usuarios clave y director de proyecto', proposito: 'Aceptar o rechazar los incrementos y ajustar el backlog (cambios de nivel 1).' },
+        { revision: 'Revisión de la iteración', momento: 'Último día de cada iteración', participantes: 'Equipo Scrum, usuarios clave del release y gerente de proyecto del implementador; la Gerencia General, al cierre de cada release', proposito: 'Aceptar o rechazar los incrementos y ajustar el backlog (cambios de nivel 1).' },
         { revision: 'Retrospectiva', momento: 'Después de cada revisión', participantes: 'Scrum Master, desarrolladores y dueño del producto', proposito: 'Acciones de mejora para la iteración siguiente y lecciones aprendidas.' },
-        { revision: 'Comité de seguimiento', momento: 'Quincenal', participantes: 'Gerencia General, director de proyecto, dueño del producto, jefe de TI y líder del implementador', proposito: 'Informe de desempeño: valor ganado y AgileEVM, pronóstico de los releases, riesgos, incidentes y cambios.' },
+        { revision: 'Comité de seguimiento', momento: 'Quincenal', participantes: 'Gerencia General, director de proyecto, dueño del producto, Scrum Master, jefe de TI y líder del implementador; gerente comercial y contador como invitados', proposito: 'Informe de desempeño: valor ganado y AgileEVM, pronóstico de los releases, riesgos, incidentes y cambios.' },
         { revision: 'Comité de control de cambios', momento: 'Quincenal y a solicitud', participantes: 'Integrantes definidos en el plan de gestión de cambios', proposito: 'Decidir las solicitudes de cambio de nivel 2 y escalar las de nivel 3.' },
         { revision: 'Cierre de cada release', momento: 'Día hábil siguiente a la salida a producción de cada release', participantes: 'Gerencia General, dueño del producto y director de proyecto', proposito: 'Resultados del release en producción, revisión del caso de negocio y de los beneficios y liberación del siguiente tramo de financiamiento, que cubre desde el mes siguiente.' },
-        { revision: 'Reunión con el implementador', momento: 'Semanal', participantes: 'Director de proyecto, líder del implementador y Scrum Master', proposito: 'Capacidad del equipo del implementador, facturación por iteración y cumplimiento del contrato.' },
+        { revision: 'Reunión con el implementador', momento: 'Semanal', participantes: 'Director de proyecto, Scrum Master, gerente de proyecto del implementador y líder del implementador', proposito: 'Capacidad del equipo del implementador, facturación por iteración y cumplimiento del contrato.' },
         { revision: 'Revisión de cierre', momento: 'Al terminar la estabilización', participantes: 'Gerencia General, director de proyecto, dueño del producto y jefe de TI', proposito: 'Aceptación final, transferencia al soporte, informe final y lecciones aprendidas.' },
       ]),
       mantenimientoPlan: 'El director de proyecto mantiene el plan. Se revisa después del cierre de cada release, con la hoja de ruta actualizada del plan de releases, y con cada cambio aprobado a una línea base del proyecto o de un release comprometido; cada revisión la aprueba la Gerencia General y queda en el historial del documento (borradores A, B…; emisiones aprobadas 0, 1…).' + (stage >= 1 ? ' Revisión 1 (' + dl(CC1) + '): CC-001, línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + r1PointsCC + ' puntos.' : '') +

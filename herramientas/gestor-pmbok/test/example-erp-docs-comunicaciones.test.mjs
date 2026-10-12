@@ -10,7 +10,9 @@
 //      el cronograma (ninguna salida real o planificada en el cierre mensual ni en el anual); ninguna fecha de un hecho pasa la
 //      fecha de corte ni la del documento, y los documentos aprobados (y sus revisiones) no citan hechos posteriores a su fecha
 //      (ni por código ni por fechas escritas en el texto que no sean planes conocidos a esa fecha); toda revisión aprobada tiene
-//      aprobador en el cajetín.
+//      aprobador en el cajetín. Revisión cruzada (con los otros módulos 97 si están cargados): criterios de la evaluación iguales
+//      a los del documento de criterios, revisión del caso de negocio al cierre del release 1 registrada en su fecha, sesión
+//      ordinaria del 24 de septiembre en el acta de octubre y reclamo con crédito de servicio.
 //   2) Interacción: pulsa «Crear proyecto de ejemplo» con el teclado (Tab y Enter), elige el ERP en el selector con Tab y Enter,
 //      abre «Documentos» con el riel, revisa la lista maestra (código, estado, revisión y enfoque), abre el plan de gestión de las
 //      comunicaciones con Tab y Enter y llega con Tab al acta del CC-001 para abrirla con Enter.
@@ -302,6 +304,17 @@ async function validateInPage(page) {
       const t23 = lbT('t23');
       ok(/el 29 y el 30 de octubre/.test(text(a6.decisiones)) && t23.start === '2026-10-29' && cal.isWork('2026-10-30') && !cal.isWork('2026-11-02'), 'comité de octubre: capacitación de facturación y cartera antes del cierre de noviembre');
       const novClose = closeOf(t23.finish);
+      /* regresión (revisión cruzada): el comité de selección cita todos los criterios del documento de criterios (si está cargado; si
+         no, los cinco del ejemplo); el comité de octubre recoge la revisión del caso de negocio al cierre del release 1 y la sesión
+         ordinaria que aprobó la rev. 2 del plan de releases (sin acta propia, en el informe quincenal siguiente) y pide en el reclamo
+         el crédito de servicio que prevé el acuerdo de nivel de servicio */
+      const csp = docOf('criterios-seleccion-proveedores');
+      const critNames = csp ? csp.fields.criterios.map((c) => c.criterio.charAt(0).toLowerCase() + c.criterio.slice(1)) : null;
+      ok(csp ? critNames.every((n) => has(a2.desarrollo, n)) : (a2.desarrollo.split('\n')[2].match(/;/g) || []).length === 4, 'selección: la evaluación ponderada nombra todos los criterios del documento de criterios de selección', critNames);
+      const pr2 = (await revsOf('plan-release')).find((r) => r.rev === '2');
+      const sep = String(pr2.date).slice(0, 10);
+      ok(comites.includes(sep) && sep > golive1 && cuts.includes(D.add(sep, 1)) && has(a6.desarrollo.split('\n')[0], 'sesión ordinaria del ' + dl(sep)) && has(a6.desarrollo.split('\n')[0], 'informe quincenal n.º ' + (cuts.indexOf(D.add(sep, 1)) + 1)) && has(a6.desarrollo.split('\n')[0], dl(review)) && /caso de negocio/.test(a6.desarrollo.split('\n')[0]), 'comité de octubre: recoge la revisión al cierre del release 1 y la sesión ordinaria que aprobó la rev. 2 del plan de releases', a6.desarrollo.split('\n')[0]);
+      ok(a6.decisiones.some((x) => /reclamo formal/.test(x.decision) && /crédito de servicio/.test(x.decision) && /aviso automático/.test(x.decision)), 'comité de octubre: el reclamo pide aviso automático y el crédito de servicio del acuerdo de nivel de servicio');
       ok(has(a6.desarrollo, 'coincide con el cierre mensual (del ' + (+novClose[0].slice(8)) + ' al ' + plain(Fm.date(novClose[4], 'long')).replace(/ de 20\d\d$/, '') + ')') && !/corre el cierre mensual/.test(a6.desarrollo) && novClose[4] === '2026-11-09' && lbT('t30').start > novClose[4], 'comité de octubre: el cierre de noviembre va del 3 al 9 de noviembre (con el festivo del 2) y el release 2 sale después', [novClose, a6.desarrollo.split('\n')[5]]);
     }
 
@@ -348,6 +361,16 @@ async function validateInPage(page) {
       ok(!yardMail.length, 'registro: lo que va por correo al personal de bodega y a los conductores tiene copia en las carteleras', yardMail);
       const r0 = V['registro-comunicaciones'].revs.find((r) => r.rev === '0').fields;
       ok(r0.comunicaciones.every((c) => c.fecha <= LB.date) && !/defectos de producción/.test(r0.archivo) && /defectos de producción/.test(V['registro-comunicaciones'].cur.fields.archivo), 'registro rev. 0: solo comunicaciones hasta la LB0');
+      /* regresión (revisión cruzada): tipo y medio coherentes (un correo va por correo electrónico); la decisión de la revisión al cierre
+         del release 1 queda registrada con la rev. 1 del caso de negocio (si el módulo de integración está cargado, en la misma fecha)
+         y el reclamo al proveedor tecnológico pide el crédito de servicio */
+      const mailBad = cur.filter((c) => c.tipo === 'Correo' && c.medio !== 'Correo electrónico').map((c) => c.id + ' ' + c.medio);
+      ok(!mailBad.length, 'registro: los correos van por correo electrónico', mailBad);
+      const cnegCom = find(/^Resultado de la revisión del caso de negocio al cierre del release 1/);
+      const cneg = docOf('caso-negocio');
+      const cneg1 = cneg ? (await revsOf('caso-negocio')).find((r) => r.rev === '1') : null;
+      ok(cnegCom && cnegCom.fecha === review && cnegCom.emisor === 'Gerencia General' && /rev\. 1$/.test(cnegCom.referencia) && (!cneg || (cnegCom.referencia === cneg.titleBlock.codigo + ' rev. 1' && cneg1 && String(cneg1.date).slice(0, 10) === review)) && /revisión al cierre de cada release, en la revisión del caso de negocio/.test(V['registro-comunicaciones'].cur.fields.archivo), 'registro: la decisión de la revisión al cierre del release 1 (caso de negocio rev. 1) está registrada en su fecha', cnegCom);
+      ok(/crédito de servicio/.test(find(/caída del ambiente de habilitación/).asunto), 'registro: el reclamo al proveedor tecnológico pide aviso automático y crédito de servicio', find(/caída del ambiente de habilitación/).asunto);
     }
     ok(['plan-gestion-comunicaciones', 'registro-comunicaciones', 'acta-reunion'].every((id) => PM.docApproach && PM.docApproach(id) && PM.docApproach(id).id === 'ambos'), 'las tres plantillas son de «Ambos enfoques» (11-doc-approach)');
     return out;

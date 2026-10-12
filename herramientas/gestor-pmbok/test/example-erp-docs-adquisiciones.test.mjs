@@ -13,6 +13,9 @@
 //      de desempeño); órdenes de servicio fuera del valor fijo y con pólizas ampliadas; excepción de la póliza de cumplimiento de
 //      la orden de compra; liquidación con la evaluación final, ya pagados; capacitación por grupos y conciliación de la formación
 //      y la capacitación; facturación al cierre de la iteración o de la actividad; cajetines de las revisiones aprobadas.
+//      Revisión cruzada: órdenes de servicio por encima del límite del director (estabilización) a la Gerencia General; capacitación
+//      dentro de las horas de su orden; tabletas instaladas antes de la iteración 2; reclamo formal al proveedor tecnológico igual
+//      al del registro de comunicaciones (si está cargado).
 //   2) Interacción: crea el ejemplo desde el selector con el teclado, abre «Documentos» con el riel, filtra por enfoque si la
 //      lista lo ofrece, busca y abre con el teclado el registro de contratos y el enunciado del trabajo de la implementación, y
 //      revisa las columnas calculadas de los criterios de selección y del seguimiento de contratos.
@@ -198,6 +201,13 @@ async function validateInPage(page) {
       const impl = f.estrategias.find((r) => /^Implementación/.test(r.adquisicion));
       ok(impl && impl.tipoContrato === 'Precio fijo cerrado (FFP)' && /240 horas/.test(impl.adquisicion) && f.estrategias.some((r) => /Bolsas/.test(r.adquisicion) && r.tipoContrato === 'Tiempo y materiales (T&M)') && f.estrategias.some((r) => /Equipos/.test(r.adquisicion) && /FP-EPA/.test(r.tipoContrato)), 'estrategia: implementación por iteraciones de precio fijo, bolsas en T&M y equipos con ajuste por tasa de cambio');
       ok(f.fases.length === 5 && /enero de 2027/.test(f.fases[4].fase) && /transferencia de conocimiento/i.test(f.seguimiento) && !/\$/.test(text(f)), 'estrategia: cinco fases hasta la estabilización, transferencia de conocimiento y sin precios (aprobada antes de las propuestas)');
+      /* regresión (revisión cruzada): la orden de servicio de la estabilización (208 horas a la tarifa del contrato) supera el límite de
+         gasto del director; la estrategia, el plan y el registro de contratos la dejan a la Gerencia General, no al director */
+      const hrs = f.estrategias.find((r) => /por horas/.test(r.adquisicion));
+      const estab = sum(task('t34').resources.filter((a) => { const it = cat.resolve(a); return it && it.supplier === 'Socio implementador'; }), (a) => PM.res.assignment(cat, task('t34'), a).qty * 8) * rate;
+      const gg = cur('plan-gestion-adquisiciones').rolesAdquisiciones.find((r) => r.rol === 'Gerencia General');
+      const implReg = cur('registro-adquisiciones').contratos.find((c) => c.numero === SUP.num.impl);
+      ok(estab > limite && hrs && !/dentro del presupuesto de su actividad y del límite de gasto del director/.test(hrs.justificacion) && /la Gerencia General, las que lo superan/.test(hrs.justificacion) && /órdenes de servicio que superan el límite del director/.test(gg.responsabilidad) && has(implReg.observaciones, 'La orden de la estabilización (208 horas, ' + ms(estab) + ') supera el límite de gasto del director'), 'estrategia, plan y registro: las órdenes de servicio por encima de ' + ms(limite) + ' (la estabilización, ' + ms(estab) + ') las aprueba la Gerencia General', [hrs && hrs.justificacion, gg && gg.responsabilidad]);
     }
 
     /* ---------- análisis de hacer o comprar */
@@ -231,6 +241,9 @@ async function validateInPage(page) {
       const fForm = costs.actuals.find((a) => a.taskId === 't21' && /^Implementador/.test(a.description));
       const capE = ent(impl, /^Capacitación/), formE = ent(impl, /^Formación/);
       ok(capE.cantidad === 3 * SUP.gruposCapacitacion && capE.unidad === 'grupo' && new RegExp(WORDS[SUP.gruposCapacitacion] + ' grupos', 'i').test(capE.especificacion) && /fija las horas por grupo/.test(capE.especificacion) && fCap && new RegExp(WORDS[SUP.gruposCapacitacion] + ' grupos').test(fCap.description) && /materiales del curso/.test(formE.especificacion) && fForm && new RegExp('\\(' + hoursOf('t21') + ' horas\\) y materiales').test(fForm.description), 'SOW implementación: capacitación por grupos (' + SUP.gruposCapacitacion + ' por release) y formación con sus materiales, coherentes con las facturas FE-5133 y FE-5110', [capE, formE]);
+      /* regresión (revisión cruzada): la formación no fija un número de áreas que contradiga el acta de arranque (un usuario clave por
+         área, seis en el catálogo) */
+      ok(!/cinco áreas|seis áreas/.test(formE.especificacion) && /usuarios clave/i.test(formE.especificacion), 'SOW implementación: la formación de usuarios clave no fija un número de áreas', formE.especificacion);
       /* regresión: facturación de bolsas y servicios por horas como en los costos reales (al cierre de la iteración o de la actividad),
          y todos los paquetes de la EDT facturados por horas en el SOW (el taller de planificación de releases incluido) */
       const plan1 = cur('plan-gestion-adquisiciones'), plan0 = rev('plan-gestion-adquisiciones', '0');
@@ -314,7 +327,7 @@ async function validateInPage(page) {
       ok(['registro-adquisiciones', 'control-adquisiciones'].every((id) => V[id].revs.every((r) => r.status !== 'aprobado' || (r.titleBlock.aprobo && r.titleBlock.fechaAprobacion === r.date)) && !released.has(docOf(id).titleBlock.reviso) && docOf(id).titleBlock.reviso !== 'Asesor jurídico'), 'registro y seguimiento: las revisiones aprobadas tienen «Aprobó» y el revisor es un rol vigente', ['registro-adquisiciones', 'control-adquisiciones'].map((id) => [docOf(id).titleBlock, V[id].revs.map((r) => r.titleBlock.aprobo)]));
       const implAt = actualsOf('impl', cut);
       const hourly = implAt.filter((a) => !/precio fijo por iteración|horas adicionales del conector/.test(a.description));
-      ok(has(ct(f, 'impl').observaciones, ms(tot(hourly))) && has(ct(f, 'impl').observaciones, ms(tot(implAt.filter((a) => /horas adicionales del conector/.test(a.description))))) && has(ct(f, 'sub').observaciones, ms(tot(actualsOf('sub', cut)))), 'registro: órdenes por horas, bolsa del conector y facturas de la suscripción al corte');
+      ok(has(ct(f, 'impl').observaciones, ms(tot(hourly))) && has(ct(f, 'impl').observaciones, ms(tot(implAt.filter((a) => /horas adicionales del conector/.test(a.description))))) && has(ct(f, 'sub').observaciones, money(tot(actualsOf('sub', cut)))), 'registro: órdenes por horas, bolsa del conector y facturas de la suscripción al corte (valor exacto, como el valor mensual)');
       const stateOk = (v, date) => v.contratos.every((r) => (!['En ejecución', 'Terminado', 'Liquidado'].includes(r.estado) || r.fechaInicio <= date) && (!['Terminado', 'Liquidado'].includes(r.estado) || r.fechaFin <= date));
       ok(stateOk(f, cut) && stateOk(f1, reg1) && stateOk(f0, sign) && ct(f0, 'impl').estado === 'Firmado' && ct(f, 'impl').estado === 'En ejecución' && ct(f, 'eq').estado === 'Liquidado' && ct(f1, 'eq').fechaFin <= reg1 && ct(f1, 'fe').estado === 'Firmado' && ct(f, 'fe').estado === 'En ejecución', 'registro: estados coherentes con las fechas de cada revisión');
       const r005 = docOf('registro-riesgos').fields.riesgos.find((r) => r.id === 'R-005');
@@ -371,6 +384,10 @@ async function validateInPage(page) {
         const fForm = actualsOf('impl', at).find((a) => a.taskId === 't21'), fCap = actualsOf('impl', at).find((a) => a.taskId === 't22');
         const hForm = 40, hCap = sum((task('t22').resources || []).filter((a) => { const it = cat.resolve(a); return it && it.supplier === 'Socio implementador'; }), (a) => PM.res.assignment(cat, task('t22'), a).qty * 8);
         ok(fForm && fCap && has(osRow.observaciones, fForm.document + ') incluyó las ' + hForm + ' horas (' + ms(hForm * rate) + ') y los materiales del curso (' + ms(fForm.amount - hForm * rate) + ')') && has(osRow.observaciones, fCap.document + ', seis grupos) se facturó por ' + ms(fCap.amount) + ': ' + n1(fCap.amount / rate) + ' horas') && has(osRow.observaciones, 'frente a las ' + hCap + ' de la asignación del cronograma'), 'seguimiento (' + name + '): las órdenes de la formación y de la capacitación se concilian con el SOW y el cronograma (materiales y mayor consumo)', osRow.observaciones);
+        /* regresión (revisión cruzada): el SOW manda que la orden de cada release fije las horas por grupo; la del release 1 las fijó y
+           la factura cabe en ellas (no «faltaba fijarlas») */
+        const ordHours = SUP.gruposCapacitacion * SUP.horasGrupo;
+        ok(fCap && fCap.amount / rate <= ordHours && has(osRow.observaciones, 'dentro de las ' + ordHours + ' de su orden de servicio') && !/pidió fijar las horas por grupo/.test(osRow.observaciones), 'seguimiento (' + name + '): la capacitación del release 1 se factura dentro de las horas de su orden de servicio, como exige el SOW', osRow.observaciones);
       }
       const implRow = f.seguimiento.find((x) => x.contrato.startsWith(NUM.impl));
       const liqTxt = new RegExp('Liquidados el ' + plain(PM.fmt.date(c0, 'long')) + ', con la evaluación final: ');
@@ -390,6 +407,13 @@ async function validateInPage(page) {
       const paso = docOf('informe-desempeno--corte-2026-10-09').fields.proximosPasos.find((p) => /aviso automático/.test(p.accion));
       ok(rc(f, 'fe') && rc(f, 'fe').fecha === inc2.fecha && rc(f, 'fe').estado === 'En negociación' && has(rc(f, 'fe').solucion, PM.fmt.date(paso.fecha, 'long')) && rc(f, 'eq').fecha === inc1.fecha && rc(f, 'eq').estado === 'Resuelta' && !rc(f0, 'fe') && rc(f0, 'eq'), 'seguimiento: reclamaciones con las fechas de INC-001 e INC-002 y el próximo paso del informe de desempeño; la del proveedor tecnológico no está en la rev. 0');
       ok(f.reclamaciones.every((x) => x.fecha <= cut) && f0.reclamaciones.every((x) => x.fecha <= c0), 'seguimiento: ninguna reclamación posterior a su revisión');
+      /* regresión (revisión cruzada): las tabletas se instalaron antes de la iteración 2 (no «mientras llegaban» en ella) y el reclamo
+         formal al proveedor tecnológico es el del comité quincenal (jueves anterior al corte del informe), con el crédito de servicio */
+      const t14f = task('t14').actualFinish, it2s = sprints[1].start;
+      const reclamo = D.add(docOf('informe-desempeno--corte-2026-10-09').fields.fechaCorte, -1);
+      ok(t14f < it2s && has(rc(f, 'eq').solucion, PM.fmt.date(t14f, 'long')) && /antes de la iteración 2/.test(rc(f, 'eq').solucion) && !/mientras llegaban/.test(text(cur('registro-adquisiciones'))) && has(rc(f, 'fe').solucion, PM.fmt.date(reclamo, 'long') + ' se le envió el reclamo formal') && /crédito de servicio/.test(rc(f, 'fe').solucion), 'seguimiento: tabletas instaladas antes de la iteración 2 y reclamo formal al proveedor tecnológico del ' + reclamo + ' con aviso automático y crédito de servicio', [rc(f, 'eq').solucion, rc(f, 'fe').solucion]);
+      const regCom = docOf('registro-comunicaciones');
+      if (regCom) { const c = regCom.fields.comunicaciones.find((x) => x.referencia === 'INC-002'); ok(c && c.fecha === reclamo && /crédito de servicio/.test(c.asunto), 'seguimiento y registro de comunicaciones (si está cargado): el mismo reclamo formal, con la misma fecha y el crédito de servicio', c); }
     }
     ok(MINE.every((id) => PM.docApproach && PM.docApproach(id) && PM.docApproach(id).id === 'ambos'), 'los siete documentos de adquisiciones son de «Ambos enfoques» (11-doc-approach)');
     return out;

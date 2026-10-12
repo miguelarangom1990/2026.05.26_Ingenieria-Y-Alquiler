@@ -5,7 +5,9 @@
 //   1) Datos (con el ejemplo construido con PM.getExample('erp').build e importado): cada documento existe con su código, estado
 //      y revisiones; todas las claves de su plantilla con contenido; cada cifra igual a la que calcula la aplicación (LB0 y valor
 //      ganado con PM.calc, AgileEVM y releases con PM.agile, catálogo de recursos); fechas dentro del proyecto; los documentos y
-//      revisiones aprobados no citan hechos posteriores a su fecha.
+//      revisiones aprobados no citan hechos posteriores a su fecha. Con --file de la página completa (los cuatro módulos 97)
+//      revisa también la coherencia con los otros grupos: el plan para la dirección cita sus planes con la revisión vigente y
+//      con los participantes de sus actas, y el supuesto S-13 cuadra con la estrategia de las adquisiciones.
 //   2) Interacción: crea el ejemplo desde el selector, abre «Documentos» con el riel, busca y abre el caso de negocio con el
 //      teclado (Tab y Enter), abre los requisitos de financiamiento (tabla con la holgura calculada) y, en el registro de
 //      supuestos, abre con el teclado el historial y la rev. 0 (cajetín con quien aprobó).
@@ -212,6 +214,10 @@ async function validateInPage(page) {
       ok(S['S-14'].fechaValidacion === R1.baseline.date && S['S-12'].fechaValidacion === task('t11').actualFinish && S['S-13'].fechaValidacion === task('t11').actualFinish, 'supuestos: básculas validadas con el CC-001 y restricciones de los contratos del 30 de junio');
       ok(S['S-10'].estado === 'Por validar' && S['S-10'].fechaValidacion === sprints.find((s) => s.status === 'en-curso').end && /R-008/.test(S['S-10'].descripcion) && S['S-11'].estado === 'Por validar' && /INC-003/.test(S['S-11'].descripcion), 'supuestos: velocidad (R-008) y auxiliar de cartera (INC-003) por validar al corte');
       ok(['S-07'].every((k) => [meta.budget, LB.cost.bac, LB.cost.contingency, LB.cost.management].every((x) => has(S[k].descripcion, ms(x)))) && /700 millones/.test(versions[1][1].fields.supuestos[6].descripcion), 'supuestos: restricción de presupuesto con el BAC y las reservas de la LB0 (y el preliminar en la rev. 0)');
+      /* regresión (revisión cruzada): la restricción del contrato de implementación no contradice las órdenes de servicio por horas
+         de las adquisiciones (servicios fuera de los releases) */
+      const eadq = docOf('estrategia-adquisiciones');
+      ok(/horas adicionales de las iteraciones solo entran con las bolsas/.test(S['S-13'].descripcion) && /órdenes de servicio/.test(S['S-13'].descripcion) && (!eadq || eadq.fields.estrategias.some((r) => /por horas/.test(r.adquisicion) && /Órdenes de servicio/.test(r.justificacion))), 'supuestos: S-13 limita las horas adicionales de las iteraciones y deja los servicios por horas a las órdenes de servicio, como la estrategia de las adquisiciones (si está cargada)', S['S-13'].descripcion);
       const pr = docOf('plan-release').fields.supuestos;
       const keys = ['dos horas diarias', 'ambiente de habilitación', 'usuarios clave participan', '28 y 32 puntos', 'cinco primeros días hábiles'];
       ok(pr.length === keys.length && keys.every((k) => V['registro-supuestos'].cur.fields.supuestos.some((s) => s.descripcion.includes(k))), 'supuestos: coinciden con los supuestos del plan de releases');
@@ -258,6 +264,29 @@ async function validateInPage(page) {
       }
       ok(!refBad.length, 'plan para la dirección: cada documento citado (si su módulo está cargado) está aprobado a la fecha del plan', refBad);
       ok(!stale.length, 'plan para la dirección: cada versión cita la última revisión aprobada a su fecha', stale);
+      /* regresión (revisión cruzada): los planes y documentos de los otros módulos 97 van con su revisión cuando la página los
+         carga, y los planes de calidad y de recursos citan los documentos de prueba y el acta de constitución del equipo */
+      const PEER = ['plan-gestion-comunicaciones', 'plan-gestion-adquisiciones', 'plan-involucramiento-interesados', 'acta-constitucion-equipo', 'documentos-prueba'];
+      const noRev = [];
+      for (const v of [V['plan-direccion'].cur, ...V['plan-direccion'].revs]) {
+        const refs = text(v.fields.planesSubsidiarios.map((p) => p.referencia));
+        for (const tid of PEER) {
+          const code = meta.code + '-' + PM.templates[tid].abbr;
+          if (!has(refs, code)) noRev.push(v.date + ': falta ' + code);
+          else if (docOf(tid) && !new RegExp(code + ' rev\\. \\d+').test(refs)) noRev.push(v.date + ': ' + code + ' sin revisión');
+        }
+      }
+      ok(!noRev.length, 'plan para la dirección: comunicaciones, adquisiciones, involucramiento, acta del equipo y documentos de prueba citados (con su revisión si el módulo está cargado)', noRev);
+      /* regresión: participantes de las reuniones iguales a las actas y al plan de gestión de las comunicaciones */
+      const rv = Object.fromEntries(f.revisiones.map((r) => [r.revision, r.participantes]));
+      const revActas = docs.filter((d) => d.data.template === 'acta-revision-sprint').map((d) => d.data);
+      ok(revActas.length && revActas.every((a) => !(a.fields.asistentes || []).some((x) => /^Director de proyecto/.test(x))) && !/director de proyecto/i.test(rv['Revisión de la iteración']) && /Gerencia General, al cierre de cada release/.test(rv['Revisión de la iteración']), 'plan para la dirección: la revisión de la iteración tiene los asistentes de sus actas (sin el director; la Gerencia General al cierre de cada release)', rv['Revisión de la iteración']);
+      ok(/Scrum Master/.test(rv['Comité de seguimiento']) && /gerente comercial y contador como invitados/.test(rv['Comité de seguimiento']) && /gerente de proyecto del implementador/.test(rv['Reunión con el implementador']), 'plan para la dirección: comité de seguimiento con el Scrum Master y los invitados, y reunión con el gerente de proyecto del implementador', [rv['Comité de seguimiento'], rv['Reunión con el implementador']]);
+      const pgcm = docOf('plan-gestion-comunicaciones');
+      if (pgcm) {
+        const m = pgcm.fields.matriz.find((x) => /^Comité quincenal/.test(x.informacion));
+        ok(m && ['Scrum Master', 'líder del implementador', 'gerente comercial', 'contador'].every((k) => has(m.receptores, k) && has(rv['Comité de seguimiento'], k)), 'plan para la dirección y plan de comunicaciones (si está cargado): mismos participantes del comité quincenal', m && m.receptores);
+      }
     }
 
     /* ---------- requisitos de financiamiento */

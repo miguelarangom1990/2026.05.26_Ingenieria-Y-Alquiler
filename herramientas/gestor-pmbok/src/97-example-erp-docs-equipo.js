@@ -346,6 +346,9 @@
     const r2Base = R2.baseline || {};
     const it5Defects = p5.els.filter((i) => i.type === 'defecto').map((i) => i.code).sort();
     const tablets = incOf('INC-001');
+    /* equipos de bodega: instalados antes de la iteración 2, con las tabletas importadas tarde frente a la LB0 (INC-001) */
+    const t14 = task('t14');
+    const tabletsLate = cal.countWork(D.add(lbT('t14').finish, 1), t14.actualFinish);
     /* cifras de los criterios de aceptación del backlog: carga de prueba del catálogo y traslado de prueba */
     const refs200 = (/de (\d+) referencias/.exec(item('TA-002').acceptance || '') || [])[1] || '';
     const montantes = (/de (\d+) montantes/.exec(item('DF-001').acceptance || '') || [])[1] || '';
@@ -357,7 +360,7 @@
       },
       [s2.id]: {
         notas: capText(s2, p2) + ' ' + velText(p2) + ' Esa velocidad incluye el aprendizaje de la primera iteración y deja ' + andList(rolledFromPrev(s2)) + ' empezada; con ' + nm(p2.personDays) + ' días-persona y la velocidad supuesta del plan de releases (' + nm(planRelease.velocidadSupuesta) + ' puntos), el equipo fija la capacidad en ' + s2.capacity + ' puntos y compromete ' + s2.committed + '.',
-        riesgos: andList(rolledFromPrev(s2)) + ' viene de la ' + lcFirst(s1.name) + ' con su estimación original y ' + elList(['DF-001']) + ' se registró hoy desde la revisión de la ' + lcFirst(s1.name) + ': se verifica con el traslado de prueba de ' + montantes + ' montantes. HU-005 y HU-008 dependen de los equipos de bodega: por el retraso de las tabletas importadas (' + tablets.id + '), el equipo cuenta también con las tabletas de prueba del implementador. HU-008 debe funcionar sin conexión en obra. Acciones de la retrospectiva de la ' + lcFirst(s1.name) + ': no empezar historias que no se alcancen a probar y criterios de despacho refinados con los usuarios clave. Riesgo del registro: R-003 (resistencia al registro en tableta en las bodegas).',
+        riesgos: andList(rolledFromPrev(s2)) + ' viene de la ' + lcFirst(s1.name) + ' con su estimación original y ' + elList(['DF-001']) + ' se registró hoy desde la revisión de la ' + lcFirst(s1.name) + ': se verifica con el traslado de prueba de ' + montantes + ' montantes. HU-005 y HU-008 dependen de los equipos de bodega, instalados el ' + dl(t14.actualFinish) + ' con las tabletas importadas ' + word(tabletsLate).replace(/^una$/, 'un') + (tabletsLate === 1 ? ' día hábil' : ' días hábiles') + ' tarde (' + tablets.id + '): mientras se configuran con los perfiles de bodega, el equipo cuenta también con las tabletas de prueba del implementador. HU-008 debe funcionar sin conexión en obra. Acciones de la retrospectiva de la ' + lcFirst(s1.name) + ': no empezar historias que no se alcancen a probar y criterios de despacho refinados con los usuarios clave. Riesgo del registro: R-003 (resistencia al registro en tableta en las bodegas).',
         part: PART(['Coordinador logístico (invitado)']),
       },
       [s3.id]: {
