@@ -118,7 +118,9 @@ const MODE_LABEL = {
   const a11y = await page.evaluate(() => {
     const vis = (el) => { const b = el.getBoundingClientRect(); return b.width > 2 && b.height > 2; };
     const r = document.querySelector('.rail');
-    const items = [...r.querySelectorAll('.nav-item')].map((b) => ({ label: b.getAttribute('aria-label'), text: b.querySelector('.nav-label').textContent.trim(), labelVisible: vis(b.querySelector('.nav-label')), title: b.getAttribute('title'), iconOnly: b.getBoundingClientRect().width <= 50 }));
+    /* el nombre accesible es la etiqueta completa de la vista (el menú puede mostrar su navLabel, más corta) */
+    const fullOf = (t) => ((PM.views.find((v) => (v.navLabel || v.label) === t) || {}).label || t);
+    const items = [...r.querySelectorAll('.nav-item')].map((b) => ({ label: b.getAttribute('aria-label'), text: fullOf(b.querySelector('.nav-label').textContent.trim()), labelVisible: vis(b.querySelector('.nav-label')), title: b.getAttribute('title'), iconOnly: b.getBoundingClientRect().width <= 50 }));
     const sw = r.querySelector('.switcher-btn');
     return {
       items, sw: { label: sw.getAttribute('aria-label'), badge: sw.innerText.replace(/\s+/g, ' ').trim(), tip: sw.getAttribute('data-tip') },
