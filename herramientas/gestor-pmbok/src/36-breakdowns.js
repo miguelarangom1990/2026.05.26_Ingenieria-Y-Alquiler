@@ -82,6 +82,7 @@
 .trd-table tr.d1 th[scope="row"], .trd-table tr.d2 th[scope="row"] { font-weight: 600; }
 .trd-table tr.d1 td, .trd-table tr.d1 th { background: var(--surface-2); }
 .trd-table td.num { white-space: nowrap; }
+.trd-table th.trd-lvl, .trd-table td.trd-lvl { width: 1%; text-align: center; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .trd-table .code-tag { margin-right: 6px; }
 .trd-table .trd-sub-cell { color: var(--fg-2); min-width: 180px; }
 .trd-linkbtn { border: 0; background: transparent; padding: 0; color: var(--accent); cursor: pointer; text-align: left; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
@@ -172,6 +173,12 @@
   const TONE_WORD = { good: 'Favorable', warn: 'Atención', crit: 'Crítico', signal: 'Alerta', info: 'Información', accent: 'Destacado' };
   const ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2];
   const AUTO_LIMIT = 150;
+  /* Zoom inicial («auto»): ajusta al ancho solo si el texto sigue legible (≥ 60 %: nombres de 12 px a 7,2 px o más); si
+     no, abre al 100 % centrado en la raíz. «Ajustar» (elegido por el usuario) encaja el árbol aunque quede pequeño. */
+  const READABLE = 0.6, FIT_MIN = 0.1;
+  /* Pila anidada (vertical): un grupo de nivel 2 o más cuyos hijos solo tienen hojas, en fila con otros grupos, se dibuja
+     como lista con sangría de dos niveles (tipo → subtipo → recurso) si la columna no pasa de este número de tarjetas. */
+  const NEST_MAX = 24;
 
   /* Envuelve los nodos de PM.res.* con identificadores únicos (los datos pueden repetir ids), nivel, posición entre
      hermanos y cantidad de descendientes. order = recorrido en profundidad (preorden). */
@@ -204,7 +211,10 @@
   }
 
   /* Disposición. Vertical (raíz arriba): los hijos van en fila bajo su padre; si todos los hijos visibles son hojas, se
-     apilan bajo el padre con sangría (más compacto). Horizontal (izquierda a derecha): árbol ordenado por niveles.
+     apilan bajo el padre con sangría (más compacto); un grupo de nivel 2 o más cuyos hijos solo tienen hojas, puesto en fila
+     junto a otros grupos, se apila en dos niveles de sangría (hasta NEST_MAX tarjetas), para que el árbol no crezca a lo
+     ancho con cada subgrupo (p. ej., tipo → subtipo → recurso).
+     Horizontal (izquierda a derecha): árbol ordenado por niveles.
      → {W, H, pos: Map(uid → {x, y}), mode: Map(uid → 'leaf'|'stack'|'row'), path, order (uids visibles en preorden)} */
   function layout(P, collapsed, orient, capH, capW) {
     const pos = new Map(), mode = new Map(), d = [], order = [];
@@ -241,14 +251,35 @@
       place(P.top, M, M + capH);
       W = s.w + 2 * M; H = s.h + 2 * M + capH;
     } else {
-      const meas = (w) => {
+      /* pila con sangría: tamaño y colocación recursivos (cada nivel se corre GV.ind a la derecha) */
+      const stackSize = (w) => {
+        let h = CH, wd = CW, n = 1;
+        for (const k of vis(w)) { const z = stackSize(k); h += GV.s + z.h; wd = Math.max(wd, GV.ind + z.w); n += z.n; }
+        return { w: wd, h, n };
+      };
+      const placeStack = (w, x, y) => {
+        const ks = vis(w);
+        pos.set(w.uid, { x, y }); mode.set(w.uid, ks.length ? 'stack' : 'leaf');
+        if (!ks.length) return y + CH;
+        const rx = r(x + GV.ind / 2); let ky = y + CH + GV.s, last = y + CH;
+        for (const k of ks) { d.push('M' + rx + ' ' + r(ky + CH / 2) + 'H' + (x + GV.ind)); last = ky + CH / 2; ky = placeStack(k, x + GV.ind, ky) + GV.s; }
+        d.push('M' + rx + ' ' + (y + CH) + 'V' + r(last));
+        return ky - GV.s;
+      };
+      /* nestOk: el padre pone en fila dos o más grupos (ahí se acumula el ancho); con un solo grupo, la fila se conserva */
+      const meas = (w, nestOk) => {
         const ks = vis(w); let s;
         if (!ks.length) s = { w: CW, h: CH, m: 'leaf' };
         else if (ks.every((k) => !vis(k).length)) s = { w: GV.ind + CW, h: CH + ks.length * (GV.s + CH), m: 'stack' };
         else {
-          let rw = GV.x * (ks.length - 1), mh = 0;
-          for (const k of ks) { const z = meas(k); rw += z.w; mh = Math.max(mh, z.h); }
-          s = { w: Math.max(CW, rw), h: CH + GV.y + mh, m: 'row', rw };
+          const nest = nestOk && w.depth > 1 && ks.every((k) => vis(k).every((g) => !vis(g).length)) ? stackSize(w) : null;
+          if (nest && nest.n <= NEST_MAX) s = { w: nest.w, h: nest.h, m: 'stack' };
+          else {
+            let rw = GV.x * (ks.length - 1), mh = 0;
+            const many = ks.filter((k) => vis(k).length).length >= 2;
+            for (const k of ks) { const z = meas(k, many); rw += z.w; mh = Math.max(mh, z.h); }
+            s = { w: Math.max(CW, rw), h: CH + GV.y + mh, m: 'row', rw };
+          }
         }
         size.set(w.uid, s); return s;
       };
@@ -256,13 +287,7 @@
         const s = size.get(w.uid); const ks = vis(w);
         mode.set(w.uid, s.m);
         if (s.m === 'leaf') { pos.set(w.uid, { x, y }); return; }
-        if (s.m === 'stack') {
-          pos.set(w.uid, { x, y });
-          const rx = r(x + GV.ind / 2); let ky = y + CH + GV.s, last = y + CH;
-          for (const k of ks) { pos.set(k.uid, { x: x + GV.ind, y: ky }); mode.set(k.uid, 'leaf'); d.push('M' + rx + ' ' + r(ky + CH / 2) + 'H' + (x + GV.ind)); last = ky + CH / 2; ky += CH + GV.s; }
-          d.push('M' + rx + ' ' + (y + CH) + 'V' + r(last));
-          return;
-        }
+        if (s.m === 'stack') { placeStack(w, x, y); return; }
         let kx = x + (s.w - s.rw) / 2; const ky = y + CH + GV.y;
         for (const k of ks) { place(k, kx, ky); kx += size.get(k.uid).w + GV.x; }
         const centers = ks.map((k) => pos.get(k.uid).x + CW / 2);
@@ -274,7 +299,7 @@
         if (x2 - x1 > 1) d.push('M' + r(x1) + ' ' + by + 'H' + r(x2));
         for (const c of centers) d.push('M' + r(c) + ' ' + by + 'V' + ky);
       };
-      const s = meas(P.top);
+      const s = meas(P.top, false);
       place(P.top, M, M + capH);
       W = s.w + 2 * M; H = s.h + 2 * M + capH;
     }
@@ -405,14 +430,15 @@
   /* ---------------------------------------------------------------- PM.TreeDiagram
      Props: root (nodo de PM.res.*), metric ('money'|'count'|'score'), currency, orientation ('v' raíz arriba | 'h' de
      izquierda a derecha), title (nombre accesible y del archivo exportado), caption (rótulo dibujado en el diagrama),
-     fileName (sin extensión), prefKey (recuerda disposición, zoom y vista de tabla), resetKey (al cambiar, vuelve al
+     fileName (sin extensión), prefKey (recuerda disposición, zoom —«auto» por omisión: ajusta si queda legible y, si no,
+     100 % centrado en la raíz— y vista de tabla), resetKey (al cambiar, vuelve al
      plegado inicial), onActivate(nodo) (clic o Enter en una hoja), activateHint, countUnit ['riesgo','riesgos'],
      scoreLabel ('P×I'). */
   function TreeDiagram({ root, metric = 'money', currency = 'COP', orientation = 'v', title = 'Diagrama de árbol', caption = '', fileName = 'estructura-de-desglose', prefKey = null, resetKey = '', onActivate = null, activateHint = '', countUnit, scoreLabel = 'Puntuación', emptyText = 'No hay elementos para mostrar.' }) {
     const pref = (k, dflt) => (prefKey ? PM.prefs.get(prefKey + '.' + k, dflt) : dflt);
     const setPref = (k, v) => { if (prefKey) PM.prefs.set(prefKey + '.' + k, v); };
     const [orient, setOrientRaw] = useState(() => { const o = pref('orient', orientation); return o === 'h' || o === 'v' ? o : orientation === 'h' ? 'h' : 'v'; });
-    const [zoom, setZoomRaw] = useState(() => { const z = pref('zoom', 'fit'); return z === 'fit' || (PM.isNum(z) && z >= ZOOMS[0] && z <= ZOOMS[ZOOMS.length - 1]) ? z : 'fit'; });
+    const [zoom, setZoomRaw] = useState(() => { const z = pref('zoom', 'auto'); return z === 'fit' || z === 'auto' || (PM.isNum(z) && z >= ZOOMS[0] && z <= ZOOMS[ZOOMS.length - 1]) ? z : 'auto'; });
     const [asTable, setAsTableRaw] = useState(() => pref('table', false) === true);
     const [host, setHost] = useState({ w: 0, h: 0 });
     const [fontTick, setFontTick] = useState(0);
@@ -442,7 +468,24 @@
 
     /* foco itinerante: un solo elemento con tabindex 0; si queda oculto, pasa al ancestro visible */
     const focusVisible = useMemo(() => { let w = focusUid ? P.byUid.get(focusUid) : null; while (w && !L.pos.has(w.uid)) w = w.parent; return w ? w.uid : P.top ? P.top.uid : null; }, [focusUid, P, L]);
-    const focusEl = (uid) => { const el = svgRef.current && [...svgRef.current.querySelectorAll('[data-uid]')].find((g) => g.getAttribute('data-uid') === uid); if (el) el.focus(); };
+    /* lleva el nodo enfocado completo (con un margen) a la vista del lienzo y, si hace falta, de la página */
+    const reveal = (el) => {
+      const c = canvasRef.current; if (!c || !el || !el.getBoundingClientRect) return;
+      const r = el.getBoundingClientRect(), cr = c.getBoundingClientRect(), mg = 12;
+      const left = cr.left + c.clientLeft, top = cr.top + c.clientTop, right = left + c.clientWidth, bottom = top + c.clientHeight;
+      let dx = 0, dy = 0;
+      if (r.left < left + mg || r.width + 2 * mg > c.clientWidth) dx = r.left - (left + mg); else if (r.right > right - mg) dx = r.right - (right - mg);
+      if (r.top < top + mg || r.height + 2 * mg > c.clientHeight) dy = r.top - (top + mg); else if (r.bottom > bottom - mg) dy = r.bottom - (bottom - mg);
+      if (dx) c.scrollLeft += dx;
+      if (dy) c.scrollTop += dy;
+      try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* sin scrollIntoView */ }
+    };
+    const focusEl = (uid) => {
+      const el = svgRef.current && [...svgRef.current.querySelectorAll('[data-uid]')].find((g) => g.getAttribute('data-uid') === uid);
+      if (!el) return;
+      try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      reveal(el);
+    };
     const focusTo = (uid) => { if (!uid) return; if (uid === focusVisible) { focusEl(uid); return; } wantFocus.current = true; setFocusUid(uid); };
     useLayoutEffect(() => { if (!wantFocus.current) return; wantFocus.current = false; focusEl(focusVisible); }, [focusVisible, L]);
 
@@ -473,8 +516,13 @@
       if (typeof ResizeObserver === 'undefined') { window.addEventListener('resize', upd); return () => window.removeEventListener('resize', upd); }
       const ro = new ResizeObserver(upd); ro.observe(el); return () => ro.disconnect();
     }, [asTable, !!P.top]);
-    const fit = host.w > 0 && L.W > 0 ? PM.clamp((host.w - 2) / L.W, ZOOMS[0], 1) : 1;
-    const scale = zoom === 'fit' ? fit : Number(zoom);
+    const fitRaw = host.w > 0 && L.W > 0 ? (host.w - 2) / L.W : 1;
+    /* «auto» (al abrir): ajusta si queda legible; si no, 100 % centrado en la raíz (efecto más abajo) */
+    const autoFallback = zoom === 'auto' && host.w > 0 && fitRaw < READABLE;
+    const scale = zoom === 'fit' ? PM.clamp(fitRaw, FIT_MIN, 1) : zoom === 'auto' ? (autoFallback ? 1 : Math.min(1, fitRaw)) : Number(zoom);
+    /* «Ajustar» se marca activo solo cuando el árbol de verdad cabe a lo ancho */
+    const fitsNow = host.w > 0 && L.W * scale <= host.w + 1;
+    const fitOn = (zoom === 'fit' || zoom === 'auto') && fitsNow;
     const stepZoom = (dir) => { const next = dir > 0 ? ZOOMS.find((z) => z > scale + 0.005) : [...ZOOMS].reverse().find((z) => z < scale - 0.005); if (next) setZoom(next); };
     /* al cambiar el zoom se conserva el centro de la vista */
     const prevScale = useRef(scale);
@@ -484,6 +532,17 @@
       const cxr = (el.scrollLeft + el.clientWidth / 2) / old, cyr = (el.scrollTop + el.clientHeight / 2) / old;
       el.scrollLeft = Math.max(0, cxr * scale - el.clientWidth / 2); el.scrollTop = Math.max(0, cyr * scale - el.clientHeight / 2);
     }, [scale]);
+    /* al abrir al 100 % porque el ajuste quedaría ilegible, la vista se centra en la raíz (una vez por disposición y filtro) */
+    const centerKey = autoFallback && !asTable && P.top ? [orient, resetKey, P.top.uid].join('|') : '';
+    const centered = useRef('');
+    useLayoutEffect(() => {
+      if (!centerKey) { centered.current = ''; return; }
+      if (centered.current === centerKey) return;
+      const el = canvasRef.current; const q = L.pos.get(P.top.uid); if (!el || !q) return;
+      centered.current = centerKey;
+      el.scrollLeft = Math.max(0, (q.x + L.dx + CW / 2) * scale - el.clientWidth / 2);
+      el.scrollTop = Math.max(0, (q.y + CH / 2) * scale - el.clientHeight / 2);
+    }, [centerKey, L, scale]);
     const canPan = L.W * scale > host.w + 1 || L.H * scale > host.h + 1;
 
     /* arrastrar el fondo para desplazarse (mouse) */
@@ -500,6 +559,9 @@
     const onPointerMove = (e) => { const p = pan.current; const el = canvasRef.current; if (!p || !el) return; el.scrollLeft = p.l - (e.clientX - p.x); el.scrollTop = p.t - (e.clientY - p.y); };
     const endPan = () => { const p = pan.current; const el = canvasRef.current; if (!p) return; pan.current = null; if (el) { try { el.releasePointerCapture(p.id); } catch (er) { /* ya liberada */ } el.classList.remove('is-panning'); } };
 
+    /* nombre accesible y del archivo: el rótulo, que ya incluye el título (si no lo incluye, título — rótulo) */
+    const label = caption && caption.toLowerCase().includes(String(title).toLowerCase()) ? caption : title + (caption ? ' — ' + caption : '');
+
     /* ---------------- exportación */
     const svgText = () => {
       const el = svgRef.current; if (!el) return '';
@@ -511,7 +573,7 @@
           sv.setAttribute('width', String(L.W)); sv.setAttribute('height', String(L.H));
           ['role', 'aria-label', 'aria-describedby', 'tabindex'].forEach((a) => sv.removeAttribute(a));
           [...sv.querySelectorAll('[tabindex]')].forEach((g) => { g.removeAttribute('tabindex'); g.removeAttribute('role'); });
-          const t = doc.createElementNS('http://www.w3.org/2000/svg', 'title'); t.textContent = title + (caption ? ' — ' + caption : '');
+          const t = doc.createElementNS('http://www.w3.org/2000/svg', 'title'); t.textContent = label;
           sv.insertBefore(t, sv.firstChild);
           s = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(sv);
         }
@@ -539,7 +601,7 @@
           const url = c.toDataURL('image/png');
           PM.openModal((close) => html`<${ui.Modal} title="Imagen PNG del diagrama" subtitle=${name} size="wide" onClose=${close} footer=${html`<${ui.Button} variant="primary" onClick=${close}>Cerrar</${ui.Button}>`}>
             <p class="small muted">Este visor no permite descargar archivos. Haz clic derecho sobre la imagen (o mantenla presionada) y elige «Guardar imagen como…».</p>
-            <img class="trd-png" src=${url} alt=${title + (caption ? ' — ' + caption : '')} width=${Math.round(L.W)} />
+            <img class="trd-png" src=${url} alt=${label} width=${Math.round(L.W)} />
           </${ui.Modal}>`);
         }
       } catch (e) {
@@ -560,7 +622,6 @@
     const anyGroups = P.order.some((w) => w.kids.length);
     const expandAll = () => setCollapsed(new Set());
     const collapseFirst = () => { const s = new Set(); for (const w of P.order) if (w.depth >= 2 && w.kids.length) s.add(w.uid); setCollapsed(s); };
-    const label = title + (caption ? ' — ' + caption : '');
 
     const toolbar = html`<div class="trd-toolbar" role="group" aria-label=${'Herramientas: ' + title}>
       ${asTable ? null : html`<div class="trd-tgroup"><span class="trd-tlabel">Disposición</span><${ui.Segmented} label="Disposición del diagrama" options=${[{ value: 'v', label: 'Vertical' }, { value: 'h', label: 'Horizontal' }]} value=${orient} onChange=${setOrient} /></div>`}
@@ -568,8 +629,8 @@
         <${ui.IconButton} size="sm" icon="zoom-out" label="Alejar" disabled=${scale <= ZOOMS[0] + 0.001} onClick=${() => stepZoom(-1)} />
         <span class="trd-zoom-v" aria-live="polite" data-trd-zoom><span class="sr-only">Zoom: </span>${Math.round(scale * 100)} %</span>
         <${ui.IconButton} size="sm" icon="zoom-in" label="Acercar" disabled=${scale >= ZOOMS[ZOOMS.length - 1] - 0.001} onClick=${() => stepZoom(1)} />
-        <${ui.Button} size="sm" variant="ghost" aria-pressed=${zoom !== 'fit' && Math.abs(scale - 1) < 0.001 ? 'true' : 'false'} onClick=${() => setZoom(1)} title="Ver a tamaño real" aria-label="Zoom al 100 %">100 %</${ui.Button}>
-        <${ui.Button} size="sm" variant="ghost" icon="expand" aria-pressed=${zoom === 'fit' ? 'true' : 'false'} onClick=${() => setZoom('fit')}>Ajustar</${ui.Button}>
+        <${ui.Button} size="sm" variant="ghost" aria-pressed=${!fitOn && Math.abs(scale - 1) < 0.001 ? 'true' : 'false'} onClick=${() => setZoom(1)} title="Ver a tamaño real" aria-label="Zoom al 100 %">100 %</${ui.Button}>
+        <${ui.Button} size="sm" variant="ghost" icon="expand" aria-pressed=${fitOn ? 'true' : 'false'} onClick=${() => setZoom('fit')} title=${fitOn ? 'El diagrama completo cabe en el ancho disponible' : 'Reducir el diagrama hasta que quepa en el ancho disponible'}>Ajustar</${ui.Button}>
       </div>`}
       ${asTable || !anyGroups ? null : html`<div class="trd-tgroup">
         <${ui.Button} size="sm" variant="ghost" icon="plus" onClick=${expandAll} disabled=${!collapsed.size}>Desplegar todo</${ui.Button}>
@@ -588,12 +649,13 @@
         ${toolbar}
         <div class="table-wrap trd-table-wrap">
           <table class="table trd-table" aria-label=${label + ' (tabla)'}>
-            <thead><tr><th scope="col">Elemento</th><th scope="col">Detalle</th><th scope="col" class="num">Valor</th><th scope="col" class="num">% del total</th><th scope="col">Nivel o insignia</th></tr></thead>
+            <thead><tr><th scope="col" class="num trd-lvl" title="0 = raíz; 1, 2, 3… = niveles del desglose">Nivel</th><th scope="col">Elemento</th><th scope="col">Detalle</th><th scope="col" class="num">Valor</th><th scope="col" class="num">% del total</th><th scope="col">Nivel o insignia</th></tr></thead>
             <tbody>${P.order.map((w) => {
               const n = w.n; const mm = metricOf(n, cfg.metric); const v = fmtValue(n, mm, cfg); const p = w.depth > 1 ? pctOf(n, mm, cfg) : null;
               const leafAct = !w.kids.length && w.depth > 1 && typeof onActivate === 'function';
               const nameEl = leafAct ? html`<button type="button" class="trd-linkbtn" onClick=${() => onActivate(n)} title=${activateHint || undefined}>${shownName(n)}</button>` : shownName(n);
-              return html`<tr key=${w.uid} class=${'d' + Math.min(w.depth, 3)} data-uid=${w.uid}>
+              return html`<tr key=${w.uid} class=${'d' + Math.min(w.depth, 3)} data-uid=${w.uid} data-level=${w.depth - 1}>
+                <td class="num trd-lvl">${w.depth - 1}</td>
                 <th scope="row" style=${'padding-left:' + (10 + (w.depth - 1) * 18) + 'px'}>${n.code ? html`<span class="code-tag">${txt(n.code)}</span>` : null}${nameEl}</th>
                 <td class="trd-sub-cell">${txt(n.sub) || html`<span class="faint">—</span>`}</td>
                 <td class="num" title=${v.full}>${mm === 'money' ? v.full : v.short}</td>
@@ -795,6 +857,16 @@
   /* ---------------------------------------------------------------- Recursos (9.2) */
   const EDR_CATS = ['Personal', 'Equipos', 'Materiales', 'Transporte', 'Servicios'];
   const EDR_SOURCE = { 'Interno': 'Interno', 'Contratado': 'Contratado', 'Alquilado': 'Subarriendo', 'Compra': 'Contratado', 'Suministro del cliente': 'Suministro del cliente' };
+  /* Unidad de la tarifa en el documento EDR (SPEC §10.1): en los recursos de trabajo el costo unitario es por unidad y día
+     hábil, así que la unidad lleva esa base de tiempo («persona por día hábil»), salvo si ya la dice («día», «jornada»,
+     «jornal», «día de cuadrilla», «persona-día», «hora/día»); en los consumibles, por unidad de medida (la unidad tal cual). */
+  const DAILY_UNIT = /d[ií]a|jornada|jornal/i;
+  const edrUnit = (unit, kind) => {
+    const u = txt(unit);
+    if (kind === 'consumible') return u;
+    if (DAILY_UNIT.test(u)) return u;
+    return (u || 'unidad') + ' por día hábil';
+  };
   /* Filas de la tabla «recursos» del documento EDR desde el catálogo: tipo (1) → subtipo (1.1) → recurso (1.1.1), o
      tipo → recurso (1.2) si el recurso no tiene subtipo. Los recursos virtuales (sin clasificar) no se incluyen. */
   function edrRowsFrom(resources, schedule) {
@@ -806,12 +878,12 @@
     const ordered = [...cat.types, PM.RES.UNCLASSIFIED].map((t) => groups.get(t.id)).filter(Boolean);
     const rows = []; let nTypes = 0, nSubs = 0;
     const desc = (it) => [txt(it.notes), txt(it.supplier) ? 'Proveedor: ' + txt(it.supplier) : '', txt(it.contract) ? 'Contrato: ' + txt(it.contract) : '', it.planned === false ? 'No planificado' + (reasons.get(it.reason) ? ' (' + reasons.get(it.reason) + ')' : '') : '', txt(it.code) ? 'Catálogo: ' + txt(it.code) : ''].filter(Boolean).join(' · ');
-    const itemRow = (codigo, ty, it) => ({ id: PM.uid('r'), codigo, categoria: EDR_CATS.includes(ty.edr) && !ty.virtual ? ty.edr : '', recurso: it.name, descripcion: desc(it), unidad: txt(it.unit), costoUnitario: PM.isNum(it.unitCost) ? Number(it.unitCost) : null, fuente: EDR_SOURCE[it.origin] || '' });
+    const itemRow = (codigo, ty, it) => ({ id: PM.uid('r'), codigo, categoria: EDR_CATS.includes(ty.edr) && !ty.virtual ? ty.edr : '', recurso: it.name, descripcion: desc(it), unidad: edrUnit(txt(it.unit), cat.kindOf(it)), costoUnitario: PM.isNum(it.unitCost) ? Number(it.unitCost) : null, fuente: EDR_SOURCE[it.origin] || '' });
     ordered.forEach((g, gi) => {
       nTypes++;
       const tc = String(gi + 1);
       const cat1 = EDR_CATS.includes(g.ty.edr) && !g.ty.virtual ? g.ty.edr : '';
-      rows.push({ id: PM.uid('r'), codigo: tc, categoria: cat1, recurso: g.ty.name, descripcion: g.ty.kind === 'consumible' ? 'Consumibles: se asignan por cantidad.' : 'Recursos de trabajo: se asignan en unidades por día.', unidad: '', costoUnitario: null, fuente: '' });
+      rows.push({ id: PM.uid('r'), codigo: tc, categoria: cat1, recurso: g.ty.name, descripcion: g.ty.kind === 'consumible' ? 'Consumibles: se asignan por cantidad; la tarifa es por unidad de medida.' : 'Recursos de trabajo: se asignan en unidades por día hábil; la tarifa es por unidad y día hábil.', unidad: '', costoUnitario: null, fuente: '' });
       /* hijos en el orden del catálogo: subtipos (al aparecer por primera vez) y recursos sin subtipo */
       const kids = []; const subs = new Map();
       for (const it of g.list) {
@@ -856,8 +928,10 @@
     const unplanned = leaves.filter((n) => n.planned === false);
     const unassigned = leaves.filter((n) => !num(n.tasks)).length;
     const unplannedCost = unplanned.reduce((s, n) => s + num(n.value), 0);
+    /* la pestaña Catálogo de Recursos (RecursosView recuerda la última pestaña: se pide explícitamente) */
+    const toCatalog = () => PM.navigate('recursos', { tab: 'catalogo' });
     if (!leaves.length) {
-      return html`<div class="brk-panel"><${ui.Empty} icon="resources" title="Aún no hay recursos en el proyecto" actions=${html`<${ui.Button} variant="primary" icon="resources" onClick=${() => PM.navigate('recursos')}>Ir al catálogo de recursos</${ui.Button}>`}>
+      return html`<div class="brk-panel"><${ui.Empty} icon="resources" title="Aún no hay recursos en el proyecto" actions=${html`<${ui.Button} variant="primary" icon="resources" onClick=${toCatalog}>Ir al catálogo de recursos</${ui.Button}>`}>
         La estructura de desglose de recursos agrupa los recursos del catálogo por tipo (personal, maquinaria y equipo, materiales, transporte, servicios…) y subtipo, con la cantidad y el costo asignados en el cronograma.
       </${ui.Empty}></div>`;
     }
@@ -903,13 +977,13 @@
         <${Ctl}><${ui.Check} label="Solo no planificados" checked=${!!st.unplanned} onValue=${(v) => set({ unplanned: !!v })} /></${Ctl}>
         <${Ctl}><${ui.Check} label="Ocultar sin asignar" checked=${!!st.assigned} onValue=${(v) => set({ assigned: !!v })} /></${Ctl}>
         <div class="brk-ctl-actions">
-          <${ui.Button} size="sm" icon="resources" onClick=${() => PM.navigate('recursos')}>Ir al catálogo de recursos</${ui.Button}>
+          <${ui.Button} size="sm" icon="resources" onClick=${toCatalog}>Ir al catálogo de recursos</${ui.Button}>
           <${ui.Button} size="sm" icon="file" onClick=${() => openDoc('estructura-desglose-recursos')}>Abrir el documento EDR</${ui.Button}>
           ${canWrite ? html`<${ui.Button} size="sm" variant="primary" icon="refresh" onClick=${updateEdr} disabled=${edrMeta.loading} data-brk-edr
             title=${locked ? 'El documento está ' + (status === 'aprobado' ? 'aprobado' : 'obsoleto') + ': la actualización abre una revisión nueva como borrador' : 'Reemplaza la tabla de recursos del documento EDR con el catálogo'}>Actualizar el documento EDR</${ui.Button}>` : null}
         </div>
       </section>
-      ${virtual ? html`<${Note} tone="warn" icon="alert" actions=${html`<${ui.Button} size="sm" icon="resources" onClick=${() => PM.navigate('recursos')}>Clasificar en el catálogo</${ui.Button}>`}>
+      ${virtual ? html`<${Note} tone="warn" icon="alert" actions=${html`<${ui.Button} size="sm" icon="resources" onClick=${() => PM.navigate('recursos', { tab: 'catalogo', plan: 'sin-clasificar' })}>Clasificar en el catálogo</${ui.Button}>`}>
         <p>${plural(virtual, 'recurso solo existe', 'recursos solo existen')} como nombre en las asignaciones del cronograma y ${virtual === 1 ? 'aparece' : 'aparecen'} como «Sin clasificar». Clasifícalos en el catálogo para ubicarlos en su tipo y costearlos.</p>
       </${Note}>` : null}
       <${Stats} items=${[
@@ -951,5 +1025,5 @@
     </div>`;
   }
 
-  PM.registerView({ id: 'estructuras', label: 'Estructuras de desglose', navLabel: 'Desgloses del proyecto', group: 'planificacion', order: 15, icon: 'breakdown', component: BreakdownView, needsProject: true, description: 'Estructuras de desglose de costos, de los riesgos y de los recursos en diagrama (7.3, 11.2, 9.2)' });
+  PM.registerView({ id: 'estructuras', label: 'Estructuras de desglose', navLabel: 'Desgloses', group: 'planificacion', order: 15, icon: 'breakdown', component: BreakdownView, needsProject: true, description: 'Estructuras de desglose de costos, de los riesgos y de los recursos en diagrama (7.3, 11.2, 9.2)' });
 })();

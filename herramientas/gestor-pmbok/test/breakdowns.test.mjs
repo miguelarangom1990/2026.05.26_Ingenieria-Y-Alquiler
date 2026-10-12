@@ -122,7 +122,10 @@ await step('Registro de la vista: grupo planificación, orden 15, ícono propio 
   assert(v && v.label === 'Estructuras de desglose' && v.group === 'planificacion' && v.order === 15 && v.icon === 'breakdown' && v.hasIcon && v.tree === 'function', 'registro de la vista', v);
   pid = await createProject(page, { budget: 62500000 });
   await seed(page, pid);
-  const item = page.locator('.nav-item', { hasText: 'Desgloses del proyecto' });
+  /* etiqueta corta del menú, coherente con el título y sin recortar con «…» (SPEC §4: navLabel más corta que label) */
+  const nav = await page.evaluate(() => { const x = PM.getView('estructuras'); const lbl = [...document.querySelectorAll('.nav-item .nav-label')].find((e) => e.textContent.trim() === x.navLabel); return { navLabel: x.navLabel, label: x.label, found: !!lbl, clipped: lbl ? lbl.scrollWidth > lbl.clientWidth + 1 : null }; });
+  assert(nav.navLabel === 'Desgloses' && nav.navLabel.length < nav.label.length && nav.found && nav.clipped === false, 'etiqueta corta del menú sin recortar', nav);
+  const item = page.locator('.nav-item', { hasText: 'Desgloses' });
   await item.click();
   await page.waitForTimeout(700);
   assert(await page.evaluate(() => PM.getState().view) === 'estructuras', 'el menú abre la vista');
@@ -253,6 +256,8 @@ await step('Teclado: flechas entre nodos, Enter y Espacio pliegan, Inicio y Fin,
   assert(await active() === 'cbs', 'Inicio → raíz');
   const sem = await page.evaluate(() => { const t = document.querySelector('[data-trd="estructuras.cbs.diagram"] svg[role="tree"]'); const g = t.querySelector('[data-uid="w:w2"]'); return { role: t.getAttribute('role'), label: t.getAttribute('aria-label'), level: g.getAttribute('aria-level'), set: g.getAttribute('aria-setsize'), pos: g.getAttribute('aria-posinset') }; });
   assert(sem.role === 'tree' && /Estructura de desglose de costos/.test(sem.label) && sem.level === '3' && Number(sem.set) === 4 && Number(sem.pos) >= 2, 'semántica tree/treeitem', sem);
+  /* el nombre accesible es el rótulo (que ya incluye el título), sin repetirlo */
+  assert(/^Estructura de desglose de costos · PRY-TEST-001 · Plan actual · /.test(sem.label) && sem.label.split('Estructura de desglose de costos').length === 2 && !/ — /.test(sem.label), 'nombre accesible del árbol sin el título repetido', sem.label);
   await shot(page, 'costos-teclado');
 });
 
@@ -288,8 +293,14 @@ await step('Ver como tabla (sangría y valores) y descargar CSV', async () => {
   const scope = page.locator(`[data-trd="${CBS}"]`);
   await scope.getByRole('button', { name: 'Ver como tabla' }).click(); await page.waitForTimeout(300);
   assert(await scope.getByRole('button', { name: 'Ver como tabla' }).getAttribute('aria-pressed') === 'true', 'botón presionado');
-  const rows = await scope.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => ({ uid: tr.getAttribute('data-uid'), pad: parseFloat(tr.querySelector('th').style.paddingLeft), name: tr.querySelector('th').innerText.trim(), val: tr.children[2].innerText.trim(), pct: tr.children[3].innerText.trim() })));
+  const rows = await scope.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => ({ uid: tr.getAttribute('data-uid'), lvl: tr.children[0].innerText.trim(), pad: parseFloat(tr.querySelector('th').style.paddingLeft), name: tr.querySelector('th').innerText.trim(), val: tr.children[3].innerText.trim(), pct: tr.children[4].innerText.trim() })));
   const r = (u) => rows.find((x) => x.uid === u);
+  /* la jerarquía también va en texto (columna «Nivel», como en el CSV), no solo por sangría y negrita */
+  const heads = await scope.locator('table thead th').allInnerTexts();
+  assert(heads[0].trim() === 'Nivel' && heads[1].trim() === 'Elemento', 'columna «Nivel» antes del elemento', heads);
+  assert(r('cbs').lvl === '0' && r('cbs:lb').lvl === '1' && r('w:w2').lvl === '2' && r('w:w2:w211').lvl === '3', 'nivel de cada fila', rows.map((x) => [x.uid, x.lvl]));
+  const tlabel = await scope.locator('table').getAttribute('aria-label');
+  assert(/^Estructura de desglose de costos · PRY-TEST-001/.test(tlabel) && tlabel.split('Estructura de desglose de costos').length === 2, 'nombre de la tabla sin el título repetido', tlabel);
   assert(rows.length === 12 && r('cbs') && r('w:w2:w211'), 'todas las filas del árbol', rows.map((x) => x.uid));
   const money = await page.evaluate(() => [PM.fmt.money(62500000, 'COP'), PM.fmt.money(2000000, 'COP')]);
   assert(r('cbs').val === money[0] && r('cbs:gestion').val === money[1] && r('cbs:gestion').pct === '3,2 %', 'valores completos y porcentaje', [r('cbs'), r('cbs:gestion')]);
@@ -405,7 +416,16 @@ await step('Recursos: tipo → subtipo → recurso con costos que cuadran, no pl
   assert(/No planificado/.test(grua.label) && (await node(page, RBS, 'r:r4').locator('text.trd-tag').textContent()) === 'No planificado', 'insignia «No planificado» en texto', grua.label);
   const stats = await page.locator('[data-brk="recursos"] .brk-stats').innerText();
   assert(/No planificados\s*1/.test(stats) && /Sin asignar\s*1/.test(stats) && /\$ 41 M/.test(stats), 'indicadores de recursos', stats);
-  await shot(page, 'recursos-claro');
+  /* pila anidada: el tipo con subtipos, en fila con otros tipos, se dibuja como lista con sangría (tipo → subtipo → recurso)
+     en lugar de abrir una columna por subtipo */
+  const box = (u) => page.evaluate(([k, u]) => { const r = document.querySelector(`[data-trd="${k}"] [data-uid="${u}"] .trd-card`).getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), b: Math.round(r.bottom), r: Math.round(r.right) }; }, [RBS, u]);
+  const bt = await box('t:personal'), bs1 = await box('t:personal:cuadrillas'), br1 = await box('r:r1'), bs2 = await box('t:personal:supervisión'), bnext = await box('t:equipo-alquiler');
+  assert(bs1.x > bt.x + 5 && br1.x > bs1.x + 5 && bs1.y > bt.b && br1.y > bs1.b && bs2.y > br1.b && Math.abs(bs2.x - bs1.x) <= 1, 'tipo → subtipo → recurso apilados con sangría', [bt, bs1, br1, bs2]);
+  assert(bnext.x > br1.r && Math.abs(bnext.y - bt.y) <= 1, 'el siguiente tipo sigue en la misma fila', [bt, bnext]);
+  const act = () => page.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-uid'));
+  await page.evaluate((k) => document.querySelector(`[data-trd="${k}"] [data-uid="t:personal"]`).focus(), RBS);
+  const walkKeys = [['ArrowDown', 't:personal:cuadrillas'], ['ArrowDown', 'r:r1'], ['ArrowDown', 't:personal:supervisión'], ['ArrowUp', 'r:r1'], ['ArrowUp', 't:personal:cuadrillas'], ['ArrowUp', 't:personal'], ['ArrowUp', 'rbs']];
+  for (const [k, want] of walkKeys) { await page.keyboard.press(k); await page.waitForTimeout(120); assert(await act() === want, k + ' → ' + want + ' en la pila anidada', await act()); }
   await setCheck(page, '[data-brk="recursos"]', 'Solo no planificados', true);
   n = await readTree(page, RBS);
   assert(n.filter((x) => x.kind === 'leaf').map((x) => x.uid).join() === 'r:r4' && near(byUid(n, 'rbs').value, 20000000), 'solo no planificados', n.map((x) => x.uid));
@@ -415,6 +435,52 @@ await step('Recursos: tipo → subtipo → recurso con costos que cuadran, no pl
   n = await readTree(page, RBS);
   assert(!byUid(n, 'r:r6') && !byUid(n, 't:herramienta') && near(byUid(n, 'rbs').value, 41000000) && !sumErrors(n).length, 'ocultar sin asignar', n.map((x) => x.uid));
   await setCheck(page, '[data-brk="recursos"]', 'Ocultar sin asignar', false);
+});
+
+await step('Teclado con zoom: el elemento enfocado queda completo dentro del lienzo', async () => {
+  const scope = page.locator(`[data-trd="${RBS}"]`);
+  const zv = async () => Number((await scope.locator('[data-trd-zoom]').innerText()).replace(/\D/g, ''));
+  await scope.getByRole('button', { name: 'Zoom al 100 %' }).click();
+  for (let i = 0; i < 3; i++) await scope.getByRole('button', { name: 'Acercar' }).click();
+  await page.waitForTimeout(250);
+  assert(await zv() === 200, 'zoom al 200 %', await zv());
+  await page.evaluate((k) => document.querySelector(`[data-trd="${k}"] [data-uid="rbs"]`).focus(), RBS);
+  const inside = () => page.evaluate((k) => {
+    const c = document.querySelector(`[data-trd="${k}"] .trd-canvas`); const cr = c.getBoundingClientRect(); const el = document.activeElement;
+    const r = el.querySelector('.trd-card').getBoundingClientRect(); const L = cr.left + c.clientLeft, T = cr.top + c.clientTop;
+    return { uid: el.getAttribute('data-uid'), ok: r.left >= L - 0.5 && r.right <= L + c.clientWidth + 0.5 && r.top >= T - 0.5 && r.bottom <= T + c.clientHeight + 0.5, inView: r.top >= -0.5 && r.bottom <= innerHeight + 0.5, r: [r.left, r.right, r.top, r.bottom].map(Math.round), c: [L, L + c.clientWidth, T, T + c.clientHeight].map(Math.round) };
+  }, RBS);
+  const seen = new Set();
+  for (const k of ['ArrowDown', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'ArrowDown', 'ArrowDown', 'End', 'Home']) {
+    await page.keyboard.press(k); await page.waitForTimeout(120);
+    const st = await inside(); seen.add(st.uid);
+    assert(st.ok && st.inView, 'después de ' + k + ', «' + st.uid + '» se ve completo', st);
+  }
+  assert(seen.size >= 6, 'recorrió varios elementos', [...seen]);
+  await scope.getByRole('button', { name: 'Ajustar' }).click(); await page.waitForTimeout(200);
+});
+
+await step('Recursos: «Ir al catálogo de recursos» y «Clasificar en el catálogo» abren la pestaña Catálogo', async () => {
+  await page.evaluate(() => { PM.prefs.set('rec.tab', 'histograma'); window.__nav = []; const orig = PM.navigate; window.__navOrig = orig; PM.navigate = (...a) => { window.__nav.push(JSON.parse(JSON.stringify(a))); return orig(...a); }; });
+  try {
+    const state = () => page.evaluate(() => ({ nav: window.__nav.slice(-1)[0], view: PM.getState().view, hasView: !!PM.getView('recursos'), cat: !!document.querySelector('[data-rcat]'), hist: !!document.querySelector('[data-rec-tab="histograma"]'), planF: (document.querySelector('select[aria-label="Filtrar por planificación"]') || {}).value }));
+    await page.locator('[data-brk="recursos"]').getByRole('button', { name: 'Ir al catálogo de recursos' }).click(); await page.waitForTimeout(800);
+    let st = await state();
+    assert(JSON.stringify(st.nav) === JSON.stringify(['recursos', { tab: 'catalogo' }]), 'pide la pestaña Catálogo', st.nav);
+    if (st.hasView && isFull) assert(st.view === 'recursos' && st.cat && !st.hist, 'se ve el catálogo y no el histograma recordado', st);
+    /* un nombre asignado en el cronograma que no está en el catálogo es un recurso virtual («Sin clasificar») */
+    await page.evaluate(async ({ pid, TASKS }) => { const t = TASKS.map((x) => (x.id === 't6' ? { ...x, resources: [{ name: 'Soldador externo', units: 1 }] } : x)); await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: t }); }, { pid, TASKS });
+    await openTab(page, 'recursos');
+    const note = page.locator('[data-brk="recursos"] .brk-note.is-warn');
+    assert(/1 recurso solo existe/.test(await note.innerText()), 'aviso de recursos sin clasificar', await note.innerText());
+    await note.getByRole('button', { name: 'Clasificar en el catálogo' }).click(); await page.waitForTimeout(800);
+    st = await state();
+    assert(JSON.stringify(st.nav) === JSON.stringify(['recursos', { tab: 'catalogo', plan: 'sin-clasificar' }]), 'abre el catálogo filtrado en «Sin clasificar»', st.nav);
+    if (st.hasView && isFull) assert(st.view === 'recursos' && st.cat && st.planF === 'sin-clasificar', 'catálogo con el filtro «Sin clasificar»', st);
+  } finally {
+    await page.evaluate(async ({ pid, TASKS }) => { PM.navigate = window.__navOrig; PM.prefs.set('rec.tab', 'catalogo'); await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: TASKS }); }, { pid, TASKS });
+    await openTab(page, 'recursos');
+  }
 });
 
 await step('Recursos: «Actualizar el documento EDR» con confirmación (cancelar, crear, revisión nueva si está aprobado)', async () => {
@@ -436,17 +502,22 @@ await step('Recursos: «Actualizar el documento EDR» con confirmación (cancela
   assert(rows && rows.length === 13, '13 filas', rows);
   const pick = rows.map((r) => [r.codigo, r.categoria, r.recurso, r.fuente || '', r.unidad || '', r.costoUnitario ?? null]);
   const want = [
-    ['1', 'Personal', 'Personal y cuadrillas', '', '', null], ['1.1', 'Personal', 'Cuadrillas', '', '', null], ['1.1.1', 'Personal', 'Cuadrilla de montaje', 'Interno', 'cuadrilla', 1000000],
-    ['1.2', 'Personal', 'Supervisión', '', '', null], ['1.2.1', 'Personal', 'Supervisor de montaje', 'Interno', 'persona', 400000],
+    ['1', 'Personal', 'Personal y cuadrillas', '', '', null], ['1.1', 'Personal', 'Cuadrillas', '', '', null], ['1.1.1', 'Personal', 'Cuadrilla de montaje', 'Interno', 'cuadrilla por día hábil', 1000000],
+    ['1.2', 'Personal', 'Supervisión', '', '', null], ['1.2.1', 'Personal', 'Supervisor de montaje', 'Interno', 'persona por día hábil', 400000],
     ['2', 'Equipos', 'Equipo de alquiler (andamios, formaletas)', '', '', null], ['2.1', 'Equipos', 'Andamio multidireccional', 'Subarriendo', 'día', 500000],
-    ['3', 'Transporte', 'Izaje y transporte', '', '', null], ['3.1', 'Transporte', 'Grúa telescópica', 'Contratado', 'equipo', 2000000],
-    ['4', 'Equipos', 'Herramienta', '', '', null], ['4.1', 'Equipos', 'Torquímetro', 'Interno', 'unidad', 10000],
+    ['3', 'Transporte', 'Izaje y transporte', '', '', null], ['3.1', 'Transporte', 'Grúa telescópica', 'Contratado', 'equipo por día hábil', 2000000],
+    ['4', 'Equipos', 'Herramienta', '', '', null], ['4.1', 'Equipos', 'Torquímetro', 'Interno', 'unidad por día hábil', 10000],
     ['5', 'Materiales', 'Insumos y repuestos', '', '', null], ['5.1', 'Materiales', 'Anclajes químicos', 'Contratado', 'unidad', 20000],
   ];
-  assert(JSON.stringify(pick) === JSON.stringify(want), 'códigos jerárquicos, categorías EDR y fuentes', pick);
+  /* la tarifa de un recurso de trabajo es por unidad y día hábil (la unidad lo dice; una unidad diaria queda igual); la de un
+     consumible, por unidad de medida */
+  assert(JSON.stringify(pick) === JSON.stringify(want), 'códigos jerárquicos, categorías EDR, fuentes y unidades con su base de tiempo', pick);
+  assert(/por unidad y día hábil/.test(rows[0].descripcion) && /por unidad de medida/.test(rows[11].descripcion), 'la fila de cada tipo explica la base de la tarifa', [rows[0].descripcion, rows[11].descripcion]);
   assert(rows.every((r) => r.id) && /No planificado \(Respuesta a un riesgo identificado\)/.test(rows[8].descripcion) && /Proveedor: Proveedor de subarriendo/.test(rows[6].descripcion), 'descripciones', rows.map((r) => r.descripcion));
-  const opts = await page.evaluate(() => { const f = PM.templates['estructura-desglose-recursos'].sections.flatMap((s) => s.fields).find((x) => x.key === 'recursos'); return { cat: f.columns.find((c) => c.key === 'categoria').options, src: f.columns.find((c) => c.key === 'fuente').options }; });
+  const opts = await page.evaluate(() => { const f = PM.templates['estructura-desglose-recursos'].sections.flatMap((s) => s.fields).find((x) => x.key === 'recursos'); const u = f.columns.find((c) => c.key === 'unidad'); return { cat: f.columns.find((c) => c.key === 'categoria').options, src: f.columns.find((c) => c.key === 'fuente').options, unitWidth: u.width, unitHint: u.hint }; });
   assert(rows.every((r) => !r.categoria || opts.cat.includes(r.categoria)) && rows.every((r) => !r.fuente || opts.src.includes(r.fuente)), 'valores dentro de las opciones de la plantilla');
+  /* la columna «Unidad» de la plantilla cabe «persona por día hábil» y explica la base de la tarifa */
+  assert(opts.unitWidth >= 160 && /base de tiempo/.test(opts.unitHint) && /por día hábil/.test(opts.unitHint), 'columna «Unidad» de la plantilla EDR', opts);
   assert(doc.status === 'borrador', 'documento nuevo en borrador');
   /* documento aprobado: la actualización abre una revisión nueva como borrador */
   await page.evaluate(async (pid) => { const p = PM.paths.doc(pid, 'estructura-desglose-recursos'); const d = await PM.store.get(p); await PM.store.set(p, { ...d, status: 'aprobado', rev: '0', fields: { ...d.fields, recursos: d.fields.recursos.slice(0, 2) } }); }, pid);
@@ -510,6 +581,17 @@ await step('Móvil 400 px: sin desborde de la página; el diagrama se desplaza d
       }
       await shot(pg, tab + '-movil');
     }
+    /* zoom inicial: si ajustar al ancho dejaría el texto ilegible, abre al 100 % con la raíz completa a la vista; «Ajustar»
+       solo se marca activo cuando el árbol cabe */
+    for (const tab of ['costos', 'recursos']) {
+      await openTab(pg, tab);
+      const z = await pg.evaluate(() => { const c = document.querySelector('.trd-canvas'); const s = c.querySelector('svg[role="tree"]'); const cr = c.getBoundingClientRect(); const rr = s.querySelector('[aria-level="1"] .trd-card').getBoundingClientRect(); const btn = (n) => [...document.querySelectorAll('.trd-zoom button')].find((b) => (b.getAttribute('aria-label') || b.textContent).trim() === n); return { zoom: Number(document.querySelector('[data-trd-zoom]').innerText.replace(/\D/g, '')), sw: Number(s.getAttribute('width')), cw: c.clientWidth, rootIn: rr.left >= cr.left - 0.5 && rr.right <= cr.left + c.clientWidth + 0.5, fit: btn('Ajustar').getAttribute('aria-pressed'), one: btn('Zoom al 100 %').getAttribute('aria-pressed') }; });
+      assert(z.zoom >= 60 && z.rootIn, tab + ': zoom inicial legible con la raíz a la vista', z);
+      assert(z.sw > z.cw ? z.fit === 'false' && z.one === 'true' : z.fit === 'true', tab + ': «Ajustar» activo solo si el árbol cabe', z);
+    }
+    await pg.getByRole('button', { name: 'Ajustar' }).click(); await pg.waitForTimeout(250);
+    const f = await pg.evaluate(() => { const c = document.querySelector('.trd-canvas'); const s = c.querySelector('svg[role="tree"]'); return { sw: Number(s.getAttribute('width')), cw: c.clientWidth, fit: [...document.querySelectorAll('.trd-zoom button')].find((b) => b.textContent.trim() === 'Ajustar').getAttribute('aria-pressed') }; });
+    assert(f.sw <= f.cw && f.fit === 'true', '«Ajustar» encaja el árbol en el ancho', f);
     await openTab(pg, 'costos');
     await pg.getByRole('button', { name: 'Zoom al 100 %' }).click(); await pg.waitForTimeout(200);
     const c = await pg.evaluate(() => { const el = document.querySelector('.trd-canvas'); return { sw: el.scrollWidth, cw: el.clientWidth, ow: getComputedStyle(el).overflowX }; });
@@ -600,6 +682,12 @@ await step('Proyecto de ejemplo: presupuesto = BAC + reservas y riesgos ubicados
     await openTab(v.page, 'recursos');
     const rb = await readTree(v.page, RBS);
     assert(rb.length > 1 && !sumErrors(rb).length, 'recursos del ejemplo', rb.length);
+    /* zoom inicial legible (≥ 60 %) con la raíz a la vista y «Ajustar» activo solo si el árbol cabe */
+    for (const tab of ['costos', 'riesgos', 'recursos']) {
+      await openTab(v.page, tab);
+      const z = await v.page.evaluate(() => { const c = document.querySelector('.trd-canvas'); const s = c.querySelector('svg[role="tree"]'); const cr = c.getBoundingClientRect(); const rr = s.querySelector('[aria-level="1"] .trd-card').getBoundingClientRect(); const fb = [...document.querySelectorAll('.trd-zoom button')].find((b) => b.textContent.trim() === 'Ajustar'); return { zoom: Number(document.querySelector('[data-trd-zoom]').innerText.replace(/\D/g, '')), sw: Number(s.getAttribute('width')), cw: c.clientWidth, rootIn: rr.left >= cr.left - 0.5 && rr.right <= cr.left + c.clientWidth + 0.5, fit: fb.getAttribute('aria-pressed') }; });
+      assert(z.zoom >= 60 && z.rootIn && (z.sw > z.cw + 1 ? z.fit === 'false' : z.fit === 'true'), exampleId + ' ' + tab + ': zoom inicial legible', z);
+    }
     await shot(v.page, 'ejemplo-' + exampleId + '-recursos');
     assert(!(await errorCards(v.page)).length && !v.errors.length, 'sin errores', v.errors);
   } finally { await v.browser.close(); }

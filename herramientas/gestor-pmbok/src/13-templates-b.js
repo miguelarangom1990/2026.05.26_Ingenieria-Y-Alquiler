@@ -968,7 +968,7 @@
           cSelect('categoria', 'Categoría', CATEGORIAS_RECURSO, { width: 120 }),
           cText('recurso', 'Recurso', { width: 220 }),
           cArea('descripcion', 'Descripción o especificación'),
-          cText('unidad', 'Unidad', { width: 90 }),
+          cText('unidad', 'Unidad', { width: 170, hint: 'Unidad de la tarifa. En los recursos de trabajo, con su base de tiempo (p. ej., persona por día hábil); en los consumibles (materiales e insumos), la unidad de medida.' }),
           cMoney('costoUnitario', 'Tarifa o costo unitario'),
           cSelect('fuente', 'Fuente', FUENTES_RECURSO, { width: 190 }),
         ], {
