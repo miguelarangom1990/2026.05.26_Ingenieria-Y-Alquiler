@@ -120,7 +120,7 @@ await step('Registro de la vista: grupo planificación, orden 15, ícono propio 
   assert(v && v.label === 'Estructuras de desglose' && v.group === 'planificacion' && v.order === 15 && v.icon === 'breakdown' && v.hasIcon && v.tree === 'function', 'registro de la vista', v);
   pid = await createProject(page, { budget: 62500000 });
   await seed(page, pid);
-  const item = page.locator('.nav-item', { hasText: 'Estructuras de desglose' });
+  const item = page.locator('.nav-item', { hasText: 'Desgloses del proyecto' });
   await item.click();
   await page.waitForTimeout(700);
   assert(await page.evaluate(() => PM.getState().view) === 'estructuras', 'el menú abre la vista');

@@ -106,6 +106,7 @@ const results = await page.evaluate(() => {
   const r1 = rt.children[1].children[0].children[0];
   eq('EDR de riesgos: hoja con nivel y texto', [r1.label, r1.value, r1.level, r1.tone, r1.sub], ['R-001 · Lluvias', 16, 'Alto', 'signal', 'Amenaza · P×I 16 (Alto) · Abierto']);
   eq('EDR de riesgos: tono del grupo = máximo', [rt.children[1].level, rt.value], ['Alto', 3]);
+  eq('EDR de riesgos: prefiere el nivel 1 con el mismo nombre', R.riskTree({ planRows: [{ nivel1: 'Comercial', nivel2: 'Proveedores', categoriaRegistro: 'Externo' }, { nivel1: 'Externo', nivel2: 'Clima', categoriaRegistro: 'Externo' }], risks: [{ id: 'X', categoria: 'Externo', probabilidad: 1, impacto: 1 }] }).children.map((n) => [n.label, n.value]), [['Comercial', 0], ['Externo', 1]]);
   eq('EDR de riesgos sin plan: por categoría del registro', R.riskTree({ planRows: [], risks }).children.map((n) => n.label), ['Externo', 'Técnico', 'De la organización']);
   eq('EDR de riesgos: oportunidad marcada', rt.children[2].children[0].children[0].badge, 'Oportunidad');
   // Datos mal formados

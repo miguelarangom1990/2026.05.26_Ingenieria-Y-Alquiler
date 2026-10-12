@@ -335,7 +335,8 @@
       if (sub) { const hit = rows.find((r) => res.key(r.nivel2) === res.key(sub)); if (hit) parent = getL2(getL1(String(hit.nivel1).trim()), String(hit.nivel2).trim()); }
       if (!parent) {
         const catName = String(k.categoria || '').trim();
-        const hit = rows.find((r) => catName && res.key(r.categoriaRegistro) === res.key(catName));
+        /* primero la categoría de nivel 1 con el mismo nombre; luego la primera fila con esa categoría del registro */
+        const hit = rows.find((r) => catName && res.key(r.nivel1) === res.key(catName)) || rows.find((r) => catName && res.key(r.categoriaRegistro) === res.key(catName));
         const n1 = hit ? getL1(String(hit.nivel1).trim()) : getL1(catName || 'Sin categoría');
         parent = getL2(n1, sub || 'Sin subcategoría');
       }

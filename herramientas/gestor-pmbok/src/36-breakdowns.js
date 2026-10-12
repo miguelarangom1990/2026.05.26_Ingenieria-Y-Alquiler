@@ -951,5 +951,5 @@
     </div>`;
   }
 
-  PM.registerView({ id: 'estructuras', label: 'Estructuras de desglose', group: 'planificacion', order: 15, icon: 'breakdown', component: BreakdownView, needsProject: true, description: 'Estructuras de desglose de costos, de los riesgos y de los recursos en diagrama (7.3, 11.2, 9.2)' });
+  PM.registerView({ id: 'estructuras', label: 'Estructuras de desglose', navLabel: 'Desgloses del proyecto', group: 'planificacion', order: 15, icon: 'breakdown', component: BreakdownView, needsProject: true, description: 'Estructuras de desglose de costos, de los riesgos y de los recursos en diagrama (7.3, 11.2, 9.2)' });
 })();

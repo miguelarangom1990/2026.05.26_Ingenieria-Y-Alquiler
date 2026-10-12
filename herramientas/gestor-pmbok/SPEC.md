@@ -162,7 +162,7 @@ PM.selectProject(pid, viewId)
 
 ## 4. Vistas y navegación
 
-Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, parent?, description, when?, unavailable?})` (`parent`: id de la vista visible que se marca como actual mientras se muestra una vista oculta; `when(project)`: la vista solo aparece en el menú si devuelve `true`, y si se abre igual el anfitrión muestra el componente `unavailable` con `{project, view}`).
+Registra cada vista: `PM.registerView({id, label, group, icon, order, component, needsProject:true, hidden:false, parent?, description, when?, unavailable?})` (`parent`: id de la vista visible que se marca como actual mientras se muestra una vista oculta; `navLabel`: texto más corto para el menú lateral (el título de la vista sigue siendo `label`); `when(project)`: la vista solo aparece en el menú si devuelve `true`, y si se abre igual el anfitrión muestra el componente `unavailable` con `{project, view}`).
 Grupos: `portafolio`, `proyecto`, `planificacion` (Alcance, tiempo y recursos), `agil` (Ágil (Scrum y Kanban), lo agrega 07-agile-core), `costos` (Costos y desempeño), `analisis` (Matrices y análisis).
 El componente recibe `{project, params}`. Íconos disponibles: claves de `PM.ICONS` en 00-core.js.
 

@@ -468,7 +468,7 @@
             ${g.id !== 'portafolio' ? html`<div class="nav-group-label"><span class="nav-group-text">${g.label}</span></div>` : null}
             <div class="nav-list">
               ${g.items.map((v) => { const off = v.needsProject && !st.projectId; return html`<button key=${v.id} type="button" class="nav-item" aria-current=${current === v.id ? 'page' : undefined} disabled=${off} aria-label=${mini ? v.label : undefined} title=${mini ? undefined : off ? 'Selecciona un proyecto primero' : v.description} data-tip=${mini ? v.label + (off ? ' · selecciona un proyecto primero' : '') : undefined} onClick=${() => PM.navigate(v.id)}>
-                <${ui.Icon} name=${v.icon} size=${17} /><span class="nav-label">${v.label}</span>
+                <${ui.Icon} name=${v.icon} size=${17} /><span class="nav-label" title=${v.navLabel && !mini ? v.label : undefined}>${v.navLabel || v.label}</span>
               </button>`; })}
             </div>
           </div>`)}
