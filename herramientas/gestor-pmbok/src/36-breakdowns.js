@@ -750,9 +750,12 @@
     const reserves = costs && costs.reserves;
     const root = useMemo(() => PM.res.cbsTree({ tree, sched, schedule, data: resources, baseline: bl, reserves, source, controlDepth: depth, showActivities: acts, by }), [tree, sched, schedule, resources, bl, reserves, source, depth, acts, by]);
     const mgmt = find(root, 'cbs:gestion'), base = find(root, 'cbs:lb'), cont = find(base, 'cbs:cont');
-    const vM = num(mgmt && mgmt.value), vB = num(base && base.value), vC = num(cont && cont.value);
+    /* plan vigente (SPEC §10.3): la reserva para contingencias es la disponible; lo consumido sin actividad es una cuenta aparte */
+    const extraN = find(base, 'cbs:riesgos');
+    const vM = num(mgmt && mgmt.value), vB = num(base && base.value), vC = num(cont && cont.value), vX = num(extraN && extraN.value);
     const accounts = vB - vC;
-    const nAccounts = arr(base && base.children).filter((c) => c.id !== 'cbs:cont').length;
+    const nAccounts = arr(base && base.children).filter((c) => c.id !== 'cbs:cont' && c.id !== 'cbs:riesgos').length;
+    const used = num(cont && cont.reserveConsumed);
     const budget = num(project && project.budget, 0);
     const diff = budget > 0 ? root.value - budget : 0;
     const blName = bl ? txt(bl.label) || 'LB' + num(bl.number, 0) : '';
@@ -774,15 +777,16 @@
       </section>
       <${Note}>
         <p><strong>Presupuesto del proyecto = reserva de gestión + línea base de costos.</strong> <strong>Línea base de costos = reserva para contingencias + cuentas de control</strong> (estimaciones de costos de los paquetes de trabajo y sus actividades). La reserva para contingencias cubre los riesgos identificados; la reserva de gestión, los imprevistos no identificados, y solo se usa con un cambio aprobado (Guía del PMBOK® 6.ª ed., 7.3, gráfico 7-8).</p>
-        ${by === 'categoria' ? html`<p>Agrupado por categoría de costo: las actividades calculadas por recursos se reparten por el tipo de cada recurso; las de precio global, por su categoría de costo.</p>` : null}
+        ${by === 'categoria' ? html`<p>Agrupado por categoría de costo: las actividades calculadas por recursos se reparten por la categoría del tipo de cada recurso; las de precio global, por su categoría de costo.</p>` : null}
+        ${source !== 'baseline' && used > 0 ? html`<p>En el plan actual la reserva para contingencias es la disponible: ${PM.fmt.moneyShort(used, currency)} ya se usaron en respuestas a riesgos y pasaron a las cuentas de control (actividades calculadas por recursos)${vX > 0 ? ' o a «Respuestas a riesgos sin actividad»' : ''}.</p>` : null}
         ${source === 'baseline' ? html`<p>Fuente: línea base ${blName}${bl && bl.date ? ' del ' + PM.fmt.date(String(bl.date).slice(0, 10)) : ''}. Los cambios posteriores del plan no se reflejan hasta establecer una nueva línea base.</p>` : null}
       </${Note}>
       <${Stats} items=${[
         { label: 'Presupuesto del proyecto', value: PM.fmt.moneyShort(root.value, currency), title: PM.fmt.money(root.value, currency), sub: budget > 0 ? (Math.abs(diff) < 1 ? 'Igual al presupuesto de la ficha' : 'Ficha: ' + PM.fmt.moneyShort(budget, currency) + ' (diferencia ' + PM.fmt.moneyShort(diff, currency) + ')') : 'Reserva de gestión + línea base' },
         { label: 'Reserva de gestión', value: PM.fmt.moneyShort(vM, currency), title: PM.fmt.money(vM, currency), sub: 'Fuera de la línea base' },
         { label: 'Línea base de costos', value: PM.fmt.moneyShort(vB, currency), title: PM.fmt.money(vB, currency), sub: source === 'baseline' ? blName : 'Plan actual' },
-        { label: 'Reserva para contingencias', value: PM.fmt.moneyShort(vC, currency), title: PM.fmt.money(vC, currency), sub: 'Riesgos identificados' },
-        { label: by === 'edt' ? 'Cuentas de control (BAC)' : 'Costo de las actividades (BAC)', value: PM.fmt.moneyShort(accounts, currency), title: PM.fmt.money(accounts, currency), sub: by === 'edt' ? plural(nAccounts, 'grupo', 'grupos') : plural(nAccounts, 'categoría', 'categorías') },
+        { label: 'Reserva para contingencias', value: PM.fmt.moneyShort(vC, currency), title: PM.fmt.money(vC, currency), sub: used > 0 ? 'Disponible: ' + PM.fmt.moneyShort(cont.reserveTotal, currency) + ' menos ' + PM.fmt.moneyShort(used, currency) + ' usados en riesgos' : 'Riesgos identificados' },
+        { label: by === 'edt' ? 'Cuentas de control (BAC)' : 'Costo de las actividades (BAC)', value: PM.fmt.moneyShort(accounts - vX, currency), title: PM.fmt.money(accounts - vX, currency), sub: (by === 'edt' ? plural(nAccounts, 'grupo', 'grupos') : plural(nAccounts, 'categoría', 'categorías')) + (vX > 0 ? ' · más ' + PM.fmt.moneyShort(vX, currency) + ' de respuestas a riesgos sin actividad' : '') },
       ]} />
       <${BudgetBar} accounts=${accounts} cont=${vC} mgmt=${vM} currency=${currency} />
       <${TreeDiagram} root=${root} metric="money" currency=${currency} orientation="v" title="Estructura de desglose de costos"
@@ -816,7 +820,8 @@
     const planKeys = new Set(plan.map((r) => keyOf(r.nivel2)).filter(Boolean));
     const unmatched = plan.length ? shown.filter((r) => !planKeys.has(keyOf(r.subcategoria))).length : 0;
     const scores = shown.map((r) => PM.calc.riskScore(r.probabilidad, r.impacto));
-    const high = scores.filter((s) => s >= 10).length;
+    /* nivel alto o muy alto: solo amenazas (una oportunidad con P×I alto no es una alerta) */
+    const high = shown.filter((r, i) => !isOpp(r) && scores[i] >= 10).length;
     const unevaluated = scores.filter((s) => !s).length;
     const opps = shown.filter(isOpp).length;
     return html`<div class="brk-panel" data-brk="riesgos">
@@ -837,7 +842,7 @@
         { label: 'Riesgos mostrados', value: PM.fmt.num(shown.length), sub: shown.length === risks.length ? 'Todos los del registro' : 'De ' + plural(risks.length, 'riesgo', 'riesgos') + ' en el registro' },
         { label: 'Amenazas', value: PM.fmt.num(shown.length - opps) },
         { label: 'Oportunidades', value: PM.fmt.num(opps) },
-        { label: 'Nivel alto o muy alto', value: PM.fmt.num(high), sub: 'Puntuación P×I de 10 o más', tone: high ? 'warn' : undefined },
+        { label: 'Amenazas de nivel alto o muy alto', value: PM.fmt.num(high), sub: 'Puntuación P×I de 10 o más', tone: high ? 'warn' : undefined },
         { label: 'Sin evaluar', value: PM.fmt.num(unevaluated), sub: 'Sin probabilidad o impacto' },
       ]} />
       <div class="brk-levels" aria-label="Convenciones de nivel de riesgo">

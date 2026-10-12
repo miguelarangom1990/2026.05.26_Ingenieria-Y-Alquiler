@@ -689,8 +689,11 @@ asignaciones en el cronograma (costo unitario del catálogo); sin asignaciones, 
   cantidad según la clase, forma de costeo con desglose y comparación con la línea base.
 - 42 expone: `PM.ResourceCatalog({model})`, `PM.resourceDialog(model, item|null, initial) → Promise<recurso guardado|null>`,
   `PM.resourceTypesDialog(model)`, `PM.unplannedResourceFlow(model, item) → Promise<item con motivo|null>`.
-- `estructuras` (36): «Estructuras de desglose», grupo `planificacion`, orden 15: pestañas Costos, Riesgos y Recursos, diagrama de
-  árbol (zoom, ajustar, plegar ramas, teclado, exportar SVG y PNG, ver como tabla).
+- `estructuras` (36): «Estructuras de desglose» (`navLabel` «Desgloses»), grupo `planificacion`, orden 15: pestañas Costos, Riesgos
+  y Recursos, diagrama de árbol (zoom, ajustar, plegar ramas, teclado, exportar SVG y PNG, ver como tabla con columna «Nivel»).
+  Zoom inicial «auto»: ajusta al ancho si queda en 60 % o más; si no, 100 % centrado en la raíz. «Actualizar el documento EDR»
+  escribe la unidad de los recursos de trabajo con su base de tiempo («persona por día hábil»). En Costos, la reserva para
+  contingencias del plan es la disponible (§10.3); en Riesgos, el indicador de nivel alto cuenta solo amenazas.
 - 46: capacidad sugerida de la iteración con `teamCapacity`. 50: consumo de la reserva para contingencias por recursos no
   planificados y forma de costeo en las tablas por actividad. 80: alerta de recursos no planificados y paso «Catálogo de recursos»
   en la ruta. 10: herramientas y glosario.

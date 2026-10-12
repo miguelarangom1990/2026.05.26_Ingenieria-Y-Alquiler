@@ -158,6 +158,8 @@ await step('Costos: presupuesto = BAC + reservas, línea base = contingencia + c
   const stats = await page.locator('.brk-stats').innerText();
   assert(/\$ 62,5 M/.test(stats) && /\$ 11,9 M|\$ 2 M/.test(stats) && /\$ 56,5 M/.test(stats), 'indicadores', stats);
   assert(/Igual al presupuesto de la ficha/.test(stats), 'compara con el presupuesto de la ficha', stats);
+  assert(/Disponible: \$ 24 M menos \$ 20 M usados en riesgos/.test(stats.replace(/\s+/g, ' ')), 'reserva disponible del plan (SPEC §10.3)', stats);
+  assert(/\$ 20 M ya se usaron en respuestas a riesgos/.test((await page.locator('.brk-note').first().innerText()).replace(/\s+/g, ' ')), 'la nota explica la reserva usada');
   const note = await page.locator('.brk-note').first().innerText();
   assert(/Presupuesto del proyecto = reserva de gestión \+ línea base de costos/.test(note) && /Línea base de costos = reserva para contingencias \+ cuentas de control/.test(note), 'nota de los componentes del presupuesto', note);
   const tabs = await page.$$eval(`[data-trd="${CBS}"] [role="treeitem"][tabindex="0"]`, (els) => els.length);
@@ -358,6 +360,10 @@ await step('Riesgos: plan de gestión de los riesgos, subcategoría del registro
   const legend = await page.locator('.brk-levels').innerText();
   assert(/Bajo 1–4/.test(legend) && /Medio 5–9/.test(legend) && /Alto 10–19/.test(legend) && /Muy alto 20–25/.test(legend) && /Sin evaluar/.test(legend), 'leyenda de niveles con texto', legend);
   assert(/1 riesgo no tiene una subcategoría del plan/.test(await page.locator('[data-brk="riesgos"] .brk-note').first().innerText()), 'aviso de riesgos sin subcategoría');
+  /* el indicador de nivel alto cuenta solo amenazas (R-001 16 y R-002 12, R-003 10); la oportunidad R-005 lleva tono positivo */
+  const rstats = (await page.locator('[data-brk="riesgos"] .brk-stats').innerText()).replace(/\s+/g, ' ');
+  assert(/Amenazas de nivel alto o muy alto 3/.test(rstats), 'amenazas de nivel alto', rstats);
+  assert(await page.locator(`[data-trd="${RBR}"] [data-uid="k:R-005"]`).evaluate((g) => g.classList.contains('t-good')), 'la oportunidad no lleva tono de alerta');
   await shot(page, 'riesgos-claro');
   await setCheck(page, '[data-brk="riesgos"]', 'Ocultar riesgos cerrados', true);
   n = await readTree(page, RBR);
