@@ -837,9 +837,16 @@
   ui.NumberInput = function NumberInput({ value, onValue, class: cls, money, currency = 'COP', min, max, step, onFocus: extFocus, onBlur: extBlur, ...rest }) {
     const [focus, setFocus] = useState(false);
     const [draft, setDraft] = useState('');
+    const inputRef = useRef(null); const reselect = useRef(false);
+    useLayoutEffect(() => { if (focus && reselect.current) { reselect.current = false; const el = inputRef.current; if (el && document.activeElement === el) { try { el.select(); } catch (x) { /* ignore */ } } } }, [focus]);
     const shown = focus ? draft : value === null || value === undefined || value === '' ? '' : money ? PM.fmt.num(value, (PM.CURRENCIES[currency] || {}).decimals || 0) : PM.fmt.num(value, 4);
-    return html`<input class=${cx('input num', cls)} inputmode="decimal" value=${shown}
-      onFocus=${(e) => { setDraft(value === null || value === undefined ? '' : String(value).replace('.', ',')); setFocus(true); extFocus && extFocus(e); }}
+    return html`<input ref=${inputRef} class=${cx('input num', cls)} inputmode="decimal" value=${shown}
+      onFocus=${(e) => {
+        /* al entrar con Tab el navegador selecciona todo; el valor cambia (sin separadores de miles) y la selección se perdería:
+           se vuelve a seleccionar justo después de pintar (antes de la siguiente tecla) para que lo escrito reemplace el valor */
+        const el = e.currentTarget; reselect.current = el.value !== '' && el.selectionStart === 0 && el.selectionEnd === el.value.length;
+        setDraft(value === null || value === undefined ? '' : String(value).replace('.', ',')); setFocus(true); extFocus && extFocus(e);
+      }}
       onBlur=${(e) => { setFocus(false); extBlur && extBlur(e); }}
       onInput=${(e) => { const raw = e.currentTarget.value; setDraft(raw); const clean = raw.replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); if (clean === '' || clean === '-') return onValue && onValue(null); let n = parseFloat(clean); if (!Number.isFinite(n)) return; if (min !== undefined && n < min) n = min; if (max !== undefined && n > max) n = max; onValue && onValue(n); }}
       ...${rest} />`;
@@ -855,7 +862,16 @@
   };
   ui.Tabs = function Tabs({ tabs, value, onChange, class: cls }) {
     return html`<div class=${cx('tabs', cls)} role="tablist">
-      ${tabs.map((t) => html`<button key=${t.id} type="button" role="tab" class="tab" aria-selected=${value === t.id ? 'true' : 'false'} onClick=${() => onChange(t.id)}>
+      ${tabs.map((t, i) => html`<button key=${t.id} type="button" role="tab" class="tab" aria-selected=${value === t.id ? 'true' : 'false'} aria-controls=${t.panelId || undefined} onClick=${() => onChange(t.id)}
+        onKeyDown=${(e) => {
+          /* flechas, Inicio y Fin cambian de pestaña (patrón de pestañas de ARIA) */
+          const k = e.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return;
+          e.preventDefault();
+          const j = k === 'Home' ? 0 : k === 'End' ? tabs.length - 1 : (i + (k === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          onChange(tabs[j].id);
+          const btns = e.currentTarget.parentNode ? e.currentTarget.parentNode.querySelectorAll('[role="tab"]') : [];
+          if (btns[j]) btns[j].focus();
+        }}>
         ${t.icon ? html`<${ui.Icon} name=${t.icon} size=${15} />` : null}${t.label}${t.count !== undefined ? html`<span class="count">${t.count}</span>` : null}
       </button>`)}
     </div>`;

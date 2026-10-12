@@ -650,7 +650,9 @@ línea base; cambio de alcance, diseño o método, o imprevisto pagado con la re
 
 ### 10.4 Vistas e integraciones
 
-- `recursos` (40 + 42): pestañas **Catálogo** (`PM.ResourceCatalog`: tabla con filtros por tipo y planificado, agregar, editar,
+- `recursos` (40 + 42): `PM.navigate('recursos', {tab: 'catalogo'|'histograma'|'consumo', plan?: 'no-planificado'|…})` (la pestaña
+  elegida se recuerda en PM.prefs `rec.tab`). Editar «Disponible» en el histograma guarda en el catálogo y quita la clave del recurso
+  en `resourceLimits`. La columna de costo del Gantt aparece con área de 1440 px o más. Pestañas **Catálogo** (`PM.ResourceCatalog`: tabla con filtros por tipo y planificado, agregar, editar,
   eliminar con limpieza de asignaciones, tipos del proyecto con presets, importar los virtuales, flujo de no planificados),
   **Histograma** (el actual, con filtro por tipo y disponibilidad del catálogo; editar «Disponible» guarda en el catálogo) y
   **Consumo** (consumibles: cantidad y costo por semana o mes).
