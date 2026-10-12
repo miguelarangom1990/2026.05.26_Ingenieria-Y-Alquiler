@@ -9,6 +9,7 @@
   const PM = window.PM;
   const { useMemo, useCallback } = PM.lib;
 
+  const EMPTY_RESOURCES = Object.freeze({ preset: null, types: Object.freeze([]), items: Object.freeze([]) });
   const EMPTY_AGILE = Object.freeze({ settings: Object.freeze({}), releases: Object.freeze([]), sprints: Object.freeze([]) });
   PM.EMPTY = PM.deepFreeze({
     wbs: { nodes: [] },
@@ -42,6 +43,10 @@
     const { docs: backlogDocs, loading: bLoading } = PM.useCollection(pid && agileOn && PM.paths.backlog ? PM.paths.backlog(pid) : null);
     const agileItems = useMemo(() => backlogDocs.filter((d) => d.data && typeof d.data === 'object' && !Array.isArray(d.data)).map((d) => ({ ...d.data, id: d.id })), [backlogDocs]);
     const saveAgile = useCallback((v) => { PM.touchProject(pid); return saveAgileRaw(v); }, [saveAgileRaw, pid]);
+    /* catálogo de recursos (09-resources-core): tipos y recursos del proyecto; las formas de costeo de las actividades
+       («recursos», «mixto», «unitario») calculan su costo con él */
+    const [resources, saveResourcesRaw, rMeta] = PM.useToolData('resources', PM.EMPTY.resources || EMPTY_RESOURCES);
+    const saveResources = useCallback((v) => { PM.touchProject(pid); return saveResourcesRaw(v); }, [saveResourcesRaw, pid]);
     const saveSchedule = useCallback((v) => { PM.touchProject(pid); return saveScheduleRaw(v); }, [saveScheduleRaw, pid]);
     const saveWbs = useCallback((v) => { PM.touchProject(pid); return saveWbsRaw(v); }, [saveWbsRaw, pid]);
     const saveCosts = useCallback((v) => { PM.touchProject(pid); return saveCostsRaw(v); }, [saveCostsRaw, pid]);
@@ -53,13 +58,17 @@
        queda antes del corte, de modo que fin, ruta crítica e hitos pronosticados reflejan el atraso. */
     /* las actividades vinculadas a un release toman su avance del backlog (terminado / alcance): así la parte ágil
        entra a la ruta crítica, la curva S y el valor ganado del proyecto sin modificar el cronograma guardado */
-    const effSchedule = useMemo(() => (PM.agile && agileOn ? PM.agile.applyToSchedule(schedule, agile, agileItems, { statusDate }) : schedule), [schedule, agile, agileItems, agileOn, statusDate]);
+    const effSchedule = useMemo(() => {
+      const s1 = PM.agile && agileOn ? PM.agile.applyToSchedule(schedule, agile, agileItems, { statusDate }) : schedule;
+      return PM.res ? PM.res.applyCosts(s1, resources) : s1;
+    }, [schedule, agile, agileItems, agileOn, statusDate, resources]);
+    const catalog = useMemo(() => (PM.res ? PM.res.catalog(resources, schedule) : null), [resources, schedule]);
     const sched = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart), [effSchedule, projectStart]);
     const forecast = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart, statusDate), [effSchedule, projectStart, statusDate]);
     const baselines = useMemo(() => PM.calc.activeBaselines(baselineDocs), [baselineDocs]);
     const evm = useMemo(() => PM.calc.evm({ sched, costBaseline: baselines.cost, costs, statusDate }), [sched, baselines.cost, costs, statusDate]);
     const rollup = useMemo(() => PM.calc.rollupWbs(tree, sched), [tree, sched]);
-    return { project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', agile, saveAgile, agileItems, agileOn, agileMeta: aMeta, loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading || aMeta.loading || bLoading };
+    return { project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', agile, saveAgile, agileItems, agileOn, agileMeta: aMeta, resources, saveResources, catalog, loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading || aMeta.loading || bLoading || rMeta.loading };
   };
 
   /* Índice de documentos del proyecto actual. list: [{id, template, title, status, rev, fields, ...}] */

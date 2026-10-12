@@ -41,13 +41,16 @@ Colombia**, tono profesional y directo.
 | `src/06-model.js` | hooks de modelo compartido (incluye el avance ágil de los releases vinculados al cronograma). Núcleo. |
 | `src/07-agile-core.js` | capa ágil: contratos de backlog, releases e iteraciones, `PM.agile`, cálculos ágiles en `PM.calc`, `PM.useAgileModel` (§9). Núcleo. |
 | `src/08-shell.js` | riel, selector de proyecto, portafolio, formulario de proyecto. Núcleo. |
+| `src/09-resources-core.js` | recursos: catálogo, tipos, formas de costeo, capacidad del equipo, árboles de desglose, `PM.changeControl` (§10). Núcleo. |
 | `src/10-pmbok.js` | base de conocimiento PMBOK (`PM.KB`). |
 | `src/12-templates-a.js` | plantillas: Integración, Alcance, Cronograma. |
 | `src/13-templates-b.js` | plantillas: Costos, Calidad, Recursos, Comunicaciones, Riesgos, Adquisiciones, Interesados. |
 | `src/14-templates-agile.js` | plantillas ágiles (§9.5). |
 | `src/20-docs.js` | vistas `procesos`, `documentos`, `documento` (editor). |
 | `src/30-wbs.js` | vista `edt`. |
-| `src/40-schedule.js` | vistas `cronograma`, `red`, `recursos`. |
+| `src/36-breakdowns.js` | vista `estructuras` (estructuras de desglose de costos, riesgos y recursos en diagrama; §10). |
+| `src/40-schedule.js` | vistas `cronograma`, `red`, `recursos` (pestañas Catálogo, Histograma y Consumo). |
+| `src/42-resources.js` | componentes y diálogos del catálogo de recursos (`PM.ResourceCatalog`, `PM.resourceDialog`…; §10). |
 | `src/45-agile-backlog.js` | vistas `backlog`, `kanban` (§9). |
 | `src/46-agile-sprints.js` | vistas `iteraciones`, `metricas-agiles` (§9). |
 | `src/50-evm.js` | vista `valor-ganado`. |
@@ -120,10 +123,11 @@ PM.useToolData(toolId, PM.EMPTY.<tool>)  // [data (normalizada con PM.normalizeT
 PM.useDoc(path)                 // {data, exists, loading, error, save, saveNow}
 PM.useCollection(path)          // {docs:[{id,data}], loading, error}
 PM.useProjectModel()            // {project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency,
-                                //  agile, saveAgile, agileItems, agileOn, agileMeta, loading}
+                                //  agile, saveAgile, agileItems, agileOn, agileMeta, resources, saveResources, catalog, loading}
                                 // effSchedule = schedule con el avance ágil aplicado (§9.3); sched/forecast/evm/rollup se calculan con él.
                                 // Para editar el cronograma usa siempre `schedule` (lo guardado), nunca effSchedule.
 PM.useAgileModel()              // §9.2
+PM.useResourceModel()           // §10: useProjectModel + saveItem(recurso) (guarda; un recurso virtual recibe id y código) + removeItem(id)
                                 // sched: red según lo programado (lo atrasado conserva sus fechas → «vencido»);
                                 // forecast: la misma red actualizada a la fecha de corte (fin, ruta crítica e hitos pronosticados, 6.6)
 PM.useProjectDocs()             // {list, byTemplate, get(templateId), loading}
@@ -581,3 +585,79 @@ Claves que otros módulos leen o prellenan (respeta exactamente):
 - `medellin` (91–93): ciclo de vida Híbrido; la obra y la estructuración siguen en cascada y el entregable comercial y digital
   (sala de ventas virtual, CRM y campañas) se gestiona con Kanban/Scrum. Las cifras financieras del ejemplo no cambian: el avance
   derivado del backlog coincide con el avance guardado de las actividades vinculadas.
+
+## 10. Recursos del proyecto y estructuras de desglose
+
+Objetivo: registrar los recursos del proyecto en un **catálogo** (también los que aparecen a mitad del proyecto, sin
+planificar), clasificarlos por **tipo**, asignarlos a las actividades, costear las actividades de cuatro formas,
+alimentar la capacidad del equipo ágil y ver en diagrama las **estructuras de desglose** de costos, riesgos y recursos.
+Referencias: Guía del PMBOK® 6.ª ed. 9.2 (estimar recursos; estructura de desglose de recursos), 9.3 (adquirir), 9.6
+(controlar los recursos), 7.2 y 7.3 (estimar costos y determinar el presupuesto; componentes del presupuesto, gráfico 7-8),
+11.1 y 11.2 (estructura de desglose de los riesgos, gráfico 11-4), 4.6 (control integrado de cambios).
+
+### 10.1 Datos
+
+| Ruta | Contenido |
+|---|---|
+| `projects/{pid}/tools/resources` | `{preset, types:[Type], items:[Resource]}` (`PM.EMPTY.resources`, `PM.TOOL_SHAPES.resources`) |
+
+```js
+Type     = { id, name, kind: 'trabajo'|'consumible', edr: 'Personal'|'Equipos'|'Materiales'|'Transporte'|'Servicios' }
+           // sin types guardados se usan los del preset (PM.RES.PRESETS: general, construccion, alquiler, ti); 'sin-clasificar' es virtual
+Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto: nivel 2 de la EDR), kind? (anula el del tipo),
+             unit (PM.RES.UNITS o texto), availability (trabajo: unidades por día hábil; consumible: existencia, opcional),
+             availableFrom, availableTo (rango opcional), unitCost (trabajo: por unidad y día hábil; consumible: por unidad de medida),
+             origin (PM.RES.ORIGINS), supplier, contract, responsible, status ('planificado'|'solicitado'|'disponible'|'liberado'),
+             planned (bool; false = no planificado), addedDate, reason (PM.RES.REASONS), riskId, reserveAmount, changeRef,
+             agileTeam (bool), dedication (0–100 %), hoursPerDay, absences:[{id, from, to, note}], notes }
+```
+- Asignación en el cronograma (`tasks[].resources[]`): `{resourceId?, name, units, qty?}`. `name` se conserva siempre (compatibilidad);
+  `resourceId` enlaza con el catálogo. Trabajo: `units` = unidades por día. Consumible: `qty` = cantidad total (si falta: unidades × días).
+- Recursos **virtuales**: nombres usados en asignaciones que no están en el catálogo (datos de antes). `PM.res.catalog` los agrega como
+  «Sin clasificar» (`id 'v:<nombre>'`, `virtual: true`) con la disponibilidad de `schedule.settings.resourceLimits`. Al editarlos se
+  guardan en el catálogo (`useResourceModel().saveItem`). La disponibilidad del catálogo tiene prioridad sobre `resourceLimits`.
+- Actividad (`tasks[]`): `costMode: 'global'` (por defecto: `cost` escrito a mano, precio global a todo costo) | `'recursos'` |
+  `'mixto'` (`costFixed` + recursos) | `'unitario'` (`quantity` × `unitPrice`, `qtyUnit`); `costCategory` opcional (PM.RES.COST_CATEGORIES)
+  para el desglose de costos de las actividades de precio global.
+
+### 10.2 Cálculos (`PM.res`, lee 09-resources-core.js)
+
+- `catalog(data, schedule)` → `{types, items, byId, byKey, resolve(asignación), kindOf(item), typeOf(item)}`.
+- `assignment(cat, task, a)` → `{item, kind, units, qty, unitCost, cost, priced}`; `taskCost(task, cat)` → `{mode, total, fixed,
+  resourcesTotal, lines, unpriced, unitario, manual}`; `applyCosts(schedule, data)`: lo aplica a las actividades no «global»
+  (`cost` = calculado, `costManual`, `costComputed: true`). `useProjectModel` lo aplica en `effSchedule`, así entra al CPM, la curva S,
+  el valor ganado sin línea base y las nuevas líneas base. **La línea base guardada no cambia**: muestra la diferencia.
+- `costSplit(task, cat, cost?)` → `[{category, value}]` (por tipo de recurso; precio global por `costCategory`).
+- `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members, personDays, normal, hours, ratio, suggested, unit}`
+  (miembros: `agileTeam` y de trabajo; sugerida en horas, o en puntos = velocidad media × proporción de disponibilidad).
+- Árboles para diagramas (nodo `{id, label, code?, sub?, value, metric:'money'|'count'|'score', pct, tone?, badge?, kind:'root'|'group'|'reserve'|'leaf', children}`):
+  `rbsTree({data, schedule, sched})` (recursos: tipo → subtipo → recurso), `cbsTree({tree, sched, schedule, data, baseline, reserves,
+  source:'plan'|'baseline', controlDepth, showActivities, by:'edt'|'categoria'})` (costos, gráfico 7-8 del PMBOK),
+  `riskTree({planRows, risks})` (riesgos: `plan-gestion-riesgos.edrRiesgos` (nivel1, nivel2, categoriaRegistro) → riesgos de
+  `registro-riesgos.riesgos`, ubicados por `subcategoria` (columna opcional nueva) o por su `categoria`).
+- `PM.changeControl.register({pid, project, description, justification, scope, days, cost, affected, requester, type, date})` →
+  `{code, docId}`: crea `solicitud-cambio--<uid>` (decisión «Registrada») y agrega la fila CC-00x a `registro-cambios`.
+
+### 10.3 Recursos no planificados (9.6) y línea base
+
+Un recurso nuevo con línea base de costos o cronograma ya fijada se marca `planned: false` y pide el **motivo** (`PM.RES.REASONS`):
+sustitución equivalente, por cuenta del contratista (todo costo), respuesta a un riesgo identificado (registra `riskId` y
+`reserveAmount`: consumo de la reserva para contingencias), menor rendimiento (acción correctiva: variación) → **no** cambian la
+línea base; cambio de alcance, diseño o método, o imprevisto pagado con la reserva de gestión → `baseline: true`: ofrecer
+`PM.changeControl.register` y guardar `changeRef`. La vista muestra planificados frente a no planificados.
+
+### 10.4 Vistas e integraciones
+
+- `recursos` (40 + 42): pestañas **Catálogo** (`PM.ResourceCatalog`: tabla con filtros por tipo y planificado, agregar, editar,
+  eliminar con limpieza de asignaciones, tipos del proyecto con presets, importar los virtuales, flujo de no planificados),
+  **Histograma** (el actual, con filtro por tipo y disponibilidad del catálogo; editar «Disponible» guarda en el catálogo) y
+  **Consumo** (consumibles: cantidad y costo por semana o mes).
+- Editor de actividad (40): selector de recurso del catálogo con «Crear recurso nuevo…» (`PM.resourceDialog`), unidades por día o
+  cantidad según la clase, forma de costeo con desglose y comparación con la línea base.
+- 42 expone: `PM.ResourceCatalog({model})`, `PM.resourceDialog(model, item|null, initial) → Promise<recurso guardado|null>`,
+  `PM.resourceTypesDialog(model)`, `PM.unplannedResourceFlow(model, item) → Promise<item con motivo|null>`.
+- `estructuras` (36): «Estructuras de desglose», grupo `planificacion`, orden 15: pestañas Costos, Riesgos y Recursos, diagrama de
+  árbol (zoom, ajustar, plegar ramas, teclado, exportar SVG y PNG, ver como tabla).
+- 46: capacidad sugerida de la iteración con `teamCapacity`. 50: consumo de la reserva para contingencias por recursos no
+  planificados y forma de costeo en las tablas por actividad. 80: alerta de recursos no planificados y paso «Catálogo de recursos»
+  en la ruta. 10: herramientas y glosario.
