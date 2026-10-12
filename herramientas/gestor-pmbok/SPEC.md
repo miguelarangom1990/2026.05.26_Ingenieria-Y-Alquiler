@@ -59,7 +59,8 @@ Colombia**, tono profesional y directo.
 | `src/80-dashboard.js` | vistas `tablero`, `lineas-base`, `ficha`. |
 | `src/90-example.js` | constructor del proyecto de ejemplo (`PM.registerExample`). |
 | `src/91–93-example-medellin*.js`, `src/96-example-medellin-agile.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital en 96). |
-| `src/94-example-erp.js`, `src/95-example-erp-docs.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (datos y documentos; §9.7). |
+| `src/11-doc-approach.js` | enfoque de la metodología de cada plantilla (`PM.DOC_APPROACHES`, `PM.DOC_APPROACH`, `PM.docApproach`; §5.1). |
+| `src/94-example-erp.js`, `src/95-example-erp-docs.js`, `src/97-example-erp-docs-*.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (datos y documentos; §9.7). |
 | `src/99-boot.js` | arranque. Núcleo. |
 
 **No modifiques archivos del núcleo.** Si necesitas algo del núcleo que no existe, impleméntalo
@@ -264,6 +265,21 @@ Documento guardado (`projects/{pid}/docs/{docId}`):
   titleBlock:{codigo, elaboro, reviso, aprobo, fechaAprobacion}, createdAt, updatedAt, createdBy, updatedBy }
 ```
 Revisión (`…/revs/{revId}`): `{rev, status, date (ts), byId, note, fields, titleBlock, title}`.
+
+### 5.1 Enfoque de la metodología de cada plantilla (11-doc-approach.js)
+
+`PM.DOC_APPROACHES`: `predictivo` («Predictivo / tradicional»), `adaptativo` («Ágil / adaptativo») y `ambos` («Ambos
+enfoques»), con `short`, `tone`, `icon` y `hint`. `PM.DOC_APPROACH[id] = {approach, why, replacement}` clasifica las 59
+plantillas (25 predictivas, 6 ágiles y 28 de ambos enfoques; panel de tres perspectivas: Guía del PMBOK® 6.ª ed. con la
+Guía de prácticas ágiles, 7.ª ed. con la Guía de Scrum 2020 y práctica en proyectos de TI). `PM.docApproach(t|id)` →
+`{id, label, short, tone, icon, hint, why, replacement}` o `null`; una plantilla puede declarar `approach` y las de
+`agile: true` son `adaptativo`. Es orientativo: dice a qué enfoque pertenece el documento, no que esté prohibido en el otro.
+Una plantilla nueva debe agregarse al mapa (la prueba `docs` exige que las 59 tengan enfoque).
+Lista maestra (20): columna «Enfoque» entre «Proceso» y «Estado» (instancias de plantillas múltiples heredan la de su
+fila madre), filtro «Enfoque de la metodología» (valores exactos `predictivo`, `adaptativo`, `ambos` y combinados
+`predictivo+ambos`, `adaptativo+ambos`), nota plegable «¿Qué indica el enfoque?», enfoque en la vista del documento,
+columna «Enfoque» en el CSV y `PM.navigate('documentos', {approach})`. El filtro no cambia los indicadores del avance
+documental; la línea de resumen suma el desglose por estado de lo visible.
 
 ### Tablas con columnas fijas (otros módulos las leen; respeta exactamente estas claves)
 
@@ -583,6 +599,13 @@ Claves que otros módulos leen o prellenan (respeta exactamente):
 - `erp` (94): «EJEMPLO · Implementación del ERP de Ingeniería y Alquiler» — ciclo de vida Adaptativo (ágil), Scrum con tablero
   Kanban, iteraciones de 2 semanas, 3 releases (inventario y alquiler de equipos; facturación electrónica y cartera;
   mantenimiento y tablero gerencial), iteraciones cerradas y una en curso a la fecha de corte, documentos ágiles y PMBOK.
+  Documentos: `PM.exampleDocs.erp(F, ctx)` (95) más los módulos `97-example-erp-docs-*.js` (integración, adquisiciones,
+  comunicaciones, equipo), que se registran en `PM.exampleDocs.erpParts` con la misma firma; `ctx = {R, CODE, STATUS_DATE,
+  data}` (data: schedule, wbs, costs, agile, items, baselines, resources). Una plantilla única la aporta un solo módulo; las
+  múltiples suman instancias y se numeran por fecha de creación. El ejemplo diligencia los documentos ágiles y de ambos
+  enfoques que corresponden a la fecha de corte (el informe final y el acta de cierre quedan para el cierre) y conserva dos
+  planes predictivos que usa por su LB0 (cambios y riesgos). Una revisión aprobada lleva quien la aprobó aunque la emisión
+  vigente esté en revisión.
 - `medellin` (91–93): ciclo de vida Híbrido; la obra y la estructuración siguen en cascada y el entregable comercial y digital
   (sala de ventas virtual, CRM y campañas) se gestiona con Kanban/Scrum. Las cifras financieras del ejemplo no cambian: el avance
   derivado del backlog coincide con el avance guardado de las actividades vinculadas.

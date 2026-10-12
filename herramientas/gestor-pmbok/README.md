@@ -11,8 +11,9 @@ publicada como artefacto de claude.ai: https://claude.ai/artifact/7NdhF1iuH3L7am
   (ágil — supuestos y fuentes en `docs/ejemplo-erp/`).
 - **Menú lateral plegable** en escritorio con tres modos (fijo, al pasar el mouse, con clic) y vistas a todo el ancho.
 - **Mapa de procesos**: los 49 procesos (10 áreas × 5 grupos) con entradas, herramientas y técnicas y salidas.
-- **Documentos**: 53 plantillas (actas, planes, registros, informes) con cajetín, revisiones A/B → 0/1,
-  lista maestra, exportación a Markdown/HTML y redacción asistida con Claude.
+- **Documentos**: 59 plantillas (actas, planes, registros, informes y las de Scrum) con cajetín, revisiones A/B → 0/1,
+  lista maestra, exportación a Markdown/HTML y redacción asistida con Claude. Cada plantilla indica su **enfoque de la
+  metodología** (predictivo o tradicional, ágil o adaptativo, o ambos) en una columna y un filtro de la lista maestra.
 - **Líneas base** de alcance, cronograma y costos, con comparación contra el estado actual.
 - **Herramientas**: EDT y diccionario, Gantt con ruta crítica y festivos de Colombia, pronóstico a la fecha de
   corte, diagrama de red, histograma de recursos, curva S y valor ganado, matrices RACI, probabilidad e impacto
@@ -44,9 +45,9 @@ la página funciona en modo local (navegador).
 
 - `src/` — módulos que se concatenan en orden: `head.html` (estilos), `00-core` (datos, UI), `05-calc` (CPM, EVM),
   `06-model`, `07-agile-core` (capa ágil), `08-shell`, `09-resources-core` (recursos, costeo y estructuras de desglose),
-  `10-pmbok` (base de conocimiento), `12/13/14-templates`, `20-docs`, `30-wbs`, `36-breakdowns` (diagramas de desglose),
+  `10-pmbok` (base de conocimiento), `11-doc-approach` (enfoque de cada plantilla), `12/13/14-templates`, `20-docs`, `30-wbs`, `36-breakdowns` (diagramas de desglose),
   `40-schedule`, `42-resources` (catálogo), `45-agile-backlog`, `46-agile-sprints`, `50-evm`, `60-flow`, `70-matrices`, `80-dashboard`,
-  `90–96` (ejemplos), `99-boot`.
+  `90–97` (ejemplos), `99-boot`.
 - `SPEC.md` — contratos de datos, API del núcleo y convenciones.
 - `build.mjs` — genera `gestor-pmbok.html` (la página que se publica).
 - `test/` — pruebas con Playwright (Chromium).
@@ -60,6 +61,7 @@ node test/dbmode.test.mjs --file gestor-pmbok.html   # modo artefacto con base d
 node test/<modulo>.test.mjs --file gestor-pmbok.html # calc, core, kb, shell, docs, wbs, schedule, evm, flow, matrices, dashboard,
                                                      # agile-core, agile-backlog, agile-sprints, agile-c1, agile-c2,
                                                      # resources-core, resources-catalog, resources-schedule, breakdowns,
+                                                     # example-erp-docs-integracion/-adquisiciones/-comunicaciones/-equipo,
                                                      # example, example-erp, example-medellin, example-medellin-agile,
                                                      # example-medellin-docs-a/-b, templates-agile, templates-b
 node test/smoke.mjs --file gestor-pmbok.html --example erp           # también --example medellin, --blank --lifecycle 'Híbrido'
