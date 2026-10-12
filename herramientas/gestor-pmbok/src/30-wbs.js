@@ -185,8 +185,6 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
   const arrOf = (x) => (Array.isArray(x) ? x : []);
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
   const ZERO_STATS = Object.freeze({ count: 0, pts: 0, done: 0, doneCount: 0, open: 0 });
-  /* Información ágil de la EDT: enfoque efectivo por nodo, distintivos, releases por entregable y backlog por rama.
-     Se calcula una sola vez por cambio de EDT, releases o backlog (no por fila). */
   /* Actividad que representará un release nuevo del entregable (release.taskId): la única actividad que no es hito del
      paquete y lo que lo compone (roll = rollupWbs del elemento), si está libre según PM.agile.linksOf y no tiene guardado
      otro release existente (task.releaseId). Así el avance del release llega al cronograma y a la curva S desde el inicio. */
@@ -202,6 +200,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     return t;
   }
 
+  /* Información ágil de la EDT: enfoque efectivo por nodo, distintivos, releases por entregable y backlog por rama.
+     Se calcula una sola vez por cambio de EDT, releases o backlog (no por fila). */
   function agileInfo(tree, project, agileData, items) {
     const A = AGILE();
     const mode = A ? A.mode(project) : 'predictivo';

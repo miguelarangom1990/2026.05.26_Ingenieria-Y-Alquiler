@@ -157,8 +157,9 @@
 .dashboard-alert[data-tone="good"] > .icon { color: var(--good); }
 .dashboard-agile-kv { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: baseline; font-size: var(--fs-xs); color: var(--fg-2); }
 .dashboard-agile-kv strong { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--fg); }
-.dashboard-commit-over { color: var(--fg); }
-.dashboard-commit-over > .icon { color: var(--warn); vertical-align: -2px; }
+.dashboard-commit { display: inline-flex; gap: 6px; align-items: flex-start; min-width: 0; }
+.dashboard-commit > .icon { flex: none; margin-top: 1px; color: var(--warn); }
+.dashboard-commit.is-over { color: var(--fg); }
 .dashboard-mode-chip { margin-left: 2px; }
 `;
   if (!document.getElementById('css-dashboard')) {
@@ -921,7 +922,7 @@
       <h4 class="label-caps">Velocidad media</h4>
       <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'} <small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
       <div class="xsmall faint" data-agile-velbasis>${velBasis}</div>
-      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${commitCheck ? html`<span data-agile-commit-check=${commitCheck.state} class=${commitCheck.over ? 'dashboard-commit-over' : undefined}>${commitCheck.over ? html`<${ui.Icon} name="alert" size=${14} /> ` : null}${commitCheck.text}</span>` : null}</div>` : null}
+      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${commitCheck ? html`<span data-agile-commit-check=${commitCheck.state} class=${cx('dashboard-commit', commitCheck.over && 'is-over')}>${commitCheck.over ? html`<${ui.Icon} name="alert" size=${14} />` : null}<span>${commitCheck.text}</span></span>` : null}</div>` : null}
     </div>`;
 
     /* 3. release activo: avance, SPI y CPI ágiles, pronóstico */

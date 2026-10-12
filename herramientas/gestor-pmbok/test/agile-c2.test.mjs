@@ -441,11 +441,11 @@ await section('A5. valor ganado ágil: tono y nota del índice con el valor most
       item('i1', 'HU-001', 'Catálogo de equipos', 61, { sprintId: 's1', status: 'terminado', doneDate: '2026-08-12' }),
       item('i2', 'HU-002', 'Devoluciones', 64, {}),
     ];
-    await seed(page, { code: 'PRY-AG-RV6' }, { agile, items });
+    const pid = await seed(page, { code: 'PRY-AG-RV6' }, { agile, items });
     await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'agil' }));
     await page.waitForSelector('[data-role="agile-tiles"]');
-    const raw = await page.evaluate(() => 0.488 / 0.5);
-    check('SPI agregado de 0,976 (dato de la prueba)', Math.abs(raw - 0.976) < 1e-9, raw);
+    const raw = (await expectedEvm(page, pid)).r1.raw.spi;
+    check('SPI del release según PM.calc.agileEvm: 0,976 (bajo el umbral de 0,98 sin redondear)', Math.abs(raw - 0.976) < 1e-9, raw);
     eq('SPI 0,976: se muestra «0,98», en verde y «Al día»', [nb(await page.textContent('[data-metric="agile-spi"] .evm-metric-value')), await page.getAttribute('[data-metric="agile-spi"]', 'data-tone'), nb(await page.textContent('[data-metric="agile-spi"] .evm-metric-note'))], ['0,98', 'good', 'Al día con el plan de iteraciones.']);
     check('la tabla usa el mismo tono (chip verde)', await page.$eval('tr[data-release="r1"] td[data-col="spi"] .chip', (c) => c.classList.contains('chip-good') && c.textContent.trim() === '0,98'), null);
     eq('sin errores de consola', errors, []);
@@ -586,7 +586,7 @@ await section('C. tablero', async () => {
     eq('compromiso por encima del margen del 15 %', [await page.getAttribute(card + ' [data-agile-commit-check]', 'data-agile-commit-check'), nb(await page.textContent(card + ' [data-agile-commit-check]'))], ['over', 'El compromiso supera en 254 % la velocidad media (más del 15 %): riesgo de no terminarlo.']);
     check('compromiso excedido con icono (no solo texto en color)', (await page.$$(card + ' [data-agile-commit-check] svg.icon')).length === 1, null);
     /* burndown mínimo: alcance actual (23) junto a compromiso, terminado (3) y restante (20) */
-    eq('burndown: compromiso, alcance actual, terminado y restante', nb(await page.textContent(card + ' [data-agile="sprint"] .dashboard-agile-kv')), 'Compromiso 23 pts Alcance actual 23 pts Terminado 3 pts Restante 20 pts');
+    eq('burndown: compromiso, alcance actual, terminado y restante', (await page.$$eval(card + ' [data-agile="sprint"] .dashboard-agile-kv > span', (els) => els.map((e) => e.textContent))).map(nb), ['Compromiso 23 pts', 'Alcance actual 23 pts', 'Terminado 3 pts', 'Restante 20 pts']);
     const wip = nb(await page.textContent(card + ' [data-agile-alert="wip"]'));
     check('alerta de WIP superado con texto', /Límite WIP superado en «En curso»: 4 elementos para un límite de 3/.test(wip), wip);
     const bl = nb(await page.textContent(card + ' [data-agile-alert="blocked"]'));

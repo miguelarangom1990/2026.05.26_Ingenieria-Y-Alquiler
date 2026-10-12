@@ -190,7 +190,7 @@ try {
   check('indicadores: BAC de la línea base', (await full('bac')) === exp.bac && exp.bac === '$ 162.000.000', exp.bac);
   check('indicadores: SPI y CPI', (await val('spi')) === exp.spi && (await val('cpi')) === exp.cpi, [await val('spi'), exp.spi, await val('cpi'), exp.cpi]);
   check('indicadores: EAC típica', (await full('eac')) === exp.eac, [await full('eac'), exp.eac]);
-  check('indicadores: tono del SPI según indexTone', (await page.getAttribute('[data-metric="spi"]', 'data-tone')) === (await page.evaluate((v) => PM.calc.indexTone(v), exp.raw.spi)));
+  check('indicadores: tono del SPI según indexTone del valor mostrado (2 decimales)', (await page.getAttribute('[data-metric="spi"]', 'data-tone')) === (await page.evaluate((v) => PM.calc.indexTone(Number(v.toFixed(2))), exp.raw.spi)));
   check('indicadores: fórmulas visibles', (await text(page, '[data-metric="tcpi"] .evm-formula')) === 'TCPI = (BAC − EV) / (BAC − AC)');
   check('indicadores: fórmula del cronograma ganado sin redundancia', (await text(page, '[data-metric="es"] .evm-formula')) === 'ES = momento en que el PV igualaba el EV actual');
   check('indicadores: cronograma ganado y fin pronosticado', (await val('spiT')) !== '—' && /\d{4}/.test(await val('forecastFinish')));

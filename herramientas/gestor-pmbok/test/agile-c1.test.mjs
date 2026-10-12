@@ -727,7 +727,7 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     };
     /* t4 representa r2 (release.taskId) y su registro no tiene entregable: sin la actividad, r2 lo perdería */
     let cc = await delTask('t4');
-    check('confirmación: cuántos registros usan la actividad, su monto y que pasan al release', /^1 registro de costos reales usa esta actividad \(\$\s?5\.000\.000\)\. Se imputarán al release «Release 2 · Facturación», junto con otro registro que hoy le cuenta por su entregable de la EDT, para conservar su costo real en el valor ganado ágil \(AgileEVM\)\. Siguen en el costo real del proyecto\.$/.test(cc), cc);
+    check('confirmación: cuántos registros usan la actividad, su monto y que pasan al release', /^1 registro de costos reales usa esta actividad \(\$\s?5\.000\.000\)\. Se imputará al release «Release 2 · Facturación», junto con otro registro que hoy le cuenta por su entregable de la EDT, para conservar su costo real en el valor ganado ágil \(AgileEVM\)\. El costo real del proyecto no cambia\.$/.test(cc), cc);
     await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(1000);
     let costs = await tool(page, pid, 'costs');
     const byId = (id) => costs.actuals.find((x) => x.id === id);
@@ -740,7 +740,7 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await clearToasts();
     /* t2 representa r1 (task.releaseId), pero su registro tiene el entregable de r1: sigue contando sin marcarlo */
     cc = await delTask('t2');
-    check('confirmación: el registro sigue por su entregable', /^1 registro de costos reales usa esta actividad \(\$\s?6\.000\.000\)\. Se conservan en el costo real del proyecto, sin actividad y con su entregable de la EDT, si lo tienen\.$/.test(cc), cc);
+    check('confirmación: el registro sigue por su entregable', /^1 registro de costos reales usa esta actividad \(\$\s?6\.000\.000\)\. Se conserva en el costo real del proyecto, sin actividad y con su entregable de la EDT, si lo tiene\.$/.test(cc), cc);
     check('la confirmación también avisa del release', /representa el release «Release 1 · Inventario»/.test(nb(await page.textContent('[data-confirm-release]'))), null);
     await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(1000);
     costs = await tool(page, pid, 'costs');
@@ -750,7 +750,7 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await clearToasts();
     /* t3 no representa ningún release */
     cc = await delTask('t3');
-    check('actividad sin release: la confirmación avisa del costo', /^1 registro de costos reales usa esta actividad \(\$\s?1\.000\.000\)\. Se conservan en el costo real del proyecto/.test(cc), cc);
+    check('actividad sin release: la confirmación avisa del costo', /^1 registro de costos reales usa esta actividad \(\$\s?1\.000\.000\)\. Se conserva en el costo real del proyecto/.test(cc), cc);
     await cancelTop(); await page.waitForTimeout(300);
     costs = await tool(page, pid, 'costs');
     check('cancelar no cambia los costos', byId('c4').taskId === 't3', byId('c4'));
