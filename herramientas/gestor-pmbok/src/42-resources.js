@@ -1213,7 +1213,7 @@
       for (const d of descs) {
         if (d.it.virtual) s.virtual++; else s.saved++;
         if (d.kind === 'consumible') s.cons++; else s.work++;
-        if (d.it.planned === false) { s.unpl++; s.unplCost += d.use ? d.use.cost : 0; if (needsChange(d.it)) s.pending++; }
+        if (d.it.planned === false) { s.unpl++; s.unplCost += d.use ? d.use.cost : isNum(d.it.reserveAmount) ? Math.max(0, Number(d.it.reserveAmount)) : 0; if (needsChange(d.it)) s.pending++; }
         if (d.uncl) s.uncl++;
         if (!isNum(d.it.unitCost)) { s.noCost++; if (d.use) s.noCostUsed++; }
       }

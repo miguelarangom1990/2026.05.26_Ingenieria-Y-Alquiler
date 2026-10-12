@@ -653,6 +653,12 @@ sustitución equivalente, por cuenta del contratista (todo costo), respuesta a u
 línea base; cambio de alcance, diseño o método, o imprevisto pagado con la reserva de gestión → `baseline: true`: ofrecer
 `PM.changeControl.register` y guardar `changeRef`. La vista muestra planificados frente a no planificados.
 
+Reserva para contingencias: `costs.reserves.contingency` es el total de la reserva del plan (dentro de la línea base) y **no se
+descuenta** al usarla; el consumo se registra en cada recurso no planificado por riesgo (`reserveAmount`) y las vistas calculan
+lo disponible = reserva − Σ `reserveAmount` (50 «Reservas», 80 alerta, 42 aviso al registrar). Costo de los no planificados (42
+tarjeta «No planificados» y 80 alerta): el de sus asignaciones en el cronograma (costo unitario del catálogo); sin asignaciones,
+su `reserveAmount`.
+
 ### 10.4 Vistas e integraciones
 
 - `recursos` (40 + 42): `PM.navigate('recursos', {tab: 'catalogo'|'histograma'|'consumo', plan?: 'no-planificado'|…})` (la pestaña
