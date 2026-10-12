@@ -997,10 +997,25 @@
 
   /* ---------------------------------------------------------------- tablero: recursos del proyecto (§10)
      Catálogo efectivo (model.catalog, con los recursos «virtuales» que solo existen en las asignaciones) y recursos no
-     planificados: costo estimado = asignaciones del cronograma valoradas con el costo unitario del catálogo
-     (PM.res.assignment) o, si no están asignados, el monto de reserva registrado; sin motivo; sin la solicitud de
-     cambio que su motivo exige; consumo de la reserva para contingencias. Una pasada por las asignaciones. */
+     planificados (SPEC §10.3): costo de sus asignaciones del cronograma valoradas con el costo unitario del catálogo
+     (PM.res.assignment) y, aparte y rotulado así, el monto de reserva registrado de los que no están asignados; sin
+     motivo; sin la solicitud de cambio que su motivo exige; consumo de la reserva para contingencias con la regla única
+     PM.res.reserveUse (la misma de la EDC y del presupuesto). Una pasada por las asignaciones. */
   const plural = (n, one, many) => fmt.num(n) + ' ' + (n === 1 ? one : many);
+  /* Reservas del plan vigente (SPEC §10.3, PM.res.reserveUse; la misma regla de la EDC «Plan actual» y del presupuesto):
+     costs.reserves.contingency es el total y no se descuenta; lo consumido por recursos que responden a riesgos ya está en
+     el BAC (asignado a actividades por recursos o mixtas) o es una cuenta aparte (unassigned). Fuera del BAC quedan la
+     reserva disponible y ese consumo sin actividad: es lo que congela una nueva línea base (outside) para no contar dos veces
+     lo asignado. sched: el cronograma calculado (model.sched). */
+  function planReserves(resources, sched, costs) {
+    const res = (costs && costs.reserves) || {};
+    const total = Math.max(0, num(res.contingency, 0));
+    const ru = PM.res && typeof PM.res.reserveUse === 'function' ? PM.res.reserveUse({ data: resources, schedule: sched, contingency: total }) : null;
+    const consumed = ru ? ru.consumed : 0;
+    const available = consumed > 0 ? Math.max(0, total - consumed) : total;
+    const unassigned = ru ? ru.unassigned : 0;
+    return { total, consumed, available, unassigned, outside: available + unassigned, management: num(res.management, 0) };
+  }
   function resourceStats(model) {
     const R = PM.res, RES = PM.RES;
     if (!R || !RES) return null;
@@ -1020,33 +1035,40 @@
         for (const a of t.resources) { if (!isObj(a)) continue; const l = R.assignment(cat, t, a); if (l.item && ids.has(l.item.id)) use.set(l.item.id, (use.get(l.item.id) || 0) + l.cost); }
       }
     }
-    let cost = 0, reserve = 0;
+    /* asignados: costo de sus asignaciones; sin asignar: su monto de reserva registrado (cifras separadas) */
+    let assignedCost = 0, nAssigned = 0, pendingReserve = 0, nPending = 0;
     const noReason = [], noChange = [];
     for (const it of unpl) {
       const r = reasonOf(it);
-      const amount = isNum(num(it.reserveAmount, NaN)) ? Math.max(0, num(it.reserveAmount)) : 0;
-      cost += use.has(it.id) ? use.get(it.id) : amount;
-      if (it.reason === 'riesgo') reserve += amount;
+      if (use.has(it.id)) { assignedCost += use.get(it.id); nAssigned++; }
+      else { nPending++; pendingReserve += isNum(num(it.reserveAmount, NaN)) ? Math.max(0, num(it.reserveAmount)) : 0; }
       if (!r) noReason.push(it);
       else if (r.baseline && !String(it.changeRef || '').trim()) noChange.push(it);
     }
     const contingency = Math.max(0, num(model.costs && model.costs.reserves && model.costs.reserves.contingency, 0));
+    const ru = typeof R.reserveUse === 'function' ? R.reserveUse({ data: model.resources, schedule: model.sched || model.schedule, contingency }) : null;
     return { total: cat.items.length, saved: saved.length, typed: typed.length, types: new Set(typed.map((it) => it.typeId)).size, uncl: cat.items.length - typed.length,
-      agile: saved.filter((it) => it.agileTeam).length, unpl: { n: unpl.length, cost, noReason, noChange, reserve, contingency } };
+      agile: saved.filter((it) => it.agileTeam).length,
+      unpl: { n: unpl.length, assignedCost, nAssigned, pendingReserve, nPending, noReason, noChange, reserve: ru ? ru.consumed : 0, available: ru ? ru.available : contingency, contingency } };
   }
   const resNames = (list) => list.slice(0, 3).map((it) => (it.code ? it.code + ' ' : '') + it.name).join(', ') + (list.length > 3 ? ' y ' + (list.length - 3) + ' más' : '');
   function UnplannedCard({ stats, currency }) {
     const u = stats.unpl;
     const issues = u.noReason.length + u.noChange.length;
-    const over = u.reserve > u.contingency + 0.5;
+    const over = u.available < -0.5;
+    /* «3 recursos no planificados: 1 asignado en el cronograma por $ 560 mil (costo unitario del catálogo); 2 sin asignar,
+       con $ 6,1 M de monto de reserva registrado» */
+    const parts = [];
+    if (u.nAssigned) parts.push(html`${plural(u.nAssigned, 'asignado', 'asignados')} en el cronograma por <strong data-res-cost="assigned">${moneyShort(u.assignedCost, currency)}</strong> (costo unitario del catálogo)`);
+    if (u.nPending) parts.push(html`${fmt.num(u.nPending)} sin asignar${u.pendingReserve > 0.5 ? html`, con <strong data-res-cost="reserve">${moneyShort(u.pendingReserve, currency)}</strong> de monto de reserva registrado` : ''}`);
     const toCatalog = () => go('recursos', { tab: 'catalogo', plan: 'no-planificado' });
     return html`<${Panel} title="Recursos no planificados" count=${u.n} countTone=${u.noChange.length ? 'crit' : issues ? 'warn' : 'info'} subtitle="Recursos que no estaban en la planificación · 9.6 Controlar los recursos" class="dashboard-res"
       actions=${html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" data-res-link onClick=${toCatalog}>Ver en el catálogo</${ui.Button}>`} data-card="unplanned-resources">
       <ul class="dashboard-alerts">
-        <li class="dashboard-alert" data-res-alert="summary"><${ui.Icon} name="resources" size=${15} /><span>${plural(u.n, 'recurso no planificado', 'recursos no planificados')} con un costo estimado de <strong>${moneyShort(u.cost, currency)}</strong> (asignaciones valoradas con el costo del catálogo).</span></li>
+        <li class="dashboard-alert" data-res-alert="summary"><${ui.Icon} name="resources" size=${15} /><span>${plural(u.n, 'recurso no planificado', 'recursos no planificados')}: ${parts.map((x, i) => html`${i ? '; ' : ''}${x}`)}.</span></li>
         ${u.noReason.length ? html`<li class="dashboard-alert" data-tone="warn" data-res-alert="no-reason"><${ui.Icon} name="alert" size=${15} /><span>${u.noReason.length === 1 ? '1 sin motivo registrado' : u.noReason.length + ' sin motivo registrado'}: ${resNames(u.noReason)}. El motivo dice si cambia o no la línea base.</span></li>` : null}
         ${u.noChange.length ? html`<li class="dashboard-alert" data-tone="crit" data-res-alert="no-change"><${ui.Icon} name="alert" size=${15} /><span>${u.noChange.length === 1 ? '1 requiere solicitud de cambio y no la tiene' : u.noChange.length + ' requieren solicitud de cambio y no la tienen'}: ${resNames(u.noChange)} (4.6).</span></li>` : null}
-        ${u.reserve > 0 ? html`<li class="dashboard-alert" data-tone=${over ? 'crit' : undefined} data-res-alert="reserve"><${ui.Icon} name=${over ? 'alert' : 'money'} size=${15} /><span>Consumen ${moneyShort(u.reserve, currency)} de la reserva para contingencias: ${over ? 'superan la reserva en ' + moneyShort(u.reserve - u.contingency, currency) + '.' : 'quedan ' + moneyShort(u.contingency - u.reserve, currency) + ' disponibles.'}</span></li>` : null}
+        ${u.reserve > 0 ? html`<li class="dashboard-alert" data-tone=${over ? 'crit' : undefined} data-res-alert="reserve"><${ui.Icon} name=${over ? 'alert' : 'money'} size=${15} /><span>Consumen ${moneyShort(u.reserve, currency)} de la reserva para contingencias: ${over ? 'superan la reserva en ' + moneyShort(-u.available, currency) + '.' : 'quedan ' + moneyShort(u.available, currency) + ' disponibles.'}</span></li>` : null}
         ${!issues ? html`<li class="dashboard-alert" data-tone="good" data-res-alert="ok"><${ui.Icon} name="check-circle" size=${15} /><span>Todos tienen motivo y, si cambian la línea base, su solicitud de cambio.</span></li>` : null}
       </ul>
     </${Panel}>`;
@@ -1395,7 +1417,7 @@
     const canWrite = PM.useCanWrite();
     const p = model.project || project;
     /* recursos del proyecto (§10): catálogo y no planificados; se recalcula solo si cambian el catálogo, el cronograma o las reservas */
-    const rs = useMemo(() => (model.loading ? null : resourceStats(model)), [model.loading, model.catalog, model.schedule, model.resources, model.costs]);
+    const rs = useMemo(() => (model.loading ? null : resourceStats(model)), [model.loading, model.catalog, model.schedule, model.sched, model.resources, model.costs]);
     if (model.loading || docs.loading || rMeta.loading || iMeta.loading || cMeta.loading || !p) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
     const mode = PM.agile ? PM.agile.mode(p) : 'predictivo';
     const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode, rs });
@@ -1454,6 +1476,10 @@
     const ms = tasks.filter((t) => t.milestone).length;
     const bac = PM.sum(tasks, (t) => t.cost);
     const res = (model.costs && model.costs.reserves) || {};
+    /* con consumo de la reserva por riesgos, la línea base congela la reserva del plan vigente (disponible + consumo sin
+       actividad): lo asignado a actividades ya está en el BAC y no se cuenta dos veces (SPEC §10.3) */
+    const pr = useMemo(() => planReserves(model.resources, model.sched, model.costs), [model.resources, model.sched, model.costs]);
+    const reserveUsed = pr.consumed > 0;
     const cur = model.currency;
     const scopeDoc = docs.get('enunciado-alcance');
     const warnings = [];
@@ -1465,7 +1491,8 @@
     const submit = async () => {
       if (!canSubmit) return;
       setBusy(true);
-      const snap = PM.calc.makeBaselineSnapshot({ includes, sched: model.sched, wbs: model.wbs, costs: model.costs, scopeStatement: scopeDoc && scopeDoc.fields ? scopeDoc.fields : null });
+      const costs = reserveUsed ? { ...model.costs, reserves: { ...res, contingency: pr.outside } } : model.costs;
+      const snap = PM.calc.makeBaselineSnapshot({ includes, sched: model.sched, wbs: model.wbs, costs, scopeStatement: scopeDoc && scopeDoc.fields ? scopeDoc.fields : null });
       const body = { number: n, label, date: D.today(), includes, note: note.trim(), changeRef: changeRef || null, byId: st.meId || null, ...snap };
       if (new TextEncoder().encode(JSON.stringify(body)).length > 255 * 1024) {
         setBusy(false);
@@ -1497,7 +1524,9 @@
         <div class="dashboard-preview">
           ${row('scope', 'Alcance', [nodes.length + ' elementos de la EDT (' + model.tree.leaves.size + ' paquetes de trabajo)', scopeDoc ? 'Enunciado del alcance: ' + PM.docStatus(scopeDoc.status).label.toLowerCase() : 'Sin enunciado del alcance: solo se guardará la EDT'])}
           ${row('schedule', 'Cronograma', [tasks.length - ms + ' actividades y ' + ms + ' hitos', tasks.length ? fmt.date(model.sched.start) + ' → ' + fmt.date(model.sched.finish) + ' · ' + fmt.num(model.sched.workdays) + ' días hábiles' : 'Sin fechas'])}
-          ${row('cost', 'Costos', ['BAC ' + money(bac, cur), 'Reserva para contingencias ' + money(num(res.contingency), cur) + ' · reserva de gestión ' + money(num(res.management), cur)])}
+          ${row('cost', 'Costos', ['BAC ' + money(bac, cur), reserveUsed
+            ? 'Reserva para contingencias ' + money(pr.outside, cur) + ': disponible ' + money(pr.available, cur) + (pr.unassigned > 0.5 ? ' + ' + money(pr.unassigned, cur) + ' de respuestas a riesgos sin actividad' : '') + ' (' + money(pr.consumed, cur) + ' de los ' + money(pr.total, cur) + ' del plan ya los consumieron recursos que responden a riesgos) · reserva de gestión ' + money(num(res.management), cur)
+            : 'Reserva para contingencias ' + money(num(res.contingency), cur) + ' · reserva de gestión ' + money(num(res.management), cur)])}
         </div>
       </div>
       ${warnings.length ? html`<div class="dashboard-note warn" role="status"><${ui.Icon} name="alert" size=${16} /><div>Revisa antes de continuar:<ul>${warnings.map((w, i) => html`<li key=${i}>${w}</li>`)}</ul></div></div>` : null}
@@ -1567,7 +1596,7 @@
       </table></div>
     </div>`;
   }
-  function CostCompare({ bl, sched, costs, currency }) {
+  function CostCompare({ bl, sched, costs, resources, currency }) {
     const [onlyVar, setOnlyVar] = useState(false);
     const snap = bl.cost || {};
     const blTasks = snap.tasks || [];
@@ -1581,9 +1610,12 @@
     for (const b of blTasks) if (!sched.byId.has(b.id)) rows.push({ id: b.id, kind: 'removed', name: b.name, bCost: num(b.cost), v: -num(b.cost) });
     const bacNow = PM.sum(sched.tasks, (t) => t.cost);
     const bacBl = num(snap.bac);
-    const res = (costs && costs.reserves) || {};
+    /* reservas vigentes fuera del BAC (SPEC §10.3): contingencia disponible + consumo por riesgos sin actividad + gestión;
+       lo consumido por recursos asignados a actividades ya está en el BAC vigente */
+    const pr = useMemo(() => planReserves(resources, sched, costs), [resources, sched, costs]);
     const resBl = num(snap.contingency) + num(snap.management);
-    const resNow = num(res.contingency) + num(res.management);
+    const resNow = pr.outside + pr.management;
+    const movedToBac = pr.consumed - pr.unassigned;
     const dBac = bacNow - bacBl;
     const shown = onlyVar ? rows.filter((r) => Math.abs(r.v) > 0.5) : rows;
     const vCell = (v) => html`<span class=${Math.abs(v) < 0.5 ? 'faint' : v > 0 ? 'dashboard-late' : 'dashboard-early'}>${Math.abs(v) < 0.5 ? '0' : signedMoney(v, currency)}</span>`;
@@ -1592,7 +1624,7 @@
         <${SummaryCell} attr="bac" k=${'BAC en ' + bl.label} v=${moneyShort(bacBl, currency)} s=${money(bacBl, currency)} />
         <${SummaryCell} attr="bac-now" k="BAC vigente (suma de actividades)" v=${moneyShort(bacNow, currency)} s=${money(bacNow, currency)} />
         <${SummaryCell} attr="bac-var" k="Variación del BAC" v=${Math.abs(dBac) < 0.5 ? '0' : signedMoney(dBac, currency)} tone=${Math.abs(dBac) < 0.5 ? null : dBac > 0 ? 'warn' : 'good'} s=${bacBl > 0 ? fmt.pct(dBac / bacBl, 1) + ' frente a ' + bl.label : ''} />
-        <${SummaryCell} attr="reserves" k="Reservas (contingencia + gestión)" v=${moneyShort(resNow, currency)} s=${'En ' + bl.label + ': ' + moneyShort(resBl, currency)} />
+        <${SummaryCell} attr="reserves" k=${pr.consumed > 0 ? 'Reservas vigentes (contingencia disponible + gestión)' : 'Reservas (contingencia + gestión)'} v=${moneyShort(resNow, currency)} s=${'En ' + bl.label + ': ' + moneyShort(resBl, currency) + (movedToBac > 0.5 ? ' · ' + moneyShort(movedToBac, currency) + ' de la contingencia ya están en el BAC (recursos que responden a riesgos)' : '')} />
       </div>
       <div class="row-between">
         <p class="xsmall muted" style="max-width:70ch">Presupuesto vigente de cada actividad frente a la línea base de costos. Positivo: el presupuesto vigente es mayor que el de la línea base. Los costos reales y el valor ganado están en <button type="button" class="dashboard-link" onClick=${() => go('valor-ganado')}>Curva S y valor ganado</button>.</p>
@@ -1670,7 +1702,7 @@
         <${ui.Tabs} tabs=${tabs} value=${tab} onChange=${setTab} />
         ${!inc.includes(tab) || !bl[tab] ? html`<div class="dashboard-note"><${ui.Icon} name="info" size=${16} /><div>${bl.label} no incluye la ${part.long.toLowerCase()}. ${model.baselines[tab] ? 'La vigente es ' + model.baselines[tab].label + '.' : 'El proyecto aún no tiene ' + part.long.toLowerCase() + '.'}</div></div>`
           : tab === 'schedule' ? html`<${ScheduleCompare} bl=${bl} sched=${model.sched} />`
-          : tab === 'cost' ? html`<${CostCompare} bl=${bl} sched=${model.sched} costs=${model.costs} currency=${model.currency} />`
+          : tab === 'cost' ? html`<${CostCompare} bl=${bl} sched=${model.sched} costs=${model.costs} resources=${model.resources} currency=${model.currency} />`
           : html`<${ScopeCompare} bl=${bl} tree=${model.tree} wbs=${model.wbs} docs=${docs} />`}
       </div>
     </section>`;

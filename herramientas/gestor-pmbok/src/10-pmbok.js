@@ -976,7 +976,7 @@
     { term: 'Curva S', area: 'costos', view: 'valor-ganado',
       definition: 'Representación gráfica de los costos acumulados (PV, EV y AC) a lo largo del tiempo. Toma forma de S porque el gasto es lento al inicio, se acelera durante la ejecución y se desacelera al cierre.' },
     { term: 'Reserva para contingencias', area: 'costos', view: 'valor-ganado',
-      definition: 'Tiempo o dinero asignado en la línea base del cronograma o de costos para riesgos identificados y aceptados, las «incógnitas conocidas». Forma parte de la línea base de costos y la administra el director del proyecto.' },
+      definition: 'Tiempo o dinero asignado en la línea base del cronograma o de costos para riesgos identificados y aceptados, las «incógnitas conocidas». Forma parte de la línea base de costos y la administra el director del proyecto. En el gestor, el monto de un recurso no planificado que responde a un riesgo se registra como consumo: pasa a las cuentas de control y la reserva disponible baja en la misma cifra, así la línea base de costos no cambia ni cuenta dos veces ese costo.' },
     { term: 'Reserva de gestión', area: 'costos', view: 'valor-ganado',
       definition: 'Monto del presupuesto o del cronograma retenido fuera de la línea base para fines de control de gestión y reservado para trabajo imprevisto dentro del alcance, las «incógnitas desconocidas». No forma parte de la línea base de costos; usarla requiere un cambio aprobado.',
       formula: 'Presupuesto del proyecto = línea base de costos + reserva de gestión' },

@@ -1376,7 +1376,7 @@
   }
   /* ---------------------------------------------------------------- reservas y recursos no planificados (§10.3)
      Un recurso no planificado con motivo «riesgo» consume la reserva para contingencias (reserveAmount), que está dentro
-     de la línea base de costos: no la cambia. Los de cambio de alcance o pagados con la reserva de gestión requieren
+     de la línea base de costos: no la cambia (planReserves aplica la regla única de PM.res.reserveUse). Los de cambio de alcance o pagados con la reserva de gestión requieren
      solicitud de cambio (changeRef) y, aprobada, una nueva línea base: se muestran con el estado de su solicitud en el
      registro de cambios. Lee model.resources, model.catalog y model.schedule (no abre otra suscripción del modelo). */
   const normTxt = (v) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -1404,49 +1404,76 @@
       else if (r.baseline) change.push({ it, reason: r, cost: use.has(it.id) ? use.get(it.id) : null });
       else other.push(it);
     }
-    return { items, risk, change, other, noReason, consumed: PM.sum(risk, (x) => x.amount) };
+    return { items, risk, change, other, noReason };
   }
-  function ReserveUse({ model, contingency, management, currency }) {
+  /* Reserva para contingencias del plan vigente (SPEC §10.3; la misma regla de PM.res.reserveUse que usa PM.res.cbsTree en
+     la EDC «Plan actual» y el tablero): costs.reserves.contingency es el total del plan y no se descuenta al usarla. Lo
+     consumido por los recursos no planificados de respuesta a riesgos (reserveAmount) pasa a las cuentas de control: ya
+     está en el BAC si el recurso está en una actividad por recursos o mixta (assigned) y, si no, es una cuenta aparte
+     («Respuestas a riesgos sin actividad», unassigned). La línea base suma la reserva disponible, así el costo de esos
+     recursos no se cuenta dos veces (en el BAC y dentro de la reserva) ni se pierde. sched: el cronograma calculado. */
+  function planReserves(model, sched) {
+    const res = (model.costs && model.costs.reserves) || {};
+    const total = Math.max(0, num(res.contingency));
+    const ru = PM.res && typeof PM.res.reserveUse === 'function' ? PM.res.reserveUse({ data: model.resources, schedule: sched, contingency: total }) : null;
+    const consumed = ru ? ru.consumed : 0;
+    return {
+      total, consumed, available: total - consumed,
+      /* lo que sale de la reserva en la agregación de costos (no más que la reserva) y la reserva disponible que se suma */
+      used: Math.min(consumed, total), contingency: consumed > 0 ? Math.max(0, total - consumed) : total,
+      assigned: ru ? ru.assigned : 0, unassigned: ru ? ru.unassigned : 0, items: ru ? ru.items : EMPTY_ARR,
+      management: num(res.management),
+    };
+  }
+  function ReserveUse({ model, pr, management, currency }) {
     const [changes] = PM.useDocTable('registro-cambios', 'cambios');
     const [risks] = PM.useDocTable('registro-riesgos', 'riesgos');
     const d = useMemo(() => unplannedOf(model), [model.resources, model.catalog, model.schedule]);
     const riskById = useMemo(() => new Map(risks.filter((r) => String(r.id || '').trim()).map((r) => [normTxt(r.id), r])), [risks]);
     const changeById = useMemo(() => new Map(changes.filter((r) => String(r.id || '').trim()).map((r) => [normTxt(r.id), r])), [changes]);
-    const available = contingency - d.consumed;
-    const share = contingency > 0 ? d.consumed / contingency : null;
+    /* consumo con la regla única del núcleo (PM.res.reserveUse): el mismo «Disponible» que la EDC y el tablero */
+    const contingency = pr.total;
+    const riskRows = pr.items;
+    const consumed = pr.consumed;
+    const available = pr.available;
+    const share = contingency > 0 ? consumed / contingency : null;
     const tone = available < 0 && !zeroish(available, currency) ? 'crit' : share !== null && share > 0.9 ? 'warn' : null;
     const toCatalog = () => go('recursos', { tab: 'catalogo', plan: 'no-planificado' });
     const openRegister = () => (typeof PM.openDocument === 'function' ? PM.openDocument('registro-cambios') : go('documentos'));
     const mgmt = d.change.filter((x) => x.it.reason === 'reserva-gestion');
     const stateOf = (x) => { const ref = String(x.it.changeRef || '').trim(); const row = ref ? changeById.get(normTxt(ref)) : null; return { ref, row, key: row ? normTxt(row.estado) : '' }; };
     const mgmtApproved = mgmt.filter((x) => stateOf(x).key === 'aprobada');
-    const meterLabel = 'Reserva para contingencias consumida: ' + money(d.consumed, currency) + ' de ' + money(contingency, currency) + (share !== null ? ' (' + fmt.pct(share, 1) + ')' : '');
+    const meterLabel = 'Reserva para contingencias consumida: ' + money(consumed, currency) + ' de ' + money(contingency, currency) + (share !== null ? ' (' + fmt.pct(share, 1) + ')' : '');
+    /* costo asignado mayor que el monto registrado: la diferencia no sale de la reserva y aumenta el BAC */
+    const overRows = riskRows.filter((x) => x.assigned - x.amount > 0 && !zeroish(x.assigned - x.amount, currency));
     return html`<${SectionCard} title="Consumo de la reserva para contingencias" subtitle="Recursos no planificados que responden a riesgos identificados y recursos que requieren control de cambios (9.6 · 11.6 · 4.6)" pad=${false} attrs=${{ 'data-role': 'reserve-use' }}
       actions=${html`<${ui.Button} size="sm" variant="ghost" icon="resources" data-role="reserve-catalog" onClick=${toCatalog}>Ver en el catálogo de recursos</${ui.Button}>`}>
       <div class="evm-tiles evm-reserve-tiles" data-role="reserve-tiles">
-        <${Metric} id="reserve-total" label="Reserva para contingencias" display=${short(contingency, currency)} full=${money(contingency, currency)} note="Plan vigente: dentro de la línea base de costos, para riesgos identificados." />
-        <${Metric} id="reserve-used" label="Consumida por recursos no planificados" display=${short(d.consumed, currency)} full=${money(d.consumed, currency)} note=${d.risk.length ? plural(d.risk.length, 'recurso responde', 'recursos responden') + ' a riesgos identificados.' : 'Ningún recurso no planificado la consume.'}>
+        <${Metric} id="reserve-total" label="Reserva para contingencias" display=${short(contingency, currency)} full=${money(contingency, currency)} note="Total del plan vigente para riesgos identificados; no se descuenta al usarla." />
+        <${Metric} id="reserve-used" label="Consumida por recursos no planificados" display=${short(consumed, currency)} full=${money(consumed, currency)} note=${riskRows.length ? plural(riskRows.length, 'recurso responde', 'recursos responden') + ' a riesgos identificados; lo consumido pasa a las cuentas de control.' : 'Ningún recurso no planificado la consume.'}>
           <div class="evm-meter" role="img" aria-label=${meterLabel}><span style=${'width:' + Math.min(1, share || 0) * 100 + '%;background:' + (tone === 'crit' ? 'var(--crit)' : tone === 'warn' ? 'var(--warn)' : 'var(--s4)')}></span></div>
         </${Metric}>
         <${Metric} id="reserve-available" label="Disponible" display=${short(available, currency)} full=${money(available, currency)} tone=${tone}
-          note=${tone === 'crit' ? 'El consumo supera la reserva: se requiere un cambio aprobado (reserva de gestión) o ajustar la reserva.' : share !== null ? fmt.pct(Math.max(0, 1 - share), 1) + ' de la reserva sin consumir.' : 'El plan no tiene reserva para contingencias.'} />
+          note=${tone === 'crit' ? 'El consumo supera la reserva: se requiere un cambio aprobado (reserva de gestión) o ajustar la reserva.' : share !== null ? fmt.pct(Math.max(0, 1 - share), 1) + ' de la reserva sin consumir. Es la reserva que suma la línea base de costos del plan vigente.' : 'El plan no tiene reserva para contingencias.'} />
       </div>
       <div class="card-body stack">
-        ${!d.items.length ? html`<p class="small muted" data-role="reserve-empty" style="margin:0">Sin recursos no planificados: la reserva para contingencias no tiene consumos y no hay recursos pendientes de control de cambios.</p>` : html`
+        ${!d.items.length && !riskRows.length ? html`<p class="small muted" data-role="reserve-empty" style="margin:0">Sin recursos no planificados: la reserva para contingencias no tiene consumos y no hay recursos pendientes de control de cambios.</p>` : html`
           <div class="stack-sm" data-role="reserve-risks">
             <h4 class="h4">Recursos que responden a riesgos (consumen la reserva)</h4>
-            ${d.risk.length ? html`<div class="table-wrap"><table class="table table-tight evm-table"><caption class="sr-only">Recursos no planificados que consumen la reserva para contingencias</caption>
-              <thead><tr><th>Código</th><th>Recurso</th><th>Riesgo</th><th>Alta</th><th class="num">Monto</th></tr></thead>
-              <tbody>${d.risk.map((x) => { const id = String(x.it.riskId || '').trim(); const rk = id ? riskById.get(normTxt(id)) : null; return html`<tr key=${x.it.id} data-reserve=${x.it.id}>
-                <td class="mono nowrap">${x.it.code || '—'}</td>
-                <td style="min-width:160px">${x.it.name}</td>
+            ${riskRows.length ? html`<div class="table-wrap"><table class="table table-tight evm-table"><caption class="sr-only">Recursos no planificados que consumen la reserva para contingencias y su costo asignado en el cronograma</caption>
+              <thead><tr><th>Código</th><th>Recurso</th><th>Riesgo</th><th>Alta</th><th class="num">Monto</th><th class="num">En el cronograma</th></tr></thead>
+              <tbody>${riskRows.map((x) => { const it = x.item; const id = String(it.riskId || '').trim(); const rk = id ? riskById.get(normTxt(id)) : null; const over = x.assigned - x.amount; return html`<tr key=${it.id} data-reserve=${it.id}>
+                <td class="mono nowrap">${it.code || '—'}</td>
+                <td style="min-width:160px">${it.name || 'Recurso sin nombre'}</td>
                 <td style="min-width:200px">${id ? html`<span class="code-tag">${id}</span> ${rk ? String(rk.descripcion || '').trim() || 'Sin descripción' : html`<span class="evm-alert-txt"><${ui.Icon} name="alert" size=${12} />No está en el registro de riesgos</span>`}` : html`<span class="evm-alert-txt"><${ui.Icon} name="alert" size=${12} />Sin riesgo vinculado</span>`}</td>
-                <td class="mono nowrap">${D.valid(x.it.addedDate) ? fmt.date(x.it.addedDate) : '—'}</td>
+                <td class="mono nowrap">${D.valid(it.addedDate) ? fmt.date(it.addedDate) : '—'}</td>
                 <td class="num">${money(x.amount, currency)}</td>
+                <td class="num" data-col="assigned">${x.assigned > 0 && !zeroish(x.assigned, currency) ? html`${money(x.assigned, currency)}${over > 0 && !zeroish(over, currency) ? html`<span class="evm-sub evm-alert-txt" data-role="reserve-over"><${ui.Icon} name="alert" size=${12} />Supera el monto en ${money(over, currency)}</span>` : null}` : html`<span class="faint">Sin actividad</span>`}</td>
               </tr>`; })}</tbody>
-              <tfoot><tr><td></td><td colspan="3">Total consumido</td><td class="num" data-col="consumed">${money(d.consumed, currency)}</td></tr>
-                <tr data-row="available"><td></td><td colspan="3">Disponible de la reserva para contingencias</td><td class="num" style=${tone === 'crit' ? 'color:var(--crit)' : ''}>${money(available, currency)}</td></tr></tfoot>
-            </table></div>` : html`<p class="small muted" style="margin:0">Ningún recurso no planificado consume la reserva para contingencias.</p>`}
+              <tfoot><tr><td></td><td colspan="3">Total consumido</td><td class="num" data-col="consumed">${money(consumed, currency)}</td><td></td></tr>
+                <tr data-row="available"><td></td><td colspan="3">Disponible de la reserva para contingencias</td><td class="num" style=${tone === 'crit' ? 'color:var(--crit)' : ''}>${money(available, currency)}</td><td></td></tr></tfoot>
+            </table></div>
+            <p class="xsmall faint" data-role="reserve-flow" style="margin:0">${consumed > 0 ? 'Lo consumido pasa a las cuentas de control (Guía del PMBOK®, gráfico 7-8): ' + [pr.assigned > 0 && !zeroish(pr.assigned, currency) ? money(pr.assigned, currency) + ' ya está en el costo de actividades calculadas por recursos' : null, pr.unassigned > 0 && !zeroish(pr.unassigned, currency) ? money(pr.unassigned, currency) + ' se suma como «Respuestas a riesgos sin actividad»' : null].filter(Boolean).join(' y ') + '. La línea base de costos del plan vigente suma la reserva disponible, así ese costo no se cuenta dos veces.' : 'Los recursos que responden a riesgos aún no tienen monto de reserva registrado.'}${overRows.length ? ' ' + plural(overRows.length, 'recurso tiene', 'recursos tienen') + ' un costo asignado mayor que su monto: la diferencia no sale de la reserva y aumenta el presupuesto de las actividades.' : ''}</p>` : html`<p class="small muted" style="margin:0">Ningún recurso no planificado consume la reserva para contingencias.</p>`}
           </div>
           <div class="stack-sm" data-role="reserve-changes">
             <div class="evm-chip-row" style="justify-content:space-between"><h4 class="h4">Recursos que requieren control de cambios</h4>${PM.templates && PM.templates['registro-cambios'] ? html`<${ui.Button} size="sm" variant="ghost" icon="checklist" onClick=${openRegister}>Abrir el registro de cambios</${ui.Button}>` : null}</div>
@@ -1480,9 +1507,13 @@
     /* las actividades sin elemento de la EDT no forman una cuenta de control: se cuentan aparte */
     const nAccounts = accounts.filter((a) => !a.none).length;
     const noAccount = accounts.find((a) => a.none);
-    const res = costs.reserves || {};
-    const cur = { bac: PM.sum(sched.tasks, (t) => t.cost), contingency: num(res.contingency), management: num(res.management) };
-    cur.baseline = cur.bac + cur.contingency; cur.total = cur.baseline + cur.management;
+    /* plan vigente (SPEC §10.3): línea base = actividades + respuestas a riesgos sin actividad + reserva para contingencias
+       disponible; la reserva total (la que se edita) no se descuenta, el consumo por riesgos se resta en su propia fila */
+    const pr = useMemo(() => planReserves(model, sched), [model.resources, model.costs, sched]);
+    const cur = { bac: PM.sum(sched.tasks, (t) => t.cost), contTotal: pr.total, used: pr.used, unassigned: pr.unassigned, contingency: pr.contingency, management: pr.management };
+    cur.baseline = cur.bac + cur.unassigned + cur.contingency; cur.total = cur.baseline + cur.management;
+    const consumedShown = cur.used > 0 && !zeroish(cur.used, currency);
+    const unassignedShown = cur.unassigned > 0 && !zeroish(cur.unassigned, currency);
     const blDoc = baselines.cost;
     const bl = blDoc && blDoc.cost ? (() => { const b = { label: blLabel(blDoc), bac: isNum(blDoc.cost.bac) ? blDoc.cost.bac : PM.sum(blDoc.cost.tasks || [], (t) => t.cost), contingency: num(blDoc.cost.contingency), management: num(blDoc.cost.management) }; b.baseline = b.bac + b.contingency; b.total = b.baseline + b.management; return b; })() : null;
     const approved = num(project.budget, 0) > 0 ? num(project.budget) : null;
@@ -1502,22 +1533,32 @@
       : cmp > 0 ? html`<${ui.Chip} tone="crit" icon="alert">El presupuesto del proyecto supera el aprobado en ${money(cmp, currency)}</${ui.Chip}>`
       : html`<${ui.Chip} tone="info" icon="info">Quedan ${money(-cmp, currency)} del presupuesto aprobado sin asignar</${ui.Chip}>`;
     const blDiff = bl ? cur.bac - bl.bac : 0;
-    const reserveInput = (key, label) => canWrite
-      ? html`<${DeferredNumber} money currency=${currency} min=${0} value=${cur[key]} data-field=${key} aria-label=${label} onCommit=${(v) => setReserve(key, v === null ? 0 : v)} />`
-      : money(cur[key], currency);
+    /* la diferencia del BAC la cubre la reserva para contingencias (recursos por riesgos): la línea base de costos no cambia */
+    const blCovered = !!bl && !zeroish(blDiff, currency) && consumedShown && zeroish(cur.baseline - bl.baseline, currency);
+    /* el campo edita la reserva total del plan (costs.reserves); la de gestión no tiene consumos */
+    const reserveInput = (key, label, value) => canWrite
+      ? html`<${DeferredNumber} money currency=${currency} min=${0} value=${value} data-field=${key} aria-label=${label} onCommit=${(v) => setReserve(key, v === null ? 0 : v)} />`
+      : money(value, currency);
     const pctOf = (v) => (cur.total > 0 ? fmt.pct(v / cur.total, 1) : '—');
+    const PCT = { activities: cur.bac, accounts: cur.bac, unassigned: cur.unassigned, contingency: cur.contTotal, used: cur.used, management: cur.management, baseline: cur.baseline, total: cur.total };
     const lrow = (id, op, label, sub, curCell, blVal, total) => html`<tr key=${id} data-row=${id} class=${total ? 'is-total' : ''}>
       <td class="evm-op">${op}</td>
       <td class="evm-ledger-name">${label}${sub ? html`<span class="evm-sub">${sub}</span>` : null}</td>
       <td class="num" data-col="cur">${curCell}</td>
       ${bl ? html`<td class="num" data-col="bl">${blVal === null ? html`<span class="faint">—</span>` : money(blVal, currency)}</td>` : null}
-      <td class="num faint evm-pct">${id === 'approved' ? '' : pctOf(id === 'accounts' || id === 'activities' ? cur.bac : id === 'contingency' ? cur.contingency : id === 'management' ? cur.management : id === 'baseline' ? cur.baseline : cur.total)}</td>
+      <td class="num faint evm-pct">${id in PCT ? (id === 'used' && cur.total > 0 ? '−' : '') + pctOf(PCT[id]) : ''}</td>
     </tr>`;
     const parts = [
       { id: 'bac', label: 'Presupuesto de las actividades (BAC)', value: cur.bac, color: 'var(--s1)' },
-      { id: 'cont', label: 'Reserva para contingencias', value: cur.contingency, color: 'var(--s4)' },
+      ...(unassignedShown ? [{ id: 'risk', label: 'Respuestas a riesgos sin actividad', value: cur.unassigned, color: 'var(--s5)' }] : []),
+      { id: 'cont', label: consumedShown ? 'Reserva para contingencias disponible' : 'Reserva para contingencias', value: cur.contingency, color: 'var(--s4)' },
       { id: 'mgmt', label: 'Reserva de gestión', value: cur.management, color: 'var(--s7)' },
     ];
+    /* «Requisitos de financiamiento»: con línea base de costos, sus cifras tal como se aprobaron (PM.calc.evm); sin ella, las
+       del plan vigente con la misma regla de la reserva (PM.calc.evm sumaría la reserva total al BAC que ya incluye lo usado) */
+    const fund = evm.fromBaseline
+      ? { costBaseline: evm.costBaseline, total: evm.totalBudget, management: evm.reserves.management, contingency: evm.reserves.contingency, unassigned: 0 }
+      : { costBaseline: cur.baseline, total: cur.total, management: cur.management, contingency: cur.contingency, unassigned: cur.unassigned };
     const maxAcc = Math.max(1, ...accounts.map((a) => Math.abs(a.cost)));
     const exportFunding = () => PM.download('requisitos-financiamiento_' + fileBase(project) + '.csv', PM.toCSV([{ key: 'mes', label: 'Mes' }, { key: 'inc', label: 'Requerido en el mes (' + currency + ')' }, { key: 'cum', label: 'Acumulado (' + currency + ')' }, { key: 'pct', label: '% del BAC' }], funding.map((f) => ({ mes: fmt.date(f.m, 'month'), inc: Math.round(f.inc * 100) / 100, cum: Math.round(f.cum * 100) / 100, pct: evm.bac ? Math.round((f.cum / evm.bac) * 1000) / 10 : '' }))));
     const exportAccounts = () => PM.download('cuentas-de-control_' + fileBase(project) + '.csv', PM.toCSV([{ key: 'code', label: 'Código EDT' }, { key: 'name', label: 'Cuenta de control' }, { key: 'count', label: 'Actividades' }, { key: 'cost', label: 'Costo (' + currency + ')' }, { key: 'pct', label: '% del total' }], accounts.map((a) => ({ ...a, pct: totalCost ? Math.round((a.cost / totalCost) * 1000) / 10 : '' }))));
@@ -1531,16 +1572,20 @@
             <tbody>
               ${lrow('activities', '', 'Estimaciones de costos de las actividades', sched.tasks.length + (sched.tasks.length === 1 ? ' actividad del cronograma' : ' actividades del cronograma') + (allModes.n ? ' · ' + plural(allModes.n, 'con costo calculado', 'con costo calculado') + ' (' + modesText(allModes) + ')' : ''), money(cur.bac, currency), bl ? bl.bac : null)}
               ${lrow('accounts', '→', 'Cuentas de control', nAccounts + (nAccounts === 1 ? ' cuenta' : ' cuentas') + ' (EDT nivel ' + lv + '): presupuesto de las actividades, BAC' + (noAccount ? ' · ' + noAccount.count + (noAccount.count === 1 ? ' actividad sin cuenta de control' : ' actividades sin cuenta de control') + (zeroish(noAccount.cost, currency) ? '' : ' (' + money(noAccount.cost, currency) + ')') : ''), money(cur.bac, currency), bl ? bl.bac : null)}
-              ${lrow('contingency', '+', 'Reserva para contingencias', 'Para riesgos identificados (incógnitas conocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.contingency / cur.bac, 1) + ' del BAC' : ''), reserveInput('contingency', 'Reserva para contingencias'), bl ? bl.contingency : null)}
-              ${lrow('baseline', '=', 'Línea base de costos', 'BAC + reserva para contingencias', money(cur.baseline, currency), bl ? bl.baseline : null, true)}
-              ${lrow('management', '+', 'Reserva de gestión', 'Para trabajo no previsto dentro del alcance (incógnitas desconocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.management / cur.bac, 1) + ' del BAC' : ''), reserveInput('management', 'Reserva de gestión'), bl ? bl.management : null)}
+              ${unassignedShown ? lrow('unassigned', '+', 'Respuestas a riesgos sin actividad', 'Consumo de la reserva para contingencias en recursos no planificados que no están en actividades calculadas por recursos o mixtas: cuenta aparte', money(cur.unassigned, currency), null) : null}
+              ${lrow('contingency', '+', 'Reserva para contingencias', (consumedShown ? 'Total del plan para riesgos identificados (incógnitas conocidas)' : 'Para riesgos identificados (incógnitas conocidas)') + (cur.bac > 0 ? ' · ' + fmt.pct(cur.contTotal / cur.bac, 1) + ' del BAC' : ''), reserveInput('contingency', 'Reserva para contingencias', cur.contTotal), bl ? bl.contingency : null)}
+              ${consumedShown ? lrow('used', '−', 'Consumida por recursos no planificados', 'Respuestas a riesgos identificados: ya están en las cuentas de control' + (unassignedShown ? ' o en «Respuestas a riesgos sin actividad»' : '') + (pr.consumed > cur.contTotal && !zeroish(pr.consumed - cur.contTotal, currency) ? '. El consumo registrado (' + money(pr.consumed, currency) + ') supera la reserva en ' + money(pr.consumed - cur.contTotal, currency) : '') + '. Disponible: ' + money(cur.contingency, currency), '−' + money(cur.used, currency), null) : null}
+              ${lrow('baseline', '=', 'Línea base de costos', consumedShown ? 'BAC' + (unassignedShown ? ' + respuestas a riesgos sin actividad' : '') + ' + reserva para contingencias disponible' : 'BAC + reserva para contingencias', money(cur.baseline, currency), bl ? bl.baseline : null, true)}
+              ${lrow('management', '+', 'Reserva de gestión', 'Para trabajo no previsto dentro del alcance (incógnitas desconocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.management / cur.bac, 1) + ' del BAC' : ''), reserveInput('management', 'Reserva de gestión', cur.management), bl ? bl.management : null)}
               ${lrow('total', '=', 'Presupuesto del proyecto', 'Línea base de costos + reserva de gestión', money(cur.total, currency), bl ? bl.total : null, true)}
               ${lrow('approved', '', 'Presupuesto aprobado', 'Ficha del proyecto', approved !== null ? money(approved, currency) : html`<span class="faint">—</span>`, null)}
             </tbody>
           </table></div>
           <div class="evm-chip-row" data-role="budget-compare">${cmpChip}</div>
           ${bl ? html`<div class="evm-chip-row">
-            ${zeroish(blDiff, currency) ? null : html`<${ui.Chip} tone="warn" icon="alert">El presupuesto vigente de las actividades difiere de la línea base ${bl.label} en ${signedMoney(blDiff, currency)}. Si el cambio está aprobado, establece una nueva línea base.</${ui.Chip}>`}
+            ${zeroish(blDiff, currency) ? null : blCovered
+              ? html`<${ui.Chip} tone="info" icon="info" data-role="budget-reserve-note">El presupuesto vigente de las actividades difiere de la línea base ${bl.label} en ${signedMoney(blDiff, currency)}: lo cubre la reserva para contingencias (recursos que responden a riesgos), así que la línea base de costos no cambia.</${ui.Chip}>`
+              : html`<${ui.Chip} tone="warn" icon="alert">El presupuesto vigente de las actividades difiere de la línea base ${bl.label} en ${signedMoney(blDiff, currency)}. Si el cambio está aprobado, establece una nueva línea base.</${ui.Chip}>`}
             ${allModes.n ? html`<span class="xsmall faint" data-role="budget-mode-note">${plural(allModes.n, 'actividad calcula', 'actividades calculan')} su costo por recursos, de forma mixta o a precios unitarios: su costo vigente cambia con los recursos o las cantidades y puede diferir del de la línea base ${bl.label}.</span>` : null}
             <span class="xsmall faint">El valor ganado se mide contra la línea base ${bl.label}. Los cambios del plan vigente, incluidas las reservas, se incorporan al establecer una nueva línea base mediante el control de cambios.</span>
           </div>` : html`<p class="xsmall faint">Aún no hay línea base de costos: al establecerla se congelan el presupuesto de las actividades y las reservas del plan vigente.</p>`}
@@ -1552,7 +1597,7 @@
         </div>
       </${SectionCard}>
 
-      ${PM.res && PM.RES ? html`<${ReserveUse} model=${model} contingency=${cur.contingency} management=${cur.management} currency=${currency} />` : null}
+      ${PM.res && PM.RES ? html`<${ReserveUse} model=${model} pr=${pr} management=${cur.management} currency=${currency} />` : null}
 
       <${SectionCard} title="Cuentas de control" subtitle="Presupuesto vigente de las actividades consolidado por elemento de la EDT" pad=${false} attrs=${{ 'data-role': 'accounts' }} actions=${html`
         ${levelOpts.length > 1 ? html`<${ui.Segmented} label="Nivel de la EDT" value=${lv} onChange=${(v) => { setLevel(Number(v)); PM.prefs.set('evm.level', Number(v)); }} options=${levelOpts} />` : null}
@@ -1576,16 +1621,18 @@
       <${SectionCard} title="Requisitos de financiamiento" subtitle=${'Valor planificado por mes ' + (evm.fromBaseline ? 'según la línea base ' + blLabel(blDoc) : 'según el cronograma actual')} pad=${false} attrs=${{ 'data-role': 'funding' }} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportFunding} disabled=${!funding.length}>Exportar CSV</${ui.Button}>`}>
         <div class="card-body stack">
           <div class="evm-chip-row">
-            <${ui.Chip} tone="outline">Línea base de costos: ${money(evm.costBaseline, currency)}</${ui.Chip}>
-            <${ui.Chip} tone="outline">Reserva de gestión: ${money(evm.reserves.management, currency)}</${ui.Chip}>
-            <${ui.Chip} tone="accent">Financiamiento total: ${money(evm.totalBudget, currency)}</${ui.Chip}>
+            <${ui.Chip} tone="outline" data-role="funding-baseline">Línea base de costos: ${money(fund.costBaseline, currency)}</${ui.Chip}>
+            <${ui.Chip} tone="outline">Reserva de gestión: ${money(fund.management, currency)}</${ui.Chip}>
+            <${ui.Chip} tone="accent" data-role="funding-total">Financiamiento total: ${money(fund.total, currency)}</${ui.Chip}>
           </div>
           ${colData.length ? html`<${ColumnChart} data=${colData} currency=${currency} color="var(--s1)" label=${'Financiamiento requerido por mes, de ' + fmt.date(funding[0].m, 'month') + ' a ' + fmt.date(funding[funding.length - 1].m, 'month')} />` : null}
           <div class="table-wrap"><table class="table table-tight evm-table" data-role="funding-table">
             <thead><tr><th>Mes</th><th class="num">Requerido en el mes</th><th class="num">Acumulado</th><th class="num">% del BAC</th></tr></thead>
             <tbody>${funding.map((f) => html`<tr key=${f.m}><td class="nowrap">${fmt.date(f.m, 'month')}</td><td class="num">${money(f.inc, currency)}</td><td class="num">${money(f.cum, currency)}</td><td class="num">${evm.bac ? fmt.pct(f.cum / evm.bac, 1) : '—'}</td></tr>`)}</tbody>
           </table></div>
-          <p class="xsmall faint">El flujo mensual cubre el presupuesto de las actividades (BAC). La reserva para contingencias (${money(evm.reserves.contingency, currency)}) y la reserva de gestión se desembolsan cuando se autoriza su uso.</p>
+          <p class="xsmall faint" data-role="funding-note">El flujo mensual cubre el presupuesto de las actividades (BAC). ${fund.unassigned > 0 && !zeroish(fund.unassigned, currency)
+            ? 'Las respuestas a riesgos sin actividad (' + money(fund.unassigned, currency) + '), la reserva para contingencias disponible (' + money(fund.contingency, currency) + ') y la reserva de gestión se desembolsan cuando se autoriza su uso.'
+            : 'La reserva para contingencias' + (!evm.fromBaseline && consumedShown ? ' disponible' : '') + ' (' + money(fund.contingency, currency) + ') y la reserva de gestión se desembolsan cuando se autoriza su uso.'}</p>
         </div>
       </${SectionCard}>
     </div>`;

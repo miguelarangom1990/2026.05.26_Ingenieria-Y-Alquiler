@@ -56,7 +56,10 @@
   BUDGET.presupuesto = BUDGET.lineaBaseCostos + BUDGET.gestion;                                            /* 143.339 */
   const RESERVES_LB0 = { contingency: BUDGET.contingenciaLb0 * MM, management: BUDGET.gestion * MM };
   const RESERVES_LB1 = { contingency: BUDGET.contingencia * MM, management: BUDGET.gestion * MM };
-  const RESERVES = { contingency: (BUDGET.contingencia - BUDGET.contingenciaUsada) * MM, management: BUDGET.gestion * MM };
+  /* Plan vigente (SPEC §10.3): la reserva para contingencias es el total del plan y no se descuenta al usarla. Los COP 600
+     millones del CC-003 (respuesta al R-004) se registran como consumo en el recurso no planificado de la pantalla anclada
+     (reserveAmount) y ya están en el costo de K03C (calculada por recursos): disponible = 2.363 − 600 = 1.763. */
+  const RESERVES = { ...RESERVES_LB1 };
 
   const META = {
     name: 'EJEMPLO · Edificio Atalaya del Occidente — Medellín',
@@ -102,9 +105,11 @@
      tarifas de la estructura de desglose de recursos (EDR, marzo de 2025): las mensuales se dividen entre 26 días hábiles
      (calendario de lunes a sábado) y las cuadrillas suman los jornales de oficiales y ayudantes. Disponibilidad: la de los
      límites del cronograma (resourceLimits). Consumibles: concreto y acero de la estructura de la etapa 1 con las cantidades de
-     los requisitos de recursos (7.500 m³ y 605 t). No planificados: el subcontrato de la pantalla anclada (CC-003, aprobado) y
-     el turno extendido de formaleta (acción correctiva del INC-006); ninguno cambia costos registrados ni consume reserva (la
-     reserva disponible ya descuenta los COP 600 millones del CC-003). El equipo de la capa ágil lo agrega 96 (layer.team).
+     los requisitos de recursos (7.500 m³ y 605 t). No planificados: el subcontrato de la pantalla anclada (respuesta al R-004,
+     materializado: consume COP 600 millones de la reserva para contingencias, aprobados con el CC-003 sin nueva línea base; está
+     asignado a K03C, que se calcula por recursos, así el consumo queda en la cuenta de control y no se cuenta dos veces) y el
+     turno extendido de formaleta (acción correctiva del INC-006: variación, no cambia la línea base ni usa reserva). El equipo
+     de la capa ágil lo agrega 96 (layer.team).
      Tipos: preset «Construcción y obra» más consultoría de diseños y equipo comercial y digital. */
   const RES_TYPES = () => [
     ...(PM.RES && PM.RES.PRESETS && PM.RES.PRESETS.construccion ? PM.clone(PM.RES.PRESETS.construccion.types) : []),
@@ -139,7 +144,7 @@
     ['con', 'Concreto premezclado de 28 MPa fluido', 'material', 'Concreto y acero', 'm³', null, 485000, 'Compra', { supplier: 'Planta de concreto premezclado', notes: 'EDR 3.1: para muros y losas, con bombeo (NTC 3318). Etapa 1: unos 7.500 m³ (requisitos de recursos).' }],
     ['ace', 'Acero de refuerzo de 420 MPa', 'material', 'Concreto y acero', 'kg', null, 4100, 'Compra', { supplier: 'Siderúrgica (barras figuradas en planta)', notes: 'EDR 3.2: barras corrugadas (NTC 2289). Etapa 1: unos 605.000 kg (requisitos de recursos).' }],
     /* no planificados */
-    ['pan', 'Subcontratista de pantalla anclada y drenajes', 'subcontrato', 'Geotecnia y contención', 'm', null, 10000000, 'Contratado', { kind: 'consumible', planned: false, reason: 'cambio-alcance', changeRef: 'CC-003', status: 'liberado', addedDate: '2026-05-19', supplier: 'Subcontratista de anclajes y pantallas', notes: 'Pantalla anclada de 60 m y drenajes del talud oriental después del deslizamiento del 7 de mayo de 2026 (INC-004, materialización del R-004). Aprobada con el CC-003 el 19 de mayo por COP 600 millones de la reserva para contingencias, sin nueva línea base. Subcontrato a precios unitarios: COP 10 millones por metro de pantalla con anclajes y drenajes.' }],
+    ['pan', 'Subcontratista de pantalla anclada y drenajes', 'subcontrato', 'Geotecnia y contención', 'm', null, 10000000, 'Contratado', { kind: 'consumible', planned: false, reason: 'riesgo', riskId: 'R-004', reserveAmount: BUDGET.contingenciaUsada * MM, changeRef: 'CC-003', status: 'liberado', addedDate: '2026-05-19', supplier: 'Subcontratista de anclajes y pantallas', contract: 'CT-020', notes: 'Pantalla anclada de 60 m y drenajes del talud oriental después del deslizamiento del 7 de mayo de 2026 (INC-004): respuesta al R-004 (lluvias e inestabilidad de taludes), materializado. La junta aprobó el CC-003 el 19 de mayo por COP 600 millones con cargo a la reserva para contingencias, sin nueva línea base: quedan disponibles COP 1.763 millones de los COP 2.363 millones de la LB1. Costo para el proyecto: COP 10 millones por metro de pantalla con anclajes y drenajes (contrato CT-020 a precio global de COP 571 millones más los honorarios del constructor).' }],
     ['tur', 'Turno extendido de formaleta del bloque B', 'mano-obra', 'Obra gris', 'cuadrilla', 1, 910000, 'Contratado', { planned: false, reason: 'rendimiento', addedDate: '2026-09-14', availableFrom: '2026-09-14', supplier: CONSTRUCTOR, notes: 'Respuesta al INC-006 (rotación de oficiales de formaleta): turno hasta las 8:00 p. m. en el bloque B desde el 14 de septiembre de 2026, sin maquinaria ruidosa después de las 7:00 p. m. Seis oficiales y seis ayudantes con tres horas extra diarias. Acción correctiva por menor rendimiento: su costo es una variación y no cambia la línea base.' }],
   ];
   const RES_ID = Object.fromEntries(CATALOG.map(([key, name]) => [name, 'rec-' + key]));
@@ -522,7 +527,7 @@
   M('K01', 'w1511', 'Acta de inicio de obra de la etapa 1', { b0: '2026-02-16', p: '2026-03-16', a: ['2026-03-16', '2026-03-16'], deps: ['P01', 'C06', 'D15'], resp: ROLE.ger });
   A('K02', 'w1511', 'Preliminares de la etapa 1: cerramiento, campamento, topografía y plan de manejo de tránsito', { ...E1('2026-02-17', '2026-03-13'), a: ['2026-03-17', '2026-04-10'], deps: ['K01'], cost: 1020, k: 'dir', cap: { pre: 1020 }, st: 'E1', resp: ROLE.con, res: res([RS.res, 1], [RS.cim, 1]), f: 1.03 });
   A('K03', 'w1511', 'Movimiento de tierras, contención y estabilización de taludes de la etapa 1', { ...E1('2026-03-02', '2026-05-29'), a: ['2026-03-30', '2026-07-17'], deps: ['K02:SS+11'], cost: 2859, k: 'dir', cap: { tie: 2859 }, st: 'E1', resp: ROLE.con, res: res([RS.tie, 1]), f: 1.08, notes: 'Lluvias de abril y mayo y deslizamiento superficial del talud oriental (INC-004): terminó tres semanas tarde.' });
-  A('K03C', 'w1511', 'Contención adicional del talud oriental: pantalla anclada y drenajes (CC-003)', { b0: null, lb1: false, a: ['2026-05-19', '2026-07-11'], deps: ['K03:SS+42'], cost: 600, k: 'dir', cap: { tie: 600 }, st: 'E1', resp: ROLE.con, res: [qty('pan', 60)], cm: { costMode: 'unitario', quantity: 60, unitPrice: 10 * MM, qtyUnit: 'm' }, notes: 'Aprobada con el CC-003 el 19 de mayo de 2026 con cargo a la reserva para contingencias (COP 600 millones). No está en la LB1. Subcontrato a precios unitarios: 60 m de pantalla con anclajes y drenajes a COP 10 millones por metro.' });
+  A('K03C', 'w1511', 'Contención adicional del talud oriental: pantalla anclada y drenajes (CC-003)', { b0: null, lb1: false, a: ['2026-05-19', '2026-07-11'], deps: ['K03:SS+42'], cost: 600, k: 'dir', cap: { tie: 600 }, st: 'E1', resp: ROLE.con, res: [qty('pan', 60)], cm: { costMode: 'recursos' }, notes: 'Respuesta al R-004 (materializado con el INC-004), aprobada con el CC-003 el 19 de mayo de 2026 con cargo a la reserva para contingencias (COP 600 millones). No está en la LB1. Costo calculado por recursos: 60 m de pantalla con anclajes y drenajes del subcontratista (REC-025) a COP 10 millones por metro, el consumo de la reserva registrado en el recurso.' });
   A('K04', 'w1511', 'Pilas pre-excavadas de la etapa 1 (bloques A y B y plataforma)', { ...E1('2026-04-06', '2026-06-05'), a: ['2026-05-04', '2026-07-11'], deps: ['K03:SS+30'], cost: 2175, k: 'dir', cap: { cim: 2175 }, st: 'E1', resp: ROLE.con, res: res([RS.pil, 1], [RS.cim, 1]), f: 1.05 });
   A('K05', 'w1511', 'Zapatas, dados y vigas de amarre de la etapa 1', { ...E1('2026-05-04', '2026-07-10'), a: ['2026-06-01', '2026-08-21'], deps: ['K04:SS+24'], cost: 1450, k: 'dir', cap: { cim: 1450 }, st: 'E1', resp: ROLE.con, res: res([RS.cim, 1]), f: 1.05 });
   A('K06', 'w1512', 'Estructura de la plataforma de parqueaderos de la etapa 1', { ...E1('2026-05-19', '2026-08-07'), a: ['2026-06-16', '2026-09-18'], deps: ['K05:SS+12'], cost: 2601, k: 'dir', cap: { est: 2601 }, st: 'E1', resp: ROLE.con, res: [...res([RS.est2, 1]), qty('con', 2500), qty('ace', 200000)], f: 1.05 });
@@ -717,13 +722,42 @@
   }
   const progressNow = (def) => progressAt(def, STATUS_DATE);
 
+  /* ---------------------------------------------------------------- categoría de costo (SPEC §10.1, PM.RES.COST_CATEGORIES)
+     Para la estructura de desglose de costos por categoría: cada actividad con presupuesto lleva la categoría de su naturaleza.
+     Directos: la del capítulo con mayor valor (sin los honorarios del constructor, repartidos en todos), según el plan de
+     adquisiciones: subcontratos por especialidad (tierras, pilas, instalaciones, equipos especiales, cubiertas, fachadas,
+     carpinterías y urbanismo), suministros de concreto, acero, pisos y aparatos (materiales) y mano de obra de acabados,
+     administración de obra y aseo. Indirectos: consultorías, supervisión, interventoría y sala de ventas → Subcontratos;
+     gerencia del promotor y posventas → Mano de obra; comercialización, fiducia, pólizas, servicios públicos y administración
+     de la copropiedad → Servicios; licencias, notariado, impuestos y gestión legal y tributaria → Otros. Lote, compensación
+     VIP y costos financieros → Otros. Es un dato opcional: no cambia el costo ni el valor ganado. */
+  const CHAPTER_CAT = {
+    pre: 'Materiales', tie: 'Subcontratos', cim: 'Subcontratos', est: 'Materiales', mam: 'Materiales', hid: 'Subcontratos', ele: 'Subcontratos',
+    equ: 'Subcontratos', cub: 'Subcontratos', pan: 'Mano de obra', pis: 'Materiales', met: 'Subcontratos', mad: 'Subcontratos', apa: 'Materiales',
+    fac: 'Subcontratos', adm: 'Mano de obra', ase: 'Mano de obra', urb: 'Subcontratos', pai: 'Subcontratos',
+  };
+  const RUBRO_CAT = {
+    estr: 'Subcontratos', dis: 'Subcontratos', sti: 'Subcontratos', itv: 'Subcontratos', sala: 'Subcontratos', ger: 'Mano de obra', pos: 'Mano de obra',
+    comi: 'Servicios', pub: 'Servicios', fidu: 'Servicios', pol: 'Servicios', spo: 'Servicios', ph: 'Servicios',
+    lic: 'Otros', not: 'Otros', adtr: 'Otros', ica: 'Otros',
+  };
+  const costCategoryOf = (def) => {
+    if (!def.cost) return null;
+    if (def.k === 'dir' && def.cap && typeof def.cap === 'object') {
+      const main = Object.entries(def.cap).filter(([c]) => c !== 'hon').sort((a, b) => b[1] - a[1])[0];
+      return (main && CHAPTER_CAT[main[0]]) || 'Otros';
+    }
+    if (def.k === 'ind') return RUBRO_CAT[def.cap] || 'Otros';
+    return 'Otros';
+  };
+
   /* ---------------------------------------------------------------- versiones del plan */
   const taskOut = (x, extra) => ({
     id: x.def.id, name: x.def.name, wbsId: x.def.wbsId || null,
     duration: x.duration, milestone: !!x.def.ms,
     start: x.def.fix ? x.dt.s : null,
     deps: x.deps.map((d) => ({ ...d })),
-    progress: 0, cost: 0, ...(x.def.cm || {}), resources: (x.def.res || []).map((r) => ({ ...r })),
+    progress: 0, cost: 0, ...(x.def.cm || {}), ...(costCategoryOf(x.def) ? { costCategory: costCategoryOf(x.def) } : {}), resources: (x.def.res || []).map((r) => ({ ...r })),
     responsible: x.def.resp || '', actualStart: null, actualFinish: null, notes: '',
     ...extra,
   });

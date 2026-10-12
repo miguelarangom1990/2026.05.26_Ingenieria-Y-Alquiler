@@ -638,6 +638,14 @@ async function seedResources(page, { baseline = true, costMode = true, catalog =
     const riskRow = await text(p, '[data-reserve="r2"]');
     check('consumo: lista con recurso, riesgo (del registro) y monto', /REC-002/.test(riskRow) && /Grúa telescópica adicional/.test(riskRow) && /R-001 Grúa del cliente no disponible/.test(riskRow) && riskRow.includes(norm(await M(6e6))), riskRow);
     check('consumo: total consumido y disponible restante', (await text(p, '[data-role="reserve-risks"] [data-col="consumed"]')) === norm(await M(6e6)) && (await text(p, '[data-role="reserve-risks"] tr[data-row="available"]')).includes(norm(await M(3e6))));
+    /* regla única del plan vigente (SPEC §10.3): la grúa (6 M de reserva) está en «Montaje» por recursos (22,5 M): lo consumido
+       ya está en el BAC, así que la línea base suma la reserva disponible (3 M), no la total (9 M) */
+    check('ledger: la reserva total se edita (9 M) y lo consumido se resta en su propia fila', (await p.inputValue('[data-row="contingency"] [data-field="contingency"]')).replace(/\D/g, '') === '9000000' && (await text(p, '[data-row="used"] [data-col="cur"]')) === norm('−' + await M(6e6)) && /Disponible: \$ 3\.000\.000/.test(await text(p, '[data-row="used"]')), await text(p, '[data-row="used"]'));
+    check('ledger: línea base del plan vigente = BAC + reserva disponible (94,1 M + 3 M), sin contar dos veces la grúa', (await text(p, '[data-row="baseline"] [data-col="cur"]')) === norm(await M(97.1e6)) && (await text(p, '[data-row="total"] [data-col="cur"]')) === norm(await M(102.1e6)) && /reserva para contingencias disponible/.test(await text(p, '[data-row="baseline"]')), await text(p, '[data-row="baseline"]'));
+    check('ledger: sin respuestas a riesgos sin actividad (la grúa está asignada)', (await p.locator('[data-row="unassigned"]').count()) === 0);
+    const grua = await text(p, '[data-reserve="r2"] [data-col="assigned"]');
+    check('consumo: costo de la grúa en el cronograma (22,5 M) mayor que su monto, dicho con texto', grua.includes(norm(await M(22.5e6))) && grua.includes('Supera el monto en ' + norm(await M(16.5e6))) && (await p.locator('[data-reserve="r2"] [data-role="reserve-over"] .icon').count()) === 1, grua);
+    check('consumo: lo consumido pasa a las cuentas de control (nota)', (await text(p, '[data-role="reserve-flow"]')).includes(norm(await M(6e6)) + ' ya está en el costo de actividades calculadas por recursos') && /aumenta el presupuesto de las actividades/.test(await text(p, '[data-role="reserve-flow"]')), await text(p, '[data-role="reserve-flow"]'));
     const states = await p.$$eval('[data-change-resource]', (trs) => trs.map((t) => [t.dataset.changeResource, t.dataset.changeState]));
     check('control de cambios: cambio de alcance con su solicitud aprobada y reserva de gestión sin solicitud', JSON.stringify(states) === JSON.stringify([['r3', 'aprobada'], ['r4', 'sin-solicitud']]), states);
     check('control de cambios: solicitud y estado del registro en texto', /CC-001/.test(await text(p, '[data-change-resource="r3"]')) && /Aprobada/.test(await text(p, '[data-change-resource="r3"]')) && /Sin solicitud/.test(await text(p, '[data-change-resource="r4"]')));
@@ -657,6 +665,7 @@ async function seedResources(page, { baseline = true, costMode = true, catalog =
     await setRes(pid, (x) => (x.id === 'r2' ? { ...x, reserveAmount: 12000000 } : x));
     await p.waitForSelector('[data-metric="reserve-available"][data-tone="crit"]');
     check('consumo mayor que la reserva: disponible negativo en tono crítico y explicado con texto', /El consumo supera la reserva/.test(await text(p, '[data-metric="reserve-available"]')) && (await text(p, '[data-metric="reserve-available"] .evm-metric-full')) === norm(await M(-3e6)));
+    check('consumo mayor que la reserva: el ledger resta solo la reserva (9 M), lo dice y la línea base queda en el BAC', (await text(p, '[data-row="used"] [data-col="cur"]')) === norm('−' + await M(9e6)) && (await text(p, '[data-row="used"]')).includes('supera la reserva en ' + norm(await M(3e6))) && (await text(p, '[data-row="baseline"] [data-col="cur"]')) === norm(await M(94.1e6)), await text(p, '[data-row="used"]'));
     /* enlace al catálogo con el teclado */
     await p.focus('[data-role="reserve-catalog"]');
     await p.keyboard.press('Enter');
@@ -707,6 +716,92 @@ async function seedResources(page, { baseline = true, costMode = true, catalog =
     check('recursos: excepción', false, String(e && e.stack || e).slice(0, 800));
   }
   check('recursos: sin errores de consola', app.errors.length === 0, app.errors.slice(0, 3));
+  await app.browser.close();
+}
+
+/* ---------- reserva para contingencias sin duplicar (SPEC §10.3, revisión integral): un recurso de respuesta a un riesgo
+   asignado a una actividad por recursos sube el BAC y baja la reserva disponible en la misma cifra; otro sin asignar es una
+   cuenta aparte. El presupuesto sigue igual al aprobado y la línea base del plan vigente, igual a la de LB0. */
+async function seedReserve(page, { baseline = true } = {}) {
+  return page.evaluate(async ({ baseline }) => {
+    const P = PM.paths;
+    const id = await PM.projectOps.create({ name: 'Reserva sin duplicar', code: 'PRY-RES-051', start: '2026-08-03', end: '2026-12-18', statusDate: '2026-09-15', budget: 59000000, currency: 'COP' });
+    const wbs = { nodes: [{ id: 'w1', parentId: null, name: 'Montaje', order: 1 }] };
+    const settings = { workweek: 6, holidaysCO: true };
+    const tasks = [
+      { id: 't1', name: 'Diseño', wbsId: 'w1', duration: 10, deps: [], start: '2026-08-03', progress: 100, cost: 20e6, resources: [] },
+      { id: 't2', name: 'Montaje', wbsId: 'w1', duration: 10, deps: [{ id: 't1', type: 'FS', lag: 0 }], progress: 40, cost: 0, costMode: 'recursos', resources: [{ resourceId: 'r1', name: 'Cuadrilla de montaje', units: 1 }] },
+      { id: 't3', name: 'Inspección y liberación', wbsId: 'w1', duration: 2, deps: [{ id: 't2', type: 'FS', lag: 0 }], progress: 0, cost: 0, costMode: 'recursos', resources: [{ resourceId: 'r1', name: 'Cuadrilla de montaje', units: 1 }] },
+    ];
+    const items = [{ id: 'r1', code: 'REC-001', name: 'Cuadrilla de montaje', typeId: 'personal', unit: 'cuadrilla', availability: 2, unitCost: 2000000, planned: true, status: 'disponible', absences: [] }];
+    const costs = { actuals: [], statusUpdates: [], reserves: { contingency: 10e6, management: 5e6 } };
+    if (baseline) {
+      const eff = PM.res.applyCosts({ settings, tasks }, { preset: 'alquiler', types: [], items });
+      const sched0 = PM.calc.computeSchedule(eff, '2026-08-03');
+      await PM.store.set(P.baseline(id, 'b0'), { number: 0, label: 'LB0', date: '2026-07-31', note: '', changeRef: null, byId: null, ...PM.calc.makeBaselineSnapshot({ includes: ['cost', 'schedule'], sched: sched0, wbs, costs }) });
+    }
+    /* después: grúa por el riesgo R-009 (3 M de reserva, 2 días × 1,5 M en la inspección) y horas extra por R-001 (2 M, sin asignar) */
+    items.push({ id: 'r2', code: 'REC-002', name: 'Grúa telescópica de 50 t', typeId: 'izaje', unit: 'día', availability: 1, unitCost: 1500000, planned: false, reason: 'riesgo', riskId: 'R-009', reserveAmount: 3000000, addedDate: '2026-09-01', status: 'disponible', absences: [] });
+    items.push({ id: 'r3', code: 'REC-003', name: 'Horas extra de la cuadrilla', typeId: 'personal', unit: 'hora', unitCost: 40000, planned: false, reason: 'riesgo', riskId: 'R-001', reserveAmount: 2000000, addedDate: '2026-09-05', status: 'solicitado', absences: [] });
+    tasks[2].resources = [...tasks[2].resources, { resourceId: 'r2', name: 'Grúa telescópica de 50 t', units: 1 }];
+    await PM.store.set(P.tool(id, 'wbs'), wbs);
+    await PM.store.set(P.tool(id, 'schedule'), { settings, tasks });
+    await PM.store.set(P.tool(id, 'costs'), costs);
+    await PM.store.set(P.tool(id, 'resources'), { preset: 'alquiler', types: [], items });
+    PM.selectProject(id, 'tablero');
+    return id;
+  }, { baseline });
+}
+{
+  const app = await openApp({ file, width: 1360, height: 950 });
+  const p = app.page;
+  const text = (pg, sel) => pg.locator(sel).first().innerText().then(norm);
+  const M = (v) => p.evaluate((v) => PM.fmt.money(v, 'COP').replace(/[  ]/g, ' '), v);
+  try {
+    await seedReserve(p);
+    await p.waitForTimeout(300);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'presupuesto' }));
+    await p.waitForSelector('[data-role="reserve-use"] [data-reserve="r2"]');
+    const cell = (row, col = 'cur') => text(p, `[data-row="${row}"] [data-col="${col}"]`);
+    check('reserva sin duplicar: BAC vigente con la grúa asignada (20 + 20 + 4 + 3 = 47 M) frente a LB0 (44 M)', (await cell('activities')) === norm(await M(47e6)) && (await cell('activities', 'bl')) === norm(await M(44e6)), [await cell('activities'), await cell('activities', 'bl')]);
+    check('reserva sin duplicar: horas extra sin actividad como cuenta aparte (2 M)', (await cell('unassigned')) === norm(await M(2e6)) && (await cell('unassigned', 'bl')) === '—');
+    check('reserva sin duplicar: reserva total 10 M y consumida −5 M', (await p.inputValue('[data-field="contingency"]')).replace(/\D/g, '') === '10000000' && (await cell('used')) === norm('−' + await M(5e6)));
+    check('reserva sin duplicar: línea base del plan vigente = 47 + 2 + 5 = 54 M, igual a LB0', (await cell('baseline')) === norm(await M(54e6)) && (await cell('baseline', 'bl')) === norm(await M(54e6)));
+    check('reserva sin duplicar: presupuesto del proyecto 59 M, igual al aprobado (sin aviso de sobrecosto)', (await cell('total')) === norm(await M(59e6)) && /Coincide con el presupuesto aprobado/.test(await text(p, '[data-role="budget-compare"]')) && !/supera el aprobado/.test(await text(p, '[data-role="ledger"]')));
+    check('reserva sin duplicar: la diferencia del BAC la cubre la reserva (aviso informativo, no de cambio de línea base)', /difiere de la línea base LB0 en \+\$ 3\.000\.000: lo cubre la reserva para contingencias/.test(await text(p, '[data-role="budget-reserve-note"]')) && !/Si el cambio está aprobado, establece una nueva línea base/.test(await text(p, '[data-role="ledger"]')));
+    const legend = await text(p, '[data-role="ledger"] .legend');
+    check('reserva sin duplicar: composición con las respuestas sin actividad y la reserva disponible', /Respuestas a riesgos sin actividad\s*\$ 2 M/.test(legend) && /Reserva para contingencias disponible\s*\$ 5 M/.test(legend), legend);
+    const tiles = await p.$$eval('[data-role="reserve-tiles"] [data-metric]', (els) => Object.fromEntries(els.map((e) => [e.dataset.metric, e.querySelector('.evm-metric-full').textContent.replace(/[  ]/g, ' ').trim()])));
+    check('reserva sin duplicar: «Disponible» de la tarjeta = el que suma la línea base (5 M)', tiles['reserve-total'] === await M(10e6) && tiles['reserve-used'] === await M(5e6) && tiles['reserve-available'] === await M(5e6), tiles);
+    check('reserva sin duplicar: costo de cada recurso en el cronograma', (await text(p, '[data-reserve="r2"] [data-col="assigned"]')) === norm(await M(3e6)) && /Sin actividad/.test(await text(p, '[data-reserve="r3"] [data-col="assigned"]')));
+    const flow = await text(p, '[data-role="reserve-flow"]');
+    check('reserva sin duplicar: nota de a dónde pasa lo consumido', flow.includes(norm(await M(3e6)) + ' ya está en el costo de actividades calculadas por recursos') && flow.includes(norm(await M(2e6)) + ' se suma como «Respuestas a riesgos sin actividad»') && /no se cuenta dos veces/.test(flow), flow);
+    /* la EDC del plan actual (núcleo, PM.res.cbsTree) da el mismo presupuesto y la misma reserva disponible */
+    const cbs = await p.evaluate(async () => {
+      const pid = PM.getState().projectId; const P = PM.paths;
+      const [schedule, resources, costs, wbs, project] = await Promise.all([PM.store.get(P.tool(pid, 'schedule')), PM.store.get(P.tool(pid, 'resources')), PM.store.get(P.tool(pid, 'costs')), PM.store.get(P.tool(pid, 'wbs')), PM.store.get(P.project(pid))]);
+      const sched = PM.calc.computeSchedule(PM.res.applyCosts(schedule, resources), project.start);
+      const root = PM.res.cbsTree({ tree: PM.calc.wbsTree(wbs.nodes), sched, schedule, data: resources, reserves: costs.reserves, source: 'plan' });
+      const base = root.children.find((c) => c.id === 'cbs:lb');
+      return { total: root.value, base: base.value, cont: base.children.find((c) => c.id === 'cbs:cont').value };
+    });
+    check('reserva sin duplicar: la EDC «Plan actual» coincide (59 M, línea base 54 M, reserva disponible 5 M)', cbs.total === 59e6 && cbs.base === 54e6 && cbs.cont === 5e6, cbs);
+    if (shots) await p.locator('[data-role="ledger"]').screenshot({ path: join(shots, 'evm-reserva-sin-duplicar.png') });
+
+    /* sin línea base: los requisitos de financiamiento usan el plan vigente con la misma regla */
+    await seedReserve(p, { baseline: false });
+    await p.waitForTimeout(300);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'presupuesto' }));
+    await p.waitForSelector('[data-role="funding-baseline"]');
+    check('sin línea base: financiamiento con la línea base del plan vigente (54 M) y total 59 M', (await text(p, '[data-role="funding-baseline"]')) === norm('Línea base de costos: ' + await M(54e6)) && (await text(p, '[data-role="funding-total"]')) === norm('Financiamiento total: ' + await M(59e6)), [await text(p, '[data-role="funding-baseline"]'), await text(p, '[data-role="funding-total"]')]);
+    const fnote = await text(p, '[data-role="funding-note"]');
+    check('sin línea base: la nota del financiamiento separa las respuestas sin actividad y la reserva disponible', fnote.includes('respuestas a riesgos sin actividad (' + norm(await M(2e6)) + ')') && fnote.includes('reserva para contingencias disponible (' + norm(await M(5e6)) + ')'), fnote);
+    check('sin línea base: presupuesto igual al aprobado', /Coincide con el presupuesto aprobado/.test(await text(p, '[data-role="budget-compare"]')));
+    check('reserva sin duplicar: sin tarjetas de error', (await errorCards(p)).length === 0);
+  } catch (e) {
+    check('reserva sin duplicar: excepción', false, String(e && e.stack || e).slice(0, 800));
+  }
+  check('reserva sin duplicar: sin errores de consola', app.errors.length === 0, app.errors.slice(0, 3));
   await app.browser.close();
 }
 

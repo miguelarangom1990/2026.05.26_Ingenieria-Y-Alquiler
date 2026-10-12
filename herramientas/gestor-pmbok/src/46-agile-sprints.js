@@ -182,6 +182,9 @@ td.ags-actions { background: var(--surface); }
 .ags-capsug-why { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--fg-2); }
 .ags-capsug-why li { display: inline-flex; gap: 5px; align-items: flex-start; min-width: 0; }
 .ags-capsug-why li > .icon { flex: none; margin-top: 1px; color: var(--fg-3); }
+.ags-capsug-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ags-capsug-why-h { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-2); }
+.ags-capsug-group.is-known .ags-capsug-why-h { font-weight: 500; color: var(--fg-3); }
 .ags-capsug .table td, .ags-capsug .table th { white-space: nowrap; }
 .ags-capsug .table td:first-child { white-space: normal; min-width: 150px; }
 .ags-capsug-meter { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; max-width: 420px; }
@@ -1338,7 +1341,9 @@ td.ags-actions { background: var(--surface); }
      PM.res.teamCapacity con las personas del catálogo de recursos marcadas como «Equipo ágil»: días-persona disponibles
      en la iteración (dedicación, festivos, ausencias y rango de disponibilidad) frente a una iteración habitual completa
      (settings.sprintLength); la sugerida es la velocidad media × esa proporción (puntos) o la suma de horas (horas).
-     Aquí solo se explica qué redujo la disponibilidad (festivos, ausencias, fuera de rango, dedicación parcial). */
+     Se explica qué redujo la disponibilidad solo si la proporción es menor que 1 (iteración más corta por festivos,
+     ausencias, días fuera de rango). La dedicación parcial y los festivos que no acortan la iteración ya están en la
+     referencia (iteración habitual o iteraciones de la velocidad): se listan aparte como «Ya considerado». */
   const teamMembersOf = (cat) => (cat && Array.isArray(cat.items) ? cat.items.filter((it) => !it.virtual && it.agileTeam && cat.kindOf(it) === 'trabajo' && it.status !== 'liberado') : []);
   function capacityDetail(m, s, cal) {
     const R = PM.res;
@@ -1412,12 +1417,23 @@ td.ags-actions { background: var(--surface); }
       ? 'Suma de los días-persona disponibles por las horas por día de cada miembro.'
       : sug !== null ? 'Velocidad media de ' + fpts(vel.avg3, unit) + ' (' + lastClosed(Math.min(3, vel.closed)) + ' del proyecto) × ' + fmt.pct(ratio || 0, 1) + (byVel ? ' de los días-persona con que se logró.' : ' de disponibilidad.')
         : 'Sin velocidad: cierra al menos una iteración para llevar los días-persona a ' + (unit === 'h' ? 'horas' : 'puntos') + '.';
-    const why = [];
-    if (info.days !== info.length) why.push({ k: 'len', icon: 'calendar', text: 'La iteración tiene ' + wdText(info.days) + '; una habitual, ' + wdText(info.length) + '.' });
-    if (info.holidays.length) why.push({ k: 'hol', icon: 'flag', text: (info.holidays.length === 1 ? 'Festivo: ' : 'Festivos: ') + nameList(info.holidays, (h) => fmt.date(h.date, 'dow') + ' (' + h.name + ')') + '.' });
-    if (info.absent.length) why.push({ k: 'abs', icon: 'user', text: 'Ausencias: ' + nameList(info.absent, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
-    if (info.outside.length) why.push({ k: 'out', icon: 'clock', text: 'Fuera de su disponibilidad: ' + nameList(info.outside, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
-    if (info.partial.length) why.push({ k: 'ded', icon: 'user', text: 'Dedicación parcial: ' + nameList(info.partial, (a) => a.name + ' (' + fmt.num(a.pct, 0) + ' %)') + '.' });
+    /* motivos: solo reducen la disponibilidad si la proporción es menor que 1 (como se muestra, con un decimal) */
+    const reduced = ratio === null || ratio < 0.9995;
+    const shorter = info.days < info.length;
+    const holText = () => (info.holidays.length === 1 ? 'Festivo: ' : 'Festivos: ') + nameList(info.holidays, (h) => fmt.date(h.date, 'dow') + ' (' + h.name + ')');
+    const why = [], known = [];
+    if (reduced) {
+      if (shorter) why.push({ k: 'len', icon: 'calendar', text: 'La iteración tiene ' + wdText(info.days) + '; una habitual, ' + wdText(info.length) + '.' });
+      if (shorter && info.holidays.length) why.push({ k: 'hol', icon: 'flag', text: holText() + '.' });
+      if (info.absent.length) why.push({ k: 'abs', icon: 'user', text: 'Ausencias: ' + nameList(info.absent, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
+      if (info.outside.length) why.push({ k: 'out', icon: 'clock', text: 'Fuera de su disponibilidad: ' + nameList(info.outside, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
+      /* con la velocidad, la referencia puede tener más días-persona por el equipo de entonces */
+      if (!why.length && byVel) why.push({ k: 'ref', icon: 'info', text: 'Las iteraciones de referencia tuvieron ' + fmt.num(ref.personDays, 1) + ' días-persona en promedio, con el equipo de entonces.' });
+    }
+    if (info.days > info.length) known.push({ k: 'len', icon: 'calendar', text: 'La iteración tiene ' + wdText(info.days) + '; una habitual, ' + wdText(info.length) + ' (más disponibilidad).' });
+    if (!shorter && info.holidays.length) known.push({ k: 'hol', icon: 'flag', text: holText() + '; la iteración conserva sus ' + wdText(info.days) + '.' });
+    if (info.partial.length) known.push({ k: 'ded', icon: 'user', text: 'Dedicación parcial: ' + nameList(info.partial, (a) => a.name + ' (' + fmt.num(a.pct, 0) + ' %)') + '.' });
+    const whyId = 'ags-capsug-why-' + s.id, knownId = 'ags-capsug-known-' + s.id;
     const use = () => {
       if (same || sug === null) return;
       act.sprintPatch(s, { capacity: sug });
@@ -1437,7 +1453,10 @@ td.ags-actions { background: var(--surface); }
           <${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} aria-controls=${tblId} data-role="capacity-detail-toggle" onClick=${() => setOpen((v) => !v)}>${open ? 'Ocultar el detalle' : 'Ver el detalle'}</${ui.Button}>
         </div>
       </div>
-      ${why.length ? html`<ul class="ags-capsug-why" data-role="capacity-why">${why.map((w) => html`<li key=${w.k} data-why=${w.k}><${ui.Icon} name=${w.icon} size=${13} /><span>${w.text}</span></li>`)}</ul>` : null}
+      ${why.length ? html`<div class="ags-capsug-group" data-role="capacity-why-group"><span class="ags-capsug-why-h" id=${whyId}>Reducen la disponibilidad</span>
+        <ul class="ags-capsug-why" data-role="capacity-why" aria-labelledby=${whyId}>${why.map((w) => html`<li key=${w.k} data-why=${w.k}><${ui.Icon} name=${w.icon} size=${13} /><span>${w.text}</span></li>`)}</ul></div>` : null}
+      ${known.length ? html`<div class="ags-capsug-group is-known" data-role="capacity-known-group"><span class="ags-capsug-why-h" id=${knownId}>${byVel ? 'Ya considerado en las iteraciones de referencia' : 'Ya considerado en la iteración habitual'}</span>
+        <ul class="ags-capsug-why" data-role="capacity-known" aria-labelledby=${knownId}>${known.map((w) => html`<li key=${w.k} data-known=${w.k}><${ui.Icon} name=${w.icon} size=${13} /><span>${w.text}</span></li>`)}</ul></div>` : null}
       ${open ? html`<div id=${tblId} class="stack-sm" style="gap:6px">
         <div class="table-wrap"><table class="table table-tight" data-role="capacity-members"><caption class="sr-only">Disponibilidad de los miembros del equipo en ${spName(s)}</caption>
           <thead><tr><th>Miembro</th><th class="num">Dedicación</th><th class="num">Días-persona disponibles</th><th class="num">Iteración habitual</th>${hours ? html`<th class="num">Horas</th>` : null}<th class="num">Ausencias</th></tr></thead>

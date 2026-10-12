@@ -378,6 +378,7 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   ok('fórmula de la capacidad sugerida (velocidad media × proporción)', /velocidad media × proporción/.test(g('Capacidad del equipo').formula || ''), g('Capacidad del equipo').formula);
   ok('recurso no planificado: motivos que cambian o no la línea base', /no cambian la línea base/.test(g('Recurso no planificado').definition) && /solicitud de cambio/.test(g('Recurso no planificado').definition) && /reserva para contingencias/.test(g('Recurso no planificado').definition), '');
   ok('precio global: no cambia al agregar recursos', /no cambia su costo/.test(g('Precio global (a todo costo)').definition), '');
+  ok('reserva para contingencias: el consumo por riesgos pasa a las cuentas de control sin contarse dos veces (SPEC §10.3)', /pasa a las cuentas de control/.test(g('Reserva para contingencias').definition) && /reserva disponible baja/.test(g('Reserva para contingencias').definition) && /dos veces/.test(g('Reserva para contingencias').definition), g('Reserva para contingencias').definition);
   eq('term(cbs) y term(edc)', [KB.term('cbs') && KB.term('cbs').term, KB.term('edc') && KB.term('edc').term], ['Estructura de desglose de costos', 'Estructura de desglose de costos']);
   eq('term(rbs) sigue siendo la de recursos (EDR/RBS)', KB.term('rbs') && KB.term('rbs').term, 'Estructura de desglose de recursos');
   eq('term(catalogo de recursos) sin tildes', KB.term('catalogo de recursos') && KB.term('catalogo de recursos').term, 'Catálogo de recursos');
