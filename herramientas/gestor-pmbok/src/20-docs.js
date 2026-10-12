@@ -1194,7 +1194,7 @@
         </section>`;
       })}
       ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl || ap === 'adaptativo')}>
-        <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naRows.filter((e) => e.type !== 'instance').length} · no cuentan en el avance</span></summary>
+        <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naTpl} · no cuentan en el avance</span></summary>
         <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido, que se elige en <${LifecycleWhere} />.</p>
         <div class="table-wrap docs-tablewrap"><table class=${tableCls} aria-label="Plantillas ágiles que no aplican a este proyecto">
           ${tableHead()}
