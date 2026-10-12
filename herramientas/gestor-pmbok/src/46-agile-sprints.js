@@ -172,10 +172,11 @@ td.ags-actions { background: var(--surface); }
 /* capacidad sugerida por la disponibilidad del equipo (catálogo de recursos, §10.4) */
 .ags-capsug { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); min-width: 0; }
 .ags-capsug[data-state="no-members"], .ags-capsug[data-state="no-dates"] { border-left-color: var(--info); }
-.ags-capsug-head { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
-.ags-capsug-head > .icon { flex: none; margin-top: 2px; color: var(--accent); }
+.ags-capsug-head { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 6px 10px; align-items: start; }
+@media (max-width: 760px) { .ags-capsug-head { grid-template-columns: 16px minmax(0, 1fr); } .ags-capsug-acts { grid-column: 2; } }
+.ags-capsug-head > .icon { margin-top: 3px; color: var(--accent); }
 .ags-capsug[data-state="no-members"] .ags-capsug-head > .icon, .ags-capsug[data-state="no-dates"] .ags-capsug-head > .icon { color: var(--info); }
-.ags-capsug-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
+.ags-capsug-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
 .ags-capsug-val { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-lg); color: var(--fg); white-space: nowrap; }
 .ags-capsug-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .ags-capsug-why { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--fg-2); }
@@ -1333,6 +1334,116 @@ td.ags-actions { background: var(--surface); }
     </section>`;
   }
 
+  /* ---------------------------------------------------------------- capacidad sugerida (SPEC §10.4)
+     PM.res.teamCapacity con las personas del catálogo de recursos marcadas como «Equipo ágil»: días-persona disponibles
+     en la iteración (dedicación, festivos, ausencias y rango de disponibilidad) frente a una iteración habitual completa
+     (settings.sprintLength); la sugerida es la velocidad media × esa proporción (puntos) o la suma de horas (horas).
+     Aquí solo se explica qué redujo la disponibilidad (festivos, ausencias, fuera de rango, dedicación parcial). */
+  const teamMembersOf = (cat) => (cat && Array.isArray(cat.items) ? cat.items.filter((it) => !it.virtual && it.agileTeam && cat.kindOf(it) === 'trabajo' && it.status !== 'liberado') : []);
+  function capacityDetail(m, s, cal) {
+    const R = PM.res;
+    const members = teamMembersOf(m.catalog);
+    if (!R || !members.length) return { members, tc: null };
+    if (!D.valid(s.start) || !D.valid(s.end) || s.end < s.start || !cal) return { members, tc: null, noDates: true };
+    const tc = R.teamCapacity({ data: m.resources, schedule: m.schedule, sprint: s, cal, settings: m.settings, velocity: m.velocity });
+    const ww = cal.settings && [5, 6, 7].includes(Number(cal.settings.workweek)) ? Number(cal.settings.workweek) : 5;
+    const weekday = (d) => { const w = D.dow(d); return ww === 7 ? true : ww === 6 ? w !== 0 : w !== 0 && w !== 6; };
+    const days = [], holidays = [];
+    for (let d = s.start, g = 0; d <= s.end && g < 400; d = D.add(d, 1), g++) {
+      if (cal.isWork(d)) days.push(d);
+      else if (weekday(d)) holidays.push({ date: d, name: (cal.holidayName && cal.holidayName(d)) || 'No laborable' });
+    }
+    const byId = new Map(members.map((x) => [x.id, x]));
+    const absent = [], outside = [], partial = [];
+    const rows = tc.members.map((row) => {
+      const it = byId.get(row.id);
+      let nAbs = 0, nOut = 0;
+      if (it) for (const d of days) {
+        if (R.availableOn(it, d) !== 0) continue;
+        if (arr(it.absences).some((a) => D.valid(a.from) && d >= a.from && d <= (D.valid(a.to) ? a.to : a.from))) nAbs++; else nOut++;
+      }
+      if (nAbs) absent.push({ name: row.name, days: nAbs });
+      if (nOut) outside.push({ name: row.name, days: nOut });
+      if (row.dedication < 100) partial.push({ name: row.name, pct: row.dedication });
+      return { ...row, absent: nAbs, outside: nOut };
+    });
+    const length = Math.max(1, Math.round(num(m.settings && m.settings.sprintLength, days.length || 10)));
+    return { members, tc, rows, days: days.length, length, holidays, absent, outside, partial };
+  }
+  const nameList = (list, fmtOne) => list.slice(0, 4).map(fmtOne).join(', ') + (list.length > 4 ? ' y ' + (list.length - 4) + ' más' : '');
+  function CapacitySuggestion({ s, m, cal, cap, canWrite, act }) {
+    const [open, setOpen] = useState(false);
+    const info = useMemo(() => capacityDetail(m, s, cal), [m.catalog, m.resources, m.schedule, m.settings, m.velocity, s.start, s.end, cal]);
+    if (!PM.res) return null;
+    const unit = m.unit;
+    const tblId = 'ags-capsug-tbl-' + s.id;
+    const toCatalog = () => PM.navigate('recursos', { tab: 'catalogo' });
+    const catalogBtn = html`<${ui.Button} size="sm" variant="ghost" icon="resources" data-role="capacity-catalog" onClick=${toCatalog}>Ir al catálogo de recursos</${ui.Button}>`;
+    if (!info.members.length) {
+      return html`<div class="ags-capsug" data-role="capacity-suggestion" data-state="no-members">
+        <div class="ags-capsug-head"><${ui.Icon} name="info" size=${16} />
+          <div class="ags-capsug-main"><strong>Capacidad sugerida</strong>
+            <span class="small">Sin miembros del equipo ágil en el catálogo de recursos. Marca a las personas del equipo como «Equipo ágil», con su dedicación y sus ausencias, y la planificación sugerirá la capacidad de cada iteración con su disponibilidad real.</span></div>
+          <div class="ags-capsug-acts">${catalogBtn}</div>
+        </div>
+      </div>`;
+    }
+    const nMem = countLabel(info.members.length, 'miembro del equipo', 'miembros del equipo');
+    if (info.noDates) {
+      return html`<div class="ags-capsug" data-role="capacity-suggestion" data-state="no-dates">
+        <div class="ags-capsug-head"><${ui.Icon} name="calendar" size=${16} />
+          <div class="ags-capsug-main"><strong>Capacidad sugerida</strong><span class="small">Define las fechas de inicio y fin de la iteración para calcular la disponibilidad de los ${nMem}.</span></div>
+          <div class="ags-capsug-acts">${catalogBtn}</div>
+        </div>
+      </div>`;
+    }
+    const tc = info.tc;
+    const sug = PM.isNum(tc.suggested) ? Number(tc.suggested) : null;
+    const ratio = tc.ratio;
+    const same = sug !== null && cap !== null && Math.abs(cap - sug) < 0.05;
+    const hours = tc.unit === 'horas';
+    const vel = m.velocity;
+    const basis = hours
+      ? 'Suma de los días-persona disponibles por las horas por día de cada miembro.'
+      : sug !== null ? 'Velocidad media de ' + fpts(vel.avg3, unit) + ' (' + lastClosed(Math.min(3, vel.closed)) + ' del proyecto) × ' + fmt.pct(ratio || 0, 1) + ' de disponibilidad.'
+        : 'Sin velocidad: cierra al menos una iteración para llevar los días-persona a ' + (unit === 'h' ? 'horas' : 'puntos') + '.';
+    const why = [];
+    if (info.days !== info.length) why.push({ k: 'len', icon: 'calendar', text: 'La iteración tiene ' + wdText(info.days) + '; una habitual, ' + wdText(info.length) + '.' });
+    if (info.holidays.length) why.push({ k: 'hol', icon: 'flag', text: (info.holidays.length === 1 ? 'Festivo: ' : 'Festivos: ') + nameList(info.holidays, (h) => fmt.date(h.date, 'dow') + ' (' + h.name + ')') + '.' });
+    if (info.absent.length) why.push({ k: 'abs', icon: 'user', text: 'Ausencias: ' + nameList(info.absent, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
+    if (info.outside.length) why.push({ k: 'out', icon: 'clock', text: 'Fuera de su disponibilidad: ' + nameList(info.outside, (a) => a.name + ' (' + wdText(a.days) + ')') + '.' });
+    if (info.partial.length) why.push({ k: 'ded', icon: 'user', text: 'Dedicación parcial: ' + nameList(info.partial, (a) => a.name + ' (' + fmt.num(a.pct, 0) + ' %)') + '.' });
+    const use = () => {
+      if (same || sug === null) return;
+      act.sprintPatch(s, { capacity: sug });
+      PM.toast('Capacidad de ' + spName(s) + ': ' + fpts(sug, unit) + ', sugerida por la disponibilidad del equipo.');
+    };
+    const meterLabel = 'Disponibilidad del equipo: ' + fmt.num(tc.personDays, 1) + ' de ' + fmt.num(tc.normal, 1) + ' días-persona de una iteración habitual (' + fmt.pct(ratio || 0, 1) + ')';
+    return html`<div class="ags-capsug" data-role="capacity-suggestion" data-state="ok">
+      <div class="ags-capsug-head"><${ui.Icon} name="user" size=${16} />
+        <div class="ags-capsug-main">
+          <div><strong>Capacidad sugerida: </strong><span class="ags-capsug-val" data-role="capacity-suggested">${sug !== null ? fpts(sug, unit) : '—'}</span>${same ? html` <${ui.Chip} tone="good" icon="check">Igual a la capacidad registrada</${ui.Chip}>` : null}</div>
+          <span class="small" data-role="capacity-availability">${nMem} · ${fmt.num(tc.personDays, 1)} de ${fmt.num(tc.normal, 1)} días-persona de una iteración habitual (${fmt.pct(ratio || 0, 1)})${hours ? ' · ' + fmt.num(tc.hours, 1) + ' h' : ''}</span>
+          <div class="ags-capsug-meter" role="img" aria-label=${meterLabel}><span style=${'width:' + Math.min(1, Math.max(0, ratio || 0)) * 100 + '%'}></span></div>
+          <span class="xsmall muted" data-role="capacity-basis">${basis}${cap !== null && sug !== null && !same ? ' Capacidad registrada: ' + fpts(cap, unit) + ' (' + signedPts(cap - sug, unit) + ' frente a la sugerida).' : ''}</span>
+        </div>
+        <div class="ags-capsug-acts">
+          ${canWrite && sug !== null ? html`<${ui.Button} size="sm" variant=${same ? undefined : 'primary'} icon="check" data-role="capacity-use" aria-disabled=${same ? 'true' : undefined} title=${same ? 'La capacidad registrada ya es la sugerida' : 'Fija la capacidad de la iteración en ' + fpts(sug, unit)} onClick=${use}>Usar la sugerida</${ui.Button}>` : null}
+          <${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} aria-controls=${tblId} data-role="capacity-detail-toggle" onClick=${() => setOpen((v) => !v)}>${open ? 'Ocultar el detalle' : 'Ver el detalle'}</${ui.Button}>
+        </div>
+      </div>
+      ${why.length ? html`<ul class="ags-capsug-why" data-role="capacity-why">${why.map((w) => html`<li key=${w.k} data-why=${w.k}><${ui.Icon} name=${w.icon} size=${13} /><span>${w.text}</span></li>`)}</ul>` : null}
+      ${open ? html`<div id=${tblId} class="stack-sm" style="gap:6px">
+        <div class="table-wrap"><table class="table table-tight" data-role="capacity-members"><caption class="sr-only">Disponibilidad de los miembros del equipo en ${spName(s)}</caption>
+          <thead><tr><th>Miembro</th><th class="num">Dedicación</th><th class="num">Días-persona disponibles</th><th class="num">Iteración habitual</th>${hours ? html`<th class="num">Horas</th>` : null}<th class="num">Ausencias</th></tr></thead>
+          <tbody>${info.rows.map((r) => html`<tr key=${r.id} data-member=${r.id}><td>${r.name}</td><td class="num">${fmt.num(r.dedication, 0)} %</td><td class="num">${fmt.num(r.personDays, 1)}</td><td class="num">${fmt.num(r.normal, 1)}</td>${hours ? html`<td class="num">${fmt.num(r.hours, 1)}</td>` : null}<td class="num">${r.absent ? wdText(r.absent) : '—'}</td></tr>`)}</tbody>
+          <tfoot><tr><td>Total</td><td></td><td class="num">${fmt.num(tc.personDays, 1)}</td><td class="num">${fmt.num(tc.normal, 1)}</td>${hours ? html`<td class="num">${fmt.num(tc.hours, 1)}</td>` : null}<td></td></tr></tfoot>
+        </table></div>
+        <div class="row" style="gap:6px 12px"><span class="xsmall muted">Dedicación, horas por día, ausencias y fechas de disponibilidad se editan en el catálogo de recursos.</span>${catalogBtn}</div>
+      </div>` : null}
+    </div>`;
+  }
+
   /* Fila de elemento (planificación): se vuelve a dibujar solo si cambian sus datos. */
   const itemSig = (it) => [it.id, it.code, it.title, it.estimate, it.status, it.priority, it.blocked ? 1 : 0, it.type, it.sprintId].join('\u0001');
   const ItemRow = PM.memo(function ItemRow({ it, mode, statusText, statusTone, unit, canAct, onAct, sprintName, note }) {
@@ -1419,6 +1530,7 @@ td.ags-actions { background: var(--surface); }
           <${ui.Field} label=${'Capacidad (' + unit + ')'} for=${capId} hint=${closed || !canWrite ? null : 'Disponibilidad real del equipo.'}><${DraftNumber} id=${capId} value=${s.capacity} min=${0} disabled=${!canWrite || closed} onCommit=${(v) => act.sprintPatch(s, { capacity: v })} /></${ui.Field}>
         </div>
         ${noGoal ? html`<div class="ags-flag" data-role="no-goal"><${ui.Icon} name="alert" size=${14} />${canWrite ? (planned ? 'Sin objetivo: escríbelo antes de iniciar; es el compromiso del equipo para la iteración.' : 'Sin objetivo de iteración registrado: es el compromiso del equipo; escríbelo arriba.') : 'Sin objetivo de iteración registrado.'}</div>` : null}
+        ${!closed ? html`<${CapacitySuggestion} s=${s} m=${m} cal=${m.sched.cal} cap=${cap} canWrite=${canWrite} act=${act} />` : null}
         <div class="ags-commit" data-role="commitment">
           <div class="ags-commit-text">
             ${planned

@@ -1104,6 +1104,143 @@ for (const width of [400, 1280, 1360, 1600]) {
   } finally { await browser.close(); }
 }
 
+/* ================================================================== capacidad sugerida con el catálogo de recursos (SPEC §10.4) */
+{
+  /* equipo ágil de la iteración 3 (1–14 sep 2026, 10 días hábiles): A con 2 días de ausencia, B al 50 % y 6 h por día,
+     C disponible hasta el 11 sep (1 día fuera de rango), D no es del equipo ágil, E del equipo pero liberado */
+  const TEAM = { preset: 'ti', types: [], items: [
+    { id: 'ra', code: 'REC-001', name: 'Desarrollador líder', typeId: 'personas', unit: 'persona', availability: 1, unitCost: 450000, agileTeam: true, dedication: 100, hoursPerDay: 8, planned: true, status: 'disponible', absences: [{ id: 'x1', from: '2026-09-03', to: '2026-09-04', note: 'Capacitación' }] },
+    { id: 'rb', code: 'REC-002', name: 'Dueño del producto', typeId: 'personas', unit: 'persona', availability: 1, unitCost: 500000, agileTeam: true, dedication: 50, hoursPerDay: 6, planned: true, status: 'disponible', absences: [] },
+    { id: 'rc', code: 'REC-003', name: 'Analista de pruebas', typeId: 'personas', unit: 'persona', availability: 1, unitCost: 300000, agileTeam: true, dedication: 100, hoursPerDay: 8, planned: true, status: 'disponible', availableTo: '2026-09-11', absences: [] },
+    { id: 'rd', code: 'REC-004', name: 'Servidor de pruebas', typeId: 'infraestructura', unit: 'mes', unitCost: 900000, agileTeam: false, planned: true, status: 'disponible', absences: [] },
+    { id: 're', code: 'REC-005', name: 'Consultor externo', typeId: 'consultoria', unit: 'persona', availability: 1, unitCost: 700000, agileTeam: true, dedication: 100, hoursPerDay: 8, planned: true, status: 'liberado', absences: [] },
+  ] };
+  const { browser, page, errors, pid } = await newApp({ width: 1360, height: 950 });
+  const planner = '[data-role="planner"][data-sprint-id="s3"]';
+  const sug = planner + ' [data-role="capacity-suggestion"]';
+  /* lo que calcula el núcleo con los mismos datos guardados */
+  const expected = () => page.evaluate(async (pid) => {
+    const P = PM.paths;
+    const [project, schedule, agile, resources, list] = await Promise.all([PM.store.get(P.project(pid)), PM.store.get(P.tool(pid, 'schedule')), PM.store.get(P.tool(pid, 'agile')), PM.store.get(P.tool(pid, 'resources')), PM.store.list(P.backlog(pid))]);
+    const settings = PM.agile.settings(agile);
+    const items = list.map((d) => ({ ...d.data, id: d.id }));
+    const velocity = PM.calc.velocity({ sprints: agile.sprints, items, settings });
+    const cal = PM.calc.computeSchedule(schedule, project.start).cal;
+    const tc = PM.res.teamCapacity({ data: resources, schedule, sprint: agile.sprints.find((s) => s.id === 's3'), cal, settings, velocity });
+    return { tc, unit: PM.agile.unitShort(settings), sugText: tc.suggested === null ? '—' : PM.fmt.num(tc.suggested, 1) + ' ' + PM.agile.unitShort(settings), avg: velocity.avg3 };
+  }, pid);
+  try {
+    await step('Capacidad sugerida sin equipo ágil en el catálogo: pista con enlace a Recursos › Catálogo (teclado)', async () => {
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector(sug);
+      eq(await page.getAttribute(sug, 'data-state'), 'no-members', 'estado sin miembros');
+      assert(/Sin miembros del equipo ágil en el catálogo de recursos/.test(nb(await page.locator(sug).innerText())), 'pista con texto');
+      await page.focus(sug + ' [data-role="capacity-catalog"]');
+      await page.keyboard.press('Enter');
+      await until(page, () => page.evaluate(() => PM.getState().view === 'recursos'), 'navega a recursos');
+      eq(await page.evaluate(() => PM.getState().params), { tab: 'catalogo' }, 'abre la pestaña Catálogo');
+    });
+
+    await step('Capacidad sugerida con el equipo del catálogo: días-persona, proporción y valor (PM.res.teamCapacity)', async () => {
+      await page.evaluate(async ({ pid, TEAM }) => PM.store.set(PM.paths.tool(pid, 'resources'), TEAM), { pid, TEAM });
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector(sug + '[data-state="ok"]');
+      const ex = await expected();
+      eq([ex.tc.members.length, ex.tc.personDays, ex.tc.normal], [3, 22, 25], 'núcleo: 3 miembros (sin el que no es del equipo ni el liberado), 8 + 5 + 9 de 10 + 5 + 10 días-persona');
+      assert(ex.avg !== null && ex.tc.suggested === Math.round(ex.avg * (22 / 25) * 10) / 10, 'sugerida = velocidad media × proporción: ' + JSON.stringify(ex));
+      eq(nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText()), ex.sugText, 'valor sugerido en la vista');
+      const av = nb(await page.locator(sug + ' [data-role="capacity-availability"]').innerText());
+      assert(/3 miembros del equipo · 22 de 25 días-persona de una iteración habitual \(88 %\)/.test(av), 'disponibilidad: ' + av);
+      const basis = nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText());
+      assert(/^Velocidad media de .+ × 88 % de disponibilidad\./.test(basis) && /Capacidad registrada: 14 pts/.test(basis), 'base de la sugerida y comparación con la registrada: ' + basis);
+      const why = await page.$$eval(sug + ' [data-why]', (els) => Object.fromEntries(els.map((e) => [e.dataset.why, e.textContent.replace(/[  ]/g, ' ').trim()])));
+      eq(Object.keys(why).sort(), ['abs', 'ded', 'out'], 'motivos: ausencias, fuera de rango y dedicación (sin festivos ni iteración corta)');
+      assert(/Desarrollador líder \(2 días hábiles\)/.test(why.abs) && /Analista de pruebas \(1 día hábil\)/.test(why.out) && /Dueño del producto \(50 %\)/.test(why.ded), JSON.stringify(why));
+      assert((await page.getAttribute(sug + ' .ags-capsug-meter', 'aria-label')).includes('22 de 25 días-persona'), 'medidor con nombre accesible');
+      /* detalle por miembro con el teclado */
+      const tg = sug + ' [data-role="capacity-detail-toggle"]';
+      eq(await page.getAttribute(tg, 'aria-expanded'), 'false', 'detalle plegado');
+      await page.focus(tg); await page.keyboard.press('Space');
+      await page.waitForSelector(sug + ' [data-role="capacity-members"]');
+      eq(await page.getAttribute(tg, 'aria-expanded'), 'true', 'aria-expanded');
+      eq(await page.getAttribute(tg, 'aria-controls'), await page.locator(sug + ' [data-role="capacity-members"]').evaluate((t) => t.closest('[id]').id), 'aria-controls apunta al detalle');
+      const rows = await page.$$eval(sug + ' [data-role="capacity-members"] tbody tr', (trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.replace(/[  ]/g, ' ').trim())));
+      eq(rows, [['Desarrollador líder', '100 %', '8', '10', '2 días hábiles'], ['Dueño del producto', '50 %', '5', '5', '—'], ['Analista de pruebas', '100 %', '9', '10', '—']], 'filas por miembro');
+      if (shots) await page.locator(sug).screenshot({ path: join(shots, 'capacidad-sugerida.png') });
+    });
+
+    await step('«Usar la sugerida» con el teclado fija la capacidad; el botón queda sin efecto y conserva el foco', async () => {
+      const ex = await expected();
+      const btn = sug + ' [data-role="capacity-use"]';
+      await page.focus(btn); await page.keyboard.press('Enter');
+      await until(page, async () => { const a = await getAgile(page, pid); return spr(a, 's3').capacity === ex.tc.suggested; }, 'capacidad guardada');
+      await page.waitForSelector(btn + '[aria-disabled="true"]');
+      assert(/Igual a la capacidad registrada/.test(nb(await page.locator(sug).innerText())), 'distintivo de igualdad');
+      eq(await page.evaluate(() => document.activeElement && document.activeElement.dataset.role), 'capacity-use', 'el foco sigue en el botón');
+      eq(await page.inputValue('#ags-cap-s3'), await page.evaluate((v) => PM.fmt.num(v, 4), ex.tc.suggested), 'el campo de capacidad muestra la sugerida');
+      await page.keyboard.press('Enter'); await page.waitForTimeout(300);
+      eq(spr(await getAgile(page, pid), 's3').capacity, ex.tc.suggested, 'un segundo Enter no cambia nada');
+      assert(!/Capacidad registrada/.test(nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText())), 'sin comparación cuando son iguales');
+    });
+
+    await step('Unidad en horas: la sugerida es la suma de días-persona × horas por día', async () => {
+      await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, settings: { ...a.settings, estimationUnit: 'horas' } }); }, pid);
+      await until(page, async () => / h$/.test(nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText())), 'unidad en horas');
+      eq(nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText()), '166 h', '8 × 8 + 5 × 6 + 9 × 8 = 166 h');
+      assert(/Suma de los días-persona disponibles por las horas por día/.test(nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText())), 'base en horas');
+      if (await page.getAttribute(sug + ' [data-role="capacity-detail-toggle"]', 'aria-expanded') !== 'true') await page.click(sug + ' [data-role="capacity-detail-toggle"]');
+      assert((await page.$$eval(sug + ' [data-role="capacity-members"] thead th', (ths) => ths.map((t) => t.textContent.trim()))).includes('Horas'), 'columna de horas en el detalle');
+      await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, settings: { ...a.settings, estimationUnit: 'puntos' } }); }, pid);
+      await until(page, async () => / pts$/.test(nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText())), 'vuelve a puntos');
+    });
+
+    await step('Solo lectura: la sugerida se muestra sin «Usar la sugerida»; iteración cerrada sin sugerencia', async () => {
+      await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(250);
+      assert(await page.locator(sug + '[data-state="ok"]').count() === 1 && await page.locator(sug + ' [data-role="capacity-use"]').count() === 0, 'sin acción de escritura');
+      await page.evaluate(() => PM.setState({ canWrite: true })); await page.waitForTimeout(250);
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's1' }));
+      await page.waitForSelector('[data-role="planner"][data-sprint-id="s1"]');
+      eq(await page.locator('[data-role="planner"][data-sprint-id="s1"] [data-role="capacity-suggestion"]').count(), 0, 'una iteración cerrada no sugiere capacidad');
+    });
+
+    await step('400 px: la sugerida con su detalle cabe (la tabla se desplaza dentro)', async () => {
+      await page.setViewportSize({ width: 400, height: 860 });
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector(sug + '[data-state="ok"]');
+      if (await page.getAttribute(sug + ' [data-role="capacity-detail-toggle"]', 'aria-expanded') !== 'true') await page.click(sug + ' [data-role="capacity-detail-toggle"]');
+      await page.waitForTimeout(200);
+      assert((await horizontalOverflow(page)) <= 1, 'sin desborde de la página');
+      const box = await page.locator(sug).boundingBox();
+      assert(box.x >= 0 && box.x + box.width <= 401, 'el recuadro cabe: ' + JSON.stringify(box));
+      if (shots) await page.locator(sug).screenshot({ path: join(shots, 'capacidad-sugerida-400.png') });
+      await page.setViewportSize({ width: 1360, height: 950 });
+    });
+
+    await step('Sin iteraciones cerradas: no hay velocidad y la sugerida en puntos lo explica', async () => {
+      await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, sprints: a.sprints.map((s) => (s.status === 'cerrado' ? { ...s, status: 'planeado', completed: null } : s)) }); }, pid);
+      await until(page, async () => nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText()) === '—', 'sin valor sugerido');
+      assert(/Sin velocidad: cierra al menos una iteración/.test(nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText())), 'explicación');
+      eq(await page.locator(sug + ' [data-role="capacity-use"]').count(), 0, 'sin «Usar la sugerida»');
+      assert(/22 de 25 días-persona/.test(nb(await page.locator(sug).innerText())), 'la disponibilidad se sigue mostrando');
+    });
+
+    await step('Rendimiento: 320 recursos (60 del equipo ágil con ausencias) — la planificación responde rápido', async () => {
+      const items = [];
+      for (let k = 0; k < 320; k++) items.push({ id: 'big' + k, code: 'REC-' + String(k + 1).padStart(3, '0'), name: 'Recurso ' + k, typeId: k < 60 ? 'personas' : 'infraestructura', unit: 'persona', availability: 1, unitCost: 100000, agileTeam: k < 60, dedication: 50 + (k % 6) * 10, hoursPerDay: 8, planned: true, status: 'disponible', absences: k < 60 ? [{ id: 'ab' + k, from: '2026-09-0' + (1 + (k % 8)), to: '2026-09-0' + (2 + (k % 8)) }] : [] });
+      await page.evaluate(() => PM.navigate('tablero'));
+      await page.evaluate(async ({ pid, items }) => PM.store.set(PM.paths.tool(pid, 'resources'), { preset: 'ti', types: [], items }), { pid, items });
+      const t0 = Date.now();
+      await page.evaluate(() => PM.navigate('iteraciones', { release: 'r1', sprint: 's3' }));
+      await page.waitForSelector(sug + '[data-state="ok"]');
+      const t = Date.now() - t0;
+      assert(t < 2500, 'iteraciones con 320 recursos: ' + t + ' ms');
+      assert(/60 miembros del equipo/.test(nb(await page.locator(sug).innerText())), '60 miembros');
+      console.log('     tiempo con 320 recursos: ' + t + ' ms');
+    });
+    await step('Capacidad sugerida: sin errores de consola ni tarjetas de error', async () => { eq(await errorCards(page), [], 'tarjetas de error'); eq(errors, [], 'errores de consola'); });
+  } finally { await browser.close(); }
+}
+
 /* ================================================================== móvil (400 px), tema oscuro y escritorio ancho */
 for (const cfg of [{ tag: 'móvil 400 px', width: 400, height: 860 }, { tag: 'tema oscuro', width: 1360, height: 900, dark: true }, { tag: 'escritorio 1920 px', width: 1920, height: 1000 }]) {
   const { browser, page, errors } = await newApp({ width: cfg.width, height: cfg.height, dark: cfg.dark });

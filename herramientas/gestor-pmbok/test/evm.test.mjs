@@ -575,6 +575,141 @@ await browser.close();
   await browser.close();
 }
 
+/* ---------- recursos del proyecto (SPEC §10.4): formas de costeo y consumo de las reservas por recursos no planificados */
+async function seedResources(page, { baseline = true, costMode = true, catalog = true } = {}) {
+  return page.evaluate(async ({ baseline, costMode, catalog }) => {
+    const id = await PM.projectOps.create({ name: 'Andamio con recursos', code: 'PRY-REC-050', start: '2026-08-03', end: '2026-12-18', statusDate: '2026-09-15', budget: 480000000, currency: 'COP' });
+    const P = PM.paths;
+    const wbs = { nodes: [{ id: 'w1', parentId: null, name: 'Ingeniería', order: 1 }, { id: 'w2', parentId: null, name: 'Montaje', order: 2 }] };
+    const tasks = [
+      { id: 't1', name: 'Diseño del andamio', wbsId: 'w1', duration: 10, deps: [], start: '2026-08-03', progress: 100, cost: 20e6, resources: [] },
+      { id: 't2', name: 'Montaje niveles 1 a 5', wbsId: 'w2', duration: 15, deps: [{ id: 't1', type: 'FS', lag: 0 }], progress: 50, cost: 60e6, resources: [{ resourceId: 'r1', name: 'Cuadrilla de montaje', units: 1 }], ...(costMode ? { costMode: 'recursos' } : {}) },
+      { id: 't3', name: 'Malla perimetral', wbsId: 'w2', duration: 5, deps: [{ id: 't2', type: 'FS', lag: 0 }], progress: 0, cost: 10e6, resources: [], ...(costMode ? { costMode: 'unitario', quantity: 800, unitPrice: 12000, qtyUnit: 'm²' } : {}) },
+    ];
+    const costs = { actuals: [{ id: 'a1', date: '2026-08-20', amount: 21e6, taskId: 't1' }], statusUpdates: [], reserves: { contingency: 9e6, management: 5e6 } };
+    const items = [
+      { id: 'r1', code: 'REC-001', name: 'Cuadrilla de montaje', typeId: 'personal', unit: 'cuadrilla', availability: 1, unitCost: 2800000, planned: true, status: 'disponible', absences: [] },
+      { id: 'r2', code: 'REC-002', name: 'Grúa telescópica adicional', typeId: 'izaje', unit: 'día', availability: 1, unitCost: 1500000, planned: false, reason: 'riesgo', riskId: 'R-001', reserveAmount: 6000000, addedDate: '2026-09-01', status: 'disponible', absences: [] },
+      { id: 'r3', code: 'REC-003', name: 'Plataforma de descargue nivel 8', typeId: 'equipo-alquiler', unit: 'unidad', availability: 1, unitCost: 600000, planned: false, reason: 'cambio-alcance', changeRef: 'CC-001', addedDate: '2026-09-05', status: 'solicitado', absences: [] },
+      { id: 'r4', code: 'REC-004', name: 'Montacargas de bodega', typeId: 'izaje', unit: 'día', unitCost: 700000, planned: false, reason: 'reserva-gestion', changeRef: null, addedDate: '2026-09-08', status: 'solicitado', absences: [] },
+      { id: 'r5', code: 'REC-005', name: 'Torquímetro de reemplazo', typeId: 'herramienta', unit: 'unidad', unitCost: 300000, planned: false, reason: 'sustitucion', addedDate: '2026-09-09', status: 'disponible', absences: [] },
+      { id: 'r6', code: 'REC-006', name: 'Señalización vial', typeId: 'insumo', unit: 'unidad', unitCost: 50000, planned: false, reason: null, addedDate: '2026-09-10', status: 'solicitado', absences: [] },
+    ];
+    if (baseline) {
+      const sched0 = PM.calc.computeSchedule({ settings: { workweek: 6, holidaysCO: true }, tasks }, '2026-08-03');
+      await PM.store.set(P.baseline(id, 'b0'), { number: 0, label: 'LB0', date: '2026-07-31', note: '', changeRef: null, byId: null, ...PM.calc.makeBaselineSnapshot({ includes: ['cost', 'schedule'], sched: sched0, wbs, costs }) });
+    }
+    /* después de la línea base: el montaje recibe la grúa (riesgo) y la plataforma (cambio de alcance, 5 días) */
+    tasks[1].resources = [...tasks[1].resources, { resourceId: 'r2', name: 'Grúa telescópica adicional', units: 1 }];
+    tasks[2].resources = [{ resourceId: 'r3', name: 'Plataforma de descargue nivel 8', units: 1 }];
+    await PM.store.set(P.tool(id, 'wbs'), wbs);
+    await PM.store.set(P.tool(id, 'schedule'), { settings: { workweek: 6, holidaysCO: true }, tasks });
+    await PM.store.set(P.tool(id, 'costs'), costs);
+    if (catalog) await PM.store.set(P.tool(id, 'resources'), { preset: 'alquiler', types: [], items });
+    const mk = (template, fields) => ({ ...PM.newDocBody(PM.templates[template], null, { template }), fields });
+    await PM.store.set(P.doc(id, 'registro-cambios'), mk('registro-cambios', { cambios: [{ id: 'CC-001', fecha: '2026-09-05', descripcion: 'Plataforma adicional de descargue', tipo: 'Actualización', estado: 'Aprobada' }] }));
+    await PM.store.set(P.doc(id, 'registro-riesgos'), mk('registro-riesgos', { riesgos: [{ id: 'R-001', descripcion: 'Grúa del cliente no disponible en la ventana de izaje', probabilidad: 3, impacto: 4, estado: 'Materializado' }] }));
+    PM.selectProject(id, 'tablero');
+    return id;
+  }, { baseline, costMode, catalog });
+}
+{
+  const app = await openApp({ file, width: 1360, height: 950 });
+  const p = app.page;
+  const setRes = (pid, fn) => p.evaluate(async ({ pid, fn }) => { const d = PM.clone(await PM.store.get(PM.paths.tool(pid, 'resources'))); d.items = d.items.map((x) => (new Function('x', 'return (' + fn + ')(x)'))(x)); await PM.store.set(PM.paths.tool(pid, 'resources'), d); }, { pid, fn: String(fn) });
+  const setChanges = (pid, rows) => p.evaluate(async ({ pid, rows }) => { const d = PM.clone(await PM.store.get(PM.paths.doc(pid, 'registro-cambios'))); d.fields.cambios = rows; await PM.store.set(PM.paths.doc(pid, 'registro-cambios'), d); }, { pid, rows });
+  const until = async (fn, msg, ms = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await p.waitForTimeout(80); } throw new Error('tiempo agotado: ' + msg); };
+  try {
+    const pid = await seedResources(p);
+    await p.waitForTimeout(300);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'presupuesto' }));
+    await p.waitForSelector('[data-role="reserve-use"]');
+    /* las cifras de la línea base no cambian: el BAC del valor ganado sigue siendo el de LB0 */
+    const bac = await p.evaluate(() => document.querySelector('[data-row="activities"] [data-col="bl"]').textContent.trim());
+    check('recursos: presupuesto de las actividades de la línea base sin cambios (LB0 = $ 90.000.000)', norm(bac) === norm(await p.evaluate(() => PM.fmt.money(90e6, 'COP'))), bac);
+    check('recursos: el plan vigente incluye el costo calculado (64,5 M por recursos + 9,6 M a precios unitarios + 20 M)', norm(await text(p, '[data-row="activities"] [data-col="cur"]')) === norm(await p.evaluate(() => PM.fmt.money(94.1e6, 'COP'))), await text(p, '[data-row="activities"] [data-col="cur"]'));
+    check('ledger: actividades con costo calculado y su forma', /2 con costo calculado \(1 por recursos, 1 a precios unitarios\)/.test(await text(p, '[data-row="activities"]')), await text(p, '[data-row="activities"]'));
+    check('ledger: nota de que el costo vigente puede diferir de la línea base', /puede diferir del de la línea base LB0/.test(await text(p, '[data-role="budget-mode-note"]')));
+    check('cuentas de control: «Montaje» con 2 actividades de costo calculado', /2 con costo calculado \(1 por recursos, 1 a precios unitarios\)/.test(await text(p, '[data-account="w2"] [data-role="account-modes"]')) && (await p.locator('[data-account="w1"] [data-role="account-modes"]').count()) === 0);
+    const tiles = await p.$$eval('[data-role="reserve-tiles"] [data-metric]', (els) => Object.fromEntries(els.map((e) => [e.dataset.metric, e.querySelector('.evm-metric-full').textContent.replace(/[  ]/g, ' ').trim()])));
+    const M = (v) => p.evaluate((v) => PM.fmt.money(v, 'COP').replace(/[  ]/g, ' '), v);
+    check('reserva para contingencias: total, consumida por el recurso del riesgo y disponible', tiles['reserve-total'] === await M(9e6) && tiles['reserve-used'] === await M(6e6) && tiles['reserve-available'] === await M(3e6), tiles);
+    check('consumo: el medidor tiene nombre accesible', /consumida: .*6\.000\.000 de .*9\.000\.000 \(66,7 %\)/.test(norm(await p.getAttribute('[data-role="reserve-tiles"] .evm-meter', 'aria-label'))));
+    const riskRow = await text(p, '[data-reserve="r2"]');
+    check('consumo: lista con recurso, riesgo (del registro) y monto', /REC-002/.test(riskRow) && /Grúa telescópica adicional/.test(riskRow) && /R-001 Grúa del cliente no disponible/.test(riskRow) && riskRow.includes(norm(await M(6e6))), riskRow);
+    check('consumo: total consumido y disponible restante', (await text(p, '[data-role="reserve-risks"] [data-col="consumed"]')) === norm(await M(6e6)) && (await text(p, '[data-role="reserve-risks"] tr[data-row="available"]')).includes(norm(await M(3e6))));
+    const states = await p.$$eval('[data-change-resource]', (trs) => trs.map((t) => [t.dataset.changeResource, t.dataset.changeState]));
+    check('control de cambios: cambio de alcance con su solicitud aprobada y reserva de gestión sin solicitud', JSON.stringify(states) === JSON.stringify([['r3', 'aprobada'], ['r4', 'sin-solicitud']]), states);
+    check('control de cambios: solicitud y estado del registro en texto', /CC-001/.test(await text(p, '[data-change-resource="r3"]')) && /Aprobada/.test(await text(p, '[data-change-resource="r3"]')) && /Sin solicitud/.test(await text(p, '[data-change-resource="r4"]')));
+    check('control de cambios: costo asignado del recurso (plataforma: 1 × 5 días × $ 600.000)', (await text(p, '[data-change-resource="r3"] td:last-child')) === norm(await M(3e6)) && /Sin asignar/.test(await text(p, '[data-change-resource="r4"] td:last-child')));
+    check('reserva de gestión: solo con cambio aprobado; ninguno aún', /1 recurso la pide; ninguno aprobado aún/.test(await text(p, '[data-role="management-use"]')));
+    check('otros no planificados: sin motivo y sin efecto en la línea base', /1 recurso no planificado sin motivo registrado; 1 recurso no planificado no cambia la línea base/.test(await text(p, '[data-role="reserve-others"]')));
+    if (shots) await p.locator('[data-role="reserve-use"]').screenshot({ path: join(shots, 'evm-reserva-recursos.png') });
+    /* la solicitud se registra y luego se aprueba: la tabla sigue el estado del registro de cambios */
+    await setRes(pid, (x) => (x.id === 'r4' ? { ...x, changeRef: 'CC-002' } : x));
+    await setChanges(pid, [{ id: 'CC-001', fecha: '2026-09-05', descripcion: 'Plataforma adicional de descargue', estado: 'Aprobada' }, { id: 'CC-002', fecha: '2026-09-09', descripcion: 'Montacargas de bodega', estado: 'En análisis' }]);
+    await until(async () => (await p.getAttribute('[data-change-resource="r4"]', 'data-change-state')) === 'en-analisis', 'estado en análisis');
+    check('control de cambios: estado «En análisis» con texto e icono', /CC-002/.test(await text(p, '[data-change-resource="r4"]')) && /En análisis/.test(await text(p, '[data-change-resource="r4"]')) && (await p.locator('[data-change-resource="r4"] .chip .icon').count()) === 1);
+    await setChanges(pid, [{ id: 'CC-001', estado: 'Aprobada' }]);
+    await until(async () => (await p.getAttribute('[data-change-resource="r4"]', 'data-change-state')) === 'sin-registro', 'sin registro');
+    check('control de cambios: solicitud que no está en el registro', /No está en el registro/.test(await text(p, '[data-change-resource="r4"]')));
+    /* consumo mayor que la reserva */
+    await setRes(pid, (x) => (x.id === 'r2' ? { ...x, reserveAmount: 12000000 } : x));
+    await p.waitForSelector('[data-metric="reserve-available"][data-tone="crit"]');
+    check('consumo mayor que la reserva: disponible negativo en tono crítico y explicado con texto', /El consumo supera la reserva/.test(await text(p, '[data-metric="reserve-available"]')) && (await text(p, '[data-metric="reserve-available"] .evm-metric-full')) === norm(await M(-3e6)));
+    /* enlace al catálogo con el teclado */
+    await p.focus('[data-role="reserve-catalog"]');
+    await p.keyboard.press('Enter');
+    await until(() => p.evaluate(() => PM.getState().view === 'recursos'), 'navega al catálogo');
+    check('enlace al catálogo de recursos (no planificados) con el teclado', JSON.stringify(await p.evaluate(() => PM.getState().params)) === JSON.stringify({ tab: 'catalogo', plan: 'no-planificado' }), await p.evaluate(() => PM.getState().params));
+
+    /* por actividad: distintivo de la forma de costeo, costo vigente frente a la línea base y nota */
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'actividad' }));
+    await p.waitForSelector('[data-role="activity-table"]');
+    const chips = await p.$$eval('[data-role="activity-table"] tbody tr[data-activity]', (trs) => trs.map((t) => [t.dataset.activity, (t.querySelector('[data-cost-mode]') || {}).textContent || null]));
+    check('por actividad: distintivo «Por recursos» y «Precios unitarios» solo en las calculadas', JSON.stringify(chips) === JSON.stringify([['t1', null], ['t2', 'Por recursos'], ['t3', 'Precios unitarios']]), chips);
+    check('por actividad: el distintivo explica la forma de costeo (title)', /Calculado por recursos/.test(await p.getAttribute('tr[data-activity="t2"] [data-cost-mode]', 'title')) && /Costo vigente/.test(await p.getAttribute('tr[data-activity="t2"] [data-cost-mode]', 'title')));
+    const cur2 = await text(p, 'tr[data-activity="t2"] [data-role="current-cost"]');
+    check('por actividad: costo vigente y diferencia frente a la línea base', /Vigente \$ 64,5 M \(\+\$ 4,5 M frente a LB0\)/.test(cur2), cur2);
+    check('por actividad: presupuesto medido con la línea base (60 M)', (await text(p, 'tr[data-activity="t2"] td:nth-child(2)')) === '$ 60 M');
+    const note = await text(p, '[data-role="cost-mode-note"]');
+    check('por actividad: nota del costo vigente frente a la línea base', /2 actividades calculan su costo \(1 por recursos, 1 a precios unitarios\)/.test(note) && /línea base LB0, que no cambia/.test(note) && note.includes(norm(await M(4.1e6))), note);
+    await stubDownloads(p);
+    await p.locator('[data-role="activities"]').getByRole('button', { name: 'Exportar CSV' }).click();
+    await p.waitForTimeout(100);
+    const csv = (await lastDownload(p)) || { data: '' };
+    const lines = csv.data.split('\n');
+    check('CSV por actividad con la forma de costeo y el costo vigente', /Forma de costeo/.test(lines[0]) && /Costo vigente/.test(lines[0]) && lines.some((l) => /Montaje niveles 1 a 5/.test(l) && /Calculado por recursos/.test(l)) && lines.some((l) => /Diseño del andamio/.test(l) && /Precio global/.test(l)), lines.slice(0, 3));
+    if (shots) await p.locator('[data-role="activities"]').screenshot({ path: join(shots, 'evm-por-actividad-costeo.png') });
+
+    /* sin línea base: el presupuesto es el costo calculado vigente */
+    await seedResources(p, { baseline: false });
+    await p.waitForTimeout(300);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'actividad' }));
+    await p.waitForSelector('[data-role="cost-mode-note"]');
+    check('sin línea base: la nota explica que el presupuesto es el costo calculado y se congela al fijar la línea base', /Sin línea base de costos, el presupuesto es el costo calculado vigente/.test(await text(p, '[data-role="cost-mode-note"]')) && (await text(p, 'tr[data-activity="t2"] td:nth-child(2)')) === '$ 64,5 M' && (await p.locator('[data-role="current-cost"]').count()) === 0);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'presupuesto' }));
+    await p.waitForSelector('[data-role="reserve-use"]');
+    check('sin línea base: sin nota de diferencia con la línea base en el ledger', (await p.locator('[data-role="budget-mode-note"]').count()) === 0);
+
+    /* precio global (sin costMode) y sin catálogo: sin distintivos ni notas; las cifras no cambian */
+    await seedResources(p, { costMode: false, catalog: false });
+    await p.waitForTimeout(300);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'presupuesto' }));
+    await p.waitForSelector('[data-role="reserve-use"]');
+    check('precio global: el plan vigente conserva el costo escrito (90 M) aunque haya recursos asignados', norm(await text(p, '[data-row="activities"] [data-col="cur"]')) === norm(await M(90e6)) && !/costo calculado/.test(await text(p, '[data-row="activities"]')));
+    check('sin catálogo: el consumo de la reserva lo dice con texto', /Sin recursos no planificados/.test(await text(p, '[data-role="reserve-empty"]')) && (await p.locator('[data-change-resource]').count()) === 0);
+    await p.evaluate(() => PM.navigate('valor-ganado', { tab: 'actividad' }));
+    await p.waitForSelector('[data-role="activity-table"]');
+    check('precio global: sin distintivos de forma de costeo ni nota', (await p.locator('[data-cost-mode]').count()) === 0 && (await p.locator('[data-role="cost-mode-note"]').count()) === 0);
+    check('recursos: sin tarjetas de error', (await errorCards(p)).length === 0);
+  } catch (e) {
+    check('recursos: excepción', false, String(e && e.stack || e).slice(0, 800));
+  }
+  check('recursos: sin errores de consola', app.errors.length === 0, app.errors.slice(0, 3));
+  await app.browser.close();
+}
+
 /* ---------- 400 px y tema oscuro */
 for (const mode of [{ name: 'móvil 400 px', width: 400, height: 860, dark: false, tag: 'm' }, { name: 'tema oscuro', width: 1360, height: 900, dark: true, tag: 'dark' }]) {
   const app = await openApp({ file, width: mode.width, height: mode.height, dark: mode.dark });
@@ -591,6 +726,18 @@ for (const mode of [{ name: 'móvil 400 px', width: 400, height: 860, dark: fals
       if (shots) await app.page.screenshot({ path: join(shots, `evm-${mode.tag}-${label.replace(/\s/g, '_')}.png`), fullPage: true });
     }
     check(mode.name + ': sin desborde horizontal en ninguna pestaña', worst <= 1, worst);
+    /* recursos (§10.4): consumo de la reserva y distintivos de la forma de costeo */
+    const pidRes = await seedResources(app.page);
+    await app.page.waitForTimeout(300);
+    let worstRes = 0;
+    for (const t of ['presupuesto', 'actividad']) {
+      await app.page.evaluate((t) => PM.navigate('valor-ganado', { tab: t }), t);
+      await app.page.waitForSelector(t === 'presupuesto' ? '[data-role="reserve-use"] [data-reserve]' : '[data-cost-mode]');
+      worstRes = Math.max(worstRes, await horizontalOverflow(app.page));
+      if (shots) await app.page.locator(t === 'presupuesto' ? '[data-role="reserve-use"]' : '[data-role="activities"]').screenshot({ path: join(shots, `evm-${mode.tag}-recursos-${t}.png`) });
+    }
+    check(mode.name + ': recursos y formas de costeo sin desborde (las tablas se desplazan dentro)', worstRes <= 1, worstRes);
+    void pidRes;
     if (mode.tag === 'm') {
       await app.page.click('[data-view="valor-ganado"] .tab:has-text("Curva S")');
       await app.page.waitForTimeout(250);

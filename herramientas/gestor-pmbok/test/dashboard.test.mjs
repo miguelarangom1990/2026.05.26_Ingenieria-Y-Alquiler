@@ -30,9 +30,11 @@ try {
   const pid = await createProject(page, { name: 'Andamio multidireccional Torre 2', code: 'PRY-2026-014', start: '2026-08-03', end: '2026-12-18' });
   await wait(page, 600);
   check('tablero: ruta sugerida destacada en proyecto vacío', await page.locator('[data-card="route"][data-prominent="true"]').count() === 1);
-  check('tablero: 14 pasos pendientes en proyecto vacío (planificación + monitoreo y cierre)', await page.locator('.dashboard-step[data-state="pending"]').count() === 14);
+  check('tablero: 15 pasos pendientes en proyecto vacío (planificación con el catálogo de recursos + monitoreo y cierre)', await page.locator('.dashboard-step[data-state="pending"]').count() === 15);
   const phaseCounts = await page.$$eval('[data-card="route"] [data-phase]', (els) => els.map((e) => e.getAttribute('data-phase') + ':' + e.querySelectorAll('.dashboard-step').length));
-  check('ruta sugerida: dos fases (8 de planificación, 6 de monitoreo, control y cierre)', JSON.stringify(phaseCounts) === '["plan:8","control:6"]', phaseCounts);
+  check('ruta sugerida: dos fases (9 de planificación, 6 de monitoreo, control y cierre)', JSON.stringify(phaseCounts) === '["plan:9","control:6"]', phaseCounts);
+  check('ruta sugerida: «Catálogo de recursos» (9.2) después del cronograma; sin el paso opcional de estructuras en un proyecto vacío', JSON.stringify(await page.$$eval('[data-phase="plan"] .dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')))) === JSON.stringify(['acta', 'interesados', 'alcance', 'edt', 'cronograma', 'catalogo-recursos', 'presupuesto', 'riesgos', 'lineabase']));
+  check('tablero: sin alerta de recursos no planificados en un proyecto vacío', await page.locator('[data-card="unplanned-resources"]').count() === 0);
   const lastSteps = await page.$$eval('[data-phase="control"] .dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
   check('ruta sugerida: la ruta termina en el cierre (informe final y acta de cierre)', JSON.stringify(lastSteps) === '["avance","informe","cambios","entregables","informe-final","acta-cierre"]', lastSteps);
   check('tablero: sin sugerencia de estado en un proyecto sin línea base', await page.locator('[data-status-hint]').count() === 0);
@@ -225,7 +227,9 @@ try {
   check('ruta sugerida: plegada al haber datos', await page.locator('[data-card="route"][data-prominent="false"]').count() === 1 && await page.locator('.dashboard-step').count() === 0);
   await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
   const states = await page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
-  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', presupuesto: 'done', riesgos: 'done', lineabase: 'pending', avance: 'done', informe: 'pending', cambios: 'partial', entregables: 'pending', 'informe-final': 'pending', 'acta-cierre': 'pending' }), states);
+  /* el paso opcional «Estructuras de desglose revisadas» aparece solo si la página incluye la vista (36) */
+  const hasBrk = await page.evaluate(() => !!PM.getView('estructuras'));
+  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', 'catalogo-recursos': 'pending', presupuesto: 'done', riesgos: 'done', ...(hasBrk ? { estructuras: 'pending' } : {}), lineabase: 'pending', avance: 'done', informe: 'pending', cambios: 'partial', entregables: 'pending', 'informe-final': 'pending', 'acta-cierre': 'pending' }), states);
   check('ruta sugerida: control de cambios con solicitudes pendientes de decisión', (await page.locator('.dashboard-step[data-step="cambios"] .chip').innerText()).trim() === '2 pendientes de decisión');
   check('ruta sugerida: no se declara completa', !(await page.locator('[data-route-summary]').innerText()).includes('Completaste'));
   check('ruta sugerida: siguiente paso = acta', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === 'acta');
@@ -706,9 +710,20 @@ try {
     const exRisks = await page.$$eval('[data-risk]', (els) => els.map((e) => e.getAttribute('data-risk')));
     check('ejemplo: riesgos abiertos con el criterio de la matriz (sin materializados)', (await kpi('[data-card="risks"] [data-count]')) === String(exp.open) && exp.materialized.every((id) => !exRisks.includes(id)), { exp, exRisks });
     const summary = await page.locator('[data-route-summary]').innerText();
-    check('ejemplo: con la planificación completa la ruta sigue con monitoreo y cierre', summary.includes('planificación completa') && !summary.includes('Completaste') && /de 14 pasos/.test(summary), summary);
+    /* catálogo de recursos del ejemplo: con recursos guardados con tipo el paso 9.2 está hecho; si solo tiene los nombres
+       de las asignaciones (recursos sin clasificar), queda parcial y es el siguiente paso de la planificación */
+    const exCat = await page.evaluate(async () => {
+      const pid = PM.getState().projectId;
+      const cat = PM.res.catalog(await PM.store.get(PM.paths.tool(pid, 'resources')), await PM.store.get(PM.paths.tool(pid, 'schedule')));
+      const known = new Set(cat.types.map((t) => t.id));
+      return { typed: cat.items.filter((i) => !i.virtual && known.has(i.typeId)).length, total: cat.items.length };
+    });
+    if (exCat.typed) check('ejemplo: con la planificación completa la ruta sigue con monitoreo y cierre (15 pasos; el opcional no cuenta)', summary.includes('planificación completa') && !summary.includes('Completaste') && /de 15 pasos/.test(summary), summary);
+    else check('ejemplo: catálogo sin clasificar, la planificación aún no está completa (15 pasos; el opcional no cuenta)', !summary.includes('planificación completa') && /de 15 pasos/.test(summary) && exCat.total > 0, { summary, exCat });
     await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
-    check('ejemplo: siguiente paso en la fase de monitoreo y control', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === 'informe');
+    const catState = await page.getAttribute('.dashboard-step[data-step="catalogo-recursos"]', 'data-state');
+    check('ejemplo: paso «Catálogo de recursos» según el catálogo del ejemplo', exCat.typed ? catState === 'done' : catState === 'partial' && /sin clasificar/.test(await page.locator('.dashboard-step[data-step="catalogo-recursos"] .chip').innerText()), { catState, exCat });
+    check('ejemplo: siguiente paso', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === (exCat.typed ? 'informe' : 'catalogo-recursos'));
     check('ejemplo: entregables aceptados contados del registro', /^\d+ de \d+ aceptados$/.test((await page.locator('.dashboard-step[data-step="entregables"] .chip').innerText()).trim()));
     const exIdx = await idxRead();
     check('ejemplo: CPI 0,97 se lee «Por encima del presupuesto»', exIdx.cpi === '0,97' && exIdx.cpiWord === 'Por encima del presupuesto', exIdx);
@@ -732,6 +747,104 @@ try {
     check('Medellín: «Fin pronosticado» del tablero = «Fin pronosticado al corte» del cronograma', med.source === 'red' && medStrip[1] === med.fin, { med, medStrip });
     await gotoView(page, 'tablero');
   }
+
+  /* ------------------------------------------------------------ 13. recursos del proyecto (SPEC §10.4) */
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const resPid = await page.evaluate(async () => {
+    const id = await PM.projectOps.create({ name: 'Montaje con recursos', code: 'PRY-REC-080', start: '2026-08-03', end: '2026-12-18', statusDate: '2026-09-15', budget: 200000000, currency: 'COP', lifecycle: 'Predictivo' });
+    const P = PM.paths;
+    await PM.store.set(P.tool(id, 'schedule'), { settings: { workweek: 6, holidaysCO: true }, tasks: [
+      { id: 't1', name: 'Diseño', duration: 10, deps: [], start: '2026-08-03', progress: 100, cost: 20e6, resources: [{ name: 'Ingeniero de diseño', units: 1 }] },
+      { id: 't2', name: 'Montaje', duration: 15, deps: [{ id: 't1', type: 'FS', lag: 0 }], progress: 50, cost: 60e6, resources: [{ resourceId: 'r2', name: 'Grúa telescópica adicional', units: 1 }] }] });
+    await PM.store.set(P.tool(id, 'costs'), { actuals: [], statusUpdates: [], reserves: { contingency: 9e6, management: 5e6 } });
+    PM.selectProject(id, 'tablero');
+    return id;
+  });
+  await wait(page, 500);
+  const routeStates = async () => { if (await page.locator('.dashboard-step').count() === 0) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click(); return page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')]))); };
+  const stepChip = async (id) => (await page.locator(`.dashboard-step[data-step="${id}"] .chip:not([data-optional-chip])`).innerText()).trim();
+  let rst = await routeStates();
+  check('catálogo: solo los nombres de las asignaciones → paso parcial «sin clasificar»', rst['catalogo-recursos'] === 'partial' && (await stepChip('catalogo-recursos')) === '2 recursos sin clasificar', [rst['catalogo-recursos'], await stepChip('catalogo-recursos')]);
+  check('catálogo: sin recursos no planificados no hay alerta', await page.locator('[data-card="unplanned-resources"]').count() === 0);
+  await page.evaluate(async (pid) => PM.store.set(PM.paths.tool(pid, 'resources'), { preset: 'alquiler', types: [], items: [
+    { id: 'r1', code: 'REC-001', name: 'Cuadrilla de montaje', typeId: 'personal', unit: 'cuadrilla', availability: 1, unitCost: 2800000, planned: true, status: 'disponible', absences: [] },
+    { id: 'r2', code: 'REC-002', name: 'Grúa telescópica adicional', typeId: 'izaje', unit: 'día', availability: 1, unitCost: 1500000, planned: false, reason: 'riesgo', riskId: 'R-001', reserveAmount: 6000000, status: 'disponible', absences: [] },
+    { id: 'r3', code: 'REC-003', name: 'Plataforma de descargue', typeId: 'equipo-alquiler', unit: 'unidad', unitCost: 600000, planned: false, reason: 'cambio-alcance', changeRef: null, status: 'solicitado', absences: [] },
+    { id: 'r4', code: 'REC-004', name: 'Señalización vial', typeId: 'insumo', unit: 'unidad', unitCost: 50000, planned: false, reason: null, reserveAmount: 250000, status: 'solicitado', absences: [] },
+  ] }), resPid);
+  await page.waitForSelector('[data-card="unplanned-resources"]');
+  const resCard = (sel) => page.locator('[data-card="unplanned-resources"] ' + sel).innerText().then((t) => t.replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim());
+  const cost = await page.evaluate(() => PM.fmt.moneyShort(15 * 1500000 + 250000, 'COP').replace(/[  ]/g, ' '));
+  check('alerta: cantidad de recursos no planificados', (await resCard('[data-count]')) === '3');
+  check('alerta: costo estimado (asignaciones valoradas y, sin asignación, el monto registrado)', (await resCard('[data-res-alert="summary"]')).includes('3 recursos no planificados con un costo estimado de ' + cost), [await resCard('[data-res-alert="summary"]'), cost]);
+  check('alerta: sin motivo, con texto y el recurso', /^1 sin motivo registrado: REC-004 Señalización vial/.test(await resCard('[data-res-alert="no-reason"]')));
+  check('alerta: sin la solicitud de cambio que su motivo exige', /^1 requiere solicitud de cambio y no la tiene: REC-003 Plataforma de descargue/.test(await resCard('[data-res-alert="no-change"]')));
+  check('alerta: consumo de la reserva para contingencias', /Consumen \$ 6 M de la reserva para contingencias: quedan \$ 3 M disponibles/.test(await resCard('[data-res-alert="reserve"]')));
+  check('alerta: tonos con icono y texto (crítico por la solicitud faltante)', (await page.getAttribute('[data-res-alert="no-change"]', 'data-tone')) === 'crit' && (await page.getAttribute('[data-res-alert="no-reason"]', 'data-tone')) === 'warn' && (await page.locator('[data-card="unplanned-resources"] [data-count].chip-crit').count()) === 1);
+  rst = await routeStates();
+  check('catálogo: con recursos guardados con tipo el paso está hecho', rst['catalogo-recursos'] === 'done' && (await stepChip('catalogo-recursos')) === '4 recursos con tipo · 1 sin clasificar', [rst['catalogo-recursos'], await stepChip('catalogo-recursos')]);
+  await page.locator('.dashboard-step[data-step="catalogo-recursos"]').click();
+  check('catálogo: el paso abre Recursos › Catálogo', JSON.stringify(await page.evaluate(() => [PM.getState().view, PM.getState().params])) === JSON.stringify(['recursos', { tab: 'catalogo' }]));
+  await gotoView(page, 'tablero');
+  await page.waitForSelector('[data-card="unplanned-resources"]');
+  await page.focus('[data-card="unplanned-resources"] [data-res-link]');
+  await page.keyboard.press('Enter');
+  await wait(page, 200);
+  check('alerta: «Ver en el catálogo» con el teclado abre los no planificados', JSON.stringify(await page.evaluate(() => [PM.getState().view, PM.getState().params])) === JSON.stringify(['recursos', { tab: 'catalogo', plan: 'no-planificado' }]));
+  await gotoView(page, 'tablero');
+  if (shots) await page.locator('[data-card="unplanned-resources"]').screenshot({ path: join(shots, '15-recursos-no-planificados.png') });
+  /* paso opcional: «Estructuras de desglose revisadas» (solo si la página incluye la vista) */
+  if (await page.evaluate(() => !!PM.getView('estructuras'))) {
+    rst = await routeStates();
+    const nReq = await page.$$eval('.dashboard-step:not([data-optional])', (e) => e.length);
+    const sumTxt = await page.locator('[data-route-summary]').innerText();
+    check('estructuras: paso opcional con distintivo «Opcional», sin número y fuera del conteo de la ruta', rst.estructuras === 'pending' && await page.locator('.dashboard-step[data-step="estructuras"][data-optional="true"] [data-optional-chip]').count() === 1 && new RegExp('de ' + nReq + ' pasos').test(sumTxt) && nReq === 15, { sumTxt, nReq });
+    check('estructuras: el paso opcional nunca es el «siguiente paso»', (await page.locator('.dashboard-step[data-step="estructuras"]').getAttribute('data-next')) === null);
+    await page.evaluate(async (pid) => {
+      const mk = (template, fields) => ({ template, title: template, status: 'borrador', rev: null, fields, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+      await PM.store.set(PM.paths.doc(pid, 'estructura-desglose-recursos'), mk('estructura-desglose-recursos', { recursos: [{ id: 'e1', codigo: '1', categoria: 'Personal', recurso: 'Personal' }] }));
+    }, resPid);
+    await wait(page, 500);
+    rst = await routeStates();
+    check('estructuras: EDR documentada sin categorías de riesgo → parcial', rst.estructuras === 'partial' && (await stepChip('estructuras')) === 'EDR documentada · faltan las categorías de riesgo', [rst.estructuras, await stepChip('estructuras')]);
+    await page.locator('.dashboard-step[data-step="estructuras"]').click();
+    check('estructuras: el paso abre la pestaña que falta (riesgos)', JSON.stringify(await page.evaluate(() => [PM.getState().view, PM.getState().params])) === JSON.stringify(['estructuras', { tab: 'riesgos' }]));
+    await gotoView(page, 'tablero');
+    await page.evaluate(async (pid) => {
+      const mk = (template, fields) => ({ template, title: template, status: 'borrador', rev: null, fields, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });
+      await PM.store.set(PM.paths.doc(pid, 'plan-gestion-riesgos'), mk('plan-gestion-riesgos', { edrRiesgos: [{ id: 'k1', nivel1: 'Técnico', nivel2: 'Diseño' }] }));
+    }, resPid);
+    await wait(page, 500);
+    rst = await routeStates();
+    check('estructuras: EDR y categorías de riesgo → hecho, sin cambiar el conteo de la ruta', rst.estructuras === 'done' && (await stepChip('estructuras')) === 'EDR y categorías de riesgo documentadas' && new RegExp('de 15 pasos').test(await page.locator('[data-route-summary]').innerText()));
+  }
+  /* motivos y solicitud registrados: la alerta queda informativa */
+  await page.evaluate(async (pid) => { const d = PM.clone(await PM.store.get(PM.paths.tool(pid, 'resources'))); d.items = d.items.map((x) => (x.id === 'r3' ? { ...x, changeRef: 'CC-001' } : x.id === 'r4' ? { ...x, reason: 'sustitucion' } : x)); await PM.store.set(PM.paths.tool(pid, 'resources'), d); }, resPid);
+  await page.waitForSelector('[data-res-alert="ok"]');
+  check('alerta: con motivos y solicitudes completos lo dice con texto', (await page.locator('[data-res-alert="no-reason"], [data-res-alert="no-change"]').count()) === 0 && /Todos tienen motivo/.test(await resCard('[data-res-alert="ok"]')) && (await page.locator('[data-card="unplanned-resources"] [data-count].chip-info').count()) === 1);
+  await page.setViewportSize({ width: 400, height: 860 });
+  await wait(page, 300);
+  check('recursos (400 px): sin desborde horizontal', (await horizontalOverflow(page)) <= 1);
+  if (shots) await page.locator('[data-card="unplanned-resources"]').screenshot({ path: join(shots, '15-recursos-no-planificados-m.png') });
+  await page.setViewportSize({ width: 1360, height: 900 });
+  /* rendimiento: 320 recursos (40 no planificados) y 500 actividades con asignaciones */
+  const tBig = await page.evaluate(async () => {
+    const id = await PM.projectOps.create({ name: 'Carga de recursos', code: 'PRY-REC-500', start: '2026-01-05', end: '2027-12-18', statusDate: '2026-09-15', budget: 9e9, currency: 'COP' });
+    const P = PM.paths;
+    const items = [];
+    for (let k = 0; k < 320; k++) items.push({ id: 'b' + k, code: 'REC-' + String(k + 1).padStart(3, '0'), name: 'Recurso ' + k, typeId: ['personal', 'equipo-alquiler', 'izaje', 'insumo'][k % 4], unit: 'día', availability: 2, unitCost: 100000 + k, planned: k >= 40, reason: k < 40 ? ['riesgo', 'cambio-alcance', null, 'sustitucion'][k % 4] : null, reserveAmount: k < 40 && k % 4 === 0 ? 100000 : null, status: 'disponible', absences: [] });
+    const tasks = [];
+    for (let k = 0; k < 500; k++) tasks.push({ id: 'x' + k, name: 'Actividad ' + k, duration: 3 + (k % 7), deps: k ? [{ id: 'x' + (k - 1), type: 'SS', lag: 1 }] : [], start: '2026-01-05', progress: k < 200 ? 100 : 0, cost: 1e6, resources: [{ resourceId: 'b' + (k % 320), name: 'Recurso ' + (k % 320), units: 1 }, { resourceId: 'b' + ((k * 7) % 320), name: 'Recurso ' + ((k * 7) % 320), units: 1 }] });
+    await PM.store.set(P.tool(id, 'schedule'), { settings: { workweek: 6, holidaysCO: true }, tasks });
+    await PM.store.set(P.tool(id, 'resources'), { preset: 'alquiler', types: [], items });
+    await PM.store.set(P.tool(id, 'costs'), { actuals: [], statusUpdates: [], reserves: { contingency: 5e6, management: 0 } });
+    const t0 = performance.now();
+    PM.selectProject(id, 'tablero');
+    await new Promise((res) => { const tick = () => (document.querySelector('[data-card="unplanned-resources"] [data-count]') ? res() : setTimeout(tick, 20)); tick(); });
+    return Math.round(performance.now() - t0);
+  });
+  check('recursos: tablero con 320 recursos y 500 actividades en menos de 3 s (' + tBig + ' ms)', tBig < 3000, tBig);
+  check('recursos: 40 no planificados contados', (await resCard('[data-count]')) === '40');
 
   const cards = await errorCards(page);
   check('sin tarjetas de error', cards.length === 0, cards);

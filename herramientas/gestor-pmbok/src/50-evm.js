@@ -5,6 +5,11 @@
    reales; cortes de avance; agregación del presupuesto (cuentas de control,
    reservas, línea base de costos) y requisitos de financiamiento; desempeño
    por actividad. Los cálculos de base vienen de PM.calc.evm (05-calc.js).
+   Recursos (SPEC §10.4): consumo de la reserva para contingencias por los
+   recursos no planificados con motivo «riesgo», recursos que requieren control
+   de cambios con su solicitud y su estado, y distintivo de la forma de costeo
+   (por recursos, mixto, precios unitarios) en las tablas por actividad y de
+   presupuesto: el costo vigente de esas actividades puede diferir de la línea base.
    ========================================================================== */
 (function () {
   'use strict';
@@ -156,6 +161,13 @@
 .evm-agile-notes .evm-note > span { max-width: 80ch; }
 .evm-note-act { display: block; margin-top: 4px; }
 .evm-linked { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; min-width: 180px; }
+.evm-cur-cost { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--fg-2); line-height: 1.35; }
+.evm-ledger td.num { white-space: nowrap; }
+.evm-alert-txt { display: inline-flex; gap: 4px; align-items: flex-start; font-size: var(--fs-xs); color: var(--fg); line-height: 1.35; }
+.evm-alert-txt > .icon { flex: none; margin-top: 1px; color: var(--warn); }
+.evm-reserve-tiles { border-radius: 0; border-bottom: 1px solid var(--line); }
+.evm-reserve-tiles .evm-metric-label { min-height: 0; }
+.evm-flag > .icon { vertical-align: -2px; }
 `;
   if (!document.getElementById('css-evm')) {
     const st = document.createElement('style');
@@ -209,6 +221,26 @@
   const RELEASE_STATUS_LABEL = Object.fromEntries(((PM.AGILE && PM.AGILE.RELEASE_STATUS) || []).map((s) => [s.value, s.label]));
   const NO_RELEASE = '__none';
   const plural = (n, one, many) => fmt.num(n, 0) + ' ' + (n === 1 ? one : many);
+
+  /* ---------------------------------------------------------------- formas de costeo y recursos (§10) */
+  /* Las actividades sin costMode (o «global») son de precio global: su costo no cambia. Las calculadas toman su costo de
+     los recursos o de las cantidades (PM.res.applyCosts, ya aplicado en model.sched): el costo vigente puede diferir del
+     de la línea base, que no cambia hasta un cambio aprobado. */
+  const COMPUTED_MODES = ['recursos', 'mixto', 'unitario'];
+  const MODE_SHORT = { recursos: 'Por recursos', mixto: 'Mixto', unitario: 'Precios unitarios' };
+  const MODE_PHRASE = { recursos: ['por recursos', 'por recursos'], mixto: ['mixta (fijo + recursos)', 'mixtas (fijo + recursos)'], unitario: ['a precios unitarios', 'a precios unitarios'] };
+  const modeInfo = (mode) => ((PM.RES && Array.isArray(PM.RES.COST_MODES) ? PM.RES.COST_MODES : EMPTY_ARR).find((m) => m.value === mode) || null);
+  const modeTitle = (mode) => { const x = modeInfo(mode); return x ? x.label + ': ' + x.hint : MODE_SHORT[mode] || ''; };
+  /* forma de costeo de cada actividad según el cronograma guardado (model.schedule) */
+  const costModes = (schedule) => {
+    const out = new Map();
+    for (const t of (schedule && Array.isArray(schedule.tasks) ? schedule.tasks : EMPTY_ARR)) if (isPlainObj(t) && t.id && COMPUTED_MODES.includes(t.costMode)) out.set(t.id, t.costMode);
+    return out;
+  };
+  /* «3 con costo calculado (2 por recursos, 1 a precios unitarios)» */
+  const modeCounts = (ids, modes) => { const c = { recursos: 0, mixto: 0, unitario: 0, n: 0 }; for (const id of ids) { const m = modes.get(id); if (m) { c[m]++; c.n++; } } return c; };
+  const modesText = (c) => COMPUTED_MODES.filter((k) => c[k]).map((k) => fmt.num(c[k], 0) + ' ' + MODE_PHRASE[k][c[k] === 1 ? 0 : 1]).join(', ');
+  const CostModeChip = ({ mode, extra }) => html`<${ui.Chip} tone="outline" icon="resources" data-cost-mode=${mode} title=${modeTitle(mode) + (extra ? ' ' + extra : '')}>${MODE_SHORT[mode] || mode}</${ui.Chip}>`;
 
   /* ---------------------------------------------------------------- tamaño del registro de costos
      tools/costs es un solo documento (máximo 256 KiB) con los costos reales, los cortes de avance y las reservas.
@@ -1251,17 +1283,19 @@
   }
 
   /* ---------------------------------------------------------------- 5. presupuesto */
-  function controlAccounts(tree, rollup, sched, level) {
+  function controlAccounts(tree, rollup, sched, level, modes) {
     const out = [];
     const direct = new Map();
+    /* actividades con costo calculado en la cuenta (forma de costeo por recursos, mixta o a precios unitarios) */
+    const calc = (tasks) => (modes && modes.size ? modeCounts(tasks.map((t) => t.id), modes) : null);
     for (const t of sched.tasks) if (t.wbsId && tree.byId.has(t.wbsId)) { if (!direct.has(t.wbsId)) direct.set(t.wbsId, []); direct.get(t.wbsId).push(t); }
     for (const f of tree.flat) {
       const id = f.node.id; const r = rollup.get(id);
-      if (f.depth === level || (f.depth < level && f.isLeaf)) out.push({ id, code: f.code, name: f.node.name || 'Elemento sin nombre', cost: r ? r.cost : 0, count: r ? r.count : 0 });
-      else if (f.depth < level) { const dt = direct.get(id) || []; if (dt.length) out.push({ id: id + ':direct', code: f.code, name: (f.node.name || 'Elemento sin nombre') + ' (actividades asignadas directamente)', cost: PM.sum(dt, (t) => t.cost), count: dt.length }); }
+      if (f.depth === level || (f.depth < level && f.isLeaf)) out.push({ id, code: f.code, name: f.node.name || 'Elemento sin nombre', cost: r ? r.cost : 0, count: r ? r.count : 0, modes: r ? calc(r.tasks) : null });
+      else if (f.depth < level) { const dt = direct.get(id) || []; if (dt.length) out.push({ id: id + ':direct', code: f.code, name: (f.node.name || 'Elemento sin nombre') + ' (actividades asignadas directamente)', cost: PM.sum(dt, (t) => t.cost), count: dt.length, modes: calc(dt) }); }
     }
     const none = sched.tasks.filter((t) => !t.wbsId || !tree.byId.has(t.wbsId));
-    if (none.length) out.push({ id: '__none', code: '', name: 'Actividades sin elemento de la EDT', cost: PM.sum(none, (t) => t.cost), count: none.length, none: true });
+    if (none.length) out.push({ id: '__none', code: '', name: 'Actividades sin elemento de la EDT', cost: PM.sum(none, (t) => t.cost), count: none.length, none: true, modes: calc(none) });
     return out;
   }
   function BudgetStack({ parts, approved, currency }) {
@@ -1340,13 +1374,109 @@
       ${tip.node}
     </div>`;
   }
+  /* ---------------------------------------------------------------- reservas y recursos no planificados (§10.3)
+     Un recurso no planificado con motivo «riesgo» consume la reserva para contingencias (reserveAmount), que está dentro
+     de la línea base de costos: no la cambia. Los de cambio de alcance o pagados con la reserva de gestión requieren
+     solicitud de cambio (changeRef) y, aprobada, una nueva línea base: se muestran con el estado de su solicitud en el
+     registro de cambios. Lee model.resources, model.catalog y model.schedule (no abre otra suscripción del modelo). */
+  const normTxt = (v) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const CHANGE_STATE = { aprobada: ['good', 'check'], rechazada: ['crit', 'x'], registrada: ['info', 'clock'], 'en analisis': ['warn', 'clock'], diferida: ['outline', 'clock'] };
+  function unplannedOf(model) {
+    const R = PM.res, RES = PM.RES;
+    const reasons = RES && Array.isArray(RES.REASONS) ? RES.REASONS : EMPTY_ARR;
+    const items = (model.resources && Array.isArray(model.resources.items) ? model.resources.items : EMPTY_ARR).filter((x) => isPlainObj(x) && x.id && String(x.name || '').trim() && x.planned === false);
+    const reasonOf = (it) => reasons.find((r) => r.value === it.reason) || null;
+    /* costo asignado en el cronograma (asignaciones valoradas con el costo unitario del catálogo) */
+    const use = new Map();
+    const cat = model.catalog;
+    if (items.length && cat && R) {
+      const ids = new Set(items.map((x) => x.id));
+      for (const t of (model.schedule && Array.isArray(model.schedule.tasks) ? model.schedule.tasks : EMPTY_ARR)) {
+        if (!isPlainObj(t) || !Array.isArray(t.resources)) continue;
+        for (const a of t.resources) { if (!isPlainObj(a)) continue; const l = R.assignment(cat, t, a); if (l.item && ids.has(l.item.id)) use.set(l.item.id, (use.get(l.item.id) || 0) + l.cost); }
+      }
+    }
+    const risk = [], change = [], other = [], noReason = [];
+    for (const it of items) {
+      const r = reasonOf(it);
+      if (!r) { noReason.push(it); continue; }
+      if (it.reason === 'riesgo') risk.push({ it, amount: Math.max(0, num(it.reserveAmount)) });
+      else if (r.baseline) change.push({ it, reason: r, cost: use.has(it.id) ? use.get(it.id) : null });
+      else other.push(it);
+    }
+    return { items, risk, change, other, noReason, consumed: PM.sum(risk, (x) => x.amount) };
+  }
+  function ReserveUse({ model, contingency, management, currency }) {
+    const [changes] = PM.useDocTable('registro-cambios', 'cambios');
+    const [risks] = PM.useDocTable('registro-riesgos', 'riesgos');
+    const d = useMemo(() => unplannedOf(model), [model.resources, model.catalog, model.schedule]);
+    const riskById = useMemo(() => new Map(risks.filter((r) => String(r.id || '').trim()).map((r) => [normTxt(r.id), r])), [risks]);
+    const changeById = useMemo(() => new Map(changes.filter((r) => String(r.id || '').trim()).map((r) => [normTxt(r.id), r])), [changes]);
+    const available = contingency - d.consumed;
+    const share = contingency > 0 ? d.consumed / contingency : null;
+    const tone = available < 0 && !zeroish(available, currency) ? 'crit' : share !== null && share > 0.9 ? 'warn' : null;
+    const toCatalog = () => go('recursos', { tab: 'catalogo', plan: 'no-planificado' });
+    const openRegister = () => (typeof PM.openDocument === 'function' ? PM.openDocument('registro-cambios') : go('documentos'));
+    const mgmt = d.change.filter((x) => x.it.reason === 'reserva-gestion');
+    const stateOf = (x) => { const ref = String(x.it.changeRef || '').trim(); const row = ref ? changeById.get(normTxt(ref)) : null; return { ref, row, key: row ? normTxt(row.estado) : '' }; };
+    const mgmtApproved = mgmt.filter((x) => stateOf(x).key === 'aprobada');
+    const meterLabel = 'Reserva para contingencias consumida: ' + money(d.consumed, currency) + ' de ' + money(contingency, currency) + (share !== null ? ' (' + fmt.pct(share, 1) + ')' : '');
+    return html`<${SectionCard} title="Consumo de la reserva para contingencias" subtitle="Recursos no planificados que responden a riesgos identificados y recursos que requieren control de cambios (9.6 · 11.6 · 4.6)" pad=${false} attrs=${{ 'data-role': 'reserve-use' }}
+      actions=${html`<${ui.Button} size="sm" variant="ghost" icon="resources" data-role="reserve-catalog" onClick=${toCatalog}>Ver en el catálogo de recursos</${ui.Button}>`}>
+      <div class="evm-tiles evm-reserve-tiles" data-role="reserve-tiles">
+        <${Metric} id="reserve-total" label="Reserva para contingencias" display=${short(contingency, currency)} full=${money(contingency, currency)} note="Plan vigente: dentro de la línea base de costos, para riesgos identificados." />
+        <${Metric} id="reserve-used" label="Consumida por recursos no planificados" display=${short(d.consumed, currency)} full=${money(d.consumed, currency)} note=${d.risk.length ? plural(d.risk.length, 'recurso responde', 'recursos responden') + ' a riesgos identificados.' : 'Ningún recurso no planificado la consume.'}>
+          <div class="evm-meter" role="img" aria-label=${meterLabel}><span style=${'width:' + Math.min(1, share || 0) * 100 + '%;background:' + (tone === 'crit' ? 'var(--crit)' : tone === 'warn' ? 'var(--warn)' : 'var(--s4)')}></span></div>
+        </${Metric}>
+        <${Metric} id="reserve-available" label="Disponible" display=${short(available, currency)} full=${money(available, currency)} tone=${tone}
+          note=${tone === 'crit' ? 'El consumo supera la reserva: se requiere un cambio aprobado (reserva de gestión) o ajustar la reserva.' : share !== null ? fmt.pct(Math.max(0, 1 - share), 1) + ' de la reserva sin consumir.' : 'El plan no tiene reserva para contingencias.'} />
+      </div>
+      <div class="card-body stack">
+        ${!d.items.length ? html`<p class="small muted" data-role="reserve-empty" style="margin:0">Sin recursos no planificados: la reserva para contingencias no tiene consumos y no hay recursos pendientes de control de cambios.</p>` : html`
+          <div class="stack-sm" data-role="reserve-risks">
+            <h4 class="h4">Recursos que responden a riesgos (consumen la reserva)</h4>
+            ${d.risk.length ? html`<div class="table-wrap"><table class="table table-tight evm-table"><caption class="sr-only">Recursos no planificados que consumen la reserva para contingencias</caption>
+              <thead><tr><th>Código</th><th>Recurso</th><th>Riesgo</th><th>Alta</th><th class="num">Monto</th></tr></thead>
+              <tbody>${d.risk.map((x) => { const id = String(x.it.riskId || '').trim(); const rk = id ? riskById.get(normTxt(id)) : null; return html`<tr key=${x.it.id} data-reserve=${x.it.id}>
+                <td class="mono nowrap">${x.it.code || '—'}</td>
+                <td style="min-width:160px">${x.it.name}</td>
+                <td style="min-width:200px">${id ? html`<span class="code-tag">${id}</span> ${rk ? String(rk.descripcion || '').trim() || 'Sin descripción' : html`<span class="evm-alert-txt"><${ui.Icon} name="alert" size=${12} />No está en el registro de riesgos</span>`}` : html`<span class="evm-alert-txt"><${ui.Icon} name="alert" size=${12} />Sin riesgo vinculado</span>`}</td>
+                <td class="mono nowrap">${D.valid(x.it.addedDate) ? fmt.date(x.it.addedDate) : '—'}</td>
+                <td class="num">${money(x.amount, currency)}</td>
+              </tr>`; })}</tbody>
+              <tfoot><tr><td></td><td colspan="3">Total consumido</td><td class="num" data-col="consumed">${money(d.consumed, currency)}</td></tr>
+                <tr data-row="available"><td></td><td colspan="3">Disponible de la reserva para contingencias</td><td class="num" style=${tone === 'crit' ? 'color:var(--crit)' : ''}>${money(available, currency)}</td></tr></tfoot>
+            </table></div>` : html`<p class="small muted" style="margin:0">Ningún recurso no planificado consume la reserva para contingencias.</p>`}
+          </div>
+          <div class="stack-sm" data-role="reserve-changes">
+            <div class="evm-chip-row" style="justify-content:space-between"><h4 class="h4">Recursos que requieren control de cambios</h4>${PM.templates && PM.templates['registro-cambios'] ? html`<${ui.Button} size="sm" variant="ghost" icon="checklist" onClick=${openRegister}>Abrir el registro de cambios</${ui.Button}>` : null}</div>
+            ${d.change.length ? html`<div class="table-wrap"><table class="table table-tight evm-table"><caption class="sr-only">Recursos no planificados que requieren solicitud de cambio y estado de la solicitud</caption>
+              <thead><tr><th>Código</th><th>Recurso</th><th>Motivo</th><th>Solicitud</th><th>Estado en el registro de cambios</th><th class="num">Costo asignado</th></tr></thead>
+              <tbody>${d.change.map((x) => { const st = stateOf(x); const t = CHANGE_STATE[st.key] || ['outline', 'info']; return html`<tr key=${x.it.id} data-change-resource=${x.it.id} data-change-state=${!st.ref ? 'sin-solicitud' : st.row ? st.key.replace(/\s+/g, '-') : 'sin-registro'}>
+                <td class="mono nowrap">${x.it.code || '—'}</td>
+                <td style="min-width:160px">${x.it.name}</td>
+                <td style="min-width:200px">${x.reason.label}</td>
+                <td class="nowrap">${st.ref ? html`<span class="code-tag">${st.ref}</span>` : html`<span class="evm-alert-txt" data-role="no-change-ref"><${ui.Icon} name="alert" size=${12} />Sin solicitud</span>`}</td>
+                <td>${!st.ref ? html`<span class="faint">—</span>` : st.row ? html`<${ui.Chip} tone=${t[0]} icon=${t[1]}>${st.row.estado || 'Sin estado'}</${ui.Chip}>` : html`<${ui.Chip} tone="warn" icon="alert">No está en el registro</${ui.Chip}>`}</td>
+                <td class="num">${x.cost === null ? html`<span class="faint">Sin asignar</span>` : money(x.cost, currency)}</td>
+              </tr>`; })}</tbody>
+            </table></div>` : html`<p class="small muted" style="margin:0">Ningún recurso no planificado requiere solicitud de cambio.</p>`}
+            ${mgmt.length ? html`<p class="xsmall faint" data-role="management-use" style="margin:0">Reserva de gestión (${money(management, currency)}): solo se usa con un cambio aprobado. ${plural(mgmt.length, 'recurso la pide', 'recursos la piden')}; ${mgmtApproved.length ? plural(mgmtApproved.length, 'aprobado', 'aprobados') + ' por ' + money(PM.sum(mgmtApproved, (x) => x.cost || 0), currency) + ' de costo asignado' : 'ninguno aprobado aún'}.</p>` : null}
+          </div>
+          ${d.noReason.length || d.other.length ? html`<p class="xsmall faint" data-role="reserve-others" style="margin:0">${[d.noReason.length ? plural(d.noReason.length, 'recurso no planificado sin motivo registrado', 'recursos no planificados sin motivo registrado') : null, d.other.length ? plural(d.other.length, 'recurso no planificado no cambia', 'recursos no planificados no cambian') + ' la línea base (sustitución equivalente, a todo costo o acción correctiva)' : null].filter(Boolean).join('; ') + '. Regístralos o revísalos en el catálogo de recursos.'}</p>` : null}`}
+      </div>
+    </${SectionCard}>`;
+  }
+
   function BudgetTab({ model, canWrite, project }) {
     const { costs, saveCosts, sched, tree, rollup, evm, baselines, currency } = model;
     const latest = useLatest(costs);
     const [level, setLevel] = useState(() => PM.clamp(num(PM.prefs.get('evm.level', 1), 1), 1, 3));
     const maxDepth = useMemo(() => tree.flat.reduce((m, f) => Math.max(m, f.depth), 0), [tree]);
     const lv = Math.min(level, Math.max(1, maxDepth));
-    const accounts = useMemo(() => controlAccounts(tree, rollup, sched, lv), [tree, rollup, sched, lv]);
+    const modes = useMemo(() => costModes(model.schedule), [model.schedule]);
+    const accounts = useMemo(() => controlAccounts(tree, rollup, sched, lv, modes), [tree, rollup, sched, lv, modes]);
+    const allModes = useMemo(() => modeCounts(sched.tasks.map((t) => t.id), modes), [sched, modes]);
     /* las actividades sin elemento de la EDT no forman una cuenta de control: se cuentan aparte */
     const nAccounts = accounts.filter((a) => !a.none).length;
     const noAccount = accounts.find((a) => a.none);
@@ -1399,7 +1529,7 @@
           <div class="table-wrap"><table class="table evm-ledger">
             <thead><tr><th class="evm-op"><span class="sr-only">Operación</span></th><th>Componente</th><th class="num">Plan vigente</th>${bl ? html`<th class="num">Línea base ${bl.label}</th>` : null}<th class="num evm-pct">% del total</th></tr></thead>
             <tbody>
-              ${lrow('activities', '', 'Estimaciones de costos de las actividades', sched.tasks.length + (sched.tasks.length === 1 ? ' actividad del cronograma' : ' actividades del cronograma'), money(cur.bac, currency), bl ? bl.bac : null)}
+              ${lrow('activities', '', 'Estimaciones de costos de las actividades', sched.tasks.length + (sched.tasks.length === 1 ? ' actividad del cronograma' : ' actividades del cronograma') + (allModes.n ? ' · ' + plural(allModes.n, 'con costo calculado', 'con costo calculado') + ' (' + modesText(allModes) + ')' : ''), money(cur.bac, currency), bl ? bl.bac : null)}
               ${lrow('accounts', '→', 'Cuentas de control', nAccounts + (nAccounts === 1 ? ' cuenta' : ' cuentas') + ' (EDT nivel ' + lv + '): presupuesto de las actividades, BAC' + (noAccount ? ' · ' + noAccount.count + (noAccount.count === 1 ? ' actividad sin cuenta de control' : ' actividades sin cuenta de control') + (zeroish(noAccount.cost, currency) ? '' : ' (' + money(noAccount.cost, currency) + ')') : ''), money(cur.bac, currency), bl ? bl.bac : null)}
               ${lrow('contingency', '+', 'Reserva para contingencias', 'Para riesgos identificados (incógnitas conocidas)' + (cur.bac > 0 ? ' · ' + fmt.pct(cur.contingency / cur.bac, 1) + ' del BAC' : ''), reserveInput('contingency', 'Reserva para contingencias'), bl ? bl.contingency : null)}
               ${lrow('baseline', '=', 'Línea base de costos', 'BAC + reserva para contingencias', money(cur.baseline, currency), bl ? bl.baseline : null, true)}
@@ -1411,6 +1541,7 @@
           <div class="evm-chip-row" data-role="budget-compare">${cmpChip}</div>
           ${bl ? html`<div class="evm-chip-row">
             ${zeroish(blDiff, currency) ? null : html`<${ui.Chip} tone="warn" icon="alert">El presupuesto vigente de las actividades difiere de la línea base ${bl.label} en ${signedMoney(blDiff, currency)}. Si el cambio está aprobado, establece una nueva línea base.</${ui.Chip}>`}
+            ${allModes.n ? html`<span class="xsmall faint" data-role="budget-mode-note">${plural(allModes.n, 'actividad calcula', 'actividades calculan')} su costo por recursos, de forma mixta o a precios unitarios: su costo vigente cambia con los recursos o las cantidades y puede diferir del de la línea base ${bl.label}.</span>` : null}
             <span class="xsmall faint">El valor ganado se mide contra la línea base ${bl.label}. Los cambios del plan vigente, incluidas las reservas, se incorporan al establecer una nueva línea base mediante el control de cambios.</span>
           </div>` : html`<p class="xsmall faint">Aún no hay línea base de costos: al establecerla se congelan el presupuesto de las actividades y las reservas del plan vigente.</p>`}
           <div class="stack-sm">
@@ -1421,6 +1552,8 @@
         </div>
       </${SectionCard}>
 
+      ${PM.res && PM.RES ? html`<${ReserveUse} model=${model} contingency=${cur.contingency} management=${cur.management} currency=${currency} />` : null}
+
       <${SectionCard} title="Cuentas de control" subtitle="Presupuesto vigente de las actividades consolidado por elemento de la EDT" pad=${false} attrs=${{ 'data-role': 'accounts' }} actions=${html`
         ${levelOpts.length > 1 ? html`<${ui.Segmented} label="Nivel de la EDT" value=${lv} onChange=${(v) => { setLevel(Number(v)); PM.prefs.set('evm.level', Number(v)); }} options=${levelOpts} />` : null}
         <${ui.Button} size="sm" icon="download" onClick=${exportAccounts}>Exportar CSV</${ui.Button}>`}>
@@ -1430,7 +1563,7 @@
             <thead><tr><th>Código</th><th>Cuenta de control</th><th class="num">Actividades</th><th class="num">Costo</th><th>% del total</th></tr></thead>
             <tbody>${accounts.map((a) => html`<tr key=${a.id} data-account=${a.id}>
               <td class="mono nowrap">${a.code || html`<span class="faint">—</span>`}</td>
-              <td style="min-width:200px">${a.none ? html`<span class="muted">${a.name}</span>` : a.name}</td>
+              <td style="min-width:200px">${a.none ? html`<span class="muted">${a.name}</span>` : a.name}${a.modes && a.modes.n ? html`<span class="evm-sub" data-role="account-modes" title=${'Costo vigente calculado: ' + modesText(a.modes) + '. Puede diferir de la línea base.'}>${plural(a.modes.n, 'con costo calculado', 'con costo calculado')} (${modesText(a.modes)})</span>` : null}</td>
               <td class="num">${a.count}</td>
               <td class="num">${money(a.cost, currency)}</td>
               <td><div class="evm-bar-cell"><span class="evm-bar-track"><span class="evm-bar" style=${'display:block;width:' + (Math.max(0, a.cost) / maxAcc) * 100 + '%;background:var(--s1)'}></span></span><span class="mono xsmall nowrap">${totalCost ? fmt.pct(a.cost / totalCost, 1) : '—'}</span></div></td>
@@ -1459,7 +1592,7 @@
   }
 
   /* ---------------------------------------------------------------- 6. por actividad */
-  function activityRows(sched, evm, baselines, actuals, statusDate, tree) {
+  function activityRows(sched, evm, baselines, actuals, statusDate, tree, modes) {
     const at = statusDate; const cal = sched.cal;
     const plan = planOf(evm, sched, baselines);
     const planById = new Map(plan.map((p) => [p.id, p]));
@@ -1476,7 +1609,9 @@
       const pv = budget * planned, ev = budget * PM.clamp(num(progress), 0, 100) / 100, ac = acBy.get(id) || 0;
       return { id, name, code, milestone, progress: PM.clamp(num(progress), 0, 100), planned, budget, pv, ev, ac, sv: ev - pv, cv: ev - ac, spi: pv > 0 ? ev / pv : null, cpi: ac > 0 ? ev / ac : null, ...flags };
     };
-    const rows = sched.tasks.map((t) => mk(t.id, t.name || 'Actividad sin nombre', taskCode(t, tree), t.milestone, t.progress, planById.get(t.id), { outside: evm.fromBaseline && !planById.has(t.id), derived: !!t.agileDerived }));
+    /* mode: forma de costeo calculada (por recursos, mixto o precios unitarios; null = precio global); current: costo
+       vigente de la actividad (calculado), que con línea base puede diferir del presupuesto medido */
+    const rows = sched.tasks.map((t) => mk(t.id, t.name || 'Actividad sin nombre', taskCode(t, tree), t.milestone, t.progress, planById.get(t.id), { outside: evm.fromBaseline && !planById.has(t.id), derived: !!t.agileDerived, mode: (modes && modes.get(t.id)) || null, current: num(t.cost) }));
     const cur = new Set(sched.tasks.map((t) => t.id));
     for (const p of plan) if (!cur.has(p.id)) rows.push(mk(p.id, p.name || 'Actividad sin nombre', '', p.milestone, 0, p, { deleted: true }));
     return { rows, acNone, acNoneCount };
@@ -1500,7 +1635,16 @@
     const [q, setQ] = useState('');
     const [sort, setSort] = useState({ key: null, dir: 1 });
     const [full, setFull] = useState(() => !!PM.prefs.get('evm.fullValues', false));
-    const data = useMemo(() => activityRows(sched, evm, baselines, actuals, statusDate, tree), [sched, evm, baselines, actuals, statusDate, tree]);
+    const modes = useMemo(() => costModes(model.schedule), [model.schedule]);
+    const data = useMemo(() => activityRows(sched, evm, baselines, actuals, statusDate, tree, modes), [sched, evm, baselines, actuals, statusDate, tree, modes]);
+    /* actividades con costo calculado y su diferencia con el presupuesto medido (línea base) */
+    const computed = useMemo(() => {
+      const list = data.rows.filter((r) => r.mode && !r.deleted);
+      const c = { recursos: 0, mixto: 0, unitario: 0, n: list.length };
+      for (const r of list) c[r.mode]++;
+      const inBl = list.filter((r) => !r.outside);
+      return { c, diff: PM.sum(inBl, (r) => r.current - r.budget), differ: inBl.filter((r) => !zeroish(r.current - r.budget, currency)).length };
+    }, [data, currency]);
     const ql = q.trim().toLowerCase();
     const rows = useMemo(() => {
       let list = data.rows.filter((r) => !ql || (r.code + ' ' + r.name).toLowerCase().includes(ql));
@@ -1520,10 +1664,11 @@
     const exportCsv = () => {
       const r2 = (v) => (isNum(v) ? Math.round(v * 100) / 100 : '');
       const r3 = (v) => (isNum(v) ? Math.round(v * 1000) / 1000 : '');
-      const cols = [{ key: 'code', label: 'Código EDT' }, { key: 'name', label: 'Actividad' }, { key: 'budget', label: 'Presupuesto (' + currency + ')' }, { key: 'progress', label: '% avance' }, { key: 'planned', label: '% planificado' }, { key: 'pv', label: 'PV' }, { key: 'ev', label: 'EV' }, { key: 'ac', label: 'AC' }, { key: 'sv', label: 'SV' }, { key: 'cv', label: 'CV' }, { key: 'spi', label: 'SPI' }, { key: 'cpi', label: 'CPI' }];
-      const out = data.rows.map((r) => ({ code: r.code, name: r.name + (r.deleted ? ' (eliminada del cronograma)' : ''), budget: r2(r.budget), progress: r2(r.progress), planned: r2(r.planned * 100), pv: r2(r.pv), ev: r2(r.ev), ac: r2(r.ac), sv: r2(r.sv), cv: r2(r.cv), spi: r3(r.spi), cpi: r3(r.cpi) }));
-      if (data.acNoneCount) out.push({ code: '', name: 'Costos reales sin actividad asignada', budget: '', progress: '', planned: '', pv: '', ev: '', ac: r2(data.acNone), sv: '', cv: '', spi: '', cpi: '' });
-      out.push({ code: '', name: 'Total del proyecto', budget: r2(evm.bac), progress: r2(evm.pctComplete * 100), planned: r2(evm.pctPlanned * 100), pv: r2(evm.pv), ev: r2(evm.ev), ac: r2(evm.ac), sv: r2(evm.sv), cv: r2(evm.cv), spi: r3(evm.spi), cpi: r3(evm.cpi) });
+      const cols = [{ key: 'code', label: 'Código EDT' }, { key: 'name', label: 'Actividad' }, { key: 'mode', label: 'Forma de costeo' }, { key: 'budget', label: 'Presupuesto (' + currency + ')' }, { key: 'current', label: 'Costo vigente (' + currency + ')' }, { key: 'progress', label: '% avance' }, { key: 'planned', label: '% planificado' }, { key: 'pv', label: 'PV' }, { key: 'ev', label: 'EV' }, { key: 'ac', label: 'AC' }, { key: 'sv', label: 'SV' }, { key: 'cv', label: 'CV' }, { key: 'spi', label: 'SPI' }, { key: 'cpi', label: 'CPI' }];
+      const modeLabel = (r) => (r.deleted ? '' : r.mode ? (modeInfo(r.mode) || { label: MODE_SHORT[r.mode] }).label : (modeInfo('global') || { label: 'Precio global (a todo costo)' }).label);
+      const out = data.rows.map((r) => ({ code: r.code, name: r.name + (r.deleted ? ' (eliminada del cronograma)' : ''), mode: modeLabel(r), budget: r2(r.budget), current: r.deleted ? '' : r2(r.current), progress: r2(r.progress), planned: r2(r.planned * 100), pv: r2(r.pv), ev: r2(r.ev), ac: r2(r.ac), sv: r2(r.sv), cv: r2(r.cv), spi: r3(r.spi), cpi: r3(r.cpi) }));
+      if (data.acNoneCount) out.push({ code: '', name: 'Costos reales sin actividad asignada', mode: '', budget: '', current: '', progress: '', planned: '', pv: '', ev: '', ac: r2(data.acNone), sv: '', cv: '', spi: '', cpi: '' });
+      out.push({ code: '', name: 'Total del proyecto', mode: '', budget: r2(evm.bac), current: r2(PM.sum(sched.tasks, (t) => num(t.cost))), progress: r2(evm.pctComplete * 100), planned: r2(evm.pctPlanned * 100), pv: r2(evm.pv), ev: r2(evm.ev), ac: r2(evm.ac), sv: r2(evm.sv), cv: r2(evm.cv), spi: r3(evm.spi), cpi: r3(evm.cpi) });
       PM.download('desempeno-por-actividad_' + fileBase(project) + '.csv', PM.toCSV(cols, out));
     };
     const sortIcon = (k) => (sort.key === k ? html`<${ui.Icon} name=${sort.dir > 0 ? 'arrow-up' : 'arrow-down'} size=${12} />` : null);
@@ -1539,7 +1684,7 @@
             <tbody>
               ${rows.length === 0 ? html`<tr><td colspan=${ACT_COLS.length} class="faint" style="padding:14px 12px">Ninguna actividad coincide con la búsqueda.</td></tr>` : null}
               ${rows.map((r) => html`<tr key=${r.id} data-activity=${r.id}>
-                <td class="evm-name"><div>${r.name}</div>${r.code || r.milestone || r.outside || r.deleted || r.derived ? html`<div class="evm-name-sub">${r.code ? html`<span class="code-tag">${r.code}</span>` : null}${r.milestone ? html`<${ui.Chip} icon="milestone">Hito</${ui.Chip}>` : null}${r.derived ? html`<${ui.Chip} tone="info" icon="release" title="Actividad vinculada a un release: su % de avance se calcula desde el backlog.">Avance desde el backlog</${ui.Chip}>` : null}${r.outside ? html`<${ui.Chip} tone="warn" title="Se agregó después de la línea base: no tiene presupuesto de línea base">Fuera de la línea base</${ui.Chip}>` : null}${r.deleted ? html`<${ui.Chip} tone="warn" title="Está en la línea base pero ya no en el cronograma: su avance cuenta como 0 %">Eliminada del cronograma</${ui.Chip}>` : null}</div>` : null}</td>
+                <td class="evm-name"><div>${r.name}</div>${r.code || r.milestone || r.outside || r.deleted || r.derived || r.mode ? html`<div class="evm-name-sub">${r.code ? html`<span class="code-tag">${r.code}</span>` : null}${r.milestone ? html`<${ui.Chip} icon="milestone">Hito</${ui.Chip}>` : null}${r.mode ? html`<${CostModeChip} mode=${r.mode} extra=${evm.fromBaseline && !r.outside ? 'Costo vigente ' + money(r.current, currency) + '; presupuesto de la línea base ' + money(r.budget, currency) + '.' : null} />` : null}${r.mode && evm.fromBaseline && !r.outside && !zeroish(r.current - r.budget, currency) ? html`<span class="evm-cur-cost" data-role="current-cost" title=${'Costo vigente calculado ' + money(r.current, currency) + '; presupuesto de la línea base ' + money(r.budget, currency)}>Vigente ${m(r.current)} (${signedShort(r.current - r.budget, currency)} frente a ${blLabel(baselines.cost)})</span>` : null}${r.derived ? html`<${ui.Chip} tone="info" icon="release" title="Actividad vinculada a un release: su % de avance se calcula desde el backlog.">Avance desde el backlog</${ui.Chip}>` : null}${r.outside ? html`<${ui.Chip} tone="warn" title="Se agregó después de la línea base: no tiene presupuesto de línea base">Fuera de la línea base</${ui.Chip}>` : null}${r.deleted ? html`<${ui.Chip} tone="warn" title="Está en la línea base pero ya no en el cronograma: su avance cuenta como 0 %">Eliminada del cronograma</${ui.Chip}>` : null}</div>` : null}</td>
                 <td class="num">${m(r.budget)}</td>
                 <td class="num">${fmt.pct100(r.progress, 1)}</td>
                 <td class="num">${fmt.pct(r.planned, 1)}</td>
@@ -1567,6 +1712,11 @@
               <td class="num"><${IdxChip} value=${evm.cpi} /></td>
             </tr></tfoot>
           </table></div>
+          ${computed.c.n ? html`<p class="evm-hint is-long" data-role="cost-mode-note"><${ui.Icon} name="resources" size=${14} /><span>${plural(computed.c.n, 'actividad calcula', 'actividades calculan') + ' su costo (' + modesText(computed.c) + '): el costo vigente cambia con los recursos asignados o con las cantidades. '
+            + (evm.fromBaseline
+              ? 'El presupuesto, el PV y el EV de esta tabla se miden con la línea base ' + blLabel(baselines.cost) + ', que no cambia: '
+                + (computed.differ ? plural(computed.differ, 'actividad difiere', 'actividades difieren') + ' de ella en ' + signedMoney(computed.diff, currency) + '. Si el cambio está aprobado, incorpóralo con una nueva línea base.' : 'hoy el costo vigente coincide con ella; si cambia, la diferencia se incorpora con una nueva línea base mediante el control de cambios.')
+              : 'Sin línea base de costos, el presupuesto es el costo calculado vigente; al establecer la línea base se congela y desde ahí el costo vigente puede diferir de ella.')}</span></p>` : null}
         </div>
       </${SectionCard}>
     </div>`;

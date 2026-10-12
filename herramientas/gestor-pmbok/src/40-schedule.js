@@ -2,7 +2,9 @@
    40-schedule.js — Gestión del cronograma y de los recursos:
    vista «cronograma» (Gantt, actividades, hitos, calendario laboral),
    vista «red» (diagrama de red PDM y cálculo de la ruta crítica) y
-   vista «recursos» (histograma, sobreasignaciones y matriz de asignación).
+   vista «recursos» (pestañas Catálogo, Histograma y Consumo; SPEC §10).
+   El editor de actividad asigna recursos del catálogo (PM.res) y define la
+   forma de costeo: precio global, por recursos, mixto o precios unitarios.
    ========================================================================== */
 (function () {
   'use strict';
@@ -145,6 +147,81 @@ button.sched-day:hover { border-color: var(--line-strong); }
 .sched-iter { cursor: inherit; }
 .sched-iter-sw { display: inline-block; width: 18px; height: 12px; flex: none; }
 .sched-svg .sched-net-rel { color: var(--fg-2); }
+/* recursos del catálogo y formas de costeo (SPEC §10) */
+.sched-cm { display: inline-flex; align-items: center; flex: none; height: 16px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-2); color: var(--fg-2); font-size: 0.625rem; font-weight: 600; line-height: 1; white-space: nowrap; letter-spacing: 0.01em; }
+.sched-cell.sched-costbtn { cursor: pointer; }
+.sched-cell.sched-costbtn:hover { border-color: var(--line-strong); }
+.sched-te-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sched-te-res { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sched-te-rhead, .sched-te-rmain { display: grid; grid-template-columns: minmax(0, 2.3fr) minmax(0, 1.25fr) minmax(0, 1fr) 32px; gap: 6px 8px; align-items: center; }
+.sched-te-rhead { font-size: var(--fs-xs); color: var(--fg-3); font-weight: 600; padding: 0 9px; }
+.sched-te-rhead > :nth-child(3) { text-align: right; }
+.sched-te-row { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
+.sched-te-qty { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sched-te-qty .input { min-width: 0; flex: 1 1 auto; }
+.sched-te-unit { font-size: var(--fs-xs); color: var(--fg-2); white-space: nowrap; flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+.sched-te-lcost { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.sched-te-lcost .faint { font-size: var(--fs-xs); }
+.sched-te-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.4; }
+.sched-te-meta .btn { min-height: 24px; }
+.sched-te-warn { color: var(--warn); display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 560px) {
+  .sched-te-rhead { display: none; }
+  .sched-te-rmain { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 32px; }
+  .sched-te-rmain > .sched-pick { grid-column: 1 / -1; }
+}
+.sched-pick { position: relative; min-width: 0; }
+.sched-pick .input { width: 100%; padding-right: 32px; }
+.sched-pick-tog { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--fg-2); border-radius: var(--r-sm); cursor: pointer; padding: 0; }
+.sched-pick-tog:hover { background: var(--surface-3); color: var(--fg); }
+.sched-pick-pop { border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.sched-pick-scroll { max-height: 248px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.sched-pick-gh { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px 3px; font-size: 0.6875rem; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; color: var(--fg-3); }
+.sched-pick-opt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; padding: 5px 10px 5px 9px; cursor: pointer; border-left: 3px solid transparent; }
+.sched-pick-opt.is-active, .sched-pick-new.is-active { background: var(--accent-wash); border-left-color: var(--accent); }
+.sched-pick-name { font-size: var(--fs-sm); color: var(--fg); font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.sched-pick-sub { grid-column: 1; font-size: var(--fs-xs); color: var(--fg-2); min-width: 0; overflow-wrap: anywhere; }
+.sched-pick-opt > .icon { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: var(--accent); }
+.sched-pick-none, .sched-pick-more { padding: 6px 10px; font-size: var(--fs-xs); color: var(--fg-2); }
+.sched-pick-new { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 9px; border-top: 1px solid var(--line); border-left: 3px solid transparent; color: var(--accent); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.sched-cmodes { border: 0; margin: 0; padding: 0; min-width: 0; }
+.sched-cmodes > legend { padding: 0; margin-bottom: 6px; }
+.sched-cmodes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 8px; }
+.sched-cmode { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); cursor: pointer; align-items: start; }
+.sched-cmode:hover { border-color: var(--line-strong); }
+.sched-cmode:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent); }
+.sched-cmode:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sched-cmode > input { margin: 2px 0 0; width: 16px; height: 16px; accent-color: var(--accent); grid-row: 1 / span 2; }
+.sched-cmode-t { font-weight: 600; font-size: var(--fs-sm); color: var(--fg); }
+.sched-cmode-h { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.4; }
+.sched-cmodes:disabled .sched-cmode { cursor: default; }
+.sched-cost-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 10px 14px; align-items: start; }
+.sched-cost-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); color: var(--fg-2); }
+.sched-cost-total strong { font-family: var(--font-mono); font-size: var(--fs-md); color: var(--fg); font-variant-numeric: tabular-nums; }
+.sched-cost-total .sub { flex-basis: 100%; font-size: var(--fs-xs); }
+.sched-cost-tbl td, .sched-cost-tbl th { white-space: nowrap; }
+.sched-cost-tbl td.wrap { white-space: normal; min-width: 150px; }
+.sched-cost-tbl tfoot td { font-weight: 600; background: var(--surface-2); border-top: 1px solid var(--line); }
+.sched-nocost { color: var(--warn); display: inline-flex; gap: 4px; align-items: center; font-weight: 500; }
+.sched-blcmp { display: flex; flex-direction: column; gap: 3px; padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--r-md); background: var(--surface); font-size: var(--fs-sm); }
+.sched-blcmp strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.sched-up { color: var(--crit); font-weight: 600; }
+.sched-down { color: var(--good); font-weight: 600; }
+.sched-rec-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.sched-rec-bar > .select { width: auto; max-width: 100%; min-height: 30px; padding-top: 3px; padding-bottom: 3px; font-size: var(--fs-sm); }
+.sched-resbtn { border: 0; background: transparent; padding: 0; margin: 0; font: inherit; font-weight: 600; color: var(--fg); text-align: left; cursor: pointer; line-height: 1.35; overflow-wrap: anywhere; }
+.sched-resbtn:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.sched-resbtn[aria-pressed="true"] { color: var(--accent); }
+.sched-resbtn[aria-pressed="true"]::after { content: ' · en el histograma'; font-weight: 400; font-size: var(--fs-xs); color: var(--fg-2); }
+.sched-avsub { margin-top: 3px; white-space: normal; text-align: right; }
+.sched-cons-tbl td, .sched-cons-tbl th { white-space: nowrap; vertical-align: middle; }
+.sched-cons-tbl td.wrap { white-space: normal; min-width: 170px; }
+.sched-dist th.sticky, .sched-dist td.sticky { position: sticky; left: 0; z-index: 2; background: var(--surface); box-shadow: inset -1px 0 0 var(--line); min-width: 170px; max-width: 240px; white-space: normal; }
+.sched-dist thead th.sticky { z-index: 3; background: var(--surface-2); }
+.sched-dist tfoot td { font-weight: 600; background: var(--surface-2); border-top: 1px solid var(--line); }
+.sched-dist tfoot td.sticky { background: var(--surface-2); }
+.sched-dist td.z { color: var(--fg-3); }
+.sched-short { color: var(--crit); font-weight: 600; }
 `;
   if (!document.getElementById('css-schedule')) {
     const st = document.createElement('style');
@@ -180,8 +257,12 @@ button.sched-day:hover { border-color: var(--line-strong); }
     finish: { label: 'Fin', w: 72, title: 'Fin calculado (último día de trabajo)' },
     pct: { label: '%', w: 56, title: '% de avance', num: true },
     pred: { label: 'Predecesoras', w: 100, title: 'Filas predecesoras: 3, 3FC+2, 5CC-1 (FC, CC, FF, CF o FS, SS, FF, SF), separadas por ; o ,' },
+    cost: { label: 'Costo', w: 124, title: 'Costo de la actividad según su forma de costeo. Las calculadas (por recursos, mixtas o por precios unitarios) se editan en el editor de la actividad.', num: true },
   };
   const COLSETS = { full: ['num', 'code', 'name', 'dur', 'start', 'finish', 'pct', 'pred'], compact: ['num', 'name', 'dur'] };
+  /* con un área amplia (p. ej. 1920 px) el juego completo suma la columna de costo, sin restarle línea de tiempo a pantallas menores */
+  const COLS_WIDE = [...COLSETS.full, 'cost'];
+  const WIDE_GRID = 1440;
 
   /* ---------------------------------------------------------------- utilidades */
   const fd = (iso) => (D.valid(iso) ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4) : '—');
@@ -208,10 +289,46 @@ button.sched-day:hover { border-color: var(--line-strong); }
     : t.progress >= 100 ? html`<span class="faint" title="Actividad terminada: ya no forma parte de la ruta crítica pendiente">No (terminada)</span>`
     : html`<span class="faint">No</span>`);
   const taskName = (t) => (t && String(t.name || '').trim()) || 'Actividad sin nombre';
-  const resText = (rs) => (rs || []).filter((r) => r && String(r.name || '').trim()).map((r) => String(r.name).trim() + ' ×' + fmt.num(num(r.units), 2)).join('; ');
-  /* ---------------------------------------------------------------- capa ágil (SPEC §9.3, §9.4) */
   const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
   const arrOf = (x) => (Array.isArray(x) ? x : []);
+  /* ---------------------------------------------------------------- catálogo de recursos y formas de costeo (SPEC §10) */
+  const EMPTY_RES = Object.freeze({ preset: null, types: Object.freeze([]), items: Object.freeze([]) });
+  const UNCL_TYPE = (PM.RES && PM.RES.UNCLASSIFIED) || { id: 'sin-clasificar', name: 'Sin clasificar', kind: 'trabajo' };
+  const COST_MODES = (PM.RES && PM.RES.COST_MODES) || [{ value: 'global', label: 'Precio global (a todo costo)', hint: 'El valor se escribe a mano.' }];
+  const COST_MODE = new Map(COST_MODES.map((c) => [c.value, c]));
+  const COST_SHORT = { recursos: 'Rec.', mixto: 'Mixto', unitario: 'P. U.' };
+  const COST_CATEGORIES = (PM.RES && PM.RES.COST_CATEGORIES) || [];
+  const RES_UNITS = (PM.RES && PM.RES.UNITS) || [];
+  const costModeOf = (t) => (t && (t.costMode === 'recursos' || t.costMode === 'mixto' || t.costMode === 'unitario') ? t.costMode : 'global');
+  const costModeLabel = (mode) => (COST_MODE.get(mode) || { label: 'Precio global (a todo costo)' }).label;
+  const isNumV = (v) => v !== null && v !== '' && v !== undefined && Number.isFinite(Number(v));
+  const normTxt = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const catalogOf = (data, schedule) => (PM.res ? PM.res.catalog(data || EMPTY_RES, schedule) : null);
+  const kindOfItem = (cat, item) => (item && cat ? cat.kindOf(item) : 'trabajo');
+  const unitOf = (item) => (item && String(item.unit || '').trim()) || 'unidad';
+  /* unidad en plural cuando la cantidad no es 1 (solo palabras: m³, kg o m² no cambian) */
+  const PLURAL = { unidad: 'unidades', persona: 'personas', cuadrilla: 'cuadrillas', equipo: 'equipos', hora: 'horas', 'día': 'días', mes: 'meses', 'galón': 'galones', licencia: 'licencias' };
+  const unitN = (n, unit) => (Math.abs(n - 1) < 1e-9 ? unit : PLURAL[unit] || unit);
+  const setOpt = (o, k, v) => { if (v === null || v === undefined || v === '') delete o[k]; else o[k] = v; };
+  /* clave de un nombre de recurso (la misma de PM.res.key: sin mayúsculas ni espacios en los extremos) */
+  const resKey = (s) => String(s || '').trim().toLowerCase();
+  /* Distintivo de la forma de costeo (texto, no solo color); la global no lleva distintivo */
+  const CostBadge = ({ mode }) => (mode === 'global' ? null : html`<span class="sched-cm" data-cost-mode=${mode} title=${'Forma de costeo: ' + costModeLabel(mode)} aria-hidden="true">${COST_SHORT[mode]}</span>`);
+  /* Recursos de una actividad en texto (tabla y CSV): trabajo «Nombre ×unidades por día»; consumible «Nombre cantidad unidad». */
+  const resTextOf = (t, cat) => arrOf(t && t.resources).filter((r) => isObj(r) && String(r.name || '').trim()).map((r) => {
+    const item = cat ? cat.resolve(r) : null;
+    const name = item ? item.name : String(r.name).trim();
+    if (item && PM.res && cat.kindOf(item) === 'consumible') return name + ' ' + fmt.num(PM.res.assignment(cat, t, r).qty, 2) + ' ' + unitOf(item);
+    return name + ' ×' + fmt.num(num(r.units), 2);
+  }).join('; ');
+  /* Celda de costo de una actividad calculada (no se edita en la celda: abre el editor de la actividad) */
+  const CostOpen = ({ t, label, currency, onOpen }) => {
+    const mode = costModeOf(t);
+    return html`<button type="button" class="sched-cell num sched-costbtn" data-cost-mode=${mode} title=${costModeLabel(mode) + '. El costo se calcula en el editor de la actividad: clic para abrirlo.'}
+      aria-label=${label + ': ' + fmt.money(t.cost, currency) + ', ' + costModeLabel(mode).toLowerCase() + '. Abrir el editor de la actividad'} onClick=${(e) => { e.stopPropagation(); onOpen(); }}>
+      <${CostBadge} mode=${mode} /><span class="sched-txt">${fmt.money(t.cost, currency)}</span></button>`;
+  };
+  /* ---------------------------------------------------------------- capa ágil (SPEC §9.3, §9.4) */
   const relName = (r) => (r && String(r.name || '').trim()) || 'Release sin nombre';
   /* Vínculos actividad ↔ release: la regla del núcleo (PM.agile.linksOf, la misma que aplica el avance del backlog al
      cronograma): primero release.taskId (si dos releases apuntan a la misma actividad, gana el último) y luego
@@ -532,9 +649,105 @@ button.sched-day:hover { border-color: var(--line-strong); }
     PM.toast(add.length === 1 ? 'Se creó 1 actividad desde la EDT. Ajusta su duración y dependencias.' : 'Se crearon ' + add.length + ' actividades desde la EDT. Ajusta duraciones y dependencias.');
     return add.length;
   }
-  const editorCtx = (m, w, canWrite, agileRef) => ({ w, sched: m.sched, tree: m.tree, currency: m.currency, canWrite, projectStart: m.project ? m.project.start : null, agileRef: agileRef || null });
+  /* model: el modelo del proyecto (para PM.resourceDialog); baselines: líneas base vigentes (comparación del costo) */
+  const editorCtx = (m, w, canWrite, agileRef) => ({ w, sched: m.sched, tree: m.tree, currency: m.currency, canWrite, projectStart: m.project ? m.project.start : null, agileRef: agileRef || null, baselines: m.baselines || null, model: m });
   function openTaskEditor(ctx, taskId) {
     PM.openModal((close) => html`<${TaskEditor} ctx=${ctx} taskId=${taskId} close=${close} />`);
+  }
+
+  /* ---------------------------------------------------------------- selector de recurso del catálogo */
+  /* Índice de búsqueda por catálogo (memorizado: el catálogo es inmutable mientras no cambien los datos):
+     recursos ordenados por tipo (orden del proyecto; «Sin clasificar» al final) y por nombre. */
+  const pickCache = new WeakMap();
+  function pickIndex(cat) {
+    let ix = pickCache.get(cat);
+    if (ix) return ix;
+    const order = new Map([...cat.types, UNCL_TYPE].map((t, i) => [t.id, i]));
+    const rows = cat.items.map((it) => {
+      const ty = it.virtual ? UNCL_TYPE : cat.typeOf(it);
+      return { it, ty, kind: cat.kindOf(it), hay: normTxt([it.name, it.code, it.subtype, ty.name, it.unit, it.supplier].filter(Boolean).join(' ')) };
+    });
+    rows.sort((a, b) => (order.has(a.ty.id) ? order.get(a.ty.id) : 999) - (order.has(b.ty.id) ? order.get(b.ty.id) : 999) || a.it.name.localeCompare(b.it.name, 'es', { sensitivity: 'base' }));
+    ix = { rows };
+    pickCache.set(cat, ix);
+    return ix;
+  }
+  const PICK_MAX = 60;
+  const itemCostTxt = (item, kind, currency) => (isNumV(item.unitCost) ? fmt.money(Number(item.unitCost), currency) + (kind === 'consumible' ? ' por ' + unitOf(item) : ' por día') : 'sin costo unitario');
+  /* Combobox con lista agrupada por tipo de recurso (patrón ARIA «combobox» con «listbox»): escribir filtra, flechas
+     recorren, Intro elige, Escape cierra. Si el nombre escrito no existe ofrece «Crear recurso nuevo…».
+     render({input, pop}) ubica el campo y la lista (que ocupa el ancho de la fila, sin recortes del diálogo). */
+  function ResPicker({ id, label, value, selId, cat, disabled, canCreate, currency, onText, onPick, onCreate, render }) {
+    const [open, setOpen] = useState(false);
+    const [active, setActive] = useState(0);
+    const inputRef = useRef();
+    const raw = String(value || '');
+    const sel = selId && cat ? cat.byId.get(selId) || null : null;
+    /* recién elegido: la lista muestra todo el catálogo; si se escribe, filtra */
+    const q = sel && resKey(sel.name) === resKey(raw) ? '' : normTxt(raw).trim();
+    const exact = raw.trim() && cat ? cat.byKey.get(resKey(raw)) || null : null;
+    const view = useMemo(() => {
+      if (!open || !cat) return null;
+      const groups = []; const flat = []; let more = 0; let g = null;
+      for (const r of pickIndex(cat).rows) {
+        if (q && !r.hay.includes(q)) continue;
+        if (flat.length >= PICK_MAX) { more++; continue; }
+        if (!g || g.ty.id !== r.ty.id) { g = { ty: r.ty, items: [] }; groups.push(g); }
+        g.items.push({ r, k: flat.length });
+        flat.push({ r });
+      }
+      const createTxt = canCreate ? (!raw.trim() ? 'Crear recurso nuevo…' : !exact ? 'Crear recurso nuevo «' + raw.trim() + '»…' : exact.virtual ? 'Registrar «' + exact.name + '» en el catálogo…' : null) : null;
+      if (createTxt) flat.push({ create: true, text: createTxt });
+      return { groups, flat, more };
+    }, [open, cat, q, raw, exact, canCreate]);
+    const n = view ? view.flat.length : 0;
+    const act = n ? Math.min(active, n - 1) : -1;
+    const optId = (k) => id + '-o' + k;
+    useLayoutEffect(() => { if (open && act >= 0) { const el = document.getElementById(optId(act)); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); } }, [open, act]);
+    const choose = (o) => {
+      setOpen(false);
+      if (!o) return;
+      if (o.create) onCreate(raw.trim());
+      else onPick(o.r.it);
+    };
+    const onKey = (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); setActive(0); } else setActive((a) => Math.min(n - 1, a + 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) setActive((a) => Math.max(0, a - 1)); }
+      else if (e.key === 'Home' && open) { e.preventDefault(); setActive(0); }
+      else if (e.key === 'End' && open) { e.preventDefault(); setActive(Math.max(0, n - 1)); }
+      else if (e.key === 'Enter') { if (open && act >= 0) { e.preventDefault(); choose(view.flat[act]); } }
+      else if (e.key === 'Escape') { if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false); } }
+      else if (e.key === 'Tab') setOpen(false);
+    };
+    const listId = id + '-list';
+    const input = html`<div class="sched-pick">
+      <input ref=${inputRef} id=${id} class="input" type="text" role="combobox" autocomplete="off" aria-autocomplete="list" aria-label=${label}
+        aria-expanded=${open ? 'true' : 'false'} aria-controls=${open ? listId : undefined} aria-activedescendant=${open && act >= 0 ? optId(act) : undefined}
+        value=${raw} placeholder="Busca o escribe un recurso" disabled=${disabled}
+        onInput=${(e) => { onText(e.currentTarget.value); setOpen(true); setActive(0); }}
+        onClick=${() => { if (!disabled && !open) { setOpen(true); setActive(0); } }}
+        onKeyDown=${onKey} onBlur=${() => setOpen(false)} />
+      ${disabled ? null : html`<button type="button" class="sched-pick-tog" tabindex="-1" aria-label=${(open ? 'Ocultar' : 'Mostrar') + ' los recursos del catálogo'} title="Recursos del catálogo"
+        onMouseDown=${(e) => e.preventDefault()} onClick=${() => { setOpen((o) => !o); setActive(0); if (inputRef.current) inputRef.current.focus(); }}><${ui.Icon} name=${open ? 'chevron-up' : 'chevron-down'} size=${14} /></button>`}
+    </div>`;
+    const pop = open && view ? html`<div class="sched-pick-pop" id=${listId} role="listbox" aria-label=${'Recursos del catálogo · ' + label} onMouseDown=${(e) => e.preventDefault()}>
+      <div class="sched-pick-scroll">
+        ${view.groups.map((g, gi) => html`<div key=${g.ty.id} role="group" aria-labelledby=${id + '-g' + gi}>
+          <div class="sched-pick-gh" id=${id + '-g' + gi} role="presentation"><span>${g.ty.name}</span><span>${g.ty.kind === 'consumible' ? 'Consumible' : 'Trabajo'}</span></div>
+          ${g.items.map(({ r, k }) => html`<div key=${r.it.id} id=${optId(k)} role="option" aria-selected=${sel && sel.id === r.it.id ? 'true' : 'false'} data-res-option=${r.it.name}
+              class=${cx('sched-pick-opt', k === act && 'is-active')} onClick=${() => choose(view.flat[k])} onMouseMove=${() => { if (k !== act) setActive(k); }}>
+            <span class="sched-pick-name">${r.it.name}</span>
+            <span class="sched-pick-sub">${[r.it.code, (r.kind === 'consumible' ? 'Consumible' : 'Trabajo') + ' · ' + unitOf(r.it), itemCostTxt(r.it, r.kind, currency), r.it.virtual ? 'solo en el cronograma' : null, r.it.planned === false ? 'no planificado' : null].filter(Boolean).join(' · ')}</span>
+            ${sel && sel.id === r.it.id ? html`<${ui.Icon} name="check" size=${14} />` : null}
+          </div>`)}
+        </div>`)}
+        ${!view.groups.length ? html`<div class="sched-pick-none">${cat.items.length ? 'Ningún recurso del catálogo coincide con «' + raw.trim() + '».' : 'El catálogo de recursos está vacío.'}</div>` : null}
+        ${view.more ? html`<div class="sched-pick-more">Y ${fmt.num(view.more)} más: sigue escribiendo para filtrar.</div>` : null}
+      </div>
+      ${view.flat.length && view.flat[view.flat.length - 1].create ? html`<div id=${optId(n - 1)} role="option" aria-selected="false" data-res-create="1" class=${cx('sched-pick-new', act === n - 1 && 'is-active')}
+          onClick=${() => choose(view.flat[n - 1])} onMouseMove=${() => { if (act !== n - 1) setActive(n - 1); }}><${ui.Icon} name="plus" size=${14} />${view.flat[n - 1].text}</div>` : null}
+    </div>` : null;
+    return render({ input, pop });
   }
 
   /* ---------------------------------------------------------------- editor de actividad */
@@ -545,13 +758,21 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const liveTasks = (live.tasks || []).filter((t) => t && t.id);
     const rowNo = liveTasks.findIndex((t) => t.id === taskId) + 1;
     const orig = liveTasks.find((t) => t.id === taskId);
+    /* catálogo de recursos vivo (SPEC §10): el editor se suscribe por su cuenta, así un recurso creado o completado
+       desde aquí (PM.resourceDialog) aparece y se valora al instante */
+    const [resData] = PM.useToolData('resources', (PM.EMPTY && PM.EMPTY.resources) || EMPTY_RES);
+    const cat = useMemo(() => catalogOf(resData, w.get()), [resData]);
     const [d, setD] = useState(() => (orig ? {
       ...orig, name: orig.name || '', duration: num(orig.duration), milestone: !!orig.milestone || num(orig.duration) <= 0,
       deps: (orig.deps || []).map((x) => ({ id: x.id, type: ['FS', 'SS', 'FF', 'SF'].includes(x.type) ? x.type : 'FS', lag: Math.round(num(x.lag)), key: PM.uid('k') })),
-      resources: (orig.resources || []).map((r) => ({ name: r.name || '', units: num(r.units, 1), key: PM.uid('k') })),
+      /* fb: asignación guardada sin cantidad (consumible de antes): vale unidades × días, como en el núcleo */
+      resources: arrOf(orig.resources).filter(isObj).map((r) => ({ src: r, name: r.name || '', resourceId: r.resourceId || null, units: num(r.units, 1), qty: isNumV(r.qty) ? Number(r.qty) : null, fb: true, key: PM.uid('k') })),
+      costMode: costModeOf(orig), cost: Math.max(0, num(orig.cost)), costFixed: isNumV(orig.costFixed) ? Number(orig.costFixed) : null,
+      quantity: isNumV(orig.quantity) ? Number(orig.quantity) : null, unitPrice: isNumV(orig.unitPrice) ? Number(orig.unitPrice) : null,
+      qtyUnit: orig.qtyUnit ? String(orig.qtyUnit) : '', costCategory: orig.costCategory ? String(orig.costCategory) : '',
     } : null));
     const [error, setError] = useState(null);
-    const resNames = useMemo(() => [...new Set(liveTasks.flatMap((t) => (t.resources || []).map((r) => String(r.name || '').trim()).filter(Boolean)))].sort(), []);
+    const uidE = useMemo(() => PM.uid('te'), []);
     /* capa ágil: release vinculado (task.releaseId o release.taskId) y avance calculado desde su backlog */
     const ag0 = ctx.agileRef ? ctx.agileRef.current : null;
     const links = useMemo(() => agileLinks(ag0 && ag0.agile, liveTasks, ag0 && ag0.items), []);
@@ -588,7 +809,30 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const hasIter = !!PM.getView('iteraciones');
     const set = (k) => (v) => { setD((x) => ({ ...x, [k]: v })); setError(null); };
     const setDep = (i, patch) => setD((x) => ({ ...x, deps: x.deps.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
-    const setRes = (i, patch) => setD((x) => ({ ...x, resources: x.resources.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
+    const setResK = (key, patch) => { setD((x) => ({ ...x, resources: x.resources.map((y) => (y.key === key ? { ...y, ...patch } : y)) })); setError(null); };
+    /* recurso del catálogo de una fila (por resourceId y, si no, por nombre: la regla del núcleo) */
+    const resolveRow = (r) => (cat && String(r.name || '').trim() ? cat.resolve(r.resourceId ? { resourceId: r.resourceId, name: r.name } : { name: r.name }) : null);
+    const durNow = d && !d.milestone ? Math.max(0, Math.round(num(d.duration))) : 0;
+    /* cantidad de un consumible: la escrita; la de antes sin cantidad vale unidades × días (núcleo); nueva sin escribir: null */
+    const effQty = (r, kind) => (kind !== 'consumible' ? null : isNumV(r.qty) ? Math.max(0, Number(r.qty)) : r.fb ? Math.max(0, num(r.units, 0)) * durNow : null);
+    const rowsInfo = d ? d.resources.map((r) => {
+      const item = resolveRow(r); const kind = kindOfItem(cat, item); const q = effQty(r, kind);
+      const a = { name: r.name, units: num(r.units, 0), ...(r.resourceId ? { resourceId: r.resourceId } : {}), ...(kind === 'consumible' ? { qty: q === null ? 0 : q } : {}) };
+      return { r, item, kind, q, a };
+    }) : [];
+    /* actividad tal como quedaría (para valorar las líneas y la forma de costeo con PM.res, la misma regla del modelo) */
+    const draftTask = d ? { ...d, duration: durNow, milestone: !!d.milestone || durNow === 0, cost: Math.max(0, num(d.cost)), resources: rowsInfo.filter((x) => String(x.r.name || '').trim()).map((x) => x.a) } : null;
+    const costInfo = d && PM.res ? PM.res.taskCost(draftTask, cat) : null;
+    const lineOf = (x) => (PM.res && String(x.r.name || '').trim() ? PM.res.assignment(cat, draftTask, x.a) : null);
+    const openResource = async (key, text, item) => {
+      if (!PM.resourceDialog || ro) return;
+      const name = String(text || '').trim();
+      const virt = !item && name && cat ? cat.byKey.get(resKey(name)) : null;
+      const target = item || (virt && virt.virtual ? virt : null);
+      const saved = await (target ? PM.resourceDialog(ctx.model || null, target) : PM.resourceDialog(ctx.model || null, null, name ? { name } : null));
+      if (saved && saved.id) { setResK(key, { name: saved.name, resourceId: saved.id, ...(target ? {} : { qty: null, fb: false }) }); }
+      setTimeout(() => { const el = document.getElementById((saved ? 'te-q-' : 'te-r-') + key); if (el && el.focus) el.focus(); }, 0);
+    };
     const predOptions = liveTasks.map((t, i) => ({ value: t.id, label: (i + 1) + ' · ' + taskName(t) })).filter((o) => o.value !== taskId);
     const wbsOptions = tree.flat.map((f) => ({ value: f.node.id, label: f.code + ' ' + (f.node.name || '') }));
     const save = () => {
@@ -607,7 +851,21 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const via = cycleVia(cur.tasks || [], taskId, deps);
       if (via) return setError('La predecesora «' + taskName((cur.tasks || []).find((t) => t.id === via)) + '» ya depende, directa o indirectamente, de esta actividad. Quítala para evitar una dependencia circular.');
       if (!derived && D.valid(d.actualStart) && D.valid(d.actualFinish) && d.actualFinish < d.actualStart) return setError('El fin real no puede ser anterior al inicio real.');
-      const resources = d.resources.filter((r) => String(r.name || '').trim()).map((r) => ({ name: String(r.name).trim(), units: Math.max(0, num(r.units, 1)) }));
+      /* recursos: enlazados al catálogo (resourceId) si el nombre corresponde a un recurso guardado; los demás quedan por
+         nombre («Sin clasificar»). Trabajo: unidades por día. Consumible: cantidad total (qty). */
+      const resources = [];
+      for (const x of rowsInfo) {
+        const name = String(x.r.name || '').trim();
+        if (!name) continue;
+        const saved = x.item && !x.item.virtual ? x.item : null;
+        const out = { ...(x.r.src || {}), name: saved ? saved.name : name, units: Math.max(0, num(x.r.units, 1)) };
+        if (saved) out.resourceId = saved.id; else delete out.resourceId;
+        if (x.kind === 'consumible') {
+          if (x.q === null) { setError('Escribe la cantidad de «' + out.name + '» (' + unitOf(x.item) + '): es un recurso consumible y se asigna por cantidad total.'); setTimeout(() => { const el = document.getElementById('te-q-' + x.r.key); if (el) el.focus(); }, 0); return; }
+          out.qty = x.q;
+        } else delete out.qty;
+        resources.push(out);
+      }
       const base = (cur.tasks || []).find((t) => t.id === taskId);
       if (!base) { close(); PM.toast('La actividad ya no existe.', { tone: 'crit' }); return; }
       /* con avance calculado desde el backlog se conservan el avance y las fechas reales guardados (no se editan) */
@@ -617,6 +875,15 @@ button.sched-day:hover { border-color: var(--line-strong); }
         responsible: String(d.responsible || '').trim(), actualStart: derived ? base.actualStart || null : D.valid(d.actualStart) ? d.actualStart : null,
         actualFinish: derived ? base.actualFinish || null : D.valid(d.actualFinish) ? d.actualFinish : null, notes: d.notes || '',
       };
+      /* forma de costeo (SPEC §10.1): sin costMode = precio global (las actividades de antes no cambian); cost guarda
+         siempre el precio global escrito a mano y el costo calculado vive en el modelo (PM.res.applyCosts) */
+      const mode = costModeOf(d);
+      setOpt(next, 'costMode', mode === 'global' && !base.costMode ? null : mode);
+      setOpt(next, 'costFixed', isNumV(d.costFixed) ? Math.max(0, Number(d.costFixed)) : null);
+      setOpt(next, 'quantity', isNumV(d.quantity) ? Math.max(0, Number(d.quantity)) : null);
+      setOpt(next, 'unitPrice', isNumV(d.unitPrice) ? Math.max(0, Number(d.unitPrice)) : null);
+      setOpt(next, 'qtyUnit', String(d.qtyUnit || '').trim() || null);
+      setOpt(next, 'costCategory', String(d.costCategory || '').trim() || null);
       const newRel = relSel || null;
       /* también si el release ya era el de esta actividad pero otra lo comparte: se cumple «una actividad por release» */
       const linkChanged = newRel !== (curRel ? curRel.id : null) || staleRel || !!shadowRel || (!!newRel && others.length > 0);
@@ -657,6 +924,122 @@ button.sched-day:hover { border-color: var(--line-strong); }
       <${ui.Button} onClick=${close}>Cancelar</${ui.Button}>
       <${ui.Button} variant="primary" icon="check" onClick=${save}>Guardar cambios</${ui.Button}>`;
     const kv = (k, v, tone) => html`<div><span class="k">${k}</span><span class="v" style=${tone ? 'color:var(--' + tone + ')' : ''}>${v}</span></div>`;
+    const money = (v) => fmt.money(v, currency);
+    const canCreate = !ro && !!PM.resourceDialog;
+    const addRes = () => {
+      const key = PM.uid('k');
+      setD((x) => ({ ...x, resources: [...x.resources, { name: '', resourceId: null, units: 1, qty: null, fb: false, key }] }));
+      setTimeout(() => { const el = document.getElementById('te-r-' + key); if (el) el.focus(); }, 0);
+    };
+    /* fila de recurso: selector del catálogo, unidades por día (trabajo) o cantidad (consumible), costo de la línea */
+    const resRow = (x, i) => {
+      const { r, item, kind, q } = x;
+      const l = lineOf(x);
+      const named = !!String(r.name || '').trim();
+      const saved = item && !item.virtual ? item : null;
+      const ty = saved ? cat.typeOf(saved) : null;
+      const formula = l && l.priced ? (kind === 'consumible' ? fmt.num(l.qty, 2) + ' ' + unitOf(item) + ' × ' + money(l.unitCost) : fmt.num(l.units, 2) + ' por día × ' + fmt.num(durNow) + (durNow === 1 ? ' día × ' : ' días × ') + money(l.unitCost)) + ' = ' + money(l.cost) : undefined;
+      const meta = !named ? null
+        : saved ? html`<span>${[saved.code, ty ? ty.name : null, (kind === 'consumible' ? 'Consumible' : 'Trabajo') + ' · ' + unitOf(saved), itemCostTxt(saved, kind, currency)].filter(Boolean).join(' · ')}</span>
+            ${saved.planned === false ? html`<${ui.Chip} tone="warn" icon="alert">No planificado</${ui.Chip}>` : null}
+            ${!isNumV(saved.unitCost) && canCreate ? html`<${ui.Button} size="sm" variant="ghost" icon="edit" onClick=${() => openResource(r.key, r.name, saved)}>Completar el costo en el catálogo…</${ui.Button}>` : null}`
+        : item && item.virtual ? html`<span class="sched-te-warn"><${ui.Icon} name="alert" size=${12} />Sin clasificar: el nombre solo existe en el cronograma.</span>
+            ${canCreate ? html`<${ui.Button} size="sm" variant="ghost" icon="plus" onClick=${() => openResource(r.key, r.name, item)}>Registrar en el catálogo…</${ui.Button}>` : null}`
+        : html`<span class="sched-te-warn" data-res-missing="1"><${ui.Icon} name="alert" size=${12} />«${String(r.name).trim()}» no está en el catálogo: se guardará como recurso sin clasificar.</span>
+            ${canCreate ? html`<${ui.Button} size="sm" variant="ghost" icon="plus" onClick=${() => openResource(r.key, r.name, null)}>Crear recurso nuevo…</${ui.Button}>` : null}`;
+      return html`<${ResPicker} key=${r.key} id=${'te-r-' + r.key} label=${'Recurso ' + (i + 1)} value=${r.name} selId=${saved ? saved.id : null} cat=${cat} disabled=${ro} canCreate=${canCreate} currency=${currency}
+        onText=${(v) => setResK(r.key, { name: v, resourceId: null, fb: false })}
+        onPick=${(it) => setResK(r.key, { name: it.name, resourceId: it.virtual ? null : it.id, ...(saved && saved.id === it.id ? {} : { qty: null, fb: false }) })}
+        onCreate=${(text) => openResource(r.key, text, null)}
+        render=${({ input, pop }) => html`<div class="sched-te-row" data-res-row=${i + 1} data-kind=${kind}>
+          <div class="sched-te-rmain">
+            ${input}
+            <div class="sched-te-qty">${kind === 'consumible'
+              ? html`<${ui.NumberInput} id=${'te-q-' + r.key} aria-label=${'Cantidad del recurso ' + (i + 1) + ' (' + unitOf(item) + ')'} value=${q} min=${0} placeholder="Cantidad" onValue=${(v) => setResK(r.key, { qty: v, fb: false })} disabled=${ro} /><span class="sched-te-unit" title=${unitOf(item)}>${unitOf(item)}</span>`
+              : html`<${ui.NumberInput} id=${'te-q-' + r.key} aria-label=${'Unidades del recurso ' + (i + 1)} title="Unidades por día hábil (personas, cuadrillas o equipos)" value=${r.units} min=${0} onValue=${(v) => setResK(r.key, { units: v })} disabled=${ro} /><span class="sched-te-unit">por día</span>`}</div>
+            <div class="sched-te-lcost" data-line-cost=${l && l.priced ? String(Math.round(l.cost)) : ''} title=${formula}>${l && l.priced ? money(l.cost) : named && item ? html`<span class="faint">Sin costo</span>` : html`<span class="faint" aria-hidden="true">—</span>`}</div>
+            ${ro ? html`<span></span>` : html`<${ui.IconButton} icon="trash" label=${'Quitar recurso ' + (i + 1)} onClick=${() => setD((y) => ({ ...y, resources: y.resources.filter((z) => z.key !== r.key) }))} />`}
+          </div>
+          ${pop}
+          ${meta ? html`<div class="sched-te-meta">${meta}</div>` : null}
+        </div>`} />`;
+    };
+    /* sección «Costo»: forma de costeo (SPEC §10.1) con su desglose y la comparación con la línea base de costos */
+    const costSection = () => {
+      const mode = costModeOf(d);
+      const ci = costInfo || { mode, total: Math.max(0, num(d.cost)), fixed: 0, resourcesTotal: 0, lines: [], unpriced: 0, unitario: { qty: 0, price: 0, unit: '' } };
+      const total = ci.total;
+      const catOpts = d.costCategory && !COST_CATEGORIES.includes(d.costCategory) ? [...COST_CATEGORIES, d.costCategory] : COST_CATEGORIES;
+      const catField = html`<${ui.Field} label="Categoría de costo" for="te-cat" hint=${mode === 'mixto' ? 'De la parte fija, para la estructura de desglose de costos.' : 'Para la estructura de desglose de costos.'}><${ui.Select} id="te-cat" value=${d.costCategory || ''} placeholder="Sin categoría" options=${catOpts} onValue=${set('costCategory')} disabled=${ro} /></${ui.Field}>`;
+      const unpricedNames = ci.lines.filter((l) => !l.priced).map((l) => l.name);
+      const breakdown = () => html`
+        ${ci.unpriced ? html`<div class="sched-banner" role="status" data-cost-unpriced=${ci.unpriced}><${ui.Icon} name="alert" size=${16} /><div>${ci.unpriced === 1 ? '1 recurso no tiene' : ci.unpriced + ' recursos no tienen'} costo unitario en el catálogo y no ${ci.unpriced === 1 ? 'suma' : 'suman'} al costo: ${unpricedNames.join(', ')}. Complétalo en el catálogo de recursos.</div></div>` : null}
+        ${ci.lines.length ? html`<div class="table-wrap"><table class="table table-tight sched-cost-tbl" data-cost-breakdown="1" aria-label="Desglose del costo por recursos">
+          <thead><tr><th>Recurso</th><th class="num">Cantidad</th><th>Unidad</th><th class="num">Costo unitario</th><th class="num">Subtotal</th></tr></thead>
+          <tbody>${ci.lines.map((l, k) => html`<tr key=${k} data-line=${l.name}>
+            <td class="wrap">${l.name}</td>
+            <td class="num">${fmt.num(l.qty, 2)}</td>
+            <td>${l.kind === 'consumible' ? unitOf(l.item) : 'días-recurso'}</td>
+            <td class="num">${l.priced ? money(l.unitCost) + (l.kind === 'consumible' ? '' : ' por día') : html`<span class="sched-nocost"><${ui.Icon} name="alert" size=${12} />Sin costo</span>`}</td>
+            <td class="num">${l.priced ? money(l.cost) : '—'}</td>
+          </tr>`)}</tbody>
+          <tfoot>
+            ${mode === 'mixto' ? html`<tr><td colspan="4">Recursos</td><td class="num">${money(ci.resourcesTotal)}</td></tr><tr><td colspan="4">Parte fija</td><td class="num">${money(ci.fixed)}</td></tr>` : null}
+            <tr><td colspan="4">Total</td><td class="num">${money(total)}</td></tr>
+          </tfoot>
+        </table></div>` : html`<p class="small faint">Asigna recursos en la sección «Recursos»: el costo se calcula con el costo unitario de cada recurso del catálogo.</p>`}`;
+      const totalBox = (label, sub) => html`<div class="sched-cost-total" data-cost-total=${String(Math.round(total))}><span>${label}</span><strong>${money(total)}</strong>${sub ? html`<span class="sub">${sub}</span>` : null}</div>`;
+      let body;
+      if (mode === 'global') {
+        body = html`<div class="sched-cost-grid">
+            <${ui.Field} label=${'Precio global (' + currency + ')'} for="te-cost" hint="A todo costo, escrito a mano: no cambia al agregar o quitar recursos."><${ui.NumberInput} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
+            ${catField}
+          </div>
+          ${ci.resourcesTotal > 0 ? html`<div class="sched-note" data-cost-info="1"><${ui.Icon} name="info" size=${15} /><div>Los recursos asignados suman ${money(ci.resourcesTotal)} con los costos del catálogo. Con precio global ese valor es solo informativo: el costo de la actividad sigue siendo ${money(total)}.</div></div>` : null}`;
+      } else if (mode === 'recursos') {
+        body = html`${breakdown()}${totalBox('Costo calculado por recursos')}`;
+      } else if (mode === 'mixto') {
+        body = html`<div class="sched-cost-grid">
+            <${ui.Field} label=${'Parte fija (' + currency + ')'} for="te-cost-fixed" hint="Lo que no depende de los recursos asignados (p. ej. administración o un suministro a todo costo)."><${ui.NumberInput} id="te-cost-fixed" money currency=${currency} value=${d.costFixed} min=${0} onValue=${set('costFixed')} disabled=${ro} /></${ui.Field}>
+            ${catField}
+          </div>${breakdown()}${totalBox('Costo total: parte fija + recursos', money(ci.fixed) + ' + ' + money(ci.resourcesTotal))}`;
+      } else {
+        body = html`<div class="sched-cost-grid">
+            <${ui.Field} label="Cantidad de obra" for="te-qty"><${ui.NumberInput} id="te-qty" value=${d.quantity} min=${0} onValue=${set('quantity')} disabled=${ro} /></${ui.Field}>
+            <${ui.Field} label="Unidad" for="te-qty-unit"><${ui.Input} id="te-qty-unit" list=${uidE + '-units'} value=${d.qtyUnit || ''} onValue=${set('qtyUnit')} placeholder="m², m³, global…" disabled=${ro} /><datalist id=${uidE + '-units'}>${RES_UNITS.map((u) => html`<option key=${u} value=${u}></option>`)}</datalist></${ui.Field}>
+            <${ui.Field} label=${'Precio unitario (' + currency + ')'} for="te-unit-price"><${ui.NumberInput} id="te-unit-price" money currency=${currency} value=${d.unitPrice} min=${0} onValue=${set('unitPrice')} disabled=${ro} /></${ui.Field}>
+            ${catField}
+          </div>${totalBox('Costo: cantidad × precio unitario', fmt.num(ci.unitario.qty, 2) + ' ' + (String(ci.unitario.unit || '').trim() || 'unidades') + ' × ' + money(ci.unitario.price))}`;
+      }
+      /* comparación con la línea base de costos vigente: la línea base no cambia al editar (solo con un cambio aprobado) */
+      const blDoc = ctx.baselines && ctx.baselines.cost;
+      const blTasks = blDoc && isObj(blDoc.cost) && Array.isArray(blDoc.cost.tasks) ? blDoc.cost.tasks : null;
+      const blT = blTasks ? blTasks.find((x) => isObj(x) && x.id === taskId) || null : null;
+      const blLabel = blDoc ? String(blDoc.label || 'vigente') : '';
+      let blBox = null;
+      if (blT) {
+        const bv = Math.max(0, num(blT.cost)); const diff = total - bv; const same = Math.abs(diff) < 0.5;
+        blBox = html`<div class="sched-blcmp" role="note" data-cost-baseline=${String(Math.round(bv))} data-cost-diff=${String(Math.round(diff))}>
+          <div>Línea base ${blLabel}: <strong>${money(bv)}</strong> · actual: <strong>${money(total)}</strong> <span class=${same ? '' : diff > 0 ? 'sched-up' : 'sched-down'}>(${same ? 'sin diferencia' : (diff > 0 ? '+' : '−') + money(Math.abs(diff)) + (diff > 0 ? ', por encima de la línea base' : ', por debajo de la línea base')})</span></div>
+          <div class="xsmall muted">La línea base solo cambia con un cambio aprobado (4.6 Realizar el control integrado de cambios); mientras tanto, la diferencia se controla como variación del costo.</div>
+        </div>`;
+      } else if (blTasks) {
+        blBox = html`<p class="xsmall faint" data-cost-baseline="none">La actividad no está en la línea base de costos ${blLabel}: su costo entra al presupuesto aprobado solo con un cambio aprobado.</p>`;
+      }
+      return html`<div class="sched-te-sec" data-te-cost=${mode}>
+        <div class="h4">Costo</div>
+        <fieldset class="sched-cmodes" disabled=${ro}>
+          <legend class="field-label">Forma de costeo</legend>
+          <div class="sched-cmodes-grid">${COST_MODES.map((cm) => html`<label key=${cm.value} class="sched-cmode" data-cost-choice=${cm.value}>
+            <input type="radio" name=${uidE + '-cm'} value=${cm.value} checked=${mode === cm.value} onChange=${() => set('costMode')(cm.value)} aria-labelledby=${uidE + '-cm-' + cm.value} aria-describedby=${uidE + '-cmh-' + cm.value} />
+            <span class="sched-cmode-t" id=${uidE + '-cm-' + cm.value}>${cm.label}</span>
+            <span class="sched-cmode-h" id=${uidE + '-cmh-' + cm.value}>${cm.hint}</span>
+          </label>`)}</div>
+        </fieldset>
+        ${body}
+        ${blBox}
+      </div>`;
+    };
     return html`<${ui.Modal} size="wide" title=${(d.milestone ? 'Hito' : 'Actividad') + (rowNo ? ' ' + rowNo : '')} subtitle=${ro ? 'Solo lectura' : 'Las duraciones y desfases se expresan en días hábiles.'} onClose=${close} footer=${footer}>
       ${error ? html`<div class="sched-banner" role="alert"><${ui.Icon} name="alert" size=${16} /><div>${error}</div></div>` : null}
       <div class="grid cols-2">
@@ -678,7 +1061,6 @@ button.sched-day:hover { border-color: var(--line-strong); }
         </${ui.Field}>
         <${ui.Field} label="No comenzar antes de" for="te-start" hint=${derived && preview && D.valid(preview.actualStart) ? 'La actividad ya inició según las iteraciones del release (' + fmt.date(preview.actualStart) + '): esta restricción no cambia su inicio.' : 'Restricción de fecha. Déjala vacía para que manden las dependencias.'}><${ui.DateInput} id="te-start" value=${d.start} onValue=${set('start')} disabled=${ro} /></${ui.Field}>
         <${ui.Field} label="% de avance" for="te-pct" hint=${derived ? 'Calculado desde el backlog del release; no se edita aquí.' : undefined}><${ui.NumberInput} id="te-pct" value=${derived && preview ? preview.progress : d.progress} min=${0} max=${100} onValue=${set('progress')} disabled=${ro || derived} title=${derived ? DERIVED_TITLE(selRel) : undefined} /></${ui.Field}>
-        <${ui.Field} label=${'Costo presupuestado (' + currency + ')'} for="te-cost"><${ui.NumberInput} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
         <${ui.Field} label="Inicio real" for="te-as" hint=${derived ? 'Inicio de la primera iteración iniciada del release.' : undefined}><${ui.DateInput} id="te-as" value=${derived && preview ? preview.actualStart : d.actualStart} onValue=${set('actualStart')} disabled=${ro || derived} /></${ui.Field}>
         <${ui.Field} label="Fin real" for="te-af" hint=${derived ? 'Última terminación del backlog del release al llegar al 100 %.' : 'Con avance 100 % fija la fecha de terminación.'}><${ui.DateInput} id="te-af" value=${derived && preview ? preview.actualFinish : d.actualFinish} onValue=${set('actualFinish')} disabled=${ro || derived} /></${ui.Field}>
       </div>
@@ -701,19 +1083,15 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ${ro ? null : html`<div><${ui.Button} size="sm" icon="plus" disabled=${!predOptions.length} onClick=${() => setD((x) => ({ ...x, deps: [...x.deps, { id: '', type: 'FS', lag: 0, key: PM.uid('k') }] }))}>Agregar predecesora</${ui.Button}></div>`}
         <p class="xsmall faint">Desfase positivo = retraso (espera); negativo = adelanto (solapamiento).</p>
       </div>
-      <div class="stack-sm">
+      <div class="sched-te-sec" data-te-resources>
         <div class="h4">Recursos</div>
-        ${d.resources.length ? html`<div class="sched-sub">
-          <div class="sched-subrow res sched-subhead"><span>Recurso (persona, cuadrilla o equipo)</span><span>Unidades por día</span><span></span></div>
-          ${d.resources.map((r, i) => html`<div class="sched-subrow res" key=${r.key}>
-            <${ui.Input} aria-label=${'Nombre del recurso ' + (i + 1)} list="sched-res-names" value=${r.name} onValue=${(v) => setRes(i, { name: v })} placeholder="Ej.: Cuadrilla de montaje" disabled=${ro} />
-            <${ui.NumberInput} aria-label=${'Unidades del recurso ' + (i + 1)} value=${r.units} min=${0} onValue=${(v) => setRes(i, { units: v })} disabled=${ro} />
-            ${ro ? html`<span></span>` : html`<${ui.IconButton} icon="trash" label=${'Quitar recurso ' + (i + 1)} onClick=${() => setD((y) => ({ ...y, resources: y.resources.filter((_, j) => j !== i) }))} />`}
-          </div>`)}
-          <datalist id="sched-res-names">${resNames.map((n) => html`<option key=${n} value=${n} />`)}</datalist>
-        </div>` : html`<p class="small faint">Sin recursos asignados. Las unidades son personas o equipos por día hábil y alimentan el histograma de recursos.</p>`}
-        ${ro ? null : html`<div><${ui.Button} size="sm" icon="plus" onClick=${() => setD((x) => ({ ...x, resources: [...x.resources, { name: '', units: 1, key: PM.uid('k') }] }))}>Agregar recurso</${ui.Button}></div>`}
+        ${d.resources.length ? html`<div class="sched-te-res">
+          <div class="sched-te-rhead" aria-hidden="true"><span>Recurso del catálogo</span><span>Unidades por día o cantidad</span><span>Costo</span><span></span></div>
+          ${rowsInfo.map((x, i) => resRow(x, i))}
+        </div>` : html`<p class="small faint">Sin recursos asignados. Elige recursos del catálogo: los de trabajo (personas, cuadrillas, equipos) se asignan en unidades por día hábil y alimentan el histograma; los consumibles (materiales, insumos), por cantidad.</p>`}
+        ${ro ? null : html`<div><${ui.Button} size="sm" icon="plus" onClick=${addRes}>Agregar recurso</${ui.Button}></div>`}
       </div>
+      ${costSection()}
       <${ui.Field} label="Notas" for="te-notes"><${ui.TextArea} id="te-notes" value=${d.notes || ''} onValue=${set('notes')} rows=${2} disabled=${ro} /></${ui.Field}>
       ${comp ? html`<div class="stack-sm">
         <div class="h4">Valores calculados (ruta crítica, antes de guardar)</div>
@@ -862,7 +1240,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ${t.milestone ? null : html`<span>Duración</span><span>${daysTxt(t.duration)} hábiles</span>`}
         <span>Holgura total / libre</span><span>${fmt.num(t.tf)} / ${fmt.num(t.ff)} d</span>
         <span>Avance</span><span>${fmt.num(t.progress, t.agileDerived ? 1 : 0)} %${t.agileDerived ? ' (desde el backlog)' : ''}</span>
-        <span>Costo</span><span>${fmt.money(t.cost, currency)}</span>
+        <span>Costo</span><span>${fmt.money(t.cost, currency)}${costModeOf(t) !== 'global' ? ' · ' + costModeLabel(costModeOf(t)).toLowerCase() : ''}</span>
         ${code ? html`<span>EDT</span><span>${code}</span>` : null}
         ${rel ? html`<span>Release</span><span data-tip="release">${relName(rel.r)}</span>` : null}
         ${rel && rel.sprints.length ? html`<span>Iteraciones</span><span>${rel.sprints.slice(0, 4).map((x) => (x.name || 'Iteración') + (D.valid(x.start) ? ' (' + fmt.date(x.start, 'dm') + ')' : '')).join(', ')}${rel.sprints.length > 4 ? ' y ' + (rel.sprints.length - 4) + ' más' : ''}</span>` : null}
@@ -872,21 +1250,22 @@ button.sched-day:hover { border-color: var(--line-strong); }
     </div>`;
   }
   /* CSV del cronograma calculado. */
-  function scheduleCsv(sched, tree, currency, links) {
+  function scheduleCsv(sched, tree, currency, links, cat) {
     const idx = new Map(sched.tasks.map((t, i) => [t.id, i]));
     const cols = [
       { key: 'n', label: '#' }, { key: 'code', label: 'EDT' }, { key: 'name', label: 'Actividad' }, { key: 'tipo', label: 'Tipo' },
       { key: 'dur', label: 'Duración (días hábiles)' }, { key: 'ini', label: 'Inicio' }, { key: 'fin', label: 'Fin' },
       { key: 'il', label: 'Inicio tardío' }, { key: 'tl', label: 'Fin tardío' }, { key: 'ht', label: 'Holgura total' }, { key: 'hl', label: 'Holgura libre' },
       { key: 'crit', label: 'Crítica' }, { key: 'pred', label: 'Predecesoras' }, { key: 'rest', label: 'No comenzar antes de' }, { key: 'pct', label: '% avance' },
-      { key: 'ar', label: 'Inicio real' }, { key: 'fr', label: 'Fin real' }, { key: 'cost', label: 'Costo (' + currency + ')' }, { key: 'resp', label: 'Responsable' }, { key: 'rec', label: 'Recursos' },
+      { key: 'ar', label: 'Inicio real' }, { key: 'fr', label: 'Fin real' }, { key: 'cost', label: 'Costo (' + currency + ')' }, { key: 'cmode', label: 'Forma de costeo' }, { key: 'ccat', label: 'Categoría de costo' },
+      { key: 'resp', label: 'Responsable' }, { key: 'rec', label: 'Recursos' },
       ...(links && links.any ? [{ key: 'rel', label: 'Release vinculado' }, { key: 'agil', label: 'Avance desde el backlog' }] : []),
     ];
     const rows = sched.tasks.map((t, i) => ({
       n: i + 1, code: (t.wbsId && tree.codes.get(t.wbsId)) || '', name: taskName(t), tipo: t.milestone ? 'Hito' : 'Actividad', dur: t.duration,
       ini: fmt.date(t.startDate, 'short'), fin: fmt.date(t.finishDate, 'short'), il: fmt.date(t.lateStart, 'short'), tl: fmt.date(t.lateFinish, 'short'),
       ht: t.tf, hl: t.ff, crit: !!t.critical, pred: depsToText(t.deps, idx), rest: t.start ? fmt.date(t.start, 'short') : '', pct: t.progress,
-      ar: t.actualStart ? fmt.date(t.actualStart, 'short') : '', fr: t.actualFinish ? fmt.date(t.actualFinish, 'short') : '', cost: num(t.cost), resp: t.responsible || '', rec: resText(t.resources),
+      ar: t.actualStart ? fmt.date(t.actualStart, 'short') : '', fr: t.actualFinish ? fmt.date(t.actualFinish, 'short') : '', cost: num(t.cost), cmode: costModeLabel(costModeOf(t)), ccat: t.costCategory || '', resp: t.responsible || '', rec: resTextOf(t, cat),
       ...(links && links.any ? { rel: links.relByTask.has(t.id) ? relName(links.relByTask.get(t.id)) : '', agil: !!t.agileDerived } : {}),
     }));
     return PM.toCSV(cols, rows);
@@ -921,7 +1300,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const [fcHidden, setFcHidden] = useKeyedPref('sched.fcHide.' + (project.id || ''), false);
     const showFc = fcAvail && !fcHidden;
     const colSet = colsPref === 'auto' ? (frameW && frameW < 960 ? 'compact' : 'full') : colsPref;
-    const cols = COLSETS[colSet] || COLSETS.full;
+    const cols = colSet === 'full' && frameW >= WIDE_GRID ? COLS_WIDE : COLSETS[colSet] || COLSETS.full;
     /* «Dur.» crece con la duración más larga que puede mostrarse (actividades y, al agrupar, el resumen más largo,
        que nunca supera el plazo total), para que «1.320 d» no se corte. No depende de los grupos contraídos. */
     const durW = useMemo(() => {
@@ -1000,7 +1379,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       w.setTasks((ts) => { const a = ts.slice(); const i = a.findIndex((t) => t.id === selTask.id), j = a.findIndex((t) => t.id === nb.id); if (i < 0 || j < 0) return a; const tmp = a[i]; a[i] = a[j]; a[j] = tmp; return a; });
     };
     const toggleGroup = (id) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-    const exportCsv = () => PM.download(fileBase(project) + '_cronograma.csv', scheduleCsv(sched, tree, currency, links));
+    const exportCsv = () => PM.download(fileBase(project) + '_cronograma.csv', scheduleCsv(sched, tree, currency, links, m.catalog));
     const exportSvg = () => {
       const head = headSvgRef.current, body = bodySvgRef.current; if (!head || !body) return;
       const NS = 'http://www.w3.org/2000/svg'; const LW = 320; const W = LW + L.width; const Ht = HEAD_H + Math.max(1, rows.length) * ROW_H + 30;
@@ -1160,6 +1539,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
         ? html`<${EditCell} value=${String(t.progress)} display=${fmt.num(t.progress, 1) + ' %'} align="right" label=${'% de avance, fila ' + r.num} readOnly=${true} title=${DERIVED_TITLE(links.relByTask.get(t.id))} />`
         : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} inputMode="decimal" align="right" label=${'% de avance, fila ' + r.num} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`;
       else if (k === 'pred') c = html`<${EditCell} cls="sched-mono" value=${depsToText(t.deps, idxById)} validate=${validatePred(t.id)} label=${'Predecesoras, fila ' + r.num} readOnly=${ro} title=${GCOLS.pred.title} onCommit=${(v) => w.updateTask(t.id, { deps: v })} />`;
+      else if (k === 'cost') c = costModeOf(t) === 'global'
+        ? html`<${EditCell} value=${String(num(t.cost))} display=${fmt.money(t.cost, currency)} validate=${V.money} align="right" inputMode="decimal" label=${'Costo, fila ' + r.num} readOnly=${ro} title=${'Precio global (a todo costo)' + (ro ? '' : '. Clic para editar.')} onCommit=${(v) => w.updateTask(t.id, { cost: v })} />`
+        : html`<${CostOpen} t=${t} label=${'Costo, fila ' + r.num} currency=${currency} onOpen=${() => edit(t.id)} />`;
       return html`<div key=${k} data-col=${k}>${c}</div>`;
     };
     const sumCell = (k, r) => {
@@ -1171,6 +1553,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       else if (k === 'start') c = html`<div class="sched-ro sched-mono">${fd(r.roll.start)}</div>`;
       else if (k === 'finish') c = html`<div class="sched-ro sched-mono">${fd(r.roll.finish)}</div>`;
       else if (k === 'pct') c = html`<div class="sched-ro num">${fmt.num(r.roll.progress)} %</div>`;
+      else if (k === 'cost') c = html`<div class="sched-ro num" style="color:var(--fg)" title="Costo del paquete (suma de sus actividades)">${fmt.money(r.roll.cost, currency)}</div>`;
       return html`<div key=${k} data-col=${k}>${c}</div>`;
     };
     const rowEls = rows.map((r) => {
@@ -1383,7 +1766,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       const via = cycleVia(w.get().tasks || [], id, r.deps);
       return via ? { error: 'Crearía una dependencia circular con la fila ' + ((idxById.get(via) ?? -1) + 1) + '.' } : { value: r.deps };
     };
-    const exportCsv = () => PM.download(fileBase(project) + '_actividades.csv', scheduleCsv(sched, tree, currency, links));
+    const exportCsv = () => PM.download(fileBase(project) + '_actividades.csv', scheduleCsv(sched, tree, currency, links, m.catalog));
     if (!sched.tasks.length) {
       const add = () => { const t = newTask(); w.setTasks((ts) => [...ts, t]); setSel(t.id); edit(t.id); };
       return html`<${ui.Empty} icon="table" title="Aún no hay actividades" actions=${canWrite ? html`
@@ -1424,9 +1807,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
                 : html`<${EditCell} value=${String(Math.round(t.progress))} display=${fmt.num(t.progress) + ' %'} validate=${V.pct} align="right" label=${'% de avance, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { progress: v })} />`}</td>
               <td class="mono xsmall" title=${t.agileDerived && t.actualStart ? 'Inicio de la primera iteración iniciada del release' : undefined}>${t.actualStart ? fmt.date(t.actualStart, 'short') : '—'}</td>
               <td class="mono xsmall" title=${t.agileDerived && t.actualFinish ? 'Última terminación del backlog del release' : undefined}>${t.actualFinish ? fmt.date(t.actualFinish, 'short') : '—'}</td>
-              <td class="edit" style="min-width:120px"><${EditCell} value=${String(num(t.cost))} display=${fmt.money(t.cost, currency)} validate=${V.money} align="right" inputMode="decimal" label=${'Costo, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { cost: v })} /></td>
+              <td class="edit" style="min-width:130px" data-col="cost">${costModeOf(t) === 'global'
+                ? html`<${EditCell} value=${String(num(t.cost))} display=${fmt.money(t.cost, currency)} validate=${V.money} align="right" inputMode="decimal" label=${'Costo, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { cost: v })} />`
+                : html`<${CostOpen} t=${t} label=${'Costo, fila ' + (i + 1)} currency=${currency} onOpen=${() => edit(t.id)} />`}</td>
               <td class="edit" style="min-width:140px"><${EditCell} value=${t.responsible || ''} display=${t.responsible || '—'} validate=${V.text} label=${'Responsable, fila ' + (i + 1)} readOnly=${ro} onCommit=${(v) => w.updateTask(t.id, { responsible: v })} /></td>
-              <td class="wrap xsmall">${resText(t.resources) || html`<span class="faint">—</span>`}</td>
+              <td class="wrap xsmall">${resTextOf(t, m.catalog) || html`<span class="faint">—</span>`}</td>
               <td><${ui.IconButton} size="sm" icon=${canWrite ? 'edit' : 'eye'} label=${(canWrite ? 'Editar ' : 'Ver ') + taskName(t)} onClick=${(e) => { e.stopPropagation(); edit(t.id); }} /></td>
             </tr>`)}
           </tbody>
@@ -1900,58 +2285,95 @@ button.sched-day:hover { border-color: var(--line-strong); }
     </div>`;
   }
 
-  /* ---------------------------------------------------------------- recursos */
-  const resKey = (s) => String(s || '').trim().toLowerCase();
-  function resourceModel(sched, limits, bucket) {
+  /* ---------------------------------------------------------------- recursos (SPEC §10.4) */
+  /* Periodos (semana desde el lunes o mes) entre dos fechas, con sus días hábiles. */
+  function periodsOf(start, finish, bucket, cal) {
+    const out = [];
+    if (!D.valid(start) || !D.valid(finish)) return out;
+    let p = bucket === 'mes' ? D.startOfMonth(start) : D.startOfWeek(start); let guard = 0;
+    while (p <= finish && guard++ < 520) {
+      const nx = bucket === 'mes' ? D.addMonths(p, 1) : D.add(p, 7);
+      const days = []; for (let d = p; d < nx; d = D.add(d, 1)) if (cal.isWork(d)) days.push(d);
+      out.push({ start: p, end: D.add(nx, -1), days, label: bucket === 'mes' ? PM.MONTHS[+p.slice(5, 7) - 1] + ' ' + p.slice(2, 4) : fmt.date(p, 'dm') });
+      p = nx;
+    }
+    return out;
+  }
+  const typeOfRes = (cat, item) => (item && !item.virtual && cat ? cat.typeOf(item) : UNCL_TYPE);
+  /* Demanda diaria de los recursos de trabajo (los consumibles se controlan por consumo). Un recurso por nombre del
+     catálogo (PM.res: resourceId y, si no, el nombre); los nombres que solo están en el cronograma quedan «Sin clasificar». */
+  function workDemand(sched, cat) {
     const cal = sched.cal;
     const map = new Map();
     for (const t of sched.tasks) {
-      for (const r of t.resources || []) {
-        const name = String((r && r.name) || '').trim(); if (!name) continue;
-        const u = Math.max(0, num(r.units)); const k = resKey(name);
-        let R = map.get(k); if (!R) { R = { key: k, name, tasks: [], rd: 0, daily: new Map(), peak: 0, peakDate: null }; map.set(k, R); }
+      for (const a of t.resources || []) {
+        if (!isObj(a)) continue;
+        const raw = String(a.name || '').trim(); if (!raw) continue;
+        const item = cat ? cat.resolve(a) : null;
+        if (item && cat.kindOf(item) === 'consumible') continue;
+        const name = item ? item.name : raw;
+        const k = resKey(name);
+        let R = map.get(k);
+        if (!R) { R = { key: k, name, item, tasks: [], rd: 0, daily: new Map() }; map.set(k, R); }
+        const u = Math.max(0, num(a.units));
         R.tasks.push({ t, units: u });
         if (t.milestone || t.duration <= 0 || !u) continue;
         R.rd += u * t.duration;
         for (let i = t.es; i < t.ef; i++) { const d = cal.dateOf(i); R.daily.set(d, (R.daily.get(d) || 0) + u); }
       }
     }
-    const lim = new Map(Object.entries(limits || {}).filter(([, v]) => v !== null && v !== '' && Number.isFinite(Number(v))).map(([k, v]) => [resKey(k), Number(v)]));
-    const list = [...map.values()];
-    for (const R of list) {
-      for (const [d, v] of R.daily) if (v > R.peak + 1e-9 || (Math.abs(v - R.peak) < 1e-9 && (!R.peakDate || d < R.peakDate))) { R.peak = v; R.peakDate = d; }
-      R.limit = lim.has(R.key) ? lim.get(R.key) : null;
-      R.over = R.limit !== null && R.peak > R.limit + 1e-9;
+    return [...map.values()];
+  }
+  /* Disponibilidad diaria del catálogo (PM.res.availableOn: unidades por día, rango de fechas y ausencias), filtro por
+     tipo, series del histograma, periodos y sobreasignaciones (días con demanda mayor que lo disponible ese día). */
+  function resourceModel(base, sched, cat, typeF, bucket) {
+    const list = [];
+    for (const R0 of base) {
+      const type = typeOfRes(cat, R0.item);
+      if (typeF && type.id !== typeF) continue;
+      const item = R0.item;
+      const varies = !!item && !!PM.res && (D.valid(item.availableFrom) || D.valid(item.availableTo) || arrOf(item.absences).some((x) => isObj(x) && D.valid(x.from)));
+      const nominal = item && isNumV(item.availability) ? Number(item.availability) : null;
+      const av = varies ? (d) => PM.res.availableOn(item, d) : () => nominal;
+      const R = { ...R0, type, varies, limit: nominal, av, hasLimit: nominal !== null || varies, peak: 0, peakDate: null, overDays: [] };
+      for (const [d, v] of R.daily) {
+        if (v > R.peak + 1e-9 || (Math.abs(v - R.peak) < 1e-9 && (!R.peakDate || d < R.peakDate))) { R.peak = v; R.peakDate = d; }
+        if (R.hasLimit) { const a = av(d); if (a !== null && v > a + 1e-9) R.overDays.push(d); }
+      }
+      R.overDays.sort();
+      R.over = R.overDays.length > 0;
+      list.push(R);
     }
     list.sort((a, b) => b.rd - a.rd || a.name.localeCompare(b.name, 'es'));
     const many = list.length > 8;
     list.forEach((R, i) => { R.series = many && i >= 8 ? 8 : i; R.color = R.series < 8 ? 'var(--s' + (R.series + 1) + ')' : 'var(--fg-3)'; });
     const series = list.filter((R) => R.series < 8).map((R) => ({ id: R.key, name: R.name, color: R.color, members: [R] }));
     if (many) series.push({ id: '__otros', name: 'Otros (' + (list.length - 8) + ')', color: 'var(--fg-3)', members: list.slice(8) });
-    const periods = [];
-    if (list.length && sched.tasks.length) {
-      let p = bucket === 'mes' ? D.startOfMonth(sched.start) : D.startOfWeek(sched.start); let guard = 0;
-      while (p <= sched.finish && guard++ < 520) {
-        const nx = bucket === 'mes' ? D.addMonths(p, 1) : D.add(p, 7);
-        const days = []; for (let d = p; d < nx; d = D.add(d, 1)) if (cal.isWork(d)) days.push(d);
-        const per = { start: p, end: D.add(nx, -1), days, byRes: new Map(), totalPeak: 0, peakDay: null, over: false, label: bucket === 'mes' ? PM.MONTHS[+p.slice(5, 7) - 1] + ' ' + p.slice(2, 4) : fmt.date(p, 'dm') };
-        for (const R of list) {
-          let pk = 0, sum = 0; const overDays = [];
-          for (const d of days) { const v = R.daily.get(d) || 0; sum += v; if (v > pk) pk = v; if (R.limit !== null && v > R.limit + 1e-9) overDays.push(d); }
-          per.byRes.set(R.key, { peak: pk, sum, overDays });
-          if (overDays.length) per.over = true;
+    const periods = list.length && sched.tasks.length ? periodsOf(sched.start, sched.finish, bucket, sched.cal) : [];
+    for (const per of periods) {
+      per.byRes = new Map(); per.totalPeak = 0; per.peakDay = null; per.over = false;
+      for (const R of list) {
+        let pk = 0, sum = 0, minA = null; const overDays = [];
+        for (const d of per.days) {
+          const v = R.daily.get(d) || 0; sum += v; if (v > pk) pk = v;
+          if (!R.hasLimit) continue;
+          const a = R.av(d);
+          if (a !== null) { minA = minA === null ? a : Math.min(minA, a); if (v > a + 1e-9) overDays.push(d); }
         }
-        for (const d of days) { let tot = 0; for (const R of list) tot += R.daily.get(d) || 0; if (tot > per.totalPeak + 1e-9) { per.totalPeak = tot; per.peakDay = d; } }
-        per.stack = series.map((S) => ({ S, v: per.peakDay ? PM.sum(S.members, (R) => R.daily.get(per.peakDay) || 0) : 0 }));
-        periods.push(per); p = nx;
+        per.byRes.set(R.key, { peak: pk, sum, overDays, minAvail: minA });
+        if (overDays.length) per.over = true;
       }
+      for (const d of per.days) { let tot = 0; for (const R of list) tot += R.daily.get(d) || 0; if (tot > per.totalPeak + 1e-9) { per.totalPeak = tot; per.peakDay = d; } }
+      per.stack = series.map((S) => ({ S, v: per.peakDay ? PM.sum(S.members, (R) => R.daily.get(per.peakDay) || 0) : 0 }));
     }
     const conflicts = [];
     for (const per of periods) for (const R of list) {
       const x = per.byRes.get(R.key); if (!x || !x.overDays.length) continue;
-      const demand = Math.max(...x.overDays.map((d) => R.daily.get(d) || 0));
-      const tasks = R.tasks.filter(({ t }) => !t.milestone && x.overDays.some((d) => d >= t.startDate && d <= t.finishDate)).map(({ t }) => t);
-      conflicts.push({ key: per.start + R.key, per, R, demand, limit: R.limit, days: x.overDays.length, first: x.overDays[0], tasks });
+      let demand = 0, lim = Infinity;
+      for (const d of x.overDays) { demand = Math.max(demand, R.daily.get(d) || 0); const a = R.av(d); if (a !== null) lim = Math.min(lim, a); }
+      const seen = new Set();
+      const tasks = R.tasks.filter(({ t }) => !t.milestone && !seen.has(t.id) && x.overDays.some((d) => d >= t.startDate && d <= t.finishDate) && seen.add(t.id)).map(({ t }) => t);
+      conflicts.push({ key: per.start + '|' + R.key, per, R, demand, limit: Number.isFinite(lim) ? lim : 0, days: x.overDays.length, first: x.overDays[0], tasks });
     }
     return { list, series, periods, conflicts };
   }
@@ -1964,36 +2386,56 @@ button.sched-day:hover { border-color: var(--line-strong); }
     return { top, ticks };
   }
   const colPath = (x, y, w, h, r) => { r = Math.max(0, Math.min(r, h, w / 2)); return 'M' + x + ',' + (y + h) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'V' + (y + h) + 'Z'; };
+  /* En escala Semana las etiquetas «dd mmm» no llevan año: una segunda fila (como el nivel superior del Gantt) marca cada
+     mes con su año («ene 2027»). Los inicios de año van en negrita. */
+  const monthRowOf = (P, bucket) => {
+    const out = [];
+    if (bucket !== 'mes') P.forEach((p, i) => { const ym = p.start.slice(0, 7); if (!i || ym !== P[i - 1].start.slice(0, 7)) out.push({ i, ym, jan: ym.slice(5) === '01', label: PM.MONTHS[+ym.slice(5, 7) - 1] + ' ' + ym.slice(0, 4) }); });
+    return out;
+  };
+  const periodTxt = (p, bucket) => (bucket === 'mes' ? 'Mes de ' + PM.MONTHS_LONG[+p.start.slice(5, 7) - 1] + ' ' + p.start.slice(0, 4) : 'Semana del ' + rangeTxt(p.start, p.end, ' al '));
+  /* Eje X común (etiquetas por periodo y fila de meses) */
+  function xAxis(P, M, PH, slot, plotW, step, monthRow, bucket, Ht) {
+    return html`
+      ${P.map((p, i) => (i % step === 0 ? html`<text key=${'x' + p.start} x=${M.l + i * slot + slot / 2} y=${M.t + PH + 16} text-anchor="middle">${p.label}</text>` : null))}
+      ${monthRow.map((mo, k) => {
+        const x0 = M.l + mo.i * slot; const nxt = monthRow[k + 1];
+        const room = (nxt ? nxt.i * slot : plotW + M.r) - mo.i * slot;
+        return html`<g key=${'mo' + mo.ym} class="sched-hist-month" data-month=${mo.ym}>${mo.i ? html`<line x1=${x0} x2=${x0} y1=${M.t + PH + 21} y2=${M.t + PH + 36} stroke=${mo.jan ? 'var(--axis)' : 'var(--grid)'} />` : null}
+          ${room >= tw(mo.label) + 8 ? html`<text x=${x0 + 4} y=${M.t + PH + 32} text-anchor="start" style=${mo.jan ? 'font-weight:600' : null}>${mo.label}</text>` : null}</g>`;
+      })}
+      <text x=${M.l + plotW} y=${Ht - 4} text-anchor="end" class="sched-faint">${bucket === 'mes' ? 'Mes' : 'Semana (lunes)'}</text>`;
+  }
 
   function Histogram({ model, selKey, bucket, svgRef }) {
     const hostRef = useRef(); const tipApi = useRef(null);
     const [wrapRef, cw] = useWidth();
     const P = model.periods;
     const single = selKey !== '__all' ? model.list.find((R) => R.key === selKey) : null;
-    /* En escala Semana las etiquetas «dd mmm» no llevan año: una segunda fila (como el nivel superior del Gantt) marca cada mes
-       con su año («ene 2027»), así ninguna semana queda sin año a la vista en cronogramas de varios años. Los inicios de año van en negrita. */
-    const monthRow = [];
-    if (bucket !== 'mes') P.forEach((p, i) => { const ym = p.start.slice(0, 7); if (!i || ym !== P[i - 1].start.slice(0, 7)) monthRow.push({ i, ym, jan: ym.slice(5) === '01', label: PM.MONTHS[+ym.slice(5, 7) - 1] + ' ' + ym.slice(0, 4) }); });
+    const monthRow = monthRowOf(P, bucket);
     const M = { l: 40, r: 18, t: 26, b: monthRow.length ? 50 : 34 };
     const slotMin = bucket === 'mes' ? 64 : 34;
     const plotW = Math.max(P.length * slotMin, (cw || 640) - M.l - M.r - 2);
     const slot = plotW / Math.max(1, P.length);
     const PH = 220; const W = M.l + plotW + M.r; const Ht = M.t + PH + M.b;
     const vals = P.map((p) => (single ? p.byRes.get(single.key).peak : p.totalPeak));
-    const sc = niceScale(Math.max(0, ...vals, single && single.limit !== null ? single.limit : 0));
+    /* disponibilidad del recurso elegido en cada periodo: la menor de sus días hábiles (ausencias y rango incluidos) */
+    const lims = P.map((p) => (single ? p.byRes.get(single.key).minAvail : null));
+    const sc = niceScale(Math.max(0, ...vals, ...lims.filter((v) => v !== null)));
     const y = (v) => M.t + PH * (1 - v / sc.top);
     const bw = Math.min(24, slot * 0.62);
     const step = Math.max(1, Math.ceil((tw(P[0] ? P[0].label : '') + 10) / slot));
     const showTip = (e, p) => {
       if (!tipApi.current) return;
-      const per = (bucket === 'mes' ? 'Mes de ' + PM.MONTHS_LONG[+p.start.slice(5, 7) - 1] + ' ' + p.start.slice(0, 4) : 'Semana del ' + rangeTxt(p.start, p.end, ' al '));
+      const per = periodTxt(p, bucket);
       if (single) {
         const x = p.byRes.get(single.key);
+        const reduced = x.minAvail !== null && single.limit !== null && x.minAvail < single.limit - 1e-9;
         tipApi.current.show(e, html`<div><strong>${single.name}</strong><div class="xsmall faint">${per}</div><div class="sched-tipgrid">
           <span>Máximo diario</span><span>${fmt.num(x.peak, 2)} u.</span>
           <span>Promedio</span><span>${fmt.num(p.days.length ? x.sum / p.days.length : 0, 2)} u./día</span>
           <span>Días-recurso</span><span>${fmt.num(x.sum, 2)}</span>
-          <span>Disponible</span><span>${single.limit === null ? 'Sin límite' : fmt.num(single.limit, 2) + ' u.'}</span>
+          <span>Disponible</span><span>${x.minAvail === null ? 'Sin límite' : fmt.num(x.minAvail, 2) + ' u.' + (reduced ? ' (ausencias o fuera del rango)' : '')}</span>
           ${x.overDays.length ? html`<span>Sobreasignación</span><span style="color:var(--crit)">${x.overDays.length} ${x.overDays.length === 1 ? 'día' : 'días'}</span>` : null}
         </div></div>`);
       } else {
@@ -2007,9 +2449,9 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const bars = P.map((p, i) => {
       const cxp = M.l + i * slot + slot / 2; const x0 = cxp - bw / 2; const els = [];
       if (single) {
-        const v = vals[i]; const lim = single.limit;
+        const v = vals[i]; const lim = lims[i]; const over = p.byRes.get(single.key).overDays.length > 0;
         if (v > 0) {
-          if (lim !== null && v > lim + 1e-9) {
+          if (over && lim !== null && v > lim + 1e-9) {
             const yb = y(lim), yt = y(v);
             if (lim > 0) els.push(html`<rect key="b" x=${x0} y=${yb} width=${bw} height=${Math.max(0, M.t + PH - yb)} fill=${single.color} />`);
             els.push(html`<path key="o" class="sched-hist-over" d=${colPath(x0, yt, bw, Math.max(1, yb - yt - (lim > 0 ? 2 : 0)), 4)} fill="var(--crit)" />`);
@@ -2024,86 +2466,149 @@ button.sched-day:hover { border-color: var(--line-strong); }
           acc += s.v;
         });
       }
-      return html`<g key=${p.start} data-period=${p.start}>${els}<rect x=${M.l + i * slot} y=${M.t} width=${slot} height=${PH} fill="transparent" onMouseMove=${(e) => showTip(e, p)} onMouseLeave=${() => tipApi.current && tipApi.current.hide()} /></g>`;
+      return html`<g key=${p.start} data-period=${p.start} data-over=${single && p.byRes.get(single.key).overDays.length ? '1' : undefined}>${els}<rect x=${M.l + i * slot} y=${M.t} width=${slot} height=${PH} fill="transparent" onMouseMove=${(e) => showTip(e, p)} onMouseLeave=${() => tipApi.current && tipApi.current.hide()} /></g>`;
     });
-    const limY = single && single.limit !== null ? y(single.limit) : null;
-    const limLabel = single && single.limit !== null ? 'Disponible: ' + fmt.num(single.limit, 2) : '';
+    /* línea de disponibilidad por periodo (escalonada: baja en las ausencias y fuera del rango de fechas) */
+    let availD = ''; let prevY = null; let lastY = null; let lastLim = null;
+    lims.forEach((lv, i) => {
+      if (lv === null) { prevY = null; return; }
+      const yy = y(lv), xa = M.l + i * slot, xb = xa + slot;
+      availD += prevY === null ? 'M' + xa + ',' + yy : prevY !== yy ? 'V' + yy : '';
+      availD += 'H' + xb; prevY = yy; lastY = yy; lastLim = lv;
+    });
+    const limLabel = lastY !== null ? 'Disponible: ' + fmt.num(single.limit !== null ? single.limit : lastLim, 2) : '';
     return html`<div ref=${wrapRef}>
       <div class="chart sched-hist" ref=${hostRef}>
-        <svg ref=${svgRef} class="sched-svg" width=${Math.ceil(W)} height=${Ht} viewBox=${'0 0 ' + Math.ceil(W) + ' ' + Ht} role="img" aria-label=${'Histograma de recursos por ' + (bucket === 'mes' ? 'mes' : 'semana')}>
+        <svg ref=${svgRef} class="sched-svg" width=${Math.ceil(W)} height=${Ht} viewBox=${'0 0 ' + Math.ceil(W) + ' ' + Ht} role="img" aria-label=${'Histograma de recursos por ' + (bucket === 'mes' ? 'mes' : 'semana') + (single ? ': ' + single.name : '')}>
           <text x=${M.l - 6} y="14" text-anchor="start" class="sched-faint">Unidades por día</text>
           ${sc.ticks.map((v) => html`<g key=${'y' + v}><line class=${v === 0 ? 'axis-line' : 'grid-line'} x1=${M.l} x2=${M.l + plotW} y1=${y(v)} y2=${y(v)} stroke=${v === 0 ? 'var(--axis)' : 'var(--grid)'} /><text x=${M.l - 6} y=${y(v) + 4} text-anchor="end">${fmt.num(v, 2)}</text></g>`)}
           ${bars}
-          ${limY !== null ? html`<g pointer-events="none"><line x1=${M.l} x2=${M.l + plotW} y1=${limY} y2=${limY} stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="5 3" />
-            <rect x=${M.l + plotW - tw(limLabel) - 10} y=${limY - 17} width=${tw(limLabel) + 8} height="14" rx="2" fill="var(--surface)" /><text x=${M.l + plotW - 6} y=${limY - 6} text-anchor="end" style="fill:var(--fg)">${limLabel}</text></g>` : null}
-          ${P.map((p, i) => (i % step === 0 ? html`<text key=${'x' + p.start} x=${M.l + i * slot + slot / 2} y=${M.t + PH + 16} text-anchor="middle">${p.label}</text>` : null))}
-          ${monthRow.map((mo, k) => {
-            const x0 = M.l + mo.i * slot; const nxt = monthRow[k + 1];
-            const room = (nxt ? nxt.i * slot : plotW + M.r) - mo.i * slot;
-            return html`<g key=${'mo' + mo.ym} class="sched-hist-month" data-month=${mo.ym}>${mo.i ? html`<line x1=${x0} x2=${x0} y1=${M.t + PH + 21} y2=${M.t + PH + 36} stroke=${mo.jan ? 'var(--axis)' : 'var(--grid)'} />` : null}
-              ${room >= tw(mo.label) + 8 ? html`<text x=${x0 + 4} y=${M.t + PH + 32} text-anchor="start" style=${mo.jan ? 'font-weight:600' : null}>${mo.label}</text>` : null}</g>`;
-          })}
-          <text x=${M.l + plotW} y=${Ht - 4} text-anchor="end" class="sched-faint">${bucket === 'mes' ? 'Mes' : 'Semana (lunes)'}</text>
+          ${availD ? html`<g pointer-events="none"><path class="sched-hist-avail" d=${availD} fill="none" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="5 3" />
+            <rect x=${M.l + plotW - tw(limLabel) - 10} y=${lastY - 17} width=${tw(limLabel) + 8} height="14" rx="2" fill="var(--surface)" /><text x=${M.l + plotW - 6} y=${lastY - 6} text-anchor="end" style="fill:var(--fg)">${limLabel}</text></g>` : null}
+          ${xAxis(P, M, PH, slot, plotW, step, monthRow, bucket, Ht)}
         </svg>
         <${TipLayer} host=${hostRef} api=${tipApi} />
       </div>
     </div>`;
   }
 
-  function RecursosView() {
-    const m = PM.useProjectModel();
-    const canWrite = PM.useCanWrite();
-    const w = useScheduleWriter(m);
+  /* Campo «Disponible»: guarda al confirmar (Intro o al salir), no con cada tecla: así un recurso «sin clasificar» se
+     registra una sola vez en el catálogo. */
+  function AvailInput({ R, onCommit }) {
+    const [v, setV] = useState(R.limit);
+    const last = useRef(R.limit);
+    useEffect(() => { setV(R.limit); last.current = R.limit; }, [R.limit]);
+    const commit = () => {
+      const nv = isNumV(v) ? Math.max(0, Number(v)) : null;
+      if (nv === last.current) return;
+      last.current = nv;
+      onCommit(R, nv);
+    };
+    return html`<${ui.NumberInput} aria-label=${'Disponibilidad de ' + R.name} value=${v} min=${0} placeholder="Sin límite" onValue=${setV} onBlur=${commit}
+      onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />`;
+  }
+  const availNote = (item) => {
+    if (!item) return '';
+    const a = D.valid(item.availableFrom) ? fmt.date(item.availableFrom, 'dm') : null, b = D.valid(item.availableTo) ? fmt.date(item.availableTo) : null;
+    const n = arrOf(item.absences).filter((x) => isObj(x) && D.valid(x.from)).length;
+    return [a && b ? 'Del ' + a + ' al ' + b : a ? 'Desde el ' + a : b ? 'Hasta el ' + b : null, n ? (n === 1 ? '1 ausencia' : n + ' ausencias') : null].filter(Boolean).join(' · ');
+  };
+  const MATRIX_MAX = 12;
+  const CONFLICT_MAX = 200;
+
+  /* ---------------------------------------------------------------- pestaña Histograma */
+  function HistogramTab({ m, w, canWrite, openTask, hasCons, goTab }) {
     const [bucket, setBucket] = usePref('rec.bucket', 'semana');
+    const [typeF, setTypeF] = useState('');
     const [selKey, setSelKey] = useState('__all');
     const svgRef = useRef();
-    const limits = (m.schedule.settings && m.schedule.settings.resourceLimits) || null;
-    const model = useMemo(() => resourceModel(m.sched, limits, bucket), [m.sched, limits, bucket]);
-    const agileRef = useAgileRef(m);
-    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite, agileRef);
-    if (m.loading) return html`<div class="page"><${ui.Loading} rows=${5} /></div>`;
+    const live = useRef(m); live.current = m;
     const { sched, project } = m;
-    const idx = new Map(sched.tasks.map((t, i) => [t.id, i + 1]));
-    const header = html`<${ui.PageHeader} eyebrow="9.2 Estimar los recursos de las actividades · 9.6 Controlar los recursos" title="Recursos del cronograma"
-      description="Demanda de personas y equipos por día hábil a partir de las asignaciones de cada actividad, comparada con la disponibilidad." />`;
-    if (!model.list.length) {
-      return html`<div class="page">${header}
-        <${ui.Empty} icon="resources" title="Aún no hay recursos asignados" actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => PM.navigate('cronograma')}>Ir al cronograma</${ui.Button}>`}>
-          Abre una actividad del cronograma (doble clic en la fila o en la barra) y, en «Recursos», agrega el nombre y las unidades por día hábil, p. ej. «Cuadrilla de montaje» × 6 o «Camión grúa» × 1. Aquí verás el histograma, las sobreasignaciones y la matriz de asignación.
-        </${ui.Empty}>
-      </div>`;
-    }
+    const cat = m.catalog;
+    const base = useMemo(() => workDemand(sched, cat), [sched, cat]);
+    const typeOpts = useMemo(() => {
+      const seen = new Set(base.map((R) => typeOfRes(cat, R.item).id));
+      return [...(cat ? cat.types : []), UNCL_TYPE].filter((t) => seen.has(t.id)).map((t) => ({ value: t.id, label: t.name }));
+    }, [base, cat]);
+    const typeFv = typeF && typeOpts.some((o) => o.value === typeF) ? typeF : '';
+    const model = useMemo(() => resourceModel(base, sched, cat, typeFv, bucket), [base, sched, cat, typeFv, bucket]);
+    const idx = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i + 1])), [sched]);
     const sel = selKey !== '__all' && model.list.some((R) => R.key === selKey) ? selKey : '__all';
-    const setLimit = (name, v) => {
-      const cur = w.get(); const lim = { ...((cur.settings && cur.settings.resourceLimits) || {}) };
-      for (const k of Object.keys(lim)) if (resKey(k) === resKey(name)) delete lim[k];
-      if (v !== null && v !== undefined && Number.isFinite(v) && v >= 0) lim[name] = v;
-      w.setSettings({ resourceLimits: lim });
-    };
     const selR = sel !== '__all' ? model.list.find((R) => R.key === sel) : null;
-    const matrixTasks = sched.tasks.filter((t) => (t.resources || []).some((r) => String(r.name || '').trim()));
-    const unitsOf = (t, R) => PM.sum((t.resources || []).filter((r) => resKey(r.name) === R.key), (r) => r.units);
+    /* matriz de asignación: el recurso elegido o los de más días-recurso (una tabla de 300 × 500 no se lee ni se dibuja rápido) */
+    const mcols = selR ? [selR] : model.list.slice(0, MATRIX_MAX);
+    const matrix = useMemo(() => {
+      const keys = new Set(mcols.map((R) => R.key));
+      const rows = [];
+      for (const t of sched.tasks) {
+        const u = new Map();
+        for (const a of t.resources || []) {
+          if (!isObj(a) || !String(a.name || '').trim()) continue;
+          const item = cat ? cat.resolve(a) : null;
+          if (item && cat.kindOf(item) === 'consumible') continue;
+          const k = resKey(item ? item.name : a.name);
+          if (keys.has(k)) u.set(k, (u.get(k) || 0) + Math.max(0, num(a.units)));
+        }
+        if (u.size) rows.push({ t, u });
+      }
+      return rows;
+    }, [sched, cat, mcols.map((R) => R.key).join('|')]);
+    if (!base.length) {
+      return html`<${ui.Empty} icon="resources" title="Aún no hay recursos de trabajo asignados" actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => PM.navigate('cronograma')}>Ir al cronograma</${ui.Button}>${hasCons ? html`<${ui.Button} icon="layers" onClick=${() => goTab('consumo')}>Ver el consumo</${ui.Button}>` : null}`}>
+        ${hasCons ? 'Los recursos asignados son consumibles: su cantidad y su costo están en la pestaña «Consumo». ' : ''}Abre una actividad del cronograma (doble clic en la fila o en la barra) y, en «Recursos», elige del catálogo una persona, cuadrilla o equipo con sus unidades por día hábil, p. ej. «Cuadrilla de montaje» × 6. Aquí verás el histograma, las sobreasignaciones y la matriz de asignación.
+      </${ui.Empty}>`;
+    }
+    const setAvail = (R, val) => {
+      const L = live.current;
+      const saved = arrOf(L.resources && L.resources.items).filter(isObj);
+      const item = R.item;
+      if (item && !item.virtual) {
+        const raw = saved.find((x) => x.id === item.id);
+        if (!raw) { PM.toast('El recurso ya no está en el catálogo; puede que lo hayan eliminado.', { tone: 'crit' }); return; }
+        L.saveItem({ ...raw, availability: val });
+      } else {
+        /* recurso que solo existía como nombre en el cronograma: se registra en el catálogo (sin clasificar) */
+        const ex = saved.find((x) => resKey(x.name) === R.key);
+        const p = L.saveItem(ex ? { ...ex, availability: val } : PM.res.newItem(saved, { name: R.name, typeId: null, availability: val, addedDate: L.statusDate || D.today() }));
+        if (!ex) Promise.resolve(p).then((it) => { if (it) PM.toast('«' + R.name + '» quedó en el catálogo de recursos como ' + it.code + ', sin clasificar. Complétalo en la pestaña Catálogo.', { timeout: 6000 }); });
+      }
+      /* settings.resourceLimits (datos de antes) queda solo como respaldo: el valor vive ahora en el catálogo */
+      const cur = w.get(); const lim = cur.settings && cur.settings.resourceLimits;
+      if (isObj(lim) && Object.keys(lim).some((k) => resKey(k) === R.key)) {
+        const n = {}; for (const [k, x] of Object.entries(lim)) if (resKey(k) !== R.key) n[k] = x;
+        w.setSettings({ resourceLimits: n });
+      }
+    };
+    const editRes = (R) => { if (PM.resourceDialog && R.item) PM.resourceDialog(m, R.item); };
     const overCount = model.list.filter((R) => R.over).length;
-    return html`<div class="page">
-      ${header}
-      <div class="sched-note"><${ui.Icon} name="info" size=${15} /><div>La nivelación de recursos es manual: si un recurso supera su disponibilidad, mueve o reprograma actividades en el Gantt (arrastrando las barras o agregando dependencias) y revisa aquí que la demanda quede dentro del límite.</div></div>
-      <${ui.Card} title="Recursos" subtitle=${model.list.length + (model.list.length === 1 ? ' recurso' : ' recursos') + (overCount ? ' · ' + overCount + ' sobreasignado' + (overCount === 1 ? '' : 's') : '') + ' · haz clic en una fila para verla en el histograma'} pad=${false}>
+    const toggleSel = (R) => setSelKey(sel === R.key ? '__all' : R.key);
+    const conflicts = model.conflicts.slice(0, CONFLICT_MAX);
+    const typeName = typeFv ? (typeOpts.find((o) => o.value === typeFv) || {}).label : '';
+    return html`<div class="stack" data-rec-tab="histograma">
+      <div class="sched-note"><${ui.Icon} name="info" size=${15} /><div>La disponibilidad sale del catálogo de recursos: unidades por día hábil, rango de fechas y ausencias; editar «Disponible» la guarda en el catálogo. La nivelación es manual: si un recurso supera su disponibilidad, mueve o reprograma actividades en el Gantt (arrastrando las barras o agregando dependencias) y revisa aquí que la demanda quede dentro del límite. Los consumibles se controlan en «Consumo».</div></div>
+      <div class="sched-rec-bar">
+        <${ui.Select} aria-label="Filtrar por tipo de recurso" value=${typeFv} placeholder="Todos los tipos de recurso" options=${typeOpts} onValue=${(v) => { setTypeF(v || ''); setSelKey('__all'); }} />
+        <span class="small muted" role="status" aria-live="polite">${typeFv ? fmt.num(model.list.length) + ' de ' + fmt.num(base.length) + ' recursos de trabajo · ' + typeName : fmt.num(base.length) + (base.length === 1 ? ' recurso de trabajo' : ' recursos de trabajo')}</span>
+        ${typeFv ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${() => setTypeF('')}>Quitar filtro</${ui.Button}>` : null}
+      </div>
+      <${ui.Card} title="Recursos de trabajo" subtitle=${model.list.length + (model.list.length === 1 ? ' recurso' : ' recursos') + (overCount ? ' · ' + overCount + ' sobreasignado' + (overCount === 1 ? '' : 's') : '') + ' · elige uno para verlo en el histograma'} pad=${false}>
         <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-reslist">
-          <thead><tr><th>Recurso</th><th class="num">Actividades</th><th class="num" title="Unidades × duración en días hábiles">Días-recurso</th><th class="num">Máximo diario</th><th>Fecha del máximo</th><th class="num">Disponible (u./día)</th><th>Estado</th></tr></thead>
-          <tbody>${model.list.map((R) => html`<tr key=${R.key} data-res=${R.name} class=${cx('clickable', sel === R.key && 'is-sel')} onClick=${(e) => { if (e.target.closest && e.target.closest('input')) return; setSelKey(sel === R.key ? '__all' : R.key); }}>
-            <td class="wrap sched-resname"><span class="row" style="gap:7px;flex-wrap:nowrap;align-items:baseline"><span class="swatch" style=${'background:' + R.color}></span><strong style="font-weight:600">${R.name}</strong></span></td>
-            <td class="num">${R.tasks.length}</td>
+          <thead><tr><th>Recurso</th><th>Tipo</th><th class="num">Actividades</th><th class="num" title="Unidades × duración en días hábiles">Días-recurso</th><th class="num" title="Mayor demanda diaria y su fecha">Máximo diario</th><th class="num" title="Unidades por día hábil del catálogo">Disponible (u./día)</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+          <tbody>${model.list.map((R) => html`<tr key=${R.key} data-res=${R.name} data-type=${R.type.id} class=${cx('clickable', sel === R.key && 'is-sel')} onClick=${(e) => { if (e.target.closest && e.target.closest('input, button')) return; toggleSel(R); }}>
+            <td class="wrap sched-resname"><span class="row" style="gap:7px;flex-wrap:nowrap;align-items:baseline"><span class="swatch" style=${'background:' + R.color}></span><button type="button" class="sched-resbtn" aria-pressed=${sel === R.key ? 'true' : 'false'} title=${sel === R.key ? 'Volver a todos los recursos' : 'Ver solo este recurso en el histograma'} onClick=${() => toggleSel(R)}>${R.name}</button></span>${R.item && R.item.code ? html`<div class="mono xsmall faint">${R.item.code}</div>` : null}</td>
+            <td class="xsmall">${R.type.id === UNCL_TYPE.id ? html`<${ui.Chip} tone="warn" icon="alert">Sin clasificar</${ui.Chip}>` : R.type.name}</td>
+            <td class="num">${new Set(R.tasks.map((x) => x.t.id)).size}</td>
             <td class="num">${fmt.num(R.rd, 1)}</td>
-            <td class="num" style=${R.over ? 'color:var(--crit);font-weight:600' : ''}>${fmt.num(R.peak, 2)}</td>
-            <td class="mono xsmall">${R.peakDate ? fmt.date(R.peakDate, 'short') : '—'}</td>
-            <td class="num">${canWrite ? html`<${ui.NumberInput} aria-label=${'Disponibilidad de ' + R.name} value=${R.limit} min=${0} placeholder="Sin límite" onValue=${(v) => setLimit(R.name, v)} />` : R.limit === null ? html`<span class="faint">Sin límite</span>` : fmt.num(R.limit, 2)}</td>
-            <td>${R.limit === null ? html`<${ui.Chip} tone="outline">Sin límite</${ui.Chip}>` : R.over ? html`<${ui.Chip} tone="crit" icon="alert">Sobreasignado</${ui.Chip}>` : html`<${ui.Chip} tone="good">Dentro del límite</${ui.Chip}>`}</td>
+            <td class="num"><span style=${R.over ? 'color:var(--crit);font-weight:600' : ''}>${fmt.num(R.peak, 2)}</span>${R.peakDate ? html`<div class="mono xsmall faint" title="Fecha del máximo">${fmt.date(R.peakDate, 'short')}</div>` : null}</td>
+            <td class="num">${canWrite ? html`<${AvailInput} R=${R} onCommit=${setAvail} />` : R.limit === null ? html`<span class="faint">Sin límite</span>` : fmt.num(R.limit, 2)}${R.varies ? html`<div class="xsmall faint sched-avsub">${availNote(R.item)}</div>` : null}</td>
+            <td>${!R.hasLimit ? html`<${ui.Chip} tone="outline">Sin límite</${ui.Chip}>` : R.over ? html`<${ui.Chip} tone="crit" icon="alert" title=${R.overDays.length + (R.overDays.length === 1 ? ' día' : ' días') + ' por encima de la disponibilidad'}>Sobreasignado</${ui.Chip}>` : html`<${ui.Chip} tone="good" icon="check">Dentro del límite</${ui.Chip}>`}</td>
+            <td>${PM.resourceDialog && R.item ? html`<${ui.IconButton} size="sm" icon=${canWrite ? 'edit' : 'eye'} label=${(canWrite ? (R.item.virtual ? 'Registrar ' : 'Editar ') : 'Ver ') + '«' + R.name + '» en el catálogo'} onClick=${() => editRes(R)} />` : null}</td>
           </tr>`)}</tbody>
         </table></div>
       </${ui.Card}>
-      <${ui.Card} title="Histograma de recursos" subtitle=${selR ? selR.name + ' · máximo diario de cada periodo' + (selR.limit === null ? ' · sin disponibilidad definida' : ' · disponible ' + fmt.num(selR.limit, 2) + ' u./día') : 'Todos los recursos apilados · día de mayor demanda de cada periodo'}
+      <${ui.Card} title="Histograma de recursos" subtitle=${selR ? selR.name + ' · máximo diario de cada periodo' + (!selR.hasLimit ? ' · sin disponibilidad definida' : selR.limit !== null ? ' · disponible ' + fmt.num(selR.limit, 2) + ' u./día' : ' · disponible según su rango de fechas') : 'Todos los recursos de trabajo' + (typeFv ? ' de «' + typeName + '»' : '') + ' apilados · día de mayor demanda de cada periodo'}
         actions=${html`
-          <${ui.Select} aria-label="Recurso del histograma" value=${sel} onValue=${(v) => setSelKey(v || '__all')} options=${[{ value: '__all', label: 'Todos los recursos' }, ...model.list.map((R) => ({ value: R.key, label: R.name }))]} style="width:auto;min-height:28px;padding-top:3px;padding-bottom:3px;font-size:var(--fs-sm)" />
+          <${ui.Select} aria-label="Recurso del histograma" value=${sel} onValue=${(v) => setSelKey(v || '__all')} options=${[{ value: '__all', label: 'Todos los recursos' }, ...model.list.map((R) => ({ value: R.key, label: R.name }))]} style="width:auto;max-width:100%;min-height:28px;padding-top:3px;padding-bottom:3px;font-size:var(--fs-sm)" />
           <${ui.Segmented} label="Periodo" value=${bucket} onChange=${setBucket} options=${[{ value: 'semana', label: 'Semana' }, { value: 'mes', label: 'Mes' }]} />
           <${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project) + '_histograma-recursos.svg'} />`}>
         <div class="stack">
@@ -2111,42 +2616,281 @@ button.sched-day:hover { border-color: var(--line-strong); }
             ${selR ? html`
               <span class="legend-item"><span class="swatch" style=${'background:' + selR.color}></span>Demanda (máximo diario del periodo)</span>
               <span class="legend-item"><span class="swatch" style="background:var(--crit)"></span>Por encima de la disponibilidad</span>
-              ${selR.limit !== null ? html`<span class="legend-item"><span class="legend-line" style="background:var(--fg)"></span>Disponible</span>` : null}`
+              ${selR.hasLimit ? html`<span class="legend-item"><span class="legend-line" style="background:var(--fg)"></span>Disponible (baja en ausencias y fuera del rango de fechas)</span>` : null}`
             : html`${model.series.map((S) => html`<span key=${S.id} class="legend-item"><span class="swatch" style=${'background:' + S.color}></span>${S.name}</span>`)}
               <span class="legend-item"><span class="swatch" style="background:var(--crit-wash);border-top:3px solid var(--crit)"></span>Periodo con sobreasignación</span>`}
           </div>
           <${Histogram} model=${model} selKey=${sel} bucket=${bucket} svgRef=${svgRef} />
         </div>
       </${ui.Card}>
-      <${ui.Card} title="Sobreasignaciones" subtitle=${model.conflicts.length ? 'Periodos en los que la demanda diaria supera la disponibilidad' : 'Sin conflictos con la disponibilidad definida'} pad=${!model.conflicts.length}>
-        ${model.conflicts.length ? html`<div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-conflicts">
+      <${ui.Card} title="Sobreasignaciones" subtitle=${model.conflicts.length ? 'Periodos en los que la demanda diaria supera la disponibilidad del catálogo' + (model.conflicts.length > CONFLICT_MAX ? ' · se muestran ' + CONFLICT_MAX + ' de ' + model.conflicts.length : '') : 'Sin conflictos con la disponibilidad definida'} pad=${!model.conflicts.length}>
+        ${conflicts.length ? html`<div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-conflicts">
           <thead><tr><th>Periodo</th><th>Recurso</th><th class="num">Demanda máxima</th><th class="num">Disponible</th><th class="num">Días sobreasignados</th><th>Primer día</th><th>Actividades involucradas</th></tr></thead>
-          <tbody>${model.conflicts.map((c) => html`<tr key=${c.key}>
+          <tbody>${conflicts.map((c) => html`<tr key=${c.key}>
             <td class="nowrap">${bucket === 'mes' ? PM.MONTHS_LONG[+c.per.start.slice(5, 7) - 1] + ' ' + c.per.start.slice(0, 4) : rangeTxt(c.per.start, c.per.end)}</td>
             <td><span class="row" style="gap:6px;flex-wrap:nowrap"><span class="swatch" style=${'background:' + c.R.color}></span>${c.R.name}</span></td>
             <td class="num" style="color:var(--crit);font-weight:600">${fmt.num(c.demand, 2)}</td>
-            <td class="num">${fmt.num(c.limit, 2)}</td>
+            <td class="num">${fmt.num(c.limit, 2)}${c.limit === 0 ? html`<div class="xsmall faint">No disponible</div>` : null}</td>
             <td class="num">${c.days}</td>
             <td class="mono xsmall">${fmt.date(c.first, 'short')}</td>
-            <td class="wrap"><div class="sched-tasklinks">${c.tasks.map((t) => html`<button key=${t.id} type="button" class="btn btn-ghost btn-sm" title="Abrir la actividad" onClick=${() => openTaskEditor(ctxRef.current, t.id)}>${idx.get(t.id)} · ${taskName(t)}</button>`)}</div></td>
+            <td class="wrap"><div class="sched-tasklinks">${c.tasks.map((t) => html`<button key=${t.id} type="button" class="btn btn-ghost btn-sm" title="Abrir la actividad" onClick=${() => openTask(t.id)}>${idx.get(t.id)} · ${taskName(t)}</button>`)}</div></td>
           </tr>`)}</tbody>
-        </table></div>` : html`<p class="small muted">${model.list.some((R) => R.limit !== null) ? 'Ningún recurso supera su disponibilidad en ningún día del cronograma.' : 'Define la disponibilidad (unidades por día) de cada recurso en la tabla de recursos para detectar sobreasignaciones.'}</p>`}
+        </table></div>` : html`<p class="small muted">${model.list.some((R) => R.hasLimit) ? 'Ningún recurso supera su disponibilidad en ningún día del cronograma.' : 'Define la disponibilidad (unidades por día) de cada recurso en la tabla de recursos o en el catálogo para detectar sobreasignaciones.'}</p>`}
       </${ui.Card}>
-      <${ui.Card} title="Matriz de asignación de recursos" subtitle="Unidades por día hábil de cada recurso en cada actividad" pad=${false}>
+      <${ui.Card} title="Matriz de asignación de recursos" subtitle=${'Unidades por día hábil de cada recurso en cada actividad' + (!selR && model.list.length > MATRIX_MAX ? ' · se muestran los ' + MATRIX_MAX + ' recursos con más días-recurso; elige un recurso o filtra por tipo para ver los demás' : '')} pad=${false}>
         <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table table-tight sched-tbl sched-matrix">
-          <thead><tr><th class="num">#</th><th>Actividad</th><th>Fechas</th>${model.list.map((R) => html`<th key=${R.key} class="u" title=${R.name}><span class="row" style="gap:5px;flex-wrap:nowrap;justify-content:center"><span class="swatch" style=${'background:' + R.color}></span>${fit(R.name, 140)}</span></th>`)}</tr></thead>
-          <tbody>${matrixTasks.map((t) => html`<tr key=${t.id}>
+          <thead><tr><th class="num">#</th><th>Actividad</th><th>Fechas</th>${mcols.map((R) => html`<th key=${R.key} class="u" title=${R.name}><span class="row" style="gap:5px;flex-wrap:nowrap;justify-content:center"><span class="swatch" style=${'background:' + R.color}></span>${fit(R.name, 140)}</span></th>`)}</tr></thead>
+          <tbody>${matrix.map(({ t, u }) => html`<tr key=${t.id}>
             <td class="num faint">${idx.get(t.id)}</td><td class="wrap">${taskName(t)}</td><td class="mono xsmall nowrap">${rangeTxt(t.startDate, t.finishDate)}</td>
-            ${model.list.map((R) => { const u = unitsOf(t, R); return html`<td key=${R.key} class=${cx('u', u > 0 && 'has')}>${u > 0 ? fmt.num(u, 2) : ''}</td>`; })}
+            ${mcols.map((R) => { const v = u.get(R.key) || 0; return html`<td key=${R.key} class=${cx('u', v > 0 && 'has')}>${v > 0 ? fmt.num(v, 2) : ''}</td>`; })}
           </tr>`)}</tbody>
-          <tfoot><tr><td></td><td colspan="2">Total días-recurso</td>${model.list.map((R) => html`<td key=${R.key} class="u">${fmt.num(R.rd, 1)}</td>`)}</tr></tfoot>
+          <tfoot><tr><td></td><td colspan="2">Total días-recurso</td>${mcols.map((R) => html`<td key=${R.key} class="u">${fmt.num(R.rd, 1)}</td>`)}</tr></tfoot>
         </table></div>
       </${ui.Card}>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------- pestaña Consumo */
+  /* Consumibles asignados (PM.res.assignment: cantidad total, o unidades × días en datos de antes) con su costo y existencia. */
+  function consumption(sched, cat) {
+    if (!cat || !PM.res) return [];
+    const map = new Map();
+    for (const t of sched.tasks) {
+      for (const a of t.resources || []) {
+        if (!isObj(a) || !String(a.name || '').trim()) continue;
+        const item = cat.resolve(a);
+        if (!item || cat.kindOf(item) !== 'consumible') continue;
+        const l = PM.res.assignment(cat, t, a);
+        let C = map.get(item.id);
+        if (!C) { C = { key: item.id, item, name: item.name, unit: unitOf(item), unitCost: l.unitCost, priced: l.priced, type: typeOfRes(cat, item), qty: 0, cost: 0, lines: [], taskIds: new Set() }; map.set(item.id, C); }
+        C.qty += l.qty; C.cost += l.cost; C.lines.push({ t, qty: l.qty }); C.taskIds.add(t.id);
+      }
+    }
+    const list = [...map.values()];
+    for (const C of list) {
+      C.stock = isNumV(C.item.availability) ? Number(C.item.availability) : null;
+      C.short = C.stock !== null && C.qty > C.stock + 1e-9 ? C.qty - C.stock : 0;
+      C.tasks = [...C.taskIds].map((id) => sched.byId.get(id)).filter(Boolean);
+    }
+    list.sort((a, b) => b.cost - a.cost || a.name.localeCompare(b.name, 'es'));
+    list.forEach((C, i) => { C.color = i < 8 ? 'var(--s' + (i + 1) + ')' : 'var(--fg-3)'; });
+    return list;
+  }
+  /* Reparte la cantidad de cada asignación en partes iguales entre los días hábiles de su actividad (un hito: en su fecha). */
+  function distribute(list, sched, bucket) {
+    if (!list.length) return { periods: [], rows: [] };
+    let lo = null, hi = null;
+    for (const C of list) for (const ln of C.lines) { if (!lo || ln.t.startDate < lo) lo = ln.t.startDate; if (!hi || ln.t.finishDate > hi) hi = ln.t.finishDate; }
+    const cal = sched.cal;
+    const periods = periodsOf(lo, hi, bucket, cal);
+    const at = new Map(periods.map((p, i) => [p.start, i]));
+    const keyOf = (d) => (bucket === 'mes' ? D.startOfMonth(d) : D.startOfWeek(d));
+    const rows = list.map((C) => {
+      const q = new Array(periods.length).fill(0);
+      for (const ln of C.lines) {
+        if (!(ln.qty > 0)) continue;
+        const t = ln.t; const days = [];
+        if (!t.milestone && t.duration > 0) for (let i = t.es; i < t.ef; i++) days.push(cal.dateOf(i));
+        if (!days.length) days.push(t.startDate);
+        const per = ln.qty / days.length;
+        for (const d of days) { const k = at.get(keyOf(d)); if (k !== undefined) q[k] += per; }
+      }
+      return { C, q, c: q.map((v) => (C.priced ? v * C.unitCost : 0)) };
+    });
+    return { periods, rows };
+  }
+
+  function ConsumoChart({ dist, list, selKey, bucket, currency, svgRef }) {
+    const hostRef = useRef(); const tipApi = useRef(null);
+    const [wrapRef, cw] = useWidth();
+    const P = dist.periods;
+    const single = selKey !== '__all' ? dist.rows.find((r) => r.C.key === selKey) || null : null;
+    const top = list.slice(0, 8);
+    const rest = list.slice(8);
+    const byKey = new Map(dist.rows.map((r) => [r.C.key, r]));
+    /* todos: costo apilado por consumible (los 8 de mayor costo y «Otros»); uno: su cantidad */
+    const stacks = P.map((p, i) => {
+      if (single) return [{ id: single.C.key, name: single.C.name, color: single.C.color, v: single.q[i] }];
+      const s = top.map((C) => ({ id: C.key, name: C.name, color: C.color, v: byKey.get(C.key).c[i] }));
+      if (rest.length) s.push({ id: '__otros', name: 'Otros (' + rest.length + ')', color: 'var(--fg-3)', v: PM.sum(rest, (C) => byKey.get(C.key).c[i]) });
+      return s;
+    });
+    const totals = stacks.map((s) => PM.sum(s, (x) => x.v));
+    const yFmt = (v) => (single ? fmt.num(v, 2) : fmt.moneyShort(v, currency));
+    const monthRow = monthRowOf(P, bucket);
+    const sc = niceScale(Math.max(0, ...totals));
+    const labW = Math.max(40, Math.ceil(Math.max(...sc.ticks.map((v) => tw(yFmt(v)))) + 12));
+    const M = { l: labW, r: 18, t: 26, b: monthRow.length ? 50 : 34 };
+    const slotMin = bucket === 'mes' ? 64 : 34;
+    const plotW = Math.max(P.length * slotMin, (cw || 640) - M.l - M.r - 2);
+    const slot = plotW / Math.max(1, P.length);
+    const PH = 220; const W = M.l + plotW + M.r; const Ht = M.t + PH + M.b;
+    const y = (v) => M.t + PH * (1 - v / sc.top);
+    const bw = Math.min(24, slot * 0.62);
+    const step = Math.max(1, Math.ceil((tw(P[0] ? P[0].label : '') + 10) / slot));
+    const showTip = (e, p, i) => {
+      if (!tipApi.current) return;
+      tipApi.current.show(e, html`<div><strong>${periodTxt(p, bucket)}</strong><div class="sched-tipgrid">
+        ${single ? html`<span>${single.C.name}</span><span>${fmt.num(single.q[i], 2)} ${single.C.unit}</span>${single.C.priced ? html`<span>Costo</span><span>${fmt.money(single.c[i], currency)}</span>` : null}`
+          : html`${stacks[i].filter((s) => s.v > 0).map((s) => html`<span key=${s.id} class="row" style="gap:5px;flex-wrap:nowrap"><span class="swatch" style=${'background:' + s.color}></span>${s.name}</span><span>${fmt.money(s.v, currency)}</span>`)}
+            <span>Total</span><span>${fmt.money(totals[i], currency)}</span>`}
+      </div></div>`);
+    };
+    const bars = P.map((p, i) => {
+      const x0 = M.l + i * slot + slot / 2 - bw / 2; const els = [];
+      let acc = 0; const segs = stacks[i].filter((s) => s.v > 0);
+      segs.forEach((s, k) => {
+        const yTop = y(acc + s.v), yBot = y(acc); const gap = k > 0 ? 2 : 0; const h = Math.max(0.5, yBot - yTop - gap);
+        els.push(k === segs.length - 1 ? html`<path key=${s.id} d=${colPath(x0, yTop, bw, h, 4)} fill=${s.color} />` : html`<rect key=${s.id} x=${x0} y=${yTop} width=${bw} height=${h} fill=${s.color} />`);
+        acc += s.v;
+      });
+      return html`<g key=${p.start} data-period=${p.start} data-value=${String(Math.round(totals[i] * 100) / 100)}>${els}<rect x=${M.l + i * slot} y=${M.t} width=${slot} height=${PH} fill="transparent" onMouseMove=${(e) => showTip(e, p, i)} onMouseLeave=${() => tipApi.current && tipApi.current.hide()} /></g>`;
+    });
+    return html`<div ref=${wrapRef}>
+      <div class="chart sched-hist" ref=${hostRef}>
+        <svg ref=${svgRef} class="sched-svg sched-cons-svg" width=${Math.ceil(W)} height=${Ht} viewBox=${'0 0 ' + Math.ceil(W) + ' ' + Ht} role="img" aria-label=${single ? 'Cantidad de ' + single.C.name + ' por ' + (bucket === 'mes' ? 'mes' : 'semana') : 'Costo de los consumibles por ' + (bucket === 'mes' ? 'mes' : 'semana')}>
+          <text x=${8} y="14" text-anchor="start" class="sched-faint">${single ? 'Cantidad (' + single.C.unit + ')' : 'Costo (' + currency + ')'}</text>
+          ${sc.ticks.map((v) => html`<g key=${'y' + v}><line x1=${M.l} x2=${M.l + plotW} y1=${y(v)} y2=${y(v)} stroke=${v === 0 ? 'var(--axis)' : 'var(--grid)'} /><text x=${M.l - 6} y=${y(v) + 4} text-anchor="end">${yFmt(v)}</text></g>`)}
+          ${bars}
+          ${xAxis(P, M, PH, slot, plotW, step, monthRow, bucket, Ht)}
+        </svg>
+        <${TipLayer} host=${hostRef} api=${tipApi} />
+      </div>
+    </div>`;
+  }
+
+  function ConsumoTab({ m, canWrite, openTask, hasWork, goTab }) {
+    const [bucket, setBucket] = usePref('rec.cbucket', 'semana');
+    const [show, setShow] = usePref('rec.cshow', 'cantidad');
+    const [selKey, setSelKey] = useState('__all');
+    const svgRef = useRef();
+    const { sched, project, currency } = m;
+    const cat = m.catalog;
+    const list = useMemo(() => consumption(sched, cat), [sched, cat]);
+    const dist = useMemo(() => distribute(list, sched, bucket), [list, sched, bucket]);
+    const idx = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i + 1])), [sched]);
+    if (!list.length) {
+      return html`<${ui.Empty} icon="layers" title="Aún no hay consumibles asignados" actions=${html`<${ui.Button} variant="primary" icon="gantt" onClick=${() => PM.navigate('cronograma')}>Ir al cronograma</${ui.Button}>${PM.ResourceCatalog ? html`<${ui.Button} icon="resources" onClick=${() => goTab('catalogo')}>Ver el catálogo</${ui.Button}>` : null}`}>
+        Los consumibles (materiales, insumos, repuestos, licencias) se asignan a las actividades por cantidad total desde el editor de la actividad. Aquí verás la cantidad y el costo de cada uno por semana o por mes, y si la existencia del catálogo alcanza.${hasWork ? ' Los recursos de trabajo asignados están en «Histograma».' : ''}
+      </${ui.Empty}>`;
+    }
+    const sel = selKey !== '__all' && list.some((C) => C.key === selKey) ? selKey : '__all';
+    const anyPriced = list.some((C) => C.priced);
+    const totalCost = PM.sum(list, (C) => C.cost);
+    const shortList = list.filter((C) => C.short > 0);
+    const showCost = show === 'costo' && anyPriced;
+    const perTotals = showCost ? dist.periods.map((_, i) => PM.sum(dist.rows, (r) => r.c[i])) : null;
+    const exportCsv = () => {
+      const cols = [{ key: 'name', label: 'Consumible' }, { key: 'code', label: 'Código' }, { key: 'type', label: 'Tipo' }, { key: 'unit', label: 'Unidad' }, { key: 'qty', label: 'Cantidad total' }, { key: 'uc', label: 'Costo unitario (' + currency + ')' }, { key: 'cost', label: 'Costo total (' + currency + ')' }, { key: 'stock', label: 'Existencia' },
+        ...dist.periods.map((p, i) => ({ key: 'p' + i, label: (bucket === 'mes' ? PM.MONTHS[+p.start.slice(5, 7) - 1] + ' ' + p.start.slice(0, 4) : p.start) + (showCost ? ' (' + currency + ')' : '') }))];
+      const rows = dist.rows.map((r) => {
+        const o = { name: r.C.name, code: r.C.item.code || '', type: r.C.type.name, unit: r.C.unit, qty: Math.round(r.C.qty * 100) / 100, uc: r.C.priced ? r.C.unitCost : '', cost: r.C.priced ? Math.round(r.C.cost) : '', stock: r.C.stock === null ? '' : r.C.stock };
+        dist.periods.forEach((_, i) => { o['p' + i] = showCost ? Math.round(r.c[i]) : Math.round(r.q[i] * 100) / 100; });
+        return o;
+      });
+      PM.download(fileBase(project) + '_consumo-' + (bucket === 'mes' ? 'mensual' : 'semanal') + '.csv', PM.toCSV(cols, rows));
+    };
+    return html`<div class="stack" data-rec-tab="consumo">
+      <div class="sched-note"><${ui.Icon} name="info" size=${15} /><div>Los consumibles se asignan por cantidad total a cada actividad; aquí la cantidad se reparte en partes iguales entre los días hábiles de la actividad. El costo usa el costo unitario del catálogo y la existencia es la registrada en el catálogo.</div></div>
+      ${shortList.length ? html`<div class="sched-banner" role="status" data-cons-short=${shortList.length}><${ui.Icon} name="alert" size=${16} /><div><strong>${shortList.length === 1 ? '1 consumible no alcanza' : shortList.length + ' consumibles no alcanzan'} con la existencia del catálogo:</strong> ${shortList.map((C) => C.name + ' (faltan ' + fmt.num(C.short, 2) + ' ' + unitN(C.short, C.unit) + ')').join('; ')}. Programa la compra o el suministro (9.3 Adquirir recursos).</div></div>` : null}
+      <${ui.Card} title="Consumibles" subtitle=${list.length + (list.length === 1 ? ' consumible' : ' consumibles') + (anyPriced ? ' · costo total ' + fmt.money(totalCost, currency) : '')} pad=${false}>
+        <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table sched-tbl sched-cons-tbl">
+          <thead><tr><th>Consumible</th><th>Tipo</th><th class="num">Cantidad total</th><th>Unidad</th><th class="num">Costo unitario</th><th class="num">Costo total</th><th class="num">Existencia</th><th>Actividades</th><th>Estado</th></tr></thead>
+          <tbody>${list.map((C) => html`<tr key=${C.key} data-cons=${C.name}>
+            <td class="wrap"><span class="row" style="gap:7px;flex-wrap:nowrap;align-items:baseline"><span class="swatch" style=${'background:' + C.color}></span><strong style="font-weight:600">${C.name}</strong></span>${C.item.code ? html`<div class="mono xsmall faint">${C.item.code}</div>` : null}</td>
+            <td class="xsmall">${C.type.name}</td>
+            <td class="num" data-col="qty">${fmt.num(C.qty, 2)}</td>
+            <td>${C.unit}</td>
+            <td class="num">${C.priced ? fmt.money(C.unitCost, currency) : html`<span class="sched-nocost"><${ui.Icon} name="alert" size=${12} />Sin costo</span>`}</td>
+            <td class="num" data-col="cost">${C.priced ? fmt.money(C.cost, currency) : '—'}</td>
+            <td class="num">${C.stock === null ? html`<span class="faint">—</span>` : fmt.num(C.stock, 2)}</td>
+            <td class="wrap"><div class="sched-tasklinks">${C.tasks.slice(0, 3).map((t) => html`<button key=${t.id} type="button" class="btn btn-ghost btn-sm" title=${canWrite ? 'Abrir la actividad' : 'Ver la actividad'} onClick=${() => openTask(t.id)}>${idx.get(t.id)} · ${taskName(t)}</button>`)}${C.tasks.length > 3 ? html`<span class="xsmall faint">y ${C.tasks.length - 3} más</span>` : null}</div></td>
+            <td>${C.short > 0 ? html`<${ui.Chip} tone="crit" icon="alert" title="La existencia del catálogo no alcanza para la cantidad asignada">Faltan ${fmt.num(C.short, 2)} ${unitN(C.short, C.unit)}</${ui.Chip}>` : C.stock !== null ? html`<${ui.Chip} tone="good" icon="check" title="La existencia del catálogo cubre la cantidad asignada">Suficiente</${ui.Chip}>` : html`<${ui.Chip} tone="outline" title="El catálogo no registra existencia de este consumible">Sin existencia</${ui.Chip}>`}</td>
+          </tr>`)}</tbody>
+          ${anyPriced ? html`<tfoot><tr><td colspan="5">Total</td><td class="num">${fmt.money(totalCost, currency)}</td><td colspan="3"></td></tr></tfoot>` : null}
+        </table></div>
+      </${ui.Card}>
+      <${ui.Card} title="Consumo por periodo" subtitle=${sel === '__all' ? (anyPriced ? 'Costo de los consumibles por ' + (bucket === 'mes' ? 'mes' : 'semana') : 'Elige un consumible para ver su cantidad por periodo (ningún consumible tiene costo unitario)') : 'Cantidad de ' + list.find((C) => C.key === sel).name + ' por ' + (bucket === 'mes' ? 'mes' : 'semana')}
+        actions=${html`
+          <${ui.Select} aria-label="Consumible del gráfico" value=${sel} onValue=${(v) => setSelKey(v || '__all')} options=${[{ value: '__all', label: 'Todos (costo)' }, ...list.map((C) => ({ value: C.key, label: C.name + ' (cantidad)' }))]} style="width:auto;max-width:100%;min-height:28px;padding-top:3px;padding-bottom:3px;font-size:var(--fs-sm)" />
+          <${ui.Segmented} label="Periodo del consumo" value=${bucket} onChange=${setBucket} options=${[{ value: 'semana', label: 'Semana' }, { value: 'mes', label: 'Mes' }]} />
+          <${ui.SvgDownload} getSvg=${() => svgRef.current} filename=${fileBase(project) + '_consumo.svg'} />`}>
+        <div class="stack">
+          ${sel === '__all' && !anyPriced ? null : html`<div class="legend">${sel === '__all'
+            ? html`${list.slice(0, 8).map((C) => html`<span key=${C.key} class="legend-item"><span class="swatch" style=${'background:' + C.color}></span>${C.name}</span>`)}${list.length > 8 ? html`<span class="legend-item"><span class="swatch" style="background:var(--fg-3)"></span>Otros (${list.length - 8})</span>` : null}`
+            : html`<span class="legend-item"><span class="swatch" style=${'background:' + list.find((C) => C.key === sel).color}></span>Cantidad repartida en los días hábiles de cada actividad</span>`}</div>`}
+          ${sel === '__all' && !anyPriced ? html`<p class="small muted">Registra el costo unitario de los consumibles en el catálogo para ver su costo por periodo, o elige un consumible para ver su cantidad.</p>` : html`<${ConsumoChart} dist=${dist} list=${list} selKey=${sel} bucket=${bucket} currency=${currency} svgRef=${svgRef} />`}
+        </div>
+      </${ui.Card}>
+      <${ui.Card} title="Distribución del consumo" subtitle=${(showCost ? 'Costo' : 'Cantidad') + ' de cada consumible por ' + (bucket === 'mes' ? 'mes' : 'semana (desde el lunes)')}
+        actions=${html`
+          <${ui.Segmented} label="Mostrar en la distribución" value=${show} onChange=${setShow} options=${[{ value: 'cantidad', label: 'Cantidad' }, { value: 'costo', label: 'Costo', disabled: !anyPriced }]} />
+          <${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}>`} pad=${false}>
+        <div class="table-wrap" style="border:0;border-radius:0 0 var(--r-lg) var(--r-lg)"><table class="table table-tight sched-tbl sched-dist" aria-label=${'Distribución del consumo por ' + (bucket === 'mes' ? 'mes' : 'semana')}>
+          <thead><tr><th class="sticky">Consumible</th>${dist.periods.map((p) => html`<th key=${p.start} class="num" title=${periodTxt(p, bucket)}>${bucket === 'mes' ? p.label : fmt.date(p.start, 'dm') + (p.start.slice(0, 4) !== dist.periods[0].start.slice(0, 4) || p.start.slice(5, 7) === '01' ? ' ' + p.start.slice(2, 4) : '')}</th>`)}<th class="num">Total</th></tr></thead>
+          <tbody>${dist.rows.map((r) => html`<tr key=${r.C.key} data-dist=${r.C.name}>
+            <td class="sticky">${r.C.name}<div class="xsmall faint">${showCost ? (r.C.priced ? currency : 'sin costo unitario') : r.C.unit}</div></td>
+            ${(showCost ? r.c : r.q).map((v, i) => html`<td key=${i} class=${cx('num', !(v > 1e-9) && 'z')}>${v > 1e-9 ? (showCost ? fmt.money(v, currency) : fmt.num(v, 2)) : '—'}</td>`)}
+            <td class="num" style="font-weight:600">${showCost ? (r.C.priced ? fmt.money(r.C.cost, currency) : '—') : fmt.num(r.C.qty, 2)}</td>
+          </tr>`)}</tbody>
+          ${showCost ? html`<tfoot><tr><td class="sticky">Total</td>${perTotals.map((v, i) => html`<td key=${i} class="num">${v > 1e-9 ? fmt.money(v, currency) : '—'}</td>`)}<td class="num">${fmt.money(totalCost, currency)}</td></tr></tfoot>` : null}
+        </table></div>
+      </${ui.Card}>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------- vista Recursos */
+  const REC_TABS = ['catalogo', 'histograma', 'consumo'];
+  function RecursosView({ params }) {
+    const m = PM.useResourceModel ? PM.useResourceModel() : PM.useProjectModel();
+    const canWrite = PM.useCanWrite();
+    const w = useScheduleWriter(m);
+    const [prefTab, setPrefTab] = usePref('rec.tab', 'catalogo');
+    const asked = params && REC_TABS.includes(params.tab) ? params.tab : null;
+    const [tab, setTabS] = useState(() => asked || (REC_TABS.includes(prefTab) ? prefTab : 'catalogo'));
+    useEffect(() => { if (asked) { setTabS(asked); setPrefTab(asked); } }, [asked]);
+    const setTab = useCallback((t) => { setTabS(t); setPrefTab(t); }, [setPrefTab]);
+    const agileRef = useAgileRef(m);
+    const ctxRef = useRef(); ctxRef.current = editorCtx(m, w, canWrite, agileRef);
+    const openTask = useCallback((id) => openTaskEditor(ctxRef.current, id), []);
+    /* conteo de las pestañas: recursos del catálogo, de trabajo asignados y consumibles asignados (una pasada) */
+    const counts = useMemo(() => {
+      const cat = m.catalog; const work = new Set(), cons = new Set();
+      for (const t of arrOf(m.schedule.tasks)) {
+        if (!isObj(t)) continue;
+        for (const a of arrOf(t.resources)) {
+          if (!isObj(a) || !String(a.name || '').trim()) continue;
+          const it = cat ? cat.resolve(a) : null;
+          if (it && cat.kindOf(it) === 'consumible') cons.add(it.id); else work.add(resKey(it ? it.name : a.name));
+        }
+      }
+      return { catalog: cat ? cat.items.length : 0, work: work.size, cons: cons.size };
+    }, [m.schedule, m.catalog]);
+    const header = html`<${ui.PageHeader} eyebrow="9.2 Estimar los recursos de las actividades · 9.3 Adquirir recursos · 9.6 Controlar los recursos" title="Recursos del proyecto"
+      description="Catálogo de personas, cuadrillas, equipos, materiales y servicios; demanda diaria frente a la disponibilidad (histograma) y consumo de materiales por periodo." />`;
+    if (m.loading) return html`<div class="page">${header}<${ui.Loading} rows=${5} /></div>`;
+    const tabs = [
+      { id: 'catalogo', label: 'Catálogo', icon: 'resources', count: counts.catalog },
+      { id: 'histograma', label: 'Histograma', icon: 'pareto', count: counts.work },
+      { id: 'consumo', label: 'Consumo', icon: 'layers', count: counts.cons },
+    ];
+    const cur = REC_TABS.includes(tab) ? tab : 'catalogo';
+    let body;
+    if (cur === 'catalogo') {
+      body = PM.ResourceCatalog
+        ? (ui.ErrorBoundary ? html`<${ui.ErrorBoundary} label="Catálogo de recursos"><${PM.ResourceCatalog} model=${m} /></${ui.ErrorBoundary}>` : html`<${PM.ResourceCatalog} model=${m} />`)
+        : html`<div class="sched-note" data-rec-nocatalog="1"><${ui.Icon} name="info" size=${15} /><div>El catálogo de recursos no está disponible en esta página. El histograma y el consumo usan los recursos asignados en el cronograma.</div></div>`;
+    } else if (cur === 'histograma') body = html`<${HistogramTab} m=${m} w=${w} canWrite=${canWrite} openTask=${openTask} hasCons=${counts.cons > 0} goTab=${setTab} />`;
+    else body = html`<${ConsumoTab} m=${m} canWrite=${canWrite} openTask=${openTask} hasWork=${counts.work > 0} goTab=${setTab} />`;
+    return html`<div class="page">
+      ${header}
+      <${ui.Tabs} tabs=${tabs} value=${cur} onChange=${setTab} />
+      ${body}
     </div>`;
   }
 
   /* ---------------------------------------------------------------- registro de vistas */
   PM.registerView({ id: 'cronograma', label: 'Cronograma (Gantt)', group: 'planificacion', icon: 'gantt', order: 20, component: CronogramaView, needsProject: true, description: 'Diagrama de Gantt, actividades, hitos y calendario laboral' });
   PM.registerView({ id: 'red', label: 'Diagrama de red', group: 'planificacion', icon: 'network', order: 30, component: RedView, needsProject: true, description: 'Diagrama de red (PDM) y cálculo de la ruta crítica' });
-  PM.registerView({ id: 'recursos', label: 'Recursos', group: 'planificacion', icon: 'resources', order: 40, component: RecursosView, needsProject: true, description: 'Histograma, sobreasignaciones y matriz de asignación de recursos' });
+  PM.registerView({ id: 'recursos', label: 'Recursos', group: 'planificacion', icon: 'resources', order: 40, component: RecursosView, needsProject: true, description: 'Catálogo de recursos, histograma con la disponibilidad y consumo de materiales' });
 })();

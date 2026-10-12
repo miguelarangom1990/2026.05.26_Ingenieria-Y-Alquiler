@@ -4,6 +4,10 @@
    "lineas-base" (establecer, comparar y eliminar líneas base del alcance,
    cronograma y costos) y "ficha" (metadatos, fecha de corte, calendario,
    almacenamiento, respaldo y eliminación del proyecto).
+   Recursos (SPEC §10.4): alerta de recursos no planificados (cantidad, costo
+   estimado, sin motivo o sin la solicitud de cambio que requieren) con enlace
+   al catálogo; en la ruta sugerida, paso «Catálogo de recursos» (9.2) y, si
+   aplica, «Estructuras de desglose revisadas» (opcional: no cuenta en el avance).
    ========================================================================== */
 (function () {
   'use strict';
@@ -161,6 +165,12 @@
 .dashboard-commit > .icon { flex: none; margin-top: 1px; color: var(--warn); }
 .dashboard-commit.is-over { color: var(--fg); }
 .dashboard-mode-chip { margin-left: 2px; }
+.dashboard-step-body .chip { white-space: normal; text-align: left; }
+.dashboard-step[data-optional="true"] { border-style: dashed; }
+.dashboard-step[data-optional="true"] .dashboard-step-num { border-style: dashed; }
+.dashboard-step[data-optional="true"][data-state="done"] .dashboard-step-num { border-style: solid; }
+.dashboard-res .dashboard-alerts { padding: 12px 16px 14px; }
+.dashboard-res-actions { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0 16px 14px; }
 `;
   if (!document.getElementById('css-dashboard')) {
     const s = document.createElement('style'); s.id = 'css-dashboard'; s.textContent = CSS; document.head.appendChild(s);
@@ -985,6 +995,63 @@
     </${Panel}>`;
   }
 
+  /* ---------------------------------------------------------------- tablero: recursos del proyecto (§10)
+     Catálogo efectivo (model.catalog, con los recursos «virtuales» que solo existen en las asignaciones) y recursos no
+     planificados: costo estimado = asignaciones del cronograma valoradas con el costo unitario del catálogo
+     (PM.res.assignment) o, si no están asignados, el monto de reserva registrado; sin motivo; sin la solicitud de
+     cambio que su motivo exige; consumo de la reserva para contingencias. Una pasada por las asignaciones. */
+  const plural = (n, one, many) => fmt.num(n) + ' ' + (n === 1 ? one : many);
+  function resourceStats(model) {
+    const R = PM.res, RES = PM.RES;
+    if (!R || !RES) return null;
+    const cat = model.catalog || R.catalog(model.resources, model.schedule);
+    if (!cat) return null;
+    const known = new Set(cat.types.map((t) => t.id));
+    const saved = cat.items.filter((it) => !it.virtual);
+    const typed = saved.filter((it) => known.has(it.typeId));
+    const unpl = saved.filter((it) => it.planned === false);
+    const reasons = Array.isArray(RES.REASONS) ? RES.REASONS : [];
+    const reasonOf = (it) => reasons.find((r) => r.value === it.reason) || null;
+    const use = new Map();
+    if (unpl.length) {
+      const ids = new Set(unpl.map((x) => x.id));
+      for (const t of (model.schedule && Array.isArray(model.schedule.tasks) ? model.schedule.tasks : [])) {
+        if (!isObj(t) || !Array.isArray(t.resources)) continue;
+        for (const a of t.resources) { if (!isObj(a)) continue; const l = R.assignment(cat, t, a); if (l.item && ids.has(l.item.id)) use.set(l.item.id, (use.get(l.item.id) || 0) + l.cost); }
+      }
+    }
+    let cost = 0, reserve = 0;
+    const noReason = [], noChange = [];
+    for (const it of unpl) {
+      const r = reasonOf(it);
+      const amount = isNum(num(it.reserveAmount, NaN)) ? Math.max(0, num(it.reserveAmount)) : 0;
+      cost += use.has(it.id) ? use.get(it.id) : amount;
+      if (it.reason === 'riesgo') reserve += amount;
+      if (!r) noReason.push(it);
+      else if (r.baseline && !String(it.changeRef || '').trim()) noChange.push(it);
+    }
+    const contingency = Math.max(0, num(model.costs && model.costs.reserves && model.costs.reserves.contingency, 0));
+    return { total: cat.items.length, saved: saved.length, typed: typed.length, types: new Set(typed.map((it) => it.typeId)).size, uncl: cat.items.length - typed.length,
+      agile: saved.filter((it) => it.agileTeam).length, unpl: { n: unpl.length, cost, noReason, noChange, reserve, contingency } };
+  }
+  const resNames = (list) => list.slice(0, 3).map((it) => (it.code ? it.code + ' ' : '') + it.name).join(', ') + (list.length > 3 ? ' y ' + (list.length - 3) + ' más' : '');
+  function UnplannedCard({ stats, currency }) {
+    const u = stats.unpl;
+    const issues = u.noReason.length + u.noChange.length;
+    const over = u.reserve > u.contingency + 0.5;
+    const toCatalog = () => go('recursos', { tab: 'catalogo', plan: 'no-planificado' });
+    return html`<${Panel} title="Recursos no planificados" count=${u.n} countTone=${u.noChange.length ? 'crit' : issues ? 'warn' : 'info'} subtitle="Recursos que no estaban en la planificación · 9.6 Controlar los recursos" class="dashboard-res"
+      actions=${html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" data-res-link onClick=${toCatalog}>Ver en el catálogo</${ui.Button}>`} data-card="unplanned-resources">
+      <ul class="dashboard-alerts">
+        <li class="dashboard-alert" data-res-alert="summary"><${ui.Icon} name="resources" size=${15} /><span>${plural(u.n, 'recurso no planificado', 'recursos no planificados')} con un costo estimado de <strong>${moneyShort(u.cost, currency)}</strong> (asignaciones valoradas con el costo del catálogo).</span></li>
+        ${u.noReason.length ? html`<li class="dashboard-alert" data-tone="warn" data-res-alert="no-reason"><${ui.Icon} name="alert" size=${15} /><span>${u.noReason.length === 1 ? '1 sin motivo registrado' : u.noReason.length + ' sin motivo registrado'}: ${resNames(u.noReason)}. El motivo dice si cambia o no la línea base.</span></li>` : null}
+        ${u.noChange.length ? html`<li class="dashboard-alert" data-tone="crit" data-res-alert="no-change"><${ui.Icon} name="alert" size=${15} /><span>${u.noChange.length === 1 ? '1 requiere solicitud de cambio y no la tiene' : u.noChange.length + ' requieren solicitud de cambio y no la tienen'}: ${resNames(u.noChange)} (4.6).</span></li>` : null}
+        ${u.reserve > 0 ? html`<li class="dashboard-alert" data-tone=${over ? 'crit' : undefined} data-res-alert="reserve"><${ui.Icon} name=${over ? 'alert' : 'money'} size=${15} /><span>Consumen ${moneyShort(u.reserve, currency)} de la reserva para contingencias: ${over ? 'superan la reserva en ' + moneyShort(u.reserve - u.contingency, currency) + '.' : 'quedan ' + moneyShort(u.contingency - u.reserve, currency) + ' disponibles.'}</span></li>` : null}
+        ${!issues ? html`<li class="dashboard-alert" data-tone="good" data-res-alert="ok"><${ui.Icon} name="check-circle" size=${15} /><span>Todos tienen motivo y, si cambian la línea base, su solicitud de cambio.</span></li>` : null}
+      </ul>
+    </${Panel}>`;
+  }
+
   /* ---------------------------------------------------------------- tablero: líneas base y ruta sugerida */
   const partDetail = (id, bl, cur) => {
     if (id === 'scope') return ((bl.scope && bl.scope.wbs) || []).length + ' elementos de la EDT';
@@ -1033,7 +1100,33 @@
     { id: 'control', label: 'Ejecución, monitoreo y cierre' },
   ];
 
-  function buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode = 'predictivo' }) {
+  /* Paso «Catálogo de recursos» (9.2): hecho con al menos un recurso guardado con un tipo del proyecto; parcial si solo hay
+     recursos sin clasificar (los «virtuales» de las asignaciones o guardados sin tipo). */
+  function catalogStep(rs, mode) {
+    if (!rs) return null;
+    const label = rs.typed ? plural(rs.typed, 'recurso con tipo', 'recursos con tipo') + (rs.uncl ? ' · ' + rs.uncl + ' sin clasificar' : '')
+      : rs.total ? plural(rs.total, 'recurso sin clasificar', 'recursos sin clasificar') : 'Pendiente';
+    return { phase: 'plan', id: 'catalogo-recursos', label: 'Catálogo de recursos',
+      desc: mode === 'adaptativo' ? '9.2 · Personas del equipo (dedicación y ausencias) y demás recursos con tipo y costo: alimentan la capacidad de las iteraciones.' : '9.2 · Recursos con tipo, unidad, disponibilidad y costo: alimentan el costeo de las actividades, el histograma y la capacidad del equipo.',
+      done: rs.typed > 0, partial: rs.total > 0, stateLabel: label, action: () => go('recursos', { tab: 'catalogo' }) };
+  }
+  /* Paso opcional «Estructuras de desglose revisadas» (7.3, 11.2, 9.2): aplica si existe la vista y hay algo que desglosar
+     (presupuesto, riesgos o recursos). Revisadas = la EDR documentada (estructura-desglose-recursos con filas) y las
+     categorías de riesgo del plan de gestión de los riesgos (edrRiesgos). No cuenta en el avance de la ruta. */
+  function breakdownStep({ docs, rs, bac, nRisks }) {
+    if (!PM.getView || !PM.getView('estructuras')) return null;
+    if (!(bac > 0) && !nRisks && !(rs && rs.total)) return null;
+    const rowsOf = (d, k, f) => (d && d.fields && Array.isArray(d.fields[k]) ? d.fields[k].filter((r) => isObj(r) && String(r[f] || '').trim()).length : 0);
+    const edr = rowsOf(docs.get('estructura-desglose-recursos'), 'recursos', 'recurso');
+    const rbs = rowsOf(docs.get('plan-gestion-riesgos'), 'edrRiesgos', 'nivel1');
+    return { phase: 'plan', id: 'estructuras', optional: true, label: 'Estructuras de desglose revisadas',
+      desc: '7.3 · 11.2 · 9.2 · Desglose de costos, de los riesgos y de los recursos en diagrama. Opcional: no cuenta en el avance de la ruta.',
+      done: edr > 0 && rbs > 0, partial: edr > 0 || rbs > 0,
+      stateLabel: edr && rbs ? 'EDR y categorías de riesgo documentadas' : edr ? 'EDR documentada · faltan las categorías de riesgo' : rbs ? 'Categorías de riesgo definidas · falta la EDR' : 'Sin revisar',
+      action: () => go('estructuras', { tab: edr && !rbs ? 'riesgos' : rbs && !edr ? 'recursos' : 'costos' }) };
+  }
+
+  function buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode = 'predictivo', rs = null }) {
     const acta = docs.get('acta-constitucion');
     const inter = docs.get('registro-interesados');
     const nInter = inter && inter.fields && Array.isArray(inter.fields.interesados) ? inter.fields.interesados.filter((r) => r && String(r.nombre || r.cargo || r.organizacion || '').trim()).length : 0;
@@ -1074,8 +1167,10 @@
       { phase: 'plan', id: 'alcance', label: 'Enunciado del alcance', desc: '5.3 · Entregables, exclusiones y criterios de aceptación.', done: !!enunciado, stateLabel: enunciado ? PM.docStatus(enunciado.status).label : 'Pendiente', action: () => openDoc('enunciado-alcance') },
       { phase: 'plan', id: 'edt', label: 'EDT', desc: '5.4 · Desglosa el alcance en paquetes de trabajo.', done: nodes.length > 0, stateLabel: nodes.length ? nodes.length + ' elementos' : 'Pendiente', action: () => go('edt') },
       { phase: 'plan', id: 'cronograma', label: 'Cronograma', desc: '6.2–6.5 · Actividades, dependencias, duraciones y ruta crítica.', done: work.length > 0, stateLabel: work.length ? work.length + (work.length === 1 ? ' actividad' : ' actividades') : 'Pendiente', action: () => go('cronograma') },
+      catalogStep(rs, mode),
       { phase: 'plan', id: 'presupuesto', label: 'Presupuesto (costos en actividades)', desc: '7.2–7.3 · Costo de cada actividad; su suma es el BAC.', done: bacNow > 0, stateLabel: bacNow > 0 ? 'BAC ' + moneyShort(bacNow, model.currency) : 'Pendiente', action: () => go('cronograma') },
       { phase: 'plan', id: 'riesgos', label: 'Registro de riesgos', desc: '11.2 · Amenazas y oportunidades con probabilidad e impacto.', done: nRisks > 0, partial: riesgos.length > 0, stateLabel: nRisks ? nRisks + (nRisks === 1 ? ' riesgo' : ' riesgos') : 'Pendiente', action: () => openDoc('registro-riesgos') },
+      mode === 'adaptativo' ? null : breakdownStep({ docs, rs, bac: bacNow, nRisks }),
       { phase: 'plan', id: 'lineabase', label: 'Línea base', desc: '4.2 · Aprueba alcance, cronograma y costos como referencia del desempeño.', done: model.baselines.list.length > 0, stateLabel: latestBl ? latestBl.label + ' establecida' : 'Pendiente', action: () => (canWrite ? openEstablish() : go('lineas-base')) },
       { phase: 'control', id: 'avance', label: 'Registrar avance', desc: '4.3 / 4.5 · % de avance y costos reales a la fecha de corte.', done: progressed, stateLabel: progressed ? 'Con avance registrado' : 'Pendiente', action: () => go('cronograma') },
       { phase: 'control', id: 'informe', label: 'Informe de desempeño', desc: '4.5 · Comunica el avance, el valor ganado y los pronósticos de cada periodo.', done: repCurrent, partial: reports.length > 0,
@@ -1092,7 +1187,7 @@
         stateLabel: isApproved(acie) && blockers.length ? 'Aprobada con pendientes' : docStateLabel(acie, 'Aprobada'),
         note: blockers.length ? (isApproved(acie) ? 'Se aprobó con pendientes: ' : 'Antes de aprobarla: ') + blockers.join(', ') + '.' : null, showNote: !!(acie || ifin),
         action: () => openDoc('acta-cierre') },
-    ];
+    ].filter(Boolean);
     let route = steps;
     if ((mode === 'hibrido' || mode === 'adaptativo') && PM.agile) {
       const ag = agileSteps({ model, docs, nodes });
@@ -1117,9 +1212,9 @@
         const planCambios = docs.get('plan-gestion-cambios');
         route = [byId.acta, byId.interesados, byId.riesgos,
           { phase: 'plan', id: 'plan-cambios', label: 'Plan de gestión de cambios', desc: '4.2 · Control de cambios en dos niveles: el backlog se ajusta libremente; el alcance, la fecha o el presupuesto del release, con solicitud de cambio.', done: isApproved(planCambios), partial: !!planCambios, stateLabel: docStateLabel(planCambios, 'Aprobado'), action: () => openDoc('plan-gestion-cambios') },
-          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, startStep, reviewStep,
+          ag.vision, ag.backlog, ag.terminado, catalogStep(rs, mode), ag.releases, ag.lbRelease, startStep, reviewStep,
           /* seguimiento y cierre: 4.5, 5.5 y 4.7 aplican a cualquier ciclo de vida */
-          byId.informe, byId.entregables, byId['informe-final'], byId['acta-cierre']];
+          byId.informe, byId.entregables, byId['informe-final'], byId['acta-cierre']].filter(Boolean);
       }
     }
     return route.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
@@ -1185,29 +1280,33 @@
         stateLabel: closed.length ? covered.length + ' de ' + closed.length + (closed.length === 1 ? ' iteración cerrada documentada' : ' iteraciones cerradas documentadas') : 'Sin iteraciones cerradas', action: () => go('iteraciones') },
     };
   }
-  function RouteStep({ s, i, next }) {
-    return html`<li><button type="button" class="dashboard-step" data-step=${s.id} data-state=${s.state} data-next=${next ? 'true' : undefined} onClick=${s.action}>
-      <span class="dashboard-step-num" aria-hidden="true">${s.done ? html`<${ui.Icon} name="check" size=${14} stroke=${2.5} />` : i + 1}</span>
+  /* n: número visible del paso (los opcionales no se numeran ni cuentan en el avance) */
+  function RouteStep({ s, n, next }) {
+    const optIcon = PM.ICONS && PM.ICONS.breakdown ? 'breakdown' : 'layers';
+    return html`<li><button type="button" class="dashboard-step" data-step=${s.id} data-state=${s.state} data-optional=${s.optional ? 'true' : undefined} data-next=${next ? 'true' : undefined} onClick=${s.action}>
+      <span class="dashboard-step-num" aria-hidden="true">${s.done ? html`<${ui.Icon} name="check" size=${14} stroke=${2.5} />` : s.optional ? html`<${ui.Icon} name=${optIcon} size=${13} />` : n}</span>
       <span class="dashboard-step-body">
         <span class="dashboard-step-title">${s.label}</span>
         <span class="dashboard-step-desc">${s.desc}</span>
-        <span class="row" style="gap:6px"><${ui.Chip} tone=${s.done ? 'good' : s.state === 'partial' ? 'warn' : 'outline'}>${s.stateLabel}</${ui.Chip}>${next ? html`<span class="xsmall" style="color:var(--accent);font-weight:600">Siguiente paso</span>` : null}</span>
+        <span class="row" style="gap:6px">${s.optional ? html`<${ui.Chip} tone="outline" data-optional-chip>Opcional</${ui.Chip}>` : null}<${ui.Chip} tone=${s.done ? 'good' : s.state === 'partial' ? 'warn' : 'outline'}>${s.stateLabel}</${ui.Chip}>${next ? html`<span class="xsmall" style="color:var(--accent);font-weight:600">Siguiente paso</span>` : null}</span>
         ${s.note && (s.showNote || next) ? html`<span class="dashboard-step-note" data-step-note=${s.id}>${s.note}</span>` : null}
       </span>
     </button></li>`;
   }
   function RouteCard({ route, prominent, mode = 'predictivo', flow = false }) {
     const [open, setOpen] = useState(!!prominent);
-    const done = route.filter((r) => r.done).length;
-    const nextIdx = route.findIndex((r) => !r.done);
-    const complete = done === route.length;
-    const planDone = route.filter((r) => r.phase === 'plan').every((r) => r.done);
+    /* los pasos opcionales no cuentan en el avance ni son el «siguiente paso» */
+    const req = route.filter((r) => !r.optional);
+    const done = req.filter((r) => r.done).length;
+    const nextIdx = route.findIndex((r) => !r.done && !r.optional);
+    const complete = done === req.length;
+    const planDone = req.filter((r) => r.phase === 'plan').every((r) => r.done);
     const ad = mode === 'adaptativo', hy = mode === 'hibrido';
     /* flow: Kanban (flujo continuo, sin iteraciones) */
     const work = flow ? 'gestionar el flujo' : 'iterar';
-    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución al acta de cierre.' : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
-      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? (flow ? 'sigue gestionar el flujo con revisiones periódicas, informar el desempeño, aceptar los entregables y cerrar.' : 'sigue iterar con revisión y retrospectiva, informar el desempeño, aceptar los entregables y cerrar.') : hy ? 'sigue ' + work + ', monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
-      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, ' + (flow ? 'gestionar el flujo' : 'iterar') + ', aceptar los entregables y cerrar.' : hy ? 'iniciar, planificar (en cascada y ' + (flow ? 'ágil' : 'por iteraciones') + '), establecer las líneas base, ' + work + ', controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
+    const summary = complete ? (ad ? 'Completaste los ' + req.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución al acta de cierre.' : 'Completaste los ' + req.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
+      : planDone ? done + ' de ' + req.length + ' pasos completados · planificación completa: ' + (ad ? (flow ? 'sigue gestionar el flujo con revisiones periódicas, informar el desempeño, aceptar los entregables y cerrar.' : 'sigue iterar con revisión y retrospectiva, informar el desempeño, aceptar los entregables y cerrar.') : hy ? 'sigue ' + work + ', monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
+      : done + ' de ' + req.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, ' + (flow ? 'gestionar el flujo' : 'iterar') + ', aceptar los entregables y cerrar.' : hy ? 'iniciar, planificar (en cascada y ' + (flow ? 'ágil' : 'por iteraciones') + '), establecer las líneas base, ' + work + ', controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
     return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'} data-mode=${mode}>
       <div class="dashboard-panel-head">
         <div class="stack-sm" style="gap:2px;min-width:0">
@@ -1215,7 +1314,7 @@
           <div class="xsmall faint" data-route-summary>${summary}</div>
         </div>
         <div class="row">
-          <div class="dashboard-route-meter"><${ui.Meter} value=${done / route.length} tone=${complete ? 'good' : undefined} label="Pasos completados" /></div>
+          <div class="dashboard-route-meter"><${ui.Meter} value=${req.length ? done / req.length : 0} tone=${complete ? 'good' : undefined} label="Pasos completados" /></div>
           ${!prominent ? html`<${ui.Button} size="sm" variant="ghost" icon=${open ? 'chevron-up' : 'chevron-down'} aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>${open ? 'Ocultar pasos' : 'Mostrar pasos'}</${ui.Button}>` : null}
         </div>
       </div>
@@ -1233,16 +1332,19 @@
     const w = useWidth(ref, 0);
     const max = w > 0 ? Math.max(1, Math.floor((w + STEP_GAP) / (STEP_MIN + STEP_GAP))) : 0;
     const labels = (flow && FLOW_PHASE_LABELS[mode]) || PHASE_LABELS[mode] || {};
+    /* número visible de cada paso: los opcionales no se numeran (llevan el del paso anterior, que no se muestra) */
+    const nums = []; let k = 0; for (const s of route) { if (!s.optional) k++; nums.push(Math.max(1, k)); }
     return html`<div class="card-body"><div class="stack" ref=${ref}>
       ${PHASES.map((p0) => {
         const ph = labels[p0.id] ? { ...p0, label: labels[p0.id] } : p0;
-        const items = route.map((s, i) => ({ s, i })).filter((x) => x.s.phase === ph.id);
+        const items = route.map((s, i) => ({ s, i, n: nums[i] })).filter((x) => x.s.phase === ph.id);
         if (!items.length) return null;
-        const n = items.filter((x) => x.s.done).length;
+        const reqItems = items.filter((x) => !x.s.optional);
+        const n = reqItems.filter((x) => x.s.done).length;
         const cols = max ? Math.ceil(items.length / Math.ceil(items.length / max)) : 0;
         return html`<div class="stack-sm" key=${ph.id} data-phase=${ph.id}>
-          <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${items.length}</span></div>
-          <ol class="dashboard-steps" start=${items[0].i + 1} data-cols=${cols || undefined} style=${cols ? 'grid-template-columns:repeat(' + cols + ', minmax(0, 1fr))' : undefined}>${items.map(({ s, i }) => html`<${RouteStep} key=${s.id} s=${s} i=${i} next=${i === nextIdx} />`)}</ol>
+          <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${reqItems.length}</span></div>
+          <ol class="dashboard-steps" start=${(reqItems[0] || items[0]).n} data-cols=${cols || undefined} style=${cols ? 'grid-template-columns:repeat(' + cols + ', minmax(0, 1fr))' : undefined}>${items.map(({ s, i, n: k }) => html`<${RouteStep} key=${s.id} s=${s} n=${k} next=${i === nextIdx} />`)}</ol>
         </div>`;
       })}
     </div></div>`;
@@ -1287,10 +1389,12 @@
     const [cambios, , cMeta] = PM.useDocTable('registro-cambios', 'cambios');
     const canWrite = PM.useCanWrite();
     const p = model.project || project;
+    /* recursos del proyecto (§10): catálogo y no planificados; se recalcula solo si cambian el catálogo, el cronograma o las reservas */
+    const rs = useMemo(() => (model.loading ? null : resourceStats(model)), [model.loading, model.catalog, model.schedule, model.resources, model.costs]);
     if (model.loading || docs.loading || rMeta.loading || iMeta.loading || cMeta.loading || !p) return html`<div class="page"><${ui.Loading} rows=${6} /></div>`;
     const mode = PM.agile ? PM.agile.mode(p) : 'predictivo';
-    const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode });
-    const prominent = route.filter((r) => r.done).length < 5;
+    const route = buildRoute({ model, docs, riesgos, incidentes, cambios, canWrite, mode, rs });
+    const prominent = route.filter((r) => r.done && !r.optional).length < 5;
     const agileOn = !!(PM.agile && PM.agile.enabled(p));
     const flow = agileOn && isKanbanFlow(model.agile);
     return html`<div class="page dashboard-page">
@@ -1302,6 +1406,7 @@
       ${prominent ? html`<${RouteCard} route=${route} prominent mode=${mode} flow=${flow} />` : null}
       <${KpiRow} model=${model} />
       ${agileOn ? html`<${AgileCard} model=${model} project=${p} />` : null}
+      ${rs && rs.unpl.n ? html`<${UnplannedCard} stats=${rs} currency=${model.currency} />` : null}
       <div class="dashboard-two">
         <${SCurveCard} model=${model} />
         <${MilestonesCard} model=${model} />
