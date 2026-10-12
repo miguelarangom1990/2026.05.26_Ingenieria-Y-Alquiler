@@ -90,16 +90,22 @@
 .docs-stats > .stat + .stat { border-left: 1px solid var(--line); }
 .docs-stats-foot { display: flex; align-items: center; gap: 10px; padding: 0 16px 14px; font-size: var(--fs-xs); color: var(--fg-3); }
 /* Barra de filtros (búsqueda + 5 listas): la rejilla responde al ancho del contenido (riel desplegado o plegado), no al
-   de la ventana. Ancho (≥ 1440 px de contenido, p. ej. 1920 px de ventana): una fila; búsqueda y enfoque más anchos.
-   Medio (1360, 1440 y 1100 px de ventana): dos filas de cuatro columnas. Angosto (móvil): dos columnas. */
+   de la ventana. Ancho (≥ 1520 px de contenido, p. ej. 1920 px de ventana): una fila; cada control según su texto más
+   largo, con el enfoque como el más ancho para que «Proyecto predictivo (predictivos y de ambos enfoques)» quepa entero
+   (≈ 422 px) y la búsqueda con su texto de ayuda (≈ 317 px). Medio (1360, 1440 y 1100 px de ventana): dos filas;
+   estado y tipo, más cortos, ceden ancho al enfoque. Angosto (móvil): dos columnas; ahí el enfoque puede recortarse con
+   «…», y su title y la línea de resumen muestran la opción completa. */
 .docs-fbar { container: docsflt / inline-size; min-width: 0; }
-.docs-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "q q a g" "s k ap ap"; gap: 8px; align-items: center; }
+.docs-filters { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.85fr) minmax(0, 1.15fr) minmax(0, 1.15fr); grid-template-areas: "q q a g" "s k ap ap"; gap: 8px; align-items: center; }
 .docs-filters > .docs-f-q { grid-area: q; } .docs-filters > .docs-f-a { grid-area: a; } .docs-filters > .docs-f-g { grid-area: g; }
 .docs-filters > .docs-f-s { grid-area: s; } .docs-filters > .docs-f-k { grid-area: k; } .docs-filters > .docs-f-ap { grid-area: ap; }
 .docs-filters .select { text-overflow: ellipsis; }
-@container docsflt (min-width: 1440px) { .docs-filters { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) minmax(0, 2fr); grid-template-areas: "q a g s k ap"; } }
+@container docsflt (min-width: 1520px) { .docs-filters { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 2.3fr); grid-template-areas: "q a g s k ap"; } }
 @container docsflt (max-width: 639.98px) { .docs-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "q q" "a g" "s k" "ap ap"; } }
 .docs-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+/* Sin filtros, la línea de resumen queda montada pero oculta a la vista (como .sr-only): así su región aria-live ya
+   existe cuando llega el primer filtrado y el lector de pantalla lo anuncia. */
+.docs-sum:not([data-filtered]) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 .docs-sum-n { font-variant-numeric: tabular-nums; }
 /* Enfoque de la metodología (11-doc-approach): distintivo de la lista, nota explicativa y franja del editor. */
 .docs-ap .icon { flex: none; }
@@ -128,7 +134,16 @@
 .docs-apx-body .docs-meta { font-size: var(--fs-sm); gap: 6px 14px; max-width: 110ch; }
 .docs-apx-body > p { margin: 0; max-width: 90ch; }
 .docs-tablewrap { border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); container: docstbl / inline-size; }
-.docs-table { table-layout: fixed; min-width: 1000px; }
+/* Columnas fijas (contenido más el relleno de la celda, 20 px): Código 190 (≈ 145 px de «PRY-2026-021-SCAM-NN», con
+   holgura para códigos de proyecto más largos), Proceso 74 (encabezado), Enfoque 110 con 14 px de relleno (distintivo
+   «Predictivo» ≈ 95 px), Estado 108 («En revisión» ≈ 85 px), Rev. 52, Actualizado 148 («07 may 2026, 16:00» ≈ 122 px)
+   y Acciones 104 («Nuevo», «Abrir») o 132 en solo lectura («Ver plantilla»). Documento se lleva el resto; con 940 px de
+   ancho mínimo, 1280 px de ventana con el riel desplegado (≈ 970 px de tarjeta) sigue mostrando la tabla. */
+.docs-table { table-layout: fixed; min-width: 940px; }
+.docs-table .docs-w-code { width: 190px; } .docs-table .docs-w-proc { width: 74px; } .docs-table .docs-w-ap { width: 110px; }
+.docs-table .docs-w-status { width: 108px; } .docs-table .docs-w-rev { width: 52px; } .docs-table .docs-w-upd { width: 148px; }
+.docs-table .docs-w-act { width: 104px; } .docs-table.is-ro .docs-w-act { width: 132px; }
+.docs-table th.docs-c-ap, .docs-table td.docs-c-ap { padding-left: 7px; padding-right: 7px; }
 .docs-table td { vertical-align: middle; overflow-wrap: anywhere; }
 .docs-table .docs-act { text-align: right; white-space: nowrap; }
 .docs-link { border: 0; background: none; padding: 0; color: var(--fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
@@ -138,8 +153,10 @@
 .docs-parent td { background: var(--surface-2); }
 @media (max-width: 760px) { .docs-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .docs-stats > .stat { border-left: 0 !important; border-top: 1px solid var(--line); } .docs-stats > .stat:first-child { grid-column: 1 / -1; border-top: 0; } }
 /* La lista pasa a tarjetas cuando su tarjeta mide menos que el ancho mínimo de la tabla (móvil, o 1100 px con el riel
-   desplegado), en vez de esconder columnas detrás de un desplazamiento horizontal. */
-@container docstbl (max-width: 999.98px) {
+   desplegado), en vez de esconder columnas detrás de un desplazamiento horizontal. En la tarjeta no hay encabezados:
+   el enfoque lleva su rótulo («Enfoque: Ágil»), como la revisión («Rev. B»). */
+.docs-t-only { display: inline; }
+@container docstbl (max-width: 939.98px) {
   .docs-table { table-layout: auto; min-width: 0; }
   .docs-table, .docs-table tbody { display: block; }
   .docs-table colgroup, .docs-table thead { display: none; }
@@ -148,7 +165,9 @@
   .docs-table td { display: block; padding: 0; border: 0; min-width: 0; }
   .docs-table tbody tr:hover td { background: transparent; }
   .docs-table .docs-c-code { grid-area: code; } .docs-table .docs-c-name { grid-area: name; } .docs-table .docs-c-proc { grid-area: proc; }
-  .docs-table .docs-c-ap { grid-area: ap; justify-self: end; } .docs-table .docs-c-ap:empty { display: none; }
+  .docs-table td.docs-c-ap { grid-area: ap; justify-self: end; display: flex; align-items: center; gap: 6px; padding: 0; } .docs-table td.docs-c-ap:empty { display: none; }
+  .docs-table .docs-ap-k { font-size: var(--fs-xs); color: var(--fg-3); white-space: nowrap; }
+  .docs-table .docs-t-only { display: none; }
   .docs-table .docs-c-status { grid-area: status; } .docs-table .docs-c-rev { grid-area: rev; } .docs-table .docs-c-upd { grid-area: upd; text-align: right; }
   .docs-table .docs-act { grid-area: act; }
   .docs-table tr.docs-parent { background: var(--surface-2); }
@@ -337,9 +356,13 @@
     return '';
   }
   const apFilterLabel = (v) => { const c = AP_COMBOS.find((x) => x.value === v); if (c) return c.label; const a = apReady() ? PM.DOC_APPROACHES.find((x) => x.id === v) : null; return a ? a.label : ''; };
-  /* Qué pasa con el documento en el otro enfoque: rótulo según el enfoque de la plantilla. */
-  const apOtherLabel = (ap) => (ap.id === 'predictivo' ? 'Qué lo reemplaza en un proyecto ágil' : ap.id === 'adaptativo' ? 'Qué lo cubre en un proyecto predictivo' : 'Cómo cambia en el otro enfoque');
+  /* Qué pasa con el documento en el otro enfoque: rótulo según el enfoque de la plantilla. En las de ambos enfoques,
+     `replacement` (11-doc-approach) describe siempre la variante ágil («En ágil…», «Igual en ágil…»), así que el
+     rótulo lo dice, en vez de «el otro enfoque» (que en un proyecto ágil sería el predictivo). */
+  const apOtherLabel = (ap) => (ap.id === 'predictivo' ? 'Qué lo reemplaza en un proyecto ágil' : ap.id === 'adaptativo' ? 'Qué lo cubre en un proyecto predictivo' : 'Cómo cambia en un proyecto ágil');
   const apTitle = (ap) => ap.label + '. ' + ap.why + (ap.replacement ? ' ' + apOtherLabel(ap) + ': ' + ap.replacement : '');
+  /* Resumen de lo que trae el desplegable del editor: «Por qué y qué lo reemplaza en un proyecto ágil», etc. */
+  const apMoreLabel = (ap) => (ap.replacement ? 'Por qué y ' + apOtherLabel(ap).replace(/^./, (c) => c.toLowerCase()) : 'Por qué este enfoque');
   function ApChip({ ap, long }) {
     return html`<${ui.Chip} tone=${ap.tone} icon=${ap.icon} class="docs-ap" data-approach=${ap.id} title=${apTitle(ap)}>${long ? ap.label : ap.short}</${ui.Chip}>`;
   }
@@ -947,10 +970,12 @@
   const countable = (e) => !e.na && (e.type !== 'parent' || !e.count);
   const NaStatus = () => html`<${ui.Chip} title="Plantilla del enfoque ágil o híbrido: no aplica al ciclo de vida predictivo y no cuenta en el avance documental">No aplica</${ui.Chip}>`;
   /* Celda «Enfoque»: distintivo en cada plantilla (en las múltiples, en la fila madre); las instancias lo heredan (celda
-     vacía); los documentos sin plantilla, «—». */
+     vacía); los documentos sin plantilla, «—» en la tabla y «Enfoque: sin plantilla» en la tarjeta (móvil), donde no
+     hay encabezado que diga a qué campo corresponde. */
   function ApCell({ e }) {
     if (e.type === 'instance') return html`<td class="docs-c-ap"></td>`;
-    return html`<td class="docs-c-ap">${e.ap ? html`<${ApChip} ap=${e.ap} />` : html`<span class="faint" title="Sin plantilla disponible: no tiene enfoque asignado">—</span>`}</td>`;
+    if (e.ap) return html`<td class="docs-c-ap"><span class="docs-m-only docs-ap-k">Enfoque:</span><${ApChip} ap=${e.ap} /></td>`;
+    return html`<td class="docs-c-ap" data-no-approach title="Sin plantilla disponible: no tiene enfoque asignado"><span class="faint docs-t-only" aria-hidden="true">—</span><span class="sr-only docs-t-only">Sin enfoque (documento sin plantilla)</span><span class="docs-m-only docs-ap-k">Enfoque: sin plantilla</span></td>`;
   }
 
   /* Filas memorizadas: las entradas de la lista conservan su identidad mientras no cambien los documentos, así que
@@ -1037,6 +1062,7 @@
     useEffect(() => { if (tplParam && PM.templates[tplParam]) setTpl(tplParam); }, [tplParam]);
     /* Filtro por enfoque de la metodología: parámetro approach, al abrir la vista y en cada navegación que lo traiga. */
     const apOn = apReady();
+    const fbarRef = useRef(null);
     const [ap, setAp] = useState(() => (apOn ? approachFilter(params && params.approach) : ''));
     useEffect(() => { const v = apOn ? approachFilter(params && params.approach) : ''; if (v) setAp(v); }, [params]);
     const entries = useMemo(() => buildEntries(project, idx), [project, idx]);
@@ -1090,9 +1116,21 @@
     const { byArea, naRows, sc } = shown;
     const areaBlocks = [...A.map((a) => ({ id: a.id, num: a.num, name: a.name })), { id: 'otros', num: '—', name: 'Documentos sin plantilla disponible' }].filter((a) => byArea[a.id]);
     const filtered = !!(ql || area || grp || estado || kind || tpl || ap);
-    const clear = () => { setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); setTpl(''); setAp(''); };
-    const tableHead = () => html`<colgroup><col style="width:164px" /><col /><col style="width:70px" />${apOn ? html`<col style="width:118px" />` : null}<col style="width:112px" /><col style="width:56px" /><col style="width:136px" /><col style="width:132px" /></colgroup>
-            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th>${apOn ? html`<th>Enfoque</th>` : null}<th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>`;
+    /* «Limpiar filtros» desaparece al limpiar: el foco pasa al último filtro de la barra (el de enfoque, si está), que es
+       donde estaba el usuario al llegar al botón con Tab, en vez de caer en <body>. */
+    const clear = () => {
+      setQ(''); setArea(''); setGrp(''); setEstado(''); setKind(''); setTpl(''); setAp('');
+      const sels = fbarRef.current ? fbarRef.current.querySelectorAll('select') : [];
+      if (sels.length) sels[sels.length - 1].focus();
+    };
+    const tableHead = () => html`<colgroup><col class="docs-w-code" /><col /><col class="docs-w-proc" />${apOn ? html`<col class="docs-w-ap" />` : null}<col class="docs-w-status" /><col class="docs-w-rev" /><col class="docs-w-upd" /><col class="docs-w-act" /></colgroup>
+            <thead><tr><th>Código</th><th>Documento</th><th>Proceso</th>${apOn ? html`<th class="docs-c-ap">Enfoque</th>` : null}<th>Estado</th><th>Rev.</th><th>Actualizado</th><th><span class="sr-only">Acciones</span></th></tr></thead>`;
+    const tableCls = 'table docs-table' + (canWrite ? '' : ' is-ro');
+    /* Plantillas ágiles que no aplican (proyecto predictivo) visibles con el filtro: se listan aparte y no suman en «X de Y». */
+    const naTpl = naRows.filter((e) => e.type !== 'instance').length;
+    const sumText = filtered
+      ? html`<strong class="docs-sum-n" data-shown=${sc.total}>${sc.total} de ${counts.total} documentos</strong><span data-breakdown>: ${statusBreakdown(sc)}</span>${naTpl ? html`<span data-na-sum=${naTpl}> · ${naTpl === 1 ? 'además, 1 plantilla ágil que no aplica a este proyecto (no cuenta)' : 'además, ' + naTpl + ' plantillas ágiles que no aplican a este proyecto (no cuentan)'}</span>` : null}${ap ? html` · enfoque: <strong data-approach-filter=${ap}>${apFilterLabel(ap)}</strong>` : null}${tpl ? html` · plantilla: <strong>${docName(tpl)}</strong>` : null}`
+      : 'Sin filtros: ' + plural(counts.total, 'documento', 'documentos') + ' en la lista.';
 
     const exportCsv = () => {
       const rows = entries.filter(countable).map((e) => {
@@ -1129,7 +1167,7 @@
         </div>
         <div class="docs-stats-foot"><div style="flex:1;max-width:420px;display:flex"><${SegMeter} total=${counts.total} done=${counts.aprobado} prog=${counts.borrador + counts.revision} label="Avance documental del proyecto" /></div><span>Avance documental</span></div>
       </div>
-      <div class="docs-fbar"><div class="docs-filters">
+      <div class="docs-fbar" ref=${fbarRef}><div class="docs-filters">
         <div class="docs-f-q"><${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar por nombre, código o proceso…" aria-label="Buscar documentos" /></div>
         <${ui.Select} class="docs-f-a" value=${area} onValue=${setArea} placeholder="Todas las áreas" aria-label="Filtrar por área de conocimiento" options=${A.map((a) => ({ value: a.id, label: a.num + '. ' + areaShort(a) }))} />
         <${ui.Select} class="docs-f-g" value=${grp} onValue=${setGrp} placeholder="Todos los grupos" aria-label="Filtrar por grupo de procesos" options=${G.map((g) => ({ value: g.id, label: g.name }))} />
@@ -1137,10 +1175,10 @@
         <${ui.Select} class="docs-f-k" value=${kind} onValue=${setKind} placeholder="Todos los tipos" aria-label="Filtrar por tipo de documento" options=${Object.keys(KIND).map((k) => ({ value: k, label: KIND[k][1] }))} />
         ${apOn ? html`<${ApproachSelect} value=${ap} onValue=${setAp} />` : null}
       </div></div>
-      ${filtered ? html`<div class="row small muted docs-sum" data-filtered>
-        <span aria-live="polite"><strong class="docs-sum-n" data-shown=${sc.total}>${sc.total} de ${counts.total} documentos</strong><span data-breakdown>: ${statusBreakdown(sc)}</span>${ap ? html` · enfoque: <strong data-approach-filter=${ap}>${apFilterLabel(ap)}</strong>` : null}${tpl ? html` · plantilla: <strong>${docName(tpl)}</strong>` : null}</span>
-        <${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}>
-      </div>` : null}
+      <div class="row small muted docs-sum" data-filtered=${filtered ? '' : null}>
+        <span aria-live="polite" aria-atomic="true" data-sum-live>${sumText}</span>
+        ${filtered ? html`<${ui.Button} size="sm" variant="ghost" icon="x" onClick=${clear}>Limpiar filtros</${ui.Button}>` : null}
+      </div>
       ${apOn ? html`<${ApproachNote} project=${project} counts=${apCounts} onPick=${setAp} />` : null}
       ${!areaBlocks.length && !naRows.length ? html`<${ui.Empty} icon="filter" title="Ningún documento coincide con los filtros" actions=${html`<${ui.Button} onClick=${clear}>Limpiar filtros</${ui.Button}>`}>Cambia la búsqueda o quita alguno de los filtros de área, grupo, estado, tipo${apOn ? ' o enfoque' : ''}.</${ui.Empty}>` : null}
       ${areaBlocks.map((a) => {
@@ -1149,7 +1187,7 @@
         const ap1 = rows.filter((e) => countable(e) && e.status === 'aprobado').length;
         return html`<section class="card" key=${a.id} data-area=${a.id}>
           <div class="card-head"><h2 class="h3"><span class="docs-sec-n">${a.num}</span>${a.name}</h2><span class="xsmall faint">${n} ${n === 1 ? 'documento' : 'documentos'} · ${ap1} ${ap1 === 1 ? 'aprobado' : 'aprobados'}</span></div>
-          <div class="table-wrap docs-tablewrap"><table class="table docs-table">
+          <div class="table-wrap docs-tablewrap"><table class=${tableCls}>
             ${tableHead()}
             <tbody>${rows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} apCol=${apOn} />`)}</tbody>
           </table></div>
@@ -1158,7 +1196,7 @@
       ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl || ap === 'adaptativo')}>
         <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naRows.filter((e) => e.type !== 'instance').length} · no cuentan en el avance</span></summary>
         <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido, que se elige en <${LifecycleWhere} />.</p>
-        <div class="table-wrap docs-tablewrap"><table class="table docs-table" aria-label="Plantillas ágiles que no aplican a este proyecto">
+        <div class="table-wrap docs-tablewrap"><table class=${tableCls} aria-label="Plantillas ágiles que no aplican a este proyecto">
           ${tableHead()}
           <tbody>${naRows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} apCol=${apOn} />`)}</tbody>
         </table></div>
@@ -1294,7 +1332,7 @@
     const lc = project.lifecycle || 'Predictivo';
     const off = (mode === 'predictivo' && ap.id === 'adaptativo') || (mode === 'adaptativo' && ap.id === 'predictivo');
     return html`<details class="docs-apx" data-doc-approach=${ap.id}>
-      <summary><${ui.Icon} name="chevron-right" size=${14} /><span class="docs-apx-sum"><span class="docs-apx-k">Enfoque de la metodología</span><${ApChip} ap=${ap} long /><span class="xsmall faint">Por qué y qué cambia en el otro enfoque</span></span></summary>
+      <summary><${ui.Icon} name="chevron-right" size=${14} /><span class="docs-apx-sum"><span class="docs-apx-k">Enfoque de la metodología</span><${ApChip} ap=${ap} long /><span class="xsmall faint">${apMoreLabel(ap)}</span></span></summary>
       <div class="docs-apx-body">
         <dl class="docs-meta">
           <dt>Por qué este enfoque</dt><dd data-approach-why>${ap.why}</dd>
