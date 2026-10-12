@@ -1399,13 +1399,18 @@ td.ags-actions { background: var(--surface); }
     }
     const tc = info.tc;
     const sug = PM.isNum(tc.suggested) ? Number(tc.suggested) : null;
+    /* referencia de la proporción (PM.res.teamCapacity): días-persona promedio de las iteraciones cerradas de la velocidad
+       media o, sin ellas, una iteración habitual del equipo */
+    const ref = tc.reference || { kind: 'habitual', personDays: tc.normal, sprints: [] };
+    const byVel = ref.kind === 'velocidad';
+    const refText = byVel ? 'días-persona en promedio de ' + lastClosed(ref.sprints.length) : 'días-persona de una iteración habitual';
     const ratio = tc.ratio;
     const same = sug !== null && cap !== null && Math.abs(cap - sug) < 0.05;
     const hours = tc.unit === 'horas';
     const vel = m.velocity;
     const basis = hours
       ? 'Suma de los días-persona disponibles por las horas por día de cada miembro.'
-      : sug !== null ? 'Velocidad media de ' + fpts(vel.avg3, unit) + ' (' + lastClosed(Math.min(3, vel.closed)) + ' del proyecto) × ' + fmt.pct(ratio || 0, 1) + ' de disponibilidad.'
+      : sug !== null ? 'Velocidad media de ' + fpts(vel.avg3, unit) + ' (' + lastClosed(Math.min(3, vel.closed)) + ' del proyecto) × ' + fmt.pct(ratio || 0, 1) + (byVel ? ' de los días-persona con que se logró.' : ' de disponibilidad.')
         : 'Sin velocidad: cierra al menos una iteración para llevar los días-persona a ' + (unit === 'h' ? 'horas' : 'puntos') + '.';
     const why = [];
     if (info.days !== info.length) why.push({ k: 'len', icon: 'calendar', text: 'La iteración tiene ' + wdText(info.days) + '; una habitual, ' + wdText(info.length) + '.' });
@@ -1418,12 +1423,12 @@ td.ags-actions { background: var(--surface); }
       act.sprintPatch(s, { capacity: sug });
       PM.toast('Capacidad de ' + spName(s) + ': ' + fpts(sug, unit) + ', sugerida por la disponibilidad del equipo.');
     };
-    const meterLabel = 'Disponibilidad del equipo: ' + fmt.num(tc.personDays, 1) + ' de ' + fmt.num(tc.normal, 1) + ' días-persona de una iteración habitual (' + fmt.pct(ratio || 0, 1) + ')';
+    const meterLabel = 'Disponibilidad del equipo: ' + fmt.num(tc.personDays, 1) + ' de ' + fmt.num(ref.personDays, 1) + ' ' + refText + ' (' + fmt.pct(ratio || 0, 1) + ')';
     return html`<div class="ags-capsug" data-role="capacity-suggestion" data-state="ok">
       <div class="ags-capsug-head"><${ui.Icon} name="user" size=${16} />
         <div class="ags-capsug-main">
           <div><strong>Capacidad sugerida: </strong><span class="ags-capsug-val" data-role="capacity-suggested">${sug !== null ? fpts(sug, unit) : '—'}</span>${same ? html` <${ui.Chip} tone="good" icon="check">Igual a la capacidad registrada</${ui.Chip}>` : null}</div>
-          <span class="small" data-role="capacity-availability">${nMem} · ${fmt.num(tc.personDays, 1)} de ${fmt.num(tc.normal, 1)} días-persona de una iteración habitual (${fmt.pct(ratio || 0, 1)})${hours ? ' · ' + fmt.num(tc.hours, 1) + ' h' : ''}</span>
+          <span class="small" data-role="capacity-availability">${nMem} · ${fmt.num(tc.personDays, 1)} de ${fmt.num(ref.personDays, 1)} ${refText} (${fmt.pct(ratio || 0, 1)})${hours ? ' · ' + fmt.num(tc.hours, 1) + ' h' : ''}</span>
           <div class="ags-capsug-meter" role="img" aria-label=${meterLabel}><span style=${'width:' + Math.min(1, Math.max(0, ratio || 0)) * 100 + '%'}></span></div>
           <span class="xsmall muted" data-role="capacity-basis">${basis}${cap !== null && sug !== null && !same ? ' Capacidad registrada: ' + fpts(cap, unit) + ' (' + signedPts(cap - sug, unit) + ' frente a la sugerida).' : ''}</span>
         </div>

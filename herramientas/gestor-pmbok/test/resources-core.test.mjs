@@ -66,6 +66,25 @@ const results = await page.evaluate(() => {
   eq('capacidad en horas', R.teamCapacity({ data: team, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'horas' }, velocity: null }).suggested, 112);
   eq('capacidad: ausencias por miembro y días hábiles', [cap.workdays, cap.members.map((x) => x.absentDays)], [10, [0, 2]]);
   eq('capacidad sin equipo', R.teamCapacity({ data: { items: [] }, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: {} }).suggested, null);
+  eq('capacidad: referencia habitual sin iteraciones cerradas', [cap.reference.kind, cap.reference.personDays], ['habitual', 15]);
+  // quien entra después de la iteración no cuenta en la habitual; quien entra a mitad cuenta completo (sus días fuera de rango reducen la disponibilidad)
+  const late = { items: [...team.items, { id: 'p4', name: 'Entra después', typeId: 'humano', agileTeam: true, dedication: 100, availableFrom: '2026-08-20' }, { id: 'p5', name: 'Entra a mitad', typeId: 'humano', agileTeam: true, dedication: 100, availableFrom: '2026-08-10' }] };
+  const capL = R.teamCapacity({ data: late, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: { avg3: 30 } });
+  eq('capacidad: fuera del rango de disponibilidad no cuenta en la habitual', [capL.personDays, capL.normal, capL.members.map((x) => x.normal), capL.members.map((x) => x.absentDays), capL.members.map((x) => x.inRangeDays), capL.suggested], [19, 25, [10, 5, 0, 10], [0, 2, 0, 0], [10, 10, 0, 5], 22.8]);
+  // referencia de la velocidad: días-persona promedio de las iteraciones cerradas del promedio (≤ 3 últimas)
+  const velRows = { avg3: 30, rows: [
+    { id: 'a0', status: 'cerrado', start: '2026-07-06', end: '2026-07-17' },
+    { id: 'a1', status: 'cerrado', start: '2026-07-20', end: '2026-07-24' },
+    { id: 'a2', status: 'cerrado', start: '2026-07-27', end: '2026-07-31' },
+    { id: 'a3', status: 'cerrado', start: '2026-07-20', end: '2026-07-31' },
+    { id: 'a4', status: 'en-curso', start: '2026-08-03', end: '2026-08-14' },
+  ] };
+  const capV = R.teamCapacity({ data: late, schedule: { tasks: [] }, sprint: { id: 'a4', start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: velRows });
+  eq('capacidad: referencia de las iteraciones cerradas de la velocidad', [capV.reference.kind, capV.reference.sprints.map((x) => [x.id, x.personDays]), capV.reference.personDays, Math.round(capV.ratio * 1000) / 1000, capV.suggested], ['velocidad', [['a1', 7.5], ['a2', 7.5], ['a3', 15]], 10, 1.9, 57]);
+  const released = { items: [...team.items, { id: 'p6', name: 'Liberada', typeId: 'humano', agileTeam: true, dedication: 100, status: 'liberado', availableTo: '2026-07-31' }] };
+  const capR = R.teamCapacity({ data: released, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: { avg3: 30, rows: [{ id: 'a3', status: 'cerrado', start: '2026-07-20', end: '2026-07-31' }] } });
+  eq('capacidad: quien fue liberado cuenta en la referencia, no en la iteración', [capR.members.length, capR.personDays, capR.reference.personDays, capR.suggested], [2, 14, 25, 16.8]);
+  eq('capacidad: iteración cerrada sin fechas → referencia habitual', R.teamCapacity({ data: team, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10 }, velocity: { avg3: 30, rows: [{ id: 'x', status: 'cerrado', start: null, end: null }] } }).reference.kind, 'habitual');
   // Estructura de desglose de recursos
   const sched = C.computeSchedule(R.applyCosts(schedule, data), '2026-08-03');
   const rbs = R.rbsTree({ data, schedule, sched });

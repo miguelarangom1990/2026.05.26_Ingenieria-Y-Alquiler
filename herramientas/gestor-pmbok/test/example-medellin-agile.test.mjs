@@ -109,7 +109,7 @@ async function validateData(page) {
       const m8 = (c) => c.members.filter((m) => !/Segundo/.test(m.name)).reduce((s2, m) => s2 + m.personDays, 0);
       ok(Math.abs(m8(c8) - 65.45) < 1e-9 && c8.members.find((m) => /Diseñador/.test(m.name)).absentDays === 3, 'iteración 8: cuatro integrantes con 65,45 días-persona (17 de 20 días cada uno, menos 3 días de vacaciones del diseñador), como en su planificación', m8(c8));
       ok(Math.abs(c9.personDays - 85) < 1e-9 && c9.members.length === 5, 'iteración 9: 85 días-persona con el segundo desarrollador (planificación de la iteración 9)', c9.personDays);
-      ok(Math.abs(c10.personDays - 83.3) < 1e-9 && c10.suggested === 18.3 && c10.members.find((m) => /Segundo/.test(m.name)).absentDays === 2, 'iteración 10: el segundo desarrollador sale el 31 de octubre; capacidad sugerida 18,3 puntos', [c10.personDays, c10.suggested]);
+      ok(Math.abs(c10.personDays - 83.3) < 1e-9 && c10.reference.kind === 'velocidad' && Math.abs(c10.reference.personDays - 67.15) < 1e-9 && c10.suggested === 23.2 && c10.members.find((m) => /Segundo/.test(m.name)).absentDays === 0 && c10.members.find((m) => /Segundo/.test(m.name)).inRangeDays === c10.workdays - 2, 'iteración 10: con el segundo desarrollador (hasta el 31 de octubre) el equipo tiene 83,3 días-persona frente a 67,15 en promedio de las iteraciones 6 a 8 de la velocidad media: capacidad sugerida 23,2 puntos', [c10.personDays, c10.suggested, c10.reference]);
     }
     ok(same(data.collections.baselines, base.collections.baselines), 'líneas base LB0 y LB1 sin cambios');
     ok(same(data.collections.flows, base.collections.flows), 'diagramas de flujo sin cambios');
@@ -479,7 +479,7 @@ for (const [label, opts] of [['escritorio (1360 px)', { width: 1360, height: 900
       await page.waitForSelector(sel, { timeout: 8000 });
       const norm = (x) => String(x).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
       const capTxt = norm(await page.locator(sel).innerText());
-      check(/Capacidad sugerida: 18,3 pts/.test(capTxt) && /5 miembros del equipo/.test(capTxt) && /83,3 de 85 días-persona/.test(capTxt) && /Fuera de su disponibilidad: Segundo desarrollador web de la agencia \(2 días hábiles\)/.test(capTxt) && /Dedicación parcial/.test(capTxt), 'iteración 10: capacidad sugerida de 18,3 pts con el equipo del catálogo (el segundo desarrollador sale el 31 de octubre)', capTxt.slice(0, 500));
+      check(/Capacidad sugerida: 23,2 pts/.test(capTxt) && /5 miembros del equipo/.test(capTxt) && /83,3 de 67,\d días-persona en promedio de las últimas 3 iteraciones cerradas/.test(capTxt) && /Capacidad registrada: 19 pts/.test(capTxt) && /Fuera de su disponibilidad: Segundo desarrollador web de la agencia \(2 días hábiles\)/.test(capTxt) && /Dedicación parcial/.test(capTxt), 'iteración 10: capacidad sugerida de 23,2 pts con el equipo del catálogo (el segundo desarrollador refuerza el equipo hasta el 31 de octubre; la velocidad salió de cuatro integrantes)', capTxt.slice(0, 500));
       await page.locator(sel + ' [data-role="capacity-detail-toggle"]').focus();
       await page.keyboard.press('Enter');
       await page.waitForSelector(sel + ' [data-role="capacity-members"]', { timeout: 5000 });

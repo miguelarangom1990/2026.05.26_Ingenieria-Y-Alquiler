@@ -1147,16 +1147,18 @@ for (const width of [400, 1280, 1360, 1600]) {
       await page.waitForSelector(sug + '[data-state="ok"]');
       const ex = await expected();
       eq([ex.tc.members.length, ex.tc.personDays, ex.tc.normal], [3, 22, 25], 'núcleo: 3 miembros (sin el que no es del equipo ni el liberado), 8 + 5 + 9 de 10 + 5 + 10 días-persona');
-      assert(ex.avg !== null && ex.tc.suggested === Math.round(ex.avg * (22 / 25) * 10) / 10, 'sugerida = velocidad media × proporción: ' + JSON.stringify(ex));
+      /* referencia: días-persona promedio de las iteraciones cerradas de la velocidad (s1 y s2, con el consultor que luego fue liberado) */
+      eq([ex.tc.reference.kind, ex.tc.reference.sprints.map((x) => [x.id, x.personDays]), ex.tc.reference.personDays], ['velocidad', [['s1', 31.5], ['s2', 35]], 33.25], 'referencia de la velocidad: iteraciones 1 y 2 (31,5 y 35 días-persona)');
+      assert(ex.avg !== null && ex.tc.suggested === Math.round(ex.avg * (22 / 33.25) * 10) / 10, 'sugerida = velocidad media × proporción: ' + JSON.stringify(ex));
       eq(nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText()), ex.sugText, 'valor sugerido en la vista');
       const av = nb(await page.locator(sug + ' [data-role="capacity-availability"]').innerText());
-      assert(/3 miembros del equipo · 22 de 25 días-persona de una iteración habitual \(88 %\)/.test(av), 'disponibilidad: ' + av);
+      assert(/3 miembros del equipo · 22 de 33,3 días-persona en promedio de las últimas 2 iteraciones cerradas \(66,2 %\)/.test(av), 'disponibilidad: ' + av);
       const basis = nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText());
-      assert(/^Velocidad media de .+ × 88 % de disponibilidad\./.test(basis) && /Capacidad registrada: 14 pts/.test(basis), 'base de la sugerida y comparación con la registrada: ' + basis);
+      assert(/^Velocidad media de .+ × 66,2 % de los días-persona con que se logró\./.test(basis) && /Capacidad registrada: 14 pts/.test(basis), 'base de la sugerida y comparación con la registrada: ' + basis);
       const why = await page.$$eval(sug + ' [data-why]', (els) => Object.fromEntries(els.map((e) => [e.dataset.why, e.textContent.replace(/[  ]/g, ' ').trim()])));
       eq(Object.keys(why).sort(), ['abs', 'ded', 'out'], 'motivos: ausencias, fuera de rango y dedicación (sin festivos ni iteración corta)');
       assert(/Desarrollador líder \(2 días hábiles\)/.test(why.abs) && /Analista de pruebas \(1 día hábil\)/.test(why.out) && /Dueño del producto \(50 %\)/.test(why.ded), JSON.stringify(why));
-      assert((await page.getAttribute(sug + ' .ags-capsug-meter', 'aria-label')).includes('22 de 25 días-persona'), 'medidor con nombre accesible');
+      assert((await page.getAttribute(sug + ' .ags-capsug-meter', 'aria-label')).includes('22 de 33,3 días-persona en promedio'), 'medidor con nombre accesible');
       /* detalle por miembro con el teclado */
       const tg = sug + ' [data-role="capacity-detail-toggle"]';
       eq(await page.getAttribute(tg, 'aria-expanded'), 'false', 'detalle plegado');
@@ -1221,7 +1223,7 @@ for (const width of [400, 1280, 1360, 1600]) {
       await until(page, async () => nb(await page.locator(sug + ' [data-role="capacity-suggested"]').innerText()) === '—', 'sin valor sugerido');
       assert(/Sin velocidad: cierra al menos una iteración/.test(nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText())), 'explicación');
       eq(await page.locator(sug + ' [data-role="capacity-use"]').count(), 0, 'sin «Usar la sugerida»');
-      assert(/22 de 25 días-persona/.test(nb(await page.locator(sug).innerText())), 'la disponibilidad se sigue mostrando');
+      assert(/22 de 25 días-persona de una iteración habitual \(88 %\)/.test(nb(await page.locator(sug).innerText())), 'la disponibilidad se sigue mostrando, frente a una iteración habitual');
     });
 
     await step('Rendimiento: 320 recursos (60 del equipo ágil con ausencias) — la planificación responde rápido', async () => {

@@ -204,25 +204,48 @@
     return isNum(item.availability) ? Number(item.availability) : null;
   };
   /* Capacidad del equipo ágil en una iteración: días-persona disponibles (dedicación, festivos, ausencias y rango de
-     disponibilidad) frente a una iteración habitual completa; sugiere la capacidad en horas o en puntos (velocidad × proporción). */
-  res.teamCapacity = function ({ data, schedule, sprint, cal, settings, velocity }) {
+     disponibilidad) frente a una referencia, y la capacidad sugerida en horas o en puntos (velocidad media × proporción).
+     Referencia (reference.kind): «velocidad» = promedio de días-persona de las iteraciones cerradas de las que sale la
+     velocidad media (las ≤ 3 últimas de velocity.rows, con sus fechas); así un miembro que entra o sale del equipo cambia la
+     sugerida en proporción. «habitual» (sin iteraciones cerradas con fechas) = una iteración completa (settings.sprintLength)
+     de cada miembro que esté disponible algún día de la iteración (availableFrom/To): quien está fuera de su rango en toda la
+     iteración no cuenta; los días fuera de rango de quien entra o sale a mitad, como las ausencias, reducen la disponibilidad. */
+  const workdaysOf = (cal, start, end) => { const days = [], holidays = []; for (let d = start, g = 0; d <= end && g < 400; d = D.add(d, 1), g++) { if (cal.isWork(d)) days.push(d); else if (cal.holidayName && cal.holidayName(d)) holidays.push({ date: d, name: cal.holidayName(d) }); } return { days, holidays }; };
+  const inRange = (m, d) => !(D.valid(m.availableFrom) && d < m.availableFrom) && !(D.valid(m.availableTo) && d > m.availableTo);
+  const memberDays = (m, days) => {
+    const ded = Math.min(100, Math.max(0, num(m.dedication, 100))) / 100;
+    const units = isNum(m.availability) && Number(m.availability) > 0 ? Number(m.availability) : 1;
+    let avail = 0, absent = 0, within = 0;
+    for (const d of days) { const a = res.availableOn(m, d); avail += a === null ? units : Math.min(units, a); if (inRange(m, d)) { within++; if (a === 0) absent++; } }
+    return { ded, units, personDays: avail * ded, absent, within };
+  };
+  res.teamCapacity = function ({ data, schedule, sprint, cal, settings, velocity } = {}) {
     const cat = res.catalog(data, schedule);
-    const members = cat.items.filter((it) => !it.virtual && it.agileTeam && cat.kindOf(it) === 'trabajo' && it.status !== 'liberado');
-    const out = { members: [], personDays: 0, normal: 0, hours: 0, ratio: null, suggested: null, unit: settings && settings.estimationUnit === 'horas' ? 'horas' : 'puntos' };
+    const isTeam = (it) => !it.virtual && it.agileTeam && cat.kindOf(it) === 'trabajo';
+    const members = cat.items.filter((it) => isTeam(it) && it.status !== 'liberado');
+    const out = { members: [], personDays: 0, normal: 0, hours: 0, ratio: null, suggested: null, unit: settings && settings.estimationUnit === 'horas' ? 'horas' : 'puntos', reference: null };
     if (!members.length || !sprint || !D.valid(sprint.start) || !D.valid(sprint.end) || !cal) return out;
-    const days = [], holidays = [];
-    for (let d = sprint.start, g = 0; d <= sprint.end && g < 400; d = D.add(d, 1), g++) { if (cal.isWork(d)) days.push(d); else if (cal.holidayName && cal.holidayName(d)) holidays.push({ date: d, name: cal.holidayName(d) }); }
+    const { days, holidays } = workdaysOf(cal, sprint.start, sprint.end);
     out.workdays = days.length; out.holidays = holidays;
     const L = Math.max(1, Math.round(num(settings && settings.sprintLength, days.length || 10)));
     for (const m of members) {
-      const ded = Math.min(100, Math.max(0, num(m.dedication, 100))) / 100;
-      const units = isNum(m.availability) && Number(m.availability) > 0 ? Number(m.availability) : 1;
-      let avail = 0, absent = 0; for (const d of days) { const a = res.availableOn(m, d); avail += a === null ? units : Math.min(units, a); if (a === 0) absent++; }
-      const pd = avail * ded, normal = units * ded * L, hours = pd * Math.max(0, num(m.hoursPerDay, 8));
-      out.members.push({ id: m.id, name: m.name, dedication: ded * 100, personDays: pd, normal, hours, absentDays: absent });
-      out.personDays += pd; out.normal += normal; out.hours += hours;
+      const r = memberDays(m, days);
+      const normal = r.within > 0 ? r.units * r.ded * L : 0, hours = r.personDays * Math.max(0, num(m.hoursPerDay, 8));
+      out.members.push({ id: m.id, name: m.name, dedication: r.ded * 100, personDays: r.personDays, normal, hours, absentDays: r.absent, inRangeDays: r.within });
+      out.personDays += r.personDays; out.normal += normal; out.hours += hours;
     }
-    out.ratio = out.normal > 0 ? out.personDays / out.normal : null;
+    /* referencia de la velocidad: las mismas iteraciones cerradas del promedio (≤ 3 últimas), con el equipo de entonces
+       (también quienes ya fueron liberados, dentro de su rango de disponibilidad) */
+    const closed = arr(velocity && velocity.rows).filter((r) => isObj(r) && r.status === 'cerrado').slice(-3);
+    const refTeam = cat.items.filter(isTeam);
+    const refRows = closed.every((r) => D.valid(r.start) && D.valid(r.end) && r.start <= r.end)
+      ? closed.map((r) => ({ id: r.id, name: r.name || '', personDays: refTeam.reduce((s, m) => s + memberDays(m, workdaysOf(cal, r.start, r.end).days).personDays, 0) }))
+      : [];
+    const refPD = refRows.length ? refRows.reduce((s, r) => s + r.personDays, 0) / refRows.length : 0;
+    out.reference = refRows.length && refPD > 0
+      ? { kind: 'velocidad', personDays: refPD, sprints: refRows }
+      : { kind: 'habitual', personDays: out.normal, sprints: [] };
+    out.ratio = out.reference.personDays > 0 ? out.personDays / out.reference.personDays : null;
     const avg = velocity && isNum(velocity.avg3) ? Number(velocity.avg3) : null;
     out.suggested = out.unit === 'horas' ? Math.round(out.hours * 10) / 10 : avg !== null && out.ratio !== null ? Math.round(avg * out.ratio * 10) / 10 : null;
     return out;

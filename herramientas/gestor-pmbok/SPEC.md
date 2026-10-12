@@ -630,8 +630,13 @@ Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto
   el valor ganado sin línea base y las nuevas líneas base. **La línea base guardada no cambia**: muestra la diferencia.
 - `costSplit(task, cat, cost?)` → `[{category, value}]` (por tipo de recurso; precio global por `costCategory`).
 - `usage(cat, tasks)` → `Map(id → {tasks:[{task, units, qty, cost}], count, qty, cost})` (uso de cada recurso en el cronograma).
-- `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members, personDays, normal, hours, ratio, suggested, unit}`
-  (miembros: `agileTeam` y de trabajo; sugerida en horas, o en puntos = velocidad media × proporción de disponibilidad).
+- `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members[{…, normal, absentDays,
+  inRangeDays}], personDays, normal, hours, ratio, suggested, unit, reference:{kind:'velocidad'|'habitual', personDays, sprints}}`
+  (miembros: `agileTeam`, de trabajo y no liberados; sugerida en horas, o en puntos = velocidad media × `ratio`). `ratio` =
+  días-persona de la iteración / referencia: «velocidad» = promedio de días-persona de las ≤ 3 últimas iteraciones cerradas de
+  `velocity.rows` (las del promedio `avg3`, con el equipo de entonces, también los liberados, dentro de su rango); si alguna no
+  tiene fechas, «habitual» = `normal` (`sprintLength` × unidades × dedicación de cada miembro disponible algún día de la
+  iteración; quien está fuera de su rango toda la iteración no cuenta). `absentDays`: ausencias dentro del rango.
 - Árboles para diagramas (nodo `{id, label, code?, sub?, value, metric:'money'|'count'|'score', pct, tone?, badge?, kind:'root'|'group'|'reserve'|'leaf', children}`):
   `rbsTree({data, schedule, sched})` (recursos: tipo → subtipo → recurso), `cbsTree({tree, sched, schedule, data, baseline, reserves,
   source:'plan'|'baseline', controlDepth, showActivities, by:'edt'|'categoria'})` (costos, gráfico 7-8 del PMBOK),
