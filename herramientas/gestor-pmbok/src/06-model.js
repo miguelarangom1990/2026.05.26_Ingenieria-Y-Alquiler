@@ -66,9 +66,13 @@
     const sched = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart), [effSchedule, projectStart]);
     const forecast = useMemo(() => PM.calc.computeSchedule(effSchedule, projectStart, statusDate), [effSchedule, projectStart, statusDate]);
     const baselines = useMemo(() => PM.calc.activeBaselines(baselineDocs), [baselineDocs]);
-    const evm = useMemo(() => PM.calc.evm({ sched, costBaseline: baselines.cost, costs, statusDate }), [sched, baselines.cost, costs, statusDate]);
+    /* reserva para contingencias del plan vigente (SPEC §10.3): sin línea base de costos, el valor ganado suma la reserva
+       disponible más el consumo sin actividad (lo consumido en actividades por recursos ya está en el BAC) */
+    const reserveUse = useMemo(() => (PM.res ? PM.res.reserveUse({ data: resources, schedule: effSchedule, contingency: costs && costs.reserves && costs.reserves.contingency }) : null), [resources, effSchedule, costs]);
+    const evmCosts = useMemo(() => (!reserveUse || !(reserveUse.consumed > 0) || baselines.cost ? costs : { ...costs, reserves: { ...((costs && costs.reserves) || {}), contingency: Math.max(0, reserveUse.available) + reserveUse.unassigned } }), [costs, reserveUse, baselines.cost]);
+    const evm = useMemo(() => PM.calc.evm({ sched, costBaseline: baselines.cost, costs: evmCosts, statusDate }), [sched, baselines.cost, evmCosts, statusDate]);
     const rollup = useMemo(() => PM.calc.rollupWbs(tree, sched), [tree, sched]);
-    return { project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', agile, saveAgile, agileItems, agileOn, agileMeta: aMeta, resources, saveResources, catalog, loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading || aMeta.loading || bLoading || rMeta.loading };
+    return { project, pid, schedule, effSchedule, saveSchedule, wbs, saveWbs, costs, saveCosts, tree, sched, forecast, baselines, baselineDocs, evm, rollup, statusDate, currency: (project && project.currency) || 'COP', agile, saveAgile, agileItems, agileOn, agileMeta: aMeta, resources, saveResources, catalog, reserveUse, loading: sMeta.loading || wMeta.loading || cMeta.loading || blLoading || aMeta.loading || bLoading || rMeta.loading };
   };
 
   /* Índice de documentos del proyecto actual. list: [{id, template, title, status, rev, fields, ...}] */

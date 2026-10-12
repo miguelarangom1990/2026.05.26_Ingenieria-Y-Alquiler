@@ -674,7 +674,9 @@ total − Σ `reserveAmount`. Lo consumido pasa a las cuentas de control (gráfi
 suman el costo de sus asignaciones; lo que no está en ninguna (`unassigned` = Σ max(0, `reserveAmount` − asignado)) es una cuenta
 aparte. En el **plan vigente** (36 EDC «Plan actual», 50 presupuesto y «Reservas», 80) la línea base = actividades + `unassigned`
 + reserva **disponible**: el total no se duplica cuando el recurso se asigna, ni se pierde cuando no. Una línea base guardada
-conserva su reserva tal como se aprobó. Costo de los no planificados (42 tarjeta «No planificados» y 80 alerta): el de sus
+conserva su reserva tal como se aprobó; al **fijar una nueva** con reserva consumida (80), `cost.contingency` guarda la disponible
+más el consumo sin actividad (no el total). `useProjectModel` expone `reserveUse` y, sin línea base de costos, pasa a
+`calc.evm` esa misma reserva efectiva (`costBaseline` y `totalBudget` no cuentan dos veces lo consumido). Costo de los no planificados (42 tarjeta «No planificados» y 80 alerta): el de sus
 asignaciones en el cronograma (costo unitario del catálogo); sin asignaciones, su `reserveAmount` (rotularlo así).
 
 ### 10.4 Vistas e integraciones

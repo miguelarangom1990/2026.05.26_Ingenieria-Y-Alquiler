@@ -208,6 +208,18 @@ await page.evaluate(() => PM.navigate('prueba-recursos'));
 await page.waitForTimeout(900);
 let probe = await page.evaluate(() => { const e = document.getElementById('probe'); return e ? { ...e.dataset } : null; });
 ok('modelo: costo calculado por recursos en el cronograma (2 × 5 × 40)', probe && probe.cost === '400' && probe.bac === '700', probe);
+/* sin línea base de costos, el valor ganado suma la reserva disponible: lo consumido por la Cuadrilla (respuesta a un riesgo,
+   asignada a «A», calculada por recursos) ya está en el BAC (SPEC §10.3) */
+const rsv = await page.evaluate(async (pid) => {
+  await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [], statusUpdates: [], reserves: { contingency: 100, management: 20 } });
+  await PM.store.set(PM.paths.tool(pid, 'resources'), { preset: 'alquiler', types: [], items: [{ id: 'r1', code: 'REC-001', name: 'Cuadrilla', typeId: 'personal', unitCost: 40, planned: false, reason: 'riesgo', reserveAmount: 30 }] });
+  await new Promise((r) => setTimeout(r, 900));
+  const m = window.__probe; const out = { use: m.reserveUse && [m.reserveUse.total, m.reserveUse.consumed, m.reserveUse.available, m.reserveUse.unassigned], cb: m.evm.costBaseline, tb: m.evm.totalBudget, bac: m.evm.bac };
+  await PM.store.set(PM.paths.tool(pid, 'resources'), { preset: 'alquiler', types: [], items: [{ id: 'r1', code: 'REC-001', name: 'Cuadrilla', typeId: 'personal', unitCost: 40 }] });
+  await new Promise((r) => setTimeout(r, 900));
+  return out;
+}, pid);
+ok('modelo: valor ganado sin línea base con la reserva disponible (sin duplicar lo consumido)', JSON.stringify(rsv.use) === JSON.stringify([100, 30, 70, 0]) && rsv.bac === 700 && rsv.cb === 770 && rsv.tb === 790, rsv);
 const saved = await page.evaluate(async () => { const m = window.__probe; const v = m.catalog.items.find((x) => x.name === 'Cuadrilla'); const x = await m.saveItem({ ...v, unitCost: 50 }); await new Promise((r) => setTimeout(r, 1000)); await PM.store.flush(); return { x, doc: await PM.store.get(PM.paths.tool(PM.getState().projectId, 'resources')) }; });
 ok('guardar un recurso del catálogo', saved.doc.items.length === 1 && saved.doc.items[0].unitCost === 50 && saved.x.id === 'r1', saved.doc.items);
 ok('el catálogo se guarda compacto (sin vacíos ni valores por omisión)', !('agileTeam' in saved.doc.items[0]) && !('absences' in saved.doc.items[0]) && !('virtual' in saved.doc.items[0]) && saved.doc.items[0].name === 'Cuadrilla', saved.doc.items[0]);
