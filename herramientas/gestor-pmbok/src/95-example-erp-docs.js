@@ -268,7 +268,7 @@
       notasCapacidad: 'Cinco personas, dos de ellas al 50 %: 4 personas equivalentes × 10 días hábiles = 40 días-persona sin ausencias (el festivo del 12 de octubre no es día de la iteración). Con el rendimiento de la iteración 6 (26 puntos en 38 días-persona) la capacidad sería de 27 puntos y con el de la iteración 5 (30 en 37), de 32; el equipo fija la capacidad en 32 puntos porque HU-033 llega casi terminada. Velocidad de referencia: promedio de las iteraciones 4, 5 y 6 (' + vel7.rows.filter((r) => r.status === 'cerrado').slice(-3).map((r) => r.completed).join(', ').replace(/, (\d+)$/, ' y $1') + ' puntos).',
       elementos: rows('el', it7Codes.map(asElement)),
       riesgos: 'Compromiso de ' + it7.committed + ' puntos frente a una velocidad de referencia de ' + n1(vel7.avg3) + ': el equipo lo acepta porque HU-033 solo requiere corregir el código QR. TA-011 depende del auxiliar de cartera conciliado que contabilidad entrega el 13 de octubre; si no llega, se reemplaza por HU-023 de la iteración 8. DF-008 es un defecto de producción del release 1 (soporte, sin release). Los defectos críticos de producción entran por el carril de urgencia. HU-033 se verifica con la lista de chequeo del anexo técnico de la DIAN (acción 1 de la retrospectiva de la iteración 6).',
-      participantes: [ROLE.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Jefe de facturación y cartera (invitado)'],
+      participantes: [ROLE.po, 'Scrum Master / facilitador', 'Desarrolladores (cinco personas)', 'Jefe de facturación y cartera (invitado)'],
     };
     /* revisión de la iteración 5 (23 de septiembre) */
     const r2at23 = F.releaseAt('rel-2', it5.end);
@@ -287,7 +287,7 @@
       retroalimentacion: 'El usuario clave de facturación confirmó que los datos tributarios del cliente evitan los rechazos más comunes. Contabilidad pidió revisar con ella cada historia de facturación antes de la planificación. El jefe de almacén reportó que la consulta de disponibilidad no refleja algunas devoluciones registradas sin conexión (DF-008, soporte de producción).',
       cambiosBacklog: 'Sin elementos nuevos en el release 2: su alcance sigue en ' + r2at23.total + ' puntos, igual a su línea base. TA-010 vuelve al backlog del producto hasta que el banco entregue el formato. Entraron ME-007 al release 3 (alerta de ciclo de alquiler, pedido de mantenimiento) y DF-008 como soporte de producción del release 1, sin release.',
       estadoRelease: 'Release 2: ' + r2at23.done + ' de ' + r2at23.total + ' puntos terminados (' + pc(r2at23.pct) + ') después de 1 de sus 4 iteraciones. Faltan ' + r2at23.remaining + ' puntos para las iteraciones 6 a 8 (' + n1(r2at23.remaining / 3) + ' por iteración) frente a una velocidad promedio de ' + nm(vel5.avg3) + ' puntos en las tres últimas. El pronóstico por velocidad del release (' + nm(fc5.velocity) + ' puntos por iteración) termina el ' + dl(fc5.finish) + ': conserva la fecha del plan.',
-      asistentes: [ROLE.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Jefe de facturación y cartera', 'Contador', 'Jefe de almacén'],
+      asistentes: [ROLE.po, 'Scrum Master / facilitador', 'Desarrolladores (cinco personas)', 'Jefe de facturación y cartera', 'Contador', 'Jefe de almacén'],
     };
     const it5Retro = {
       iteracion: it5.name, fecha: it5.end, formato: 'Bien, mejorar y acciones', facilitador: 'Scrum Master / facilitador', satisfaccion: 4.1,
@@ -344,7 +344,7 @@
       const n = F.sprintsList.filter((s) => s.end > relEnd && s.end <= fc.finish).length;
       return n ? ', ' + (n === 1 ? 'una iteración' : n + ' iteraciones') + ' después del plan (' + dlShort(relEnd) + ')' : ', dentro del plan';
     };
-    const TEAM_ROLES = [ROLE.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)'];
+    const TEAM_ROLES = [ROLE.po, 'Scrum Master / facilitador', 'Desarrolladores (cinco personas)'];
 
     /* iteración 1 (27 de julio): el acta se aprueba el 28, con el defecto del traslado de prueba ya registrado (DF-001) */
     const s1 = F.releaseAt('rel-1', it1.end), v1 = F.velocityAt(it1.end), f1 = F.forecastAt('rel-1', it1.end);
@@ -415,7 +415,7 @@
       propuestas: ['Empezar a revisar cada historia apenas pase a «En revisión», sin esperar al final de la iteración.'],
       aprendizajes: [],
       acciones: rows('ac', [
-        { accion: 'Hacer la revisión de pares el mismo día en que una historia pasa a «En revisión».', responsable: 'Equipo de desarrollo', fechaObjetivo: '2026-08-13', estado: 'Pendiente' },
+        { accion: 'Hacer la revisión de pares el mismo día en que una historia pasa a «En revisión».', responsable: 'Desarrolladores', fechaObjetivo: '2026-08-13', estado: 'Pendiente' },
         { accion: 'Probar las historias de la iteración 3 con los datos maestros depurados de la bodega principal.', responsable: 'Analista de TI', fechaObjetivo: '2026-08-14', estado: 'Pendiente' },
       ]),
       lecciones: rows('le', [
@@ -645,7 +645,7 @@
         ] },
       'plan-gestion-cambios': { status: 'aprobado', rev: '0', date: F.lb0Date, created: '2026-07-01', titleBlock: { elaboro: ROLE.dir, reviso: 'Gerente administrativo y financiero', aprobo: ROLE.pat }, fields: cambiosPlan },
       'vision-producto': { status: 'aprobado', rev: '0', date: F.lb0Date, created: '2026-06-23', titleBlock: { elaboro: 'Gerente administrativo y financiero', reviso: ROLE.dir, aprobo: ROLE.pat }, fields: vision },
-      'definicion-terminado': { status: 'aprobado', rev: '1', date: dod.fechaAcuerdo, created: F.lb0Date, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: dod,
+      'definicion-terminado': { status: 'aprobado', rev: '1', date: dod.fechaAcuerdo, created: F.lb0Date, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: dod,
         revs: [{ rev: '0', status: 'aprobado', date: F.lb0Date, note: 'Acuerdo inicial antes de la iteración 1.', fields: dodRev0 }, { rev: '1', status: 'aprobado', date: dod.fechaAcuerdo, note: 'Retrospectiva de la iteración 3: prueba con datos migrados y columna «Pruebas de usuario».' }] },
       'plan-release': { status: 'aprobado', rev: '2', date: it6.start, created: '2026-07-01', titleBlock: { elaboro: 'Gerente administrativo y financiero', reviso: ROLE.sm, aprobo: ROLE.pat }, fields: planAt(it6.start, 2),
         revs: [
@@ -654,22 +654,22 @@
           { rev: '2', status: 'aprobado', date: it6.start, note: 'Hoja de ruta después del release 1 y de la línea base del release 2.' },
         ] },
       'planificacion-sprint': { instances: [
-        { key: 'it6', title: 'Planificación de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.start, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it6Plan },
-        { key: 'it7', title: 'Planificación de la iteración — ' + it7.name, status: 'aprobado', rev: '0', date: it7.start, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it7Plan },
+        { key: 'it6', title: 'Planificación de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.start, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it6Plan },
+        { key: 'it7', title: 'Planificación de la iteración — ' + it7.name, status: 'aprobado', rev: '0', date: it7.start, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it7Plan },
       ] },
       'acta-revision-sprint': { instances: [
         /* iteración 1: revisión del 27 de julio, acta aprobada el 28 con DF-001 registrado */
-        { key: 'it1', title: 'Acta de revisión de la iteración — ' + it1.name, status: 'aprobado', rev: '0', date: D.add(it1.end, 1), created: it1.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it1Review },
-        { key: 'it2', title: 'Acta de revisión de la iteración — ' + it2.name, status: 'aprobado', rev: '0', date: it2.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it2Review },
-        { key: 'it3', title: 'Acta de revisión de la iteración — ' + it3.name, status: 'aprobado', rev: '0', date: it3.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it3Review },
-        { key: 'it4', title: 'Acta de revisión de la iteración — ' + it4.name, status: 'aprobado', rev: '0', date: it4.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it4Review },
-        { key: 'it5', title: 'Acta de revisión de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it5Review },
-        { key: 'it6', title: 'Acta de revisión de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it6Review },
+        { key: 'it1', title: 'Acta de revisión de la iteración — ' + it1.name, status: 'aprobado', rev: '0', date: D.add(it1.end, 1), created: it1.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it1Review },
+        { key: 'it2', title: 'Acta de revisión de la iteración — ' + it2.name, status: 'aprobado', rev: '0', date: it2.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it2Review },
+        { key: 'it3', title: 'Acta de revisión de la iteración — ' + it3.name, status: 'aprobado', rev: '0', date: it3.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it3Review },
+        { key: 'it4', title: 'Acta de revisión de la iteración — ' + it4.name, status: 'aprobado', rev: '0', date: it4.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it4Review },
+        { key: 'it5', title: 'Acta de revisión de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it5Review },
+        { key: 'it6', title: 'Acta de revisión de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: 'Gerente administrativo y financiero' }, fields: it6Review },
       ] },
       'retrospectiva': { instances: [
-        ...[[it1, it1Retro], [it2, it2Retro], [it3, it3Retro], [it4, it4Retro]].map(([sp, fields], i) => ({ key: 'it' + (i + 1), title: 'Retrospectiva de la iteración — ' + sp.name, status: 'aprobado', rev: '0', date: sp.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields })),
-        { key: 'it5', title: 'Retrospectiva de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields: it5Retro },
-        { key: 'it6', title: 'Retrospectiva de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields: it6Retro },
+        ...[[it1, it1Retro], [it2, it2Retro], [it3, it3Retro], [it4, it4Retro]].map(([sp, fields], i) => ({ key: 'it' + (i + 1), title: 'Retrospectiva de la iteración — ' + sp.name, status: 'aprobado', rev: '0', date: sp.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: ROLE.sm }, fields })),
+        { key: 'it5', title: 'Retrospectiva de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: ROLE.sm }, fields: it5Retro },
+        { key: 'it6', title: 'Retrospectiva de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Desarrolladores', aprobo: ROLE.sm }, fields: it6Retro },
       ] },
       'registro-incidentes': { status: 'revision', rev: 'B', date: F.statusDate, created: '2026-07-22', titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: incidentesFields,
         revs: [{ rev: 'A', status: 'revision', date: '2026-07-24', note: 'Primera emisión con el INC-001.', fields: { ...cp(incidentesFields), incidentes: incidentesFields.incidentes.slice(0, 1) } }] },

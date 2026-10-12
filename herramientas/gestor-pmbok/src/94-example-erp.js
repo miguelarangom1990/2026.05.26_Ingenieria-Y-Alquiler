@@ -597,7 +597,7 @@
   /* ---------------------------------------------------------------- matriz RACI */
   const RACI_ROLES = [
     ['rol-pat', 'Patrocinador'], ['rol-dir', 'Director de proyecto'], ['rol-po', 'Dueño del producto'], ['rol-sm', 'Scrum Master / facilitador'],
-    ['rol-dt', 'Equipo de desarrollo'], ['rol-imp', 'Líder del implementador'], ['rol-uc', 'Usuarios clave'], ['rol-ti', 'Jefe de TI'], ['rol-con', 'Contabilidad y revisoría fiscal'],
+    ['rol-dt', 'Desarrolladores (equipo Scrum)'], ['rol-imp', 'Líder del implementador'], ['rol-uc', 'Usuarios clave'], ['rol-ti', 'Jefe de TI'], ['rol-con', 'Contabilidad y revisoría fiscal'],
   ];
   /* celdas en el orden de RACI_ROLES; '' = sin asignación (una sola A por fila) */
   const RACI = {

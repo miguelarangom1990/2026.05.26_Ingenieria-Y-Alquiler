@@ -271,7 +271,7 @@ async function validateInPage(page, expect) {
     const roleNames = raci.roles.map((r) => r.name);
     for (const n of ['Junta directiva / promotor', 'Gerente de proyecto', 'Estructurador financiero', 'Gerente comercial', 'Arquitecto diseñador', 'Ingeniero estructural', 'Constructor / director de obra', 'Interventoría / supervisión técnica independiente', 'Fiduciaria', 'Banco (crédito constructor)', 'Curaduría urbana']) ok(roleNames.includes(n), 'rol de la RACI: ' + n);
     /* roles ágiles del enfoque híbrido, mapeados a roles del ejemplo, y filas de eventos ágiles del paquete 1.4.2 */
-    for (const n of ['Dueño del producto (gerente comercial)', 'Scrum Master / facilitador (coordinador de mercadeo digital)', 'Equipo de desarrollo (agencia digital y analista de CRM)']) ok(roleNames.includes(n), 'rol ágil de la RACI: ' + n);
+    for (const n of ['Dueño del producto (gerente comercial)', 'Scrum Master / facilitador (coordinador de mercadeo digital)', 'Desarrolladores (agencia digital y analista de CRM)']) ok(roleNames.includes(n), 'rol ágil de la RACI: ' + n);
     ok(raci.rows.filter((r) => r.wbsId === 'w142').length === 11, 'fila del paquete 1.4.2 y diez filas de eventos ágiles', raci.rows.filter((r) => r.wbsId === 'w142').map((r) => r.activity));
     const roleIds = new Set(raci.roles.map((r) => r.id));
     const l12 = nodes.filter((n) => (tree.depth.get(n.id) || 9) <= 2);

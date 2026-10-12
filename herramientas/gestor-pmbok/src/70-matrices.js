@@ -556,11 +556,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
      Un rol ya presente con otro nombre habitual (p. ej. «Product Owner», «Scrum Master») cuenta como presente. */
   const AGILE_ROLE_KEYS = ['po', 'sm', 'dt'];
   const agileRoleDefs = () => {
-    const names = (PM.AGILE && PM.AGILE.ROLES) || ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo'];
+    const names = (PM.AGILE && PM.AGILE.ROLES) || ['Dueño del producto', 'Scrum Master / facilitador', 'Desarrolladores (equipo Scrum)'];
     return {
       po: { name: names[0], short: 'Dueño del producto', re: /^(dueno-del-producto|product-owner|propietario-del-producto)/ },
       sm: { name: names[1], short: 'Scrum Master', re: /(^|-)(scrum-master|facilitador|agile-coach|coach-agil)(-|$)/ },
-      dt: { name: names[2], short: 'Equipo de desarrollo', re: /^(equipo-de-desarrollo|desarrolladores|developers|equipo-agil|equipo-scrum)/ },
+      dt: { name: names[2], short: 'Desarrolladores', re: /^(equipo-de-desarrollo|desarrolladores|developers|equipo-agil|equipo-scrum)/ },
       dp: { name: 'Director de proyecto', short: 'Director de proyecto', re: /^(director-del?-proyecto|gerente-del?-proyecto|project-manager)/ },
       pa: { name: 'Patrocinador', short: 'Patrocinador', re: /^patrocinador/ },
     };
@@ -579,7 +579,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   /* Eventos y prácticas ágiles con su asignación típica: exactamente un A (o R/A) y al menos un R por fila.
      Dueño del producto: ordena (prioriza) y refina el backlog del producto y rinde cuentas de la aceptación (Guía de Scrum
      2020: el Scrum Master solo apoya la gestión del backlog, por eso es C en la priorización); Scrum Master / facilitador:
-     facilita los eventos; Equipo de desarrollo: planifica, se sincroniza a diario y aplica la definición de terminado;
+     facilita los eventos; Desarrolladores: planifican, se sincroniza a diario y aplica la definición de terminado;
      Director de proyecto: consultado o informado (integra con el plan del proyecto); Patrocinador: informado. */
   const AGILE_EVENTS = [
     { name: 'Refinamiento del backlog', desc: 'Detallar, dividir y estimar los elementos del backlog del producto.', cells: { po: 'RA', sm: 'C', dt: 'C', dp: 'I' } },
@@ -710,7 +710,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
       const res = resolveAgileRoles(latest.current.roles || []);
       const defs = agileRoleDefs();
       const missing = AGILE_ROLE_KEYS.filter((k) => !res[k]).map((k) => defs[k].name);
-      if (!missing.length) { PM.toast('Los roles ágiles (dueño del producto, Scrum Master / facilitador y equipo de desarrollo) ya están en la matriz.'); return; }
+      if (!missing.length) { PM.toast('Los roles ágiles (dueño del producto, Scrum Master / facilitador y desarrolladores) ya están en la matriz.'); return; }
       addRoles(missing);
       PM.toast(missing.length === 1 ? 'Rol ágil agregado: ' + missing[0] + '.' : plural(missing.length, 'rol ágil agregado', 'roles ágiles agregados') + ': ' + missing.join(', ') + '.');
     };
@@ -841,7 +841,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
           <${ui.Button} size="sm" icon="plus" onClick=${addRole}>Agregar rol</${ui.Button}>
           <${ui.Dropdown} variant="" size="sm" icon="upload" buttonLabel="Importar" label="Importar filas o roles" align="left" items=${importItems} />
           ${agileOn ? html`<span class="toolbar-sep" aria-hidden="true"></span>
-            <${ui.Button} size="sm" icon="sprint" onClick=${addAgileRoles} title="Agrega las columnas Dueño del producto, Scrum Master / facilitador y Equipo de desarrollo que falten">Agregar roles ágiles</${ui.Button}>
+            <${ui.Button} size="sm" icon="sprint" onClick=${addAgileRoles} title="Agrega las columnas Dueño del producto, Scrum Master / facilitador y Desarrolladores (equipo Scrum) que falten">Agregar roles ágiles</${ui.Button}>
             <${ui.Button} size="sm" icon="release" onClick=${openAgileEvents} title="Agrega filas de eventos de Scrum y Kanban con la asignación RACI típica">Agregar eventos ágiles</${ui.Button}>` : null}
           <div class="spacer"></div>
           <span class="xsmall faint">${plural(rows.length, 'fila', 'filas')} · ${plural(roles.length, 'rol', 'roles')}</span>

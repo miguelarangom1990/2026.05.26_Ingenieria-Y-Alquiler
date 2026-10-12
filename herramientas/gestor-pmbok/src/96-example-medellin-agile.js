@@ -265,7 +265,7 @@
   const RACI_ROLES = [
     ['rol-po', 'Dueño del producto (gerente comercial)'],
     ['rol-sm', 'Scrum Master / facilitador (coordinador de mercadeo digital)'],
-    ['rol-dt', 'Equipo de desarrollo (agencia digital y analista de CRM)'],
+    ['rol-dt', 'Desarrolladores (agencia digital y analista de CRM)'],
   ];
   /* claves: po, sm, dt (roles ágiles); ger = gerente de proyecto; jun = junta directiva (patrocinador). Mismos nombres de
      eventos que «Agregar eventos ágiles» de la vista RACI, para que no se dupliquen. */

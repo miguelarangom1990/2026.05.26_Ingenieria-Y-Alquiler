@@ -57,7 +57,8 @@
     /* etiquetas en femenino: «la iteración» (los valores guardados no cambian) */
     SPRINT_STATUS: [{ value: 'planeado', label: 'Planeada' }, { value: 'en-curso', label: 'En curso' }, { value: 'cerrado', label: 'Cerrada' }],
     APPROACHES: [{ value: 'predictivo', label: 'Predictivo' }, { value: 'adaptativo', label: 'Adaptativo (ágil)' }],
-    ROLES: ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo'],
+    /* Guía de Scrum 2020: dueño del producto, Scrum Master y desarrolladores dentro de un solo equipo Scrum */
+    ROLES: ['Dueño del producto', 'Scrum Master / facilitador', 'Desarrolladores (equipo Scrum)'],
     DEFAULT_SETTINGS: { framework: 'scrum-kanban', estimationUnit: 'puntos', sprintLength: 10, columns: DEFAULT_COLUMNS, scopeChangeThreshold: 10 },
   };
   PM.deepFreeze(PM.AGILE);

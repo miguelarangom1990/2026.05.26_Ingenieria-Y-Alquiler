@@ -22,7 +22,7 @@ Todas las cifras están en pesos colombianos (COP) antes de IVA; "M" significa m
 | Director de proyecto | Jefe de la PMO (25 % de dedicación) |
 | Dueño del producto | Gerente administrativo y financiero |
 | Scrum Master / facilitador | Profesional de la PMO (50 % de dedicación) |
-| Equipo de desarrollo | Consultor funcional ERP, desarrollador ERP, desarrollador de integraciones y analista de pruebas del socio implementador, y analista de TI de la empresa |
+| Desarrolladores (equipo Scrum) | Consultor funcional ERP, desarrollador ERP, desarrollador de integraciones y analista de pruebas del socio implementador, y analista de TI de la empresa |
 | Fechas | Inicio 4 de mayo de 2026 · LB0 10 de julio de 2026 · corte 9 de octubre de 2026 (viernes) · fin 29 de enero de 2027 |
 | Presupuesto aprobado | **COP 680,0 M** = BAC de las actividades 601,3 M + reserva para contingencias 60,0 M + reserva de gestión 18,7 M |
 | Equivalencia en dólares | ≈ USD 170.000 con una tasa de planificación de COP 4.000 por dólar (supuesto redondeado) |
@@ -76,7 +76,7 @@ Distribución del BAC: equipo de los releases 46 % (278,0 M), licencias, equipos
 
 ---
 
-## 5. Equipo de desarrollo, releases e iteraciones
+## 5. Desarrolladores, releases e iteraciones
 
 **Precio fijo por iteración.** El socio implementador aporta 240 horas por iteración de 10 días hábiles: consultor funcional ERP y desarrollador ERP con dedicación completa (80 horas cada uno), desarrollador de integraciones y analista de pruebas al 50 % (40 horas cada uno). Tarifa combinada supuesta de COP 82.500 por hora → **COP 19,8 M por iteración**. El analista de TI de la empresa trabaja con dedicación completa: costo empresa (salario y prestaciones) de **COP 4,2 M por iteración**. Cada iteración cuesta COP 24,0 M.
 

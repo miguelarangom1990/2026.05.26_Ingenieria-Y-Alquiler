@@ -158,9 +158,9 @@
       docs: ['definicion-terminado', 'retrospectiva'],
     },
     recursos: {
-      summary: 'Un equipo ágil rinde cuando es pequeño, estable y con dedicación suficiente: mover personas entre iteraciones borra la velocidad que sirve para pronosticar. Define con claridad tres responsabilidades (dueño del producto, Scrum Master o facilitador y equipo de desarrollo) y registra en la matriz RACI quién participa en cada evento. Calcula la capacidad de cada iteración con la disponibilidad real, descontando festivos, vacaciones y dedicación parcial, y no con la nómina completa. En un proyecto híbrido, asigna por porcentaje a las personas que también atienden la parte predictiva, para que ni el cronograma ni la iteración las sobrecarguen sin que se note.',
+      summary: 'Un equipo ágil rinde cuando es pequeño, estable y con dedicación suficiente: mover personas entre iteraciones borra la velocidad que sirve para pronosticar. Define con claridad tres responsabilidades (dueño del producto, Scrum Master o facilitador y desarrolladores) y registra en la matriz RACI quién participa en cada evento. Calcula la capacidad de cada iteración con la disponibilidad real, descontando festivos, vacaciones y dedicación parcial, y no con la nómina completa. En un proyecto híbrido, asigna por porcentaje a las personas que también atienden la parte predictiva, para que ni el cronograma ni la iteración las sobrecarguen sin que se note.',
       practices: [
-        'Equipo pequeño, estable y dedicado: dueño del producto, Scrum Master o facilitador y equipo de desarrollo.',
+        'Equipo pequeño, estable y dedicado: dueño del producto, Scrum Master o facilitador y desarrolladores.',
         'Capacidad de cada iteración calculada con la disponibilidad real (festivos, vacaciones y dedicación parcial).',
         'Roles ágiles en la matriz RACI para los eventos: refinamiento, planificación, revisión y retrospectiva.',
       ],

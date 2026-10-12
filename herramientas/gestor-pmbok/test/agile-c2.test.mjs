@@ -468,7 +468,7 @@ await section('B. RACI', async () => {
     await page.getByRole('button', { name: 'Agregar roles ágiles' }).click();
     await page.waitForTimeout(800);
     let raci = await raciData(page, pid);
-    eq('roles ágiles agregados (PM.AGILE.ROLES)', raci.roles.map((r) => r.name), ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo']);
+    eq('roles ágiles agregados (PM.AGILE.ROLES)', raci.roles.map((r) => r.name), ['Dueño del producto', 'Scrum Master / facilitador', 'Desarrolladores (equipo Scrum)']);
     check('aviso de roles agregados', /roles ágiles agregados/.test(await lastToast(page)), await lastToast(page));
     /* segunda vez: no duplica */
     await page.getByRole('button', { name: 'Agregar roles ágiles' }).click();
@@ -495,14 +495,14 @@ await section('B. RACI', async () => {
     await page.waitForTimeout(900);
     raci = await raciData(page, pid);
     eq('8 filas de eventos agregadas', raci.rows.map((r) => r.activity), ['Refinamiento del backlog', 'Priorización del backlog', 'Planificación de la iteración', 'Revisión de la iteración', 'Retrospectiva', 'Definición de terminado', 'Aceptación de historias de usuario', 'Planificación del release']);
-    eq('roles: se agrega el patrocinador; el director se reutiliza', raci.roles.map((r) => r.name), ['Dueño del producto', 'Scrum Master / facilitador', 'Equipo de desarrollo', 'Director de proyecto', 'Patrocinador']);
+    eq('roles: se agrega el patrocinador; el director se reutiliza', raci.roles.map((r) => r.name), ['Dueño del producto', 'Scrum Master / facilitador', 'Desarrolladores (equipo Scrum)', 'Director de proyecto', 'Patrocinador']);
     const cm = raciCellMap(raci);
     /* Guía de Scrum 2020: ordenar el backlog del producto es responsabilidad del dueño del producto; el Scrum Master solo apoya */
-    eq('priorización: dueño del producto R/A, facilitador C', cm['Priorización del backlog'], { 'Dueño del producto': 'RA', 'Scrum Master / facilitador': 'C', 'Equipo de desarrollo': 'C', 'Director de proyecto': 'C' });
+    eq('priorización: dueño del producto R/A, facilitador C', cm['Priorización del backlog'], { 'Dueño del producto': 'RA', 'Scrum Master / facilitador': 'C', 'Desarrolladores (equipo Scrum)': 'C', 'Director de proyecto': 'C' });
     check('el facilitador solo es R en eventos que facilita (no en la priorización ni en la aceptación)', !['R', 'RA'].includes(cm['Priorización del backlog']['Scrum Master / facilitador']) && !['R', 'RA'].includes(cm['Aceptación de historias de usuario']['Scrum Master / facilitador']), cm);
-    eq('aceptación: dueño del producto A, equipo R', [cm['Aceptación de historias de usuario']['Dueño del producto'], cm['Aceptación de historias de usuario']['Equipo de desarrollo']], ['A', 'R']);
+    eq('aceptación: dueño del producto A, equipo R', [cm['Aceptación de historias de usuario']['Dueño del producto'], cm['Aceptación de historias de usuario']['Desarrolladores (equipo Scrum)']], ['A', 'R']);
     eq('refinamiento: dueño del producto R (y rinde cuentas)', cm['Refinamiento del backlog']['Dueño del producto'], 'RA');
-    eq('planificación de la iteración: equipo R', cm['Planificación de la iteración']['Equipo de desarrollo'], 'RA');
+    eq('planificación de la iteración: equipo R', cm['Planificación de la iteración']['Desarrolladores (equipo Scrum)'], 'RA');
     eq('revisión: patrocinador I y director C', [cm['Revisión de la iteración'].Patrocinador, cm['Revisión de la iteración']['Director de proyecto']], ['I', 'C']);
     check('director de proyecto solo C o I', Object.values(cm).every((c) => !c['Director de proyecto'] || ['C', 'I'].includes(c['Director de proyecto'])), cm);
     /* regla de la matriz: un solo A y al menos un R por fila */
@@ -521,7 +521,7 @@ await section('B. RACI', async () => {
     await page.waitForTimeout(900);
     raci = await raciData(page, pid);
     check('9 filas sin duplicados', raci.rows.length === 9 && new Set(raci.rows.map((r) => r.activity)).size === 9, raci.rows.map((r) => r.activity));
-    eq('reunión diaria: equipo R/A, facilitador R', [raciCellMap(raci)['Reunión diaria']['Equipo de desarrollo'], raciCellMap(raci)['Reunión diaria']['Scrum Master / facilitador']], ['RA', 'R']);
+    eq('reunión diaria: equipo R/A, facilitador R', [raciCellMap(raci)['Reunión diaria']['Desarrolladores (equipo Scrum)'], raciCellMap(raci)['Reunión diaria']['Scrum Master / facilitador']], ['RA', 'R']);
     await page.getByRole('button', { name: 'Agregar eventos ágiles' }).click();
     await page.waitForSelector('.modal [data-role="agile-events"]');
     check('todos presentes: el modal lo dice y solo ofrece cerrar', /Todos los eventos ágiles ya están en la matriz/.test(nb(await page.textContent('.modal'))) && await page.locator('.modal-foot button').count() === 1, null);
@@ -539,7 +539,7 @@ await section('B. RACI', async () => {
     await gotoView(page, 'raci'); await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Agregar roles ágiles' }).click(); await page.waitForTimeout(800);
     raci = await raciData(page, pid2);
-    eq('solo agrega el rol que falta', raci.roles.map((r) => r.name), ['Product Owner', 'Scrum Master', 'Equipo de desarrollo']);
+    eq('solo agrega el rol que falta', raci.roles.map((r) => r.name), ['Product Owner', 'Scrum Master', 'Desarrolladores (equipo Scrum)']);
     await page.getByRole('button', { name: 'Agregar eventos ágiles' }).click();
     await page.waitForSelector('.modal [data-role="agile-events"]');
     check('fila con el mismo nombre ya presente (no se duplica)', await page.$eval('.modal [data-agile-event="Retrospectiva"]', (l) => l.classList.contains('is-dup')), null);

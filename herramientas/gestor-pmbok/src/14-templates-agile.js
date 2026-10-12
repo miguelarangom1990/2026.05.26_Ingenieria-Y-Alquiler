@@ -198,7 +198,7 @@
       sections: [
         section('acuerdo', 'Alcance del acuerdo', [
           area('aplicaA', 'A qué trabajo aplica', { hint: 'Tipos de elementos (historias, tareas, defectos, mejoras) y productos (software, configuración, documentos, capacitación) cubiertos.' }),
-          text('acordadaPor', 'Acordada por', { hint: 'Roles que la acordaron: equipo de desarrollo, dueño del producto y Scrum Master o facilitador.' }),
+          text('acordadaPor', 'Acordada por', { hint: 'Roles que la acordaron: desarrolladores, dueño del producto y Scrum Master o facilitador.' }),
           date('fechaAcuerdo', 'Fecha de la versión vigente'),
           area('revisionAcuerdo', 'Cuándo y cómo se revisa', { rows: 2, hint: 'Normalmente en cada retrospectiva; los cambios se registran en una nueva revisión de este documento.' }),
         ]),
@@ -260,7 +260,7 @@
       ],
       example: {
         aplicaA: 'Todas las historias, tareas, defectos y mejoras del backlog del ERP: parametrización, integraciones, migración de datos, reportes y capacitación. Las épicas se dan por terminadas cuando lo están todos sus elementos.',
-        acordadaPor: 'Equipo de desarrollo, dueño del producto y Scrum Master / facilitador',
+        acordadaPor: 'Desarrolladores, dueño del producto y Scrum Master / facilitador',
         fechaAcuerdo: '2026-08-26',
         revisionAcuerdo: 'Se revisa en cada retrospectiva; los cambios se acuerdan por consenso del equipo con el dueño del producto y se emiten como nueva revisión. La versión vigente es el ajuste de la retrospectiva de la iteración 3 (26 de agosto de 2026), que agregó la prueba con datos migrados y la columna «Pruebas de usuario» del tablero.',
         definicionListo: [
@@ -352,7 +352,7 @@
         unidadEstimacion: 'Puntos de historia',
         velocidadSupuesta: 30,
         duracionIteracion: 10,
-        capacidadEquipo: 'Equipo de desarrollo de cinco personas: consultor funcional ERP y desarrollador ERP del implementador con dedicación completa, desarrollador de integraciones y analista de pruebas del implementador con dedicación de 50 % (240 horas por iteración a precio fijo) y analista de TI de la empresa con dedicación completa; Scrum Master / facilitador de la PMO con dedicación de 50 % y dueño del producto con dos horas diarias. La velocidad supuesta de 30 puntos por iteración viene de una implementación similar del implementador; desde la iteración 4 se compara con el promedio de las últimas tres iteraciones cerradas (31 puntos al cierre de la iteración 5).',
+        capacidadEquipo: 'Cinco desarrolladores: consultor funcional ERP y desarrollador ERP del implementador con dedicación completa, desarrollador de integraciones y analista de pruebas del implementador con dedicación de 50 % (240 horas por iteración a precio fijo) y analista de TI de la empresa con dedicación completa; Scrum Master / facilitador de la PMO con dedicación de 50 % y dueño del producto con dos horas diarias. La velocidad supuesta de 30 puntos por iteración viene de una implementación similar del implementador; desde la iteración 4 se compara con el promedio de las últimas tres iteraciones cerradas (31 puntos al cierre de la iteración 5).',
         releases: [
           { id: 'r1', release: ERP.r1, objetivo: 'Controlar en el ERP cada equipo por bodega, obra y estado, y calcular el alquiler desde las actas de entrega y devolución.', fechaInicio: '2026-07-13', fechaFin: '2026-09-09', iteraciones: 4, puntos: 118, presupuesto: 96000000, alcance: 'Catálogo de equipos y piezas; inventario por bodega y obra; remisiones y actas de entrega y devolución; cálculo del alquiler por días calendario; integración con las básculas de despacho (CC-001); migración del inventario de la bodega principal.' },
           { id: 'r2', release: ERP.r2, objetivo: 'Facturar el alquiler el mismo día del corte con factura electrónica validada por la DIAN y llevar la cartera por edades.', fechaInicio: '2026-09-10', fechaFin: '2026-11-06', iteraciones: 4, puntos: 112, presupuesto: 104000000, alcance: 'Prefactura mensual desde las actas; integración con el proveedor tecnológico de facturación electrónica; notas crédito y débito; recaudo y cartera por edades; migración de saldos de cartera.' },
@@ -437,7 +437,7 @@
           { id: 'r6', codigo: 'IN-004', titulo: 'Investigar las reglas de rechazo de la DIAN más frecuentes en habilitación', tipo: 'Investigación (spike)', estimacion: 3, responsable: 'Analista de pruebas', criterios: 'Reglas y casos de prueba documentados; decisión sobre las validaciones previas que hará el ERP.' },
         ],
         riesgos: 'El ambiente de habilitación del proveedor tecnológico estuvo inestable en la iteración 5: si falla más de un día, se adelantan HU-031, DF-007 e IN-004, que no dependen de él. Dependencia: la numeración de facturación para el ambiente de pruebas debe estar habilitada antes del 28 de septiembre. Las vacaciones del analista de TI (1 y 2 de octubre) las cubre el consultor funcional.',
-        participantes: [ERP.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Usuario clave de facturación y cartera (invitado)'],
+        participantes: [ERP.po, 'Scrum Master / facilitador', 'Desarrolladores (cinco personas)', 'Usuario clave de facturación y cartera (invitado)'],
       },
     },
 
@@ -500,7 +500,7 @@
         retroalimentacion: 'El dueño del producto y el usuario clave de facturación confirmaron que la prefactura reduce el corte de alquileres a un día. Cartera pidió ver la factura en el estado de cuenta del cliente el mismo día de su emisión. La Gerencia General pidió asegurar el envío automático al cliente antes del primer cierre mensual en producción, a comienzos de diciembre.',
         cambiosBacklog: 'Nuevos elementos: HU-041, detalle por equipo en la prefactura (5 puntos, «Debería tener»), y ME-009, validaciones previas de NIT, numeración y correo del adquirente (3 puntos, «Debe tener»). HU-033 vuelve al backlog como «Debe tener» para la iteración 7. El alcance del release 2 pasa de 112 a 120 puntos (+7,1 %), dentro del umbral de ±10 % de su línea base: no requiere solicitud de cambio.',
         estadoRelease: 'Release 2: 56 de 120 puntos terminados (47 %) después de 2 de sus 4 iteraciones. Faltan 64 puntos para las iteraciones 7 y 8 (32 por iteración) frente a una velocidad promedio de 29,3 puntos en las tres últimas. El dueño del producto propuso diferir al release 3 las mejoras «Podría tener» ME-005 y ME-006 (8 puntos) para conservar la fecha del 6 de noviembre; si se mantuviera el alcance, el release necesitaría una iteración más, lo que cambia su fecha y exige una solicitud de cambio.',
-        asistentes: [ERP.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)', 'Usuario clave de facturación y cartera', 'Jefe de cartera', 'Gerencia General (patrocinador)'],
+        asistentes: [ERP.po, 'Scrum Master / facilitador', 'Desarrolladores (cinco personas)', 'Usuario clave de facturación y cartera', 'Jefe de cartera', 'Gerencia General (patrocinador)'],
       },
     },
 
@@ -569,7 +569,7 @@
         acciones: [
           { id: 'r1', accion: 'Agregar a la definición de terminado la verificación de la representación gráfica con la lista de chequeo del anexo técnico vigente de la DIAN.', responsable: 'Analista de pruebas', fechaObjetivo: '2026-10-08', estado: 'Pendiente' },
           { id: 'r2', accion: 'Pedir al proveedor tecnológico aviso automático de caídas del ambiente de habilitación y revisar su estado al iniciar cada día.', responsable: 'Scrum Master / facilitador', fechaObjetivo: '2026-10-14', estado: 'En curso' },
-          { id: 'r3', accion: 'Hacer la revisión de pares a mitad de la iteración (día 5) y respetar el límite WIP de 2 en «En revisión».', responsable: 'Equipo de desarrollo', fechaObjetivo: '2026-10-15', estado: 'Pendiente' },
+          { id: 'r3', accion: 'Hacer la revisión de pares a mitad de la iteración (día 5) y respetar el límite WIP de 2 en «En revisión».', responsable: 'Desarrolladores', fechaObjetivo: '2026-10-15', estado: 'Pendiente' },
         ],
         lecciones: [
           { id: 'r1', situacion: 'Una historia de facturación electrónica se presentó como terminada sin el código QR exigido y fue rechazada en la revisión de la iteración 6.', impacto: 'Negativo', recomendacion: 'Incluir en la definición de terminado una lista de chequeo del anexo técnico vigente de la DIAN para toda historia que genere documentos electrónicos.' },
