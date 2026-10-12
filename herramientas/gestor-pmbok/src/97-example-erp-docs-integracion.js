@@ -303,7 +303,7 @@
           stage >= 2 ? r1End : stage >= 1 ? r1End : LB0, stage >= 2 ? 'Validado' : 'Por validar'),
         S('S-02', 'Supuesto', 'Los usuarios clave participan en los talleres, en la revisión de cada iteración y en las pruebas de aceptación de cada release.' + (stage >= 2 ? ' Validado en el release 1: firmaron su prueba de aceptación.' : ''), 'Recursos', 'Dueño del producto',
           stage >= 1 ? r1End : LB0, stage >= 2 ? 'Validado' : 'Por validar'),
-        S('S-03', 'Supuesto', 'La tasa de planificación de COP 4.000 por dólar alcanza para los equipos de bodega importados.' + (stage >= 2 ? ' Descartado: la tasa de cambio encareció las tabletas; los equipos costaron ' + ms(t14Over) + ' más de lo presupuestado.' : ''), 'Costos', ROLE.ti,
+        S('S-03', 'Supuesto', 'La tasa de planificación de COP 4.000 por dólar alcanza para los equipos de bodega importados.' + (stage >= 2 ? ' Descartado: la tasa de cambio encareció los equipos de bodega importados y los puntos de acceso de la red; los equipos costaron ' + ms(t14Over) + ' más de lo presupuestado.' : ''), 'Costos', ROLE.ti,
           stage >= 2 ? task('t14').actualFinish : stage >= 1 ? lbTask('t14').finish : LB0, stage >= 2 ? 'Descartado' : 'Por validar'),
         S('S-04', 'Restricción', 'La factura electrónica cumple el anexo técnico vigente de la DIAN y se emite por medio de un proveedor tecnológico autorizado.', 'Regulatorio', ROLE.con, '2026-05-05', 'Validado'),
         S('S-05', 'Restricción', 'Ninguna salida a producción en los cinco primeros días hábiles de cada mes (cierre mensual) ni durante el cierre anual: si la última revisión de un release cae en esas fechas, la salida se mueve al día hábil siguiente al cierre.', 'Cronograma', ROLE.con, '2026-05-05', 'Validado'),

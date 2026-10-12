@@ -116,9 +116,10 @@ async function validateInPage(page) {
       'plan-gestion-adquisiciones': { status: 'aprobado', rev: '1', date: LB.date, revs: [['0', 'aprobado', disc], ['1', 'aprobado', LB.date]] },
       'estrategia-adquisiciones': { status: 'aprobado', rev: '0', date: disc, revs: [] },
       'decisiones-hacer-comprar': { status: 'aprobado', rev: '1', date: LB.date, revs: [['0', 'aprobado', disc], ['1', 'aprobado', LB.date]] },
-      'enunciado-trabajo-adquisicion--sow-equipos': { status: 'aprobado', rev: '0', date: eqSol, revs: [], seq: 1 },
-      'enunciado-trabajo-adquisicion--sow-implementacion': { status: 'aprobado', rev: '1', date: sign, revs: [['0', 'aprobado', rfp], ['1', 'aprobado', sign]], seq: 2 },
-      'enunciado-trabajo-adquisicion--sow-suscripcion': { status: 'aprobado', rev: '1', date: sign, revs: [['0', 'aprobado', rfp], ['1', 'aprobado', sign]], seq: 3 },
+      /* consecutivo por fecha de creación (94): implementación y suscripción del 21 de mayo, equipos y facturación después */
+      'enunciado-trabajo-adquisicion--sow-equipos': { status: 'aprobado', rev: '0', date: eqSol, revs: [], seq: 3 },
+      'enunciado-trabajo-adquisicion--sow-implementacion': { status: 'aprobado', rev: '1', date: sign, revs: [['0', 'aprobado', rfp], ['1', 'aprobado', sign]], seq: 1 },
+      'enunciado-trabajo-adquisicion--sow-suscripcion': { status: 'aprobado', rev: '1', date: sign, revs: [['0', 'aprobado', rfp], ['1', 'aprobado', sign]], seq: 2 },
       'enunciado-trabajo-adquisicion--sow-facturacion': { status: 'aprobado', rev: '0', date: feSol, revs: [], seq: 4 },
       'criterios-seleccion-proveedores': { status: 'aprobado', rev: '1', date: evalD, revs: [['0', 'aprobado', rfp], ['1', 'aprobado', evalD]] },
       'registro-adquisiciones': { status: 'revision', rev: '2A', date: cut, revs: [['0', 'aprobado', sign], ['1', 'aprobado', reg1]] },
@@ -477,8 +478,10 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
     const want = {
       'plan-gestion-adquisiciones': ['PGAD', 'Aprobado', '1'], 'estrategia-adquisiciones': ['EADQ', 'Aprobado', '0'], 'decisiones-hacer-comprar': ['HOC', 'Aprobado', '1'],
       'criterios-seleccion-proveedores': ['CSP', 'Aprobado', '1'], 'registro-adquisiciones': ['RADQ', 'En revisión', '2A'], 'control-adquisiciones': ['CADQ', 'En revisión', '1A'],
-      'enunciado-trabajo-adquisicion--sow-equipos': ['SOW-01', 'Aprobado', '0'], 'enunciado-trabajo-adquisicion--sow-implementacion': ['SOW-02', 'Aprobado', '1'],
-      'enunciado-trabajo-adquisicion--sow-suscripcion': ['SOW-03', 'Aprobado', '1'], 'enunciado-trabajo-adquisicion--sow-facturacion': ['SOW-04', 'Aprobado', '0'],
+      /* consecutivo por fecha de creación de cada enunciado (94 ordena las instancias así): implementación y suscripción
+         del 21 de mayo, equipos del 10 de junio y facturación electrónica del 28 de julio */
+      'enunciado-trabajo-adquisicion--sow-implementacion': ['SOW-01', 'Aprobado', '1'], 'enunciado-trabajo-adquisicion--sow-suscripcion': ['SOW-02', 'Aprobado', '1'],
+      'enunciado-trabajo-adquisicion--sow-equipos': ['SOW-03', 'Aprobado', '0'], 'enunciado-trabajo-adquisicion--sow-facturacion': ['SOW-04', 'Aprobado', '0'],
     };
     const rowBad = Object.entries(want).filter(([key, [ab, stt, rv]]) => { const r = rowsInfo.find((x) => x.key === key); return !r || !norm(r.code).includes('PRY-2026-021-' + ab) || !norm(r.status).includes(stt) || !norm(r.rev).trim().endsWith(rv) || (r.ap !== null && r.ap !== 'ambos'); });
     check(!rowBad.length, 'lista maestra: los diez documentos con código, estado y revisión (y enfoque «ambos» si la columna existe)', rowBad.map(([k]) => [k, rowsInfo.find((x) => x.key === k)]));
@@ -509,7 +512,7 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
     await page.keyboard.press('Enter');
     await page.waitForSelector('.page[data-doc-id="enunciado-trabajo-adquisicion--sow-implementacion"] [data-section]', { timeout: 10000 });
     const sow = norm(await page.locator('.page[data-doc-id="enunciado-trabajo-adquisicion--sow-implementacion"]').innerText());
-    check(/PRY-2026-021-SOW-02/.test(sow) && /240 horas por iteración/.test(sow) && /Aprobado/.test(sow) && /definición de terminado/.test(sow) && /Crear nueva revisión/.test(sow), 'el enunciado del trabajo abre con Enter: equipo de 240 horas, definición de terminado y bloqueo del aprobado');
+    check(/PRY-2026-021-SOW-01/.test(sow) && /240 horas por iteración/.test(sow) && /Aprobado/.test(sow) && /definición de terminado/.test(sow) && /Crear nueva revisión/.test(sow), 'el enunciado del trabajo abre con Enter: equipo de 240 horas, definición de terminado y bloqueo del aprobado');
     if (shots) await page.screenshot({ path: shots + '/sow-implementacion.png', fullPage: true });
     /* columnas calculadas en el editor: ponderados de los criterios y calificación del seguimiento */
     await page.evaluate(() => PM.openDocument('criterios-seleccion-proveedores'));

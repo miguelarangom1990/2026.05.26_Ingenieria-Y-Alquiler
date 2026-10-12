@@ -105,7 +105,7 @@
       'Talleres con las áreas de comercial, logística, almacén, mantenimiento, facturación, cartera y contabilidad; mapa de procesos actual y requisitos de alto nivel.',
       'Mapa de procesos y requisitos de alto nivel', 'Requisitos validados por los usuarios clave de cada área.'],
     ['w22', 'w2', 'Solicitud de propuestas, demostraciones y evaluación', 'paquete', '', R.dir,
-      'Solicitud de propuestas a cinco fabricantes e implementadores, demostraciones guiadas con guiones de negocio de alquiler y evaluación ponderada (funcionalidad, costo total a tres años, experiencia y soporte).',
+      'Solicitud de propuestas a cinco fabricantes e implementadores, demostraciones guiadas con guiones de negocio de alquiler y evaluación ponderada (funcionalidad, costo total a tres años, trabajo por iteraciones, experiencia y soporte).',
       'Matriz de evaluación y recomendación', 'Tres demostraciones con los mismos guiones y evaluación firmada por el comité de selección.'],
     ['w23', 'w2', 'Negociación y contratos', 'paquete', '', R.dir,
       'Negociación del contrato de suscripción del ERP y del contrato de implementación por iteraciones de precio fijo, con acuerdos de nivel de servicio.',
@@ -145,7 +145,7 @@
       'Plan de gestión del cambio', 'Plan aprobado por el dueño del producto y comunicado a las áreas.'],
     ['w52', 'w5', 'Formación de usuarios clave', 'paquete', '', R.dir,
       'Formación de los usuarios clave en el ERP estándar antes de la iteración 2 para que participen en el refinamiento y en las pruebas.',
-      'Usuarios clave formados', 'Evaluación aprobada por los usuarios clave de las cinco áreas.'],
+      'Usuarios clave formados', 'Evaluación aprobada por los usuarios clave de las áreas usuarias.'],
     ['w53', 'w5', 'Capacitación de usuarios finales por release', 'paquete', '', R.po,
       'Capacitación por rol y guías rápidas antes de cada salida en vivo.',
       'Usuarios finales capacitados por release', 'Asistencia y evaluación registradas antes de cada salida en vivo.'],
@@ -224,7 +224,7 @@
     ['imp', 'Impresora de etiquetas', 'equipos', 'Equipos de bodega', 'unidad', null, 1600000, 'Compra', { supplier: 'Distribuidor de equipos de cómputo', status: 'liberado', notes: 'Una por bodega para las etiquetas de los equipos serializados.' }],
     ['red', 'Red inalámbrica de bodegas (puntos de acceso e instalación)', 'infraestructura', 'Conectividad de bodegas', 'global', null, 7000000, 'Contratado', { supplier: 'Integrador de redes', status: 'liberado', notes: 'Cobertura en patios y estanterías de las bodegas principal y de Funza.' }],
     /* no planificados */
-    ['tpr', 'Tabletas de prueba del implementador', 'equipos', 'Equipos de bodega', 'unidad', 4, 0, 'Contratado', { kind: 'trabajo', planned: false, reason: 'todo-costo', supplier: IMPL, status: 'liberado', addedDate: '2026-07-22', notes: 'Mientras llegaban las tabletas importadas (INC-001), el equipo usó las tabletas de prueba del implementador en la iteración 2, a su costo dentro del precio fijo: sin costo para el proyecto.' }],
+    ['tpr', 'Tabletas de prueba del implementador', 'equipos', 'Equipos de bodega', 'unidad', 4, 0, 'Contratado', { kind: 'trabajo', planned: false, reason: 'todo-costo', supplier: IMPL, status: 'liberado', addedDate: '2026-07-22', notes: 'Mientras se configuraban las tabletas importadas, que llegaron dos días hábiles tarde (INC-001), el equipo usó las tabletas de prueba del implementador en la iteración 2, a su costo dentro del precio fijo: sin costo para el proyecto.' }],
     ['hex', 'Horas extra del equipo (ensayo de corte del release 1)', 'personas', 'Equipo Scrum', 'hora', null, 45000, 'Interno', { kind: 'consumible', planned: false, reason: 'rendimiento', status: 'liberado', addedDate: '2026-09-03', notes: 'Horas extra del ensayo de corte de la iteración 4 (COP 1,8 millones, nómina de septiembre): mayor costo del release 1 registrado como variación (CPI del release 0,98); no cambia la línea base.' }],
   ];
   const RES_ID = Object.fromEntries(CATALOG.map(([key, name]) => [name, 'rec-' + key]));
@@ -1018,7 +1018,8 @@
     const parts = [PM.exampleDocs && PM.exampleDocs.erp, ...((PM.exampleDocs && Array.isArray(PM.exampleDocs.erpParts)) ? PM.exampleDocs.erpParts : [])].filter((f) => typeof f === 'function');
     const ctx = { R, CODE, STATUS_DATE, data: { ...(data || {}), resources: resourcesData() } };
     /* una plantilla única la aporta un solo módulo (la primera entrada gana); las múltiples suman las instancias de todos
-       los módulos (sin repetir la clave) y se ordenan por fecha, así el consecutivo del código sigue la cronología */
+       los módulos (sin repetir la clave) y se ordenan por fecha de creación (o de la primera revisión, o de emisión), así
+       el consecutivo del código sigue el orden en que se emitió cada documento */
     const src = {};
     for (const fn of parts) {
       const part = fn(F, ctx) || {};
@@ -1031,7 +1032,8 @@
       }
     }
     for (const k of Object.keys(src)) {
-      if (src[k] && Array.isArray(src[k].instances)) src[k] = { ...src[k], instances: src[k].instances.map((e, i) => [e, i]).sort((a, b) => String((a[0] && a[0].date) || '').localeCompare(String((b[0] && b[0].date) || '')) || a[1] - b[1]).map((x) => x[0]) };
+      const born = (e) => { if (!e) return ''; if (D.valid(e.created)) return e.created; const rd = (Array.isArray(e.revs) ? e.revs : []).map((r) => r && r.date).filter(D.valid).sort()[0]; return rd || (D.valid(e.date) ? e.date : ''); };
+      if (src[k] && Array.isArray(src[k].instances)) src[k] = { ...src[k], instances: src[k].instances.map((e, i) => [e, i]).sort((a, b) => born(a[0]).localeCompare(born(b[0])) || a[1] - b[1]).map((x) => x[0]) };
     }
     const out = [];
     for (const templateId of Object.keys(src)) {
@@ -1061,7 +1063,8 @@
         }
         const revs = (Array.isArray(e.revs) ? e.revs : []).filter((r) => r && D.valid(r.date)).map((r) => ({
           id: 'rev-' + String(r.rev),
-          data: { rev: r.rev, status: r.status || 'aprobado', date: ts(r.date), byId: null, note: r.note || '', fields: PM.clone(r.fields || fields), titleBlock: { ...titleBlock, fechaAprobacion: (r.status || 'aprobado') === 'aprobado' ? r.date : null }, title },
+          /* una revisión aprobada lleva quien la aprobó aunque la emisión vigente esté en revisión (cajetín sin «Aprobó») */
+          data: { rev: r.rev, status: r.status || 'aprobado', date: ts(r.date), byId: null, note: r.note || '', fields: PM.clone(r.fields || fields), titleBlock: { ...titleBlock, aprobo: titleBlock.aprobo || ((r.status || 'aprobado') === 'aprobado' ? R.pat : ''), fechaAprobacion: (r.status || 'aprobado') === 'aprobado' ? r.date : null }, title },
         }));
         const created = D.valid(e.created) ? e.created : revs.length ? D.min(date, ...revs.map((r) => r.data.date.slice(0, 10))) : date;
         const body = PM.newDocBody(t, project, { title, status, rev: e.rev !== undefined ? e.rev : null, titleBlock, createdAt: ts(created, '13:00'), updatedAt: ts(date), createdBy: null, updatedBy: null });

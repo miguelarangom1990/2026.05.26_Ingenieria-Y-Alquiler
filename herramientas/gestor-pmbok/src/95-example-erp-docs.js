@@ -201,7 +201,7 @@
       fechaRevision: '2026-10-08',
       listaVigilancia: 'Riesgos bajos en observación: tasa de cambio de los equipos importados (materializado en julio, sin compras pendientes); disponibilidad de salas de capacitación en noviembre; renovación del certificado de firma digital en 2027.',
       residuales: 'Después de las respuestas quedan como residuales: rechazos puntuales de la DIAN por datos del adquirente (se atienden con la mesa de ayuda) y diferencias menores de inventario en las obras (inventario cíclico mensual). Riesgo secundario: más carga del analista de TI al documentar la parametrización (R-005).',
-      planesReserva: 'Reserva para contingencias de ' + ms(F.reserves.contingency) + ' distribuida por riesgo (columna «Reserva»; R-008 se agregó el 8 de octubre sin aumentar el total). No se ha usado. El EAC al 9 de octubre (' + ms(E.eac) + ') se cubriría con ' + ms(E.eac - E.bac) + ' de esta reserva. La reserva de gestión (' + ms(F.reserves.management) + ') solo la autoriza la Gerencia General.',
+      planesReserva: 'Reserva para contingencias de ' + ms(F.reserves.contingency) + ' distribuida por riesgo (columna «Reserva»; R-008 se agregó el 8 de octubre sin aumentar el total). No se ha usado; el uso que se requiera según el pronóstico del próximo corte lo autoriza el comité de control de cambios. La reserva de gestión (' + ms(F.reserves.management) + ') solo la autoriza la Gerencia General.',
     };
 
     /* ============================================================ 11.1 · PLAN DE GESTIÓN DE LOS RIESGOS (aprobado con la LB0)
@@ -315,7 +315,7 @@
     const it5Review = {
       iteracion: it5.name, fecha: it5.end, objetivo: it5.goal, objetivoCumplido: 'Sí',
       comprometido: it5.committed, terminado: it5.completed,
-      incremento: 'Con los clientes migrados de la bodega principal se demostraron los datos tributarios del adquirente, la resolución de facturación con sus rangos, el cálculo de IVA y retención en la fuente en facturas de alquiler y de venta, y el primer documento de prueba aceptado por el proveedor tecnológico en el ambiente de habilitación. También se corrigieron los cinco defectos menores que dejó la prueba de aceptación del release 1.',
+      incremento: 'Con los clientes migrados de la bodega principal se demostraron los datos tributarios del adquirente, la resolución de facturación con sus rangos, el cálculo de IVA y retención en la fuente en facturas de alquiler y de venta, y el primer documento de prueba aceptado por el proveedor tecnológico en el ambiente de habilitación. También se corrigieron los cinco defectos menores del release 1 que no impedían su salida (DF-002 a DF-006).',
       elementos: rows('el', [
         ...it5Done.map((code) => { const it = item(code); return { codigo: it.code, titulo: it.title, estimacion: it.estimate, resultado: 'Aceptado', observaciones: code === 'HU-029' ? 'Contabilidad validó los cinco casos tributarios.' : code === 'IN-003' ? 'Decisión: envío en línea con consulta de estado cada cinco minutos.' : '' }; }),
         ...it5Unfinished.map((code) => { const it = item(code); return { codigo: it.code, titulo: it.title, estimacion: it.estimate, resultado: 'No terminado', observaciones: 'Bloqueado: el banco no entregó el formato del archivo de recaudo; vuelve al backlog del producto.' }; }),
@@ -624,7 +624,7 @@
     const pctP = round1(E.pctPlanned * 100), pctR = round1(E.pctComplete * 100);
     const informe = {
       numeroInforme: 'Informe quincenal No. 7 — corte del 9 de octubre de 2026',
-      periodoInicio: '2026-09-24',
+      periodoInicio: '2026-09-28',
       fechaCorte: F.statusDate,
       destinatarios: 'Gerencia General, dueño del producto y comité de control de cambios',
       estadoGeneral: 'Amarillo — requiere atención',

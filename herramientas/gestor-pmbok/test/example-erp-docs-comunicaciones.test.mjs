@@ -310,7 +310,7 @@ async function validateInPage(page) {
          el crédito de servicio que prevé el acuerdo de nivel de servicio */
       const csp = docOf('criterios-seleccion-proveedores');
       const critNames = csp ? csp.fields.criterios.map((c) => c.criterio.charAt(0).toLowerCase() + c.criterio.slice(1)) : null;
-      ok(csp ? critNames.every((n) => has(a2.desarrollo, n)) : (a2.desarrollo.split('\n')[2].match(/;/g) || []).length === 4, 'selección: la evaluación ponderada nombra todos los criterios del documento de criterios de selección', critNames);
+      ok((csp ? critNames : ['funcionalidad', 'costo total a tres años', 'experiencia', 'trabajo por iteraciones', 'soporte']).every((n) => has(a2.desarrollo, n)), 'selección: la evaluación ponderada nombra todos los criterios del documento de criterios de selección', critNames);
       const pr2 = (await revsOf('plan-release')).find((r) => r.rev === '2');
       const sep = String(pr2.date).slice(0, 10);
       ok(comites.includes(sep) && sep > golive1 && cuts.includes(D.add(sep, 1)) && has(a6.desarrollo.split('\n')[0], 'sesión ordinaria del ' + dl(sep)) && has(a6.desarrollo.split('\n')[0], 'informe quincenal n.º ' + (cuts.indexOf(D.add(sep, 1)) + 1)) && has(a6.desarrollo.split('\n')[0], dl(review)) && /caso de negocio/.test(a6.desarrollo.split('\n')[0]), 'comité de octubre: recoge la revisión al cierre del release 1 y la sesión ordinaria que aprobó la rev. 2 del plan de releases', a6.desarrollo.split('\n')[0]);
