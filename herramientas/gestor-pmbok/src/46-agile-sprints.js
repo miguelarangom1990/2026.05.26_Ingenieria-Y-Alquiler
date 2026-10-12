@@ -169,6 +169,22 @@ td.ags-actions { background: var(--surface); }
 .ags-cmp th { white-space: normal; min-width: 8ch; vertical-align: bottom; }
 .ags-empty-chart { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); color: var(--fg-2); padding: 8px 0; max-width: 70ch; }
 .ags-empty-chart > .icon { color: var(--fg-3); margin-top: 2px; }
+/* capacidad sugerida por la disponibilidad del equipo (catálogo de recursos, §10.4) */
+.ags-capsug { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); min-width: 0; }
+.ags-capsug[data-state="no-members"], .ags-capsug[data-state="no-dates"] { border-left-color: var(--info); }
+.ags-capsug-head { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.ags-capsug-head > .icon { flex: none; margin-top: 2px; color: var(--accent); }
+.ags-capsug[data-state="no-members"] .ags-capsug-head > .icon, .ags-capsug[data-state="no-dates"] .ags-capsug-head > .icon { color: var(--info); }
+.ags-capsug-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
+.ags-capsug-val { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-lg); color: var(--fg); white-space: nowrap; }
+.ags-capsug-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ags-capsug-why { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--fg-2); }
+.ags-capsug-why li { display: inline-flex; gap: 5px; align-items: flex-start; min-width: 0; }
+.ags-capsug-why li > .icon { flex: none; margin-top: 1px; color: var(--fg-3); }
+.ags-capsug .table td, .ags-capsug .table th { white-space: nowrap; }
+.ags-capsug .table td:first-child { white-space: normal; min-width: 150px; }
+.ags-capsug-meter { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; max-width: 420px; }
+.ags-capsug-meter > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
 `;
   if (!document.getElementById('css-agile-sprints')) {
     const st = document.createElement('style');

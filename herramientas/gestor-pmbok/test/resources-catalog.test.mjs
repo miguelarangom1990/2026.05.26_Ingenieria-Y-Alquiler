@@ -40,6 +40,7 @@ const bar = (page) => page.locator('[data-rcat-bar]');
 const row = (page, name) => page.locator('tr[data-rcat-row="' + name + '"]');
 const tile = (page, id) => page.locator('[data-tile="' + id + '"] .rcat-tile-value').innerText();
 const itemByName = (doc, name) => (doc && doc.items || []).find((x) => x.name === name);
+const itemByNameIn = (doc) => itemByName(doc, 'Recurso de prueba del flujo');
 /* NumberInput cambia el texto mostrado al enfocarse (formato → borrador): se enfoca antes de escribir */
 const fillNum = async (loc, v) => { await loc.focus(); await loc.page().waitForTimeout(60); await loc.fill(String(v)); };
 const active = (page) => page.evaluate(() => { const a = document.activeElement; return a ? { id: a.id, tag: a.tagName, text: (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 60), type: a.type || '' } : null; });
@@ -329,7 +330,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await sleep(page, 500);
     ok('flujo y editor cerrados', await modalCount(page) === 0);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Malla de seguridad adicional');
-    ok('guardado: no planificado, riesgo, reserva y fecha de alta', it && it.planned === false && it.reason === 'riesgo' && it.riskId === 'R-001' && it.reserveAmount === 4000000 && it.addedDate === STATUS && !it.changeRef, it);
+    ok('guardado: no planificado, riesgo, reserva, fecha de alta y estado «Solicitado»', it && it.planned === false && it.reason === 'riesgo' && it.riskId === 'R-001' && it.reserveAmount === 4000000 && it.addedDate === STATUS && !it.changeRef && it.status === 'solicitado', it);
     const r = await row(page, 'Malla de seguridad adicional').innerText();
     ok('fila: chip «No planificado», motivo y riesgo', /No planificado/.test(r) && /Respuesta a un riesgo identificado/.test(r) && /Riesgo R-001/.test(r), r);
   });
@@ -538,6 +539,37 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await page.keyboard.press('Escape');
     await sleep(page, 200);
     ok('Escape cierra y devuelve el foco', await modalCount(page) === 0 && /Agregar recurso/.test((await active(page)).text));
+  });
+
+  await step('API para otras vistas', async () => {
+    await page.evaluate(() => { window.__rd1 = undefined; PM.resourceDialog(null, null, { name: 'Volqueta doble troque' }).then((x) => { window.__rd1 = x === null ? 'null' : x; }); });
+    await sleep(page, 350);
+    let ed = top(page);
+    ok('initial prellena el nombre y sugiere tipo y unidad', (await ed.locator('#rce-name').inputValue()) === 'Volqueta doble troque' && (await ed.locator('#rce-type').inputValue()) === 'transporte' && (await ed.locator('#rce-unit').inputValue()) === 'equipo', [await ed.locator('#rce-type').inputValue(), await ed.locator('#rce-unit').inputValue()]);
+    await page.keyboard.press('Escape');
+    await sleep(page, 200);
+    ok('cancelar resuelve null', (await page.evaluate(() => window.__rd1)) === 'null');
+    await page.evaluate(() => { window.__rd2 = undefined; PM.resourceDialog(null, null, { name: 'Volqueta doble troque', unitCost: 650000 }).then((x) => { window.__rd2 = x; }); });
+    await sleep(page, 350);
+    ed = top(page);
+    await ed.getByText('Sí, estaba en el plan').click();
+    await ed.getByRole('button', { name: 'Agregar recurso' }).click();
+    await sleep(page, 400);
+    const rd2 = await page.evaluate(() => window.__rd2);
+    ok('guardar resuelve el recurso con id y código', rd2 && /^rec/.test(rd2.id) && /^REC-\d{3}$/.test(rd2.code) && rd2.unitCost === 650000 && rd2.typeId === 'transporte', rd2);
+    await page.evaluate(() => { window.__fl = undefined; PM.unplannedResourceFlow(null, { id: 'rx-1', name: 'Recurso de prueba del flujo', typeId: 'maquinaria' }).then((x) => { window.__fl = x === null ? 'null' : x; }); });
+    await sleep(page, 350);
+    const fl = top(page);
+    await fl.locator('label[data-choice="rendimiento"]').click();
+    await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
+    await sleep(page, 300);
+    const r = await page.evaluate(() => window.__fl);
+    ok('el flujo devuelve el recurso con su motivo y no guarda', r && r.planned === false && r.reason === 'rendimiento' && r.addedDate === '2026-10-02' && !itemByNameIn(await readTool(page, pid, 'resources')), r);
+    await page.evaluate(() => { window.__td = undefined; PM.resourceTypesDialog(null).then((v) => { window.__td = v; }); });
+    await sleep(page, 350);
+    await top(page).getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 200);
+    ok('tipos: cancelar resuelve false', (await page.evaluate(() => window.__td)) === false);
   });
 
   await step('solo lectura', async () => {

@@ -17,6 +17,12 @@
             | {text}                   salida sin documento propio en la aplicación
    - toolViews: herramientas de la aplicación que apoyan las técnicas del proceso
      (p. ej. 8.1 «diagramas de flujo» → flujogramas). No son salidas.
+   - toolParams = {viewId: params}  parámetros de navegación de una herramienta en ese proceso
+                                   (p. ej. 7.3 → estructuras {tab:'costos'}); KB.toolParams(code, viewId)
+   - Output de vista: {view, label, params?}  params = parámetros de navegación (p. ej. {tab:'catalogo'})
+   Recursos y estructuras de desglose (SPEC §10): vista «estructuras» (desglose de costos en 7.2 y 7.3, de
+   los riesgos en 11.1 y 11.2, de los recursos en 9.2) y vista «recursos» (catálogo, histograma y consumo)
+   en 9.2, 9.3 y 9.6.
    Capa ágil y enfoque híbrido (SPEC §9):
    - Output.agile = true          documento del enfoque ágil (§9.5) que complementa las
                                    salidas de la Guía (visión del producto en 5.2, plan de
@@ -42,7 +48,9 @@
   /* Constructores de salidas */
   const doc = (id, label) => (label ? { doc: id, label } : { doc: id });
   const upd = (id, label) => (label ? { doc: id, update: true, label } : { doc: id, update: true });
-  const view = (id, label) => ({ view: id, label });
+  const view = (id, label, params) => (params ? { view: id, label, params } : { view: id, label });
+  /* Pestañas de las vistas de §10 que abre cada proceso */
+  const BRK = (tab) => ({ estructuras: { tab } });
   const base = (id, label) => ({ baseline: id, label });
   const txt = (text) => ({ text });
   const CR = () => doc('solicitud-cambio', 'Solicitudes de cambio');
@@ -235,7 +243,7 @@
   };
 
   /* ---------------------------------------------------------------- procesos (49) */
-  const P = (code, name, area, group, frequency, description, def) => ({ code, name, area, group, frequency, description, inputs: def.inputs, tools: def.tools, outputs: def.outputs, inputsDocs: def.inputsDocs || [], toolViews: def.toolViews || [] });
+  const P = (code, name, area, group, frequency, description, def) => ({ code, name, area, group, frequency, description, inputs: def.inputs, tools: def.tools, outputs: def.outputs, inputsDocs: def.inputsDocs || [], toolViews: def.toolViews || [], toolParams: def.toolParams || {} });
 
   const processes = [
     /* ===================== 4. Integración ===================== */
@@ -418,7 +426,8 @@
         tools: [JE, 'Estimación análoga', 'Estimación paramétrica', 'Estimación ascendente', 'Estimación por tres valores', 'Análisis de datos (análisis de alternativas, análisis de reservas, costo de la calidad)', PMIS, 'Toma de decisiones (votación)'],
         outputs: [doc('estimacion-costos', 'Estimaciones de costos y base de las estimaciones'), PDU('registro de supuestos, registro de lecciones aprendidas, registro de riesgos'), upd('registro-supuestos'), upd('registro-lecciones'), upd('registro-riesgos')],
         inputsDocs: ['plan-gestion-costos', 'plan-gestion-calidad', 'registro-lecciones', 'requisitos-recursos', 'registro-riesgos'],
-        toolViews: ['edt'],
+        toolViews: ['edt', 'estructuras'],
+        toolParams: BRK('costos'),
       }),
     P('7.3', 'Determinar el Presupuesto', 'costos', 'planificacion', 'unica',
       'Suma los costos estimados de las actividades individuales o de los paquetes de trabajo para establecer una línea base de costos autorizada. Beneficio clave: determina la línea base de costos con respecto a la cual se puede monitorear y controlar el desempeño del proyecto.', {
@@ -427,7 +436,8 @@
         outputs: [base('cost', 'Línea base de costos'), view('valor-ganado', 'Curva S de la línea base de costos'), doc('requisitos-financiamiento'),
           PDU('estimaciones de costos, cronograma del proyecto, registro de riesgos'), upd('estimacion-costos'), upd('registro-riesgos')],
         inputsDocs: ['plan-gestion-costos', 'plan-gestion-recursos', 'estimacion-costos', 'registro-riesgos', 'caso-negocio', 'plan-gestion-beneficios'],
-        toolViews: ['valor-ganado', 'lineas-base'],
+        toolViews: ['valor-ganado', 'lineas-base', 'estructuras'],
+        toolParams: BRK('costos'),
       }),
     P('7.4', 'Controlar los Costos', 'costos', 'monitoreo', 'continua',
       'Monitorea el estado del proyecto para actualizar los costos y gestionar cambios a la línea base de costos. Beneficio clave: mantiene la línea base de costos a lo largo del proyecto.', {
@@ -488,21 +498,23 @@
       'Estima los recursos del equipo y el tipo y las cantidades de materiales, equipamiento y suministros necesarios para ejecutar el trabajo del proyecto. Beneficio clave: identifica el tipo, la cantidad y las características de los recursos necesarios para completar el proyecto.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de los recursos, línea base del alcance)', 'Documentos del proyecto (atributos de las actividades, lista de actividades, registro de supuestos, estimaciones de costos, calendarios de recursos, registro de riesgos)', EEF, OPA],
         tools: [JE, 'Estimación ascendente', 'Estimación análoga', 'Estimación paramétrica', 'Análisis de datos (análisis de alternativas)', PMIS, REU],
-        outputs: [doc('requisitos-recursos', 'Requisitos de recursos y base de las estimaciones'), doc('estructura-desglose-recursos'), view('recursos', 'Requisitos de recursos por actividad (histograma de recursos)'),
+        outputs: [doc('requisitos-recursos', 'Requisitos de recursos y base de las estimaciones'), doc('estructura-desglose-recursos'), view('recursos', 'Requisitos de recursos: catálogo con tipo, cantidad y costo, e histograma por actividad', { tab: 'catalogo' }),
           PDU('atributos de las actividades, registro de supuestos, registro de lecciones aprendidas'), upd('registro-supuestos'), upd('registro-lecciones')],
         inputsDocs: ['plan-gestion-recursos', 'registro-supuestos', 'estimacion-costos', 'registro-riesgos'],
-        toolViews: ['recursos', 'cronograma'],
+        toolViews: ['recursos', 'cronograma', 'estructuras'],
+        toolParams: { recursos: { tab: 'catalogo' }, ...BRK('recursos') },
       }),
     P('9.3', 'Adquirir Recursos', 'recursos', 'ejecucion', 'periodica',
       'Obtiene los miembros del equipo, las instalaciones, el equipamiento, los materiales, los suministros y otros recursos necesarios para completar el trabajo del proyecto. Beneficio clave: describe y guía la selección de recursos y los asigna a sus respectivas actividades.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de los recursos, plan de gestión de las adquisiciones, línea base de costos)', 'Documentos del proyecto (cronograma del proyecto, calendarios de recursos, requisitos de recursos, registro de interesados)', EEF, OPA],
         tools: ['Toma de decisiones (análisis de decisiones con múltiples criterios)', 'Habilidades interpersonales y de equipo (negociación)', 'Asignación previa', 'Equipos virtuales'],
-        outputs: [doc('asignaciones-recursos', 'Asignaciones de recursos físicos y asignaciones del equipo del proyecto'), txt('Calendarios de recursos'), CR(),
+        outputs: [doc('asignaciones-recursos', 'Asignaciones de recursos físicos y asignaciones del equipo del proyecto'), view('recursos', 'Calendarios de recursos (disponibilidad, dedicación y ausencias en el catálogo)', { tab: 'catalogo' }), CR(),
           PMPU('plan de gestión de los recursos, línea base de costos'),
           PDU('registro de lecciones aprendidas, cronograma del proyecto, estructura de desglose de recursos, requisitos de recursos, registro de riesgos, registro de interesados'),
           upd('registro-lecciones'), upd('estructura-desglose-recursos'), upd('requisitos-recursos'), upd('registro-riesgos'), upd('registro-interesados'), EEFU(), OPAU()],
         inputsDocs: ['plan-gestion-recursos', 'plan-gestion-adquisiciones', 'requisitos-recursos', 'registro-interesados'],
         toolViews: ['recursos'],
+        toolParams: { recursos: { tab: 'catalogo' } },
       }),
     P('9.4', 'Desarrollar el Equipo', 'recursos', 'ejecucion', 'continua',
       'Mejora las competencias, la interacción entre los miembros del equipo y el ambiente general del equipo para lograr un mejor desempeño del proyecto. Beneficio clave: mejora el trabajo en equipo, las habilidades y la motivación de las personas, reduce la rotación de personal y mejora el desempeño general del proyecto.', {
@@ -527,12 +539,13 @@
       'Asegura que los recursos físicos asignados y adjudicados al proyecto estén disponibles tal como se planificó, monitorea su utilización planificada frente a la real y aplica acciones correctivas según sea necesario. Beneficio clave: los recursos asignados están disponibles en el momento y el lugar adecuados, y se liberan cuando ya no se necesitan.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de los recursos)', 'Documentos del proyecto (registro de incidentes, registro de lecciones aprendidas, asignaciones de recursos físicos, cronograma del proyecto, estructura de desglose de recursos, requisitos de recursos, registro de riesgos)', WPD, 'Acuerdos', OPA],
         tools: ['Análisis de datos (análisis de alternativas, análisis costo-beneficio, revisiones del desempeño, análisis de tendencias)', 'Resolución de problemas', 'Habilidades interpersonales y de equipo (negociación, influencia)', PMIS],
-        outputs: [WPI(), view('recursos', 'Utilización planificada frente a la real de los recursos'), CR(),
+        outputs: [WPI(), view('recursos', 'Utilización planificada frente a la real y recursos no planificados (catálogo, histograma y consumo)', { tab: 'catalogo' }), CR(),
           PMPU('plan de gestión de los recursos, línea base del cronograma, línea base de costos'),
           PDU('registro de supuestos, registro de incidentes, registro de lecciones aprendidas, asignaciones de recursos físicos, estructura de desglose de recursos, registro de riesgos'),
           upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-lecciones'), upd('asignaciones-recursos'), upd('estructura-desglose-recursos'), upd('registro-riesgos')],
         inputsDocs: ['plan-gestion-recursos', 'registro-incidentes', 'registro-lecciones', 'asignaciones-recursos', 'estructura-desglose-recursos', 'requisitos-recursos', 'registro-riesgos', 'registro-adquisiciones'],
         toolViews: ['recursos'],
+        toolParams: { recursos: { tab: 'catalogo' } },
       }),
 
     /* ===================== 10. Comunicaciones ===================== */
@@ -572,6 +585,8 @@
         tools: [JE, 'Análisis de datos (análisis de interesados)', REU],
         outputs: [doc('plan-gestion-riesgos')],
         inputsDocs: ['acta-constitucion', 'registro-interesados'],
+        toolViews: ['estructuras'],
+        toolParams: BRK('riesgos'),
       }),
     P('11.2', 'Identificar los Riesgos', 'riesgos', 'planificacion', 'continua',
       'Identifica los riesgos individuales del proyecto y las fuentes de riesgo general, y documenta sus características. Beneficio clave: documenta los riesgos individuales existentes y las fuentes del riesgo general del proyecto, y reúne información para que el equipo pueda responder de manera apropiada.', {
@@ -579,6 +594,8 @@
         tools: [JE, 'Recopilación de datos (tormenta de ideas, listas de verificación, entrevistas)', 'Análisis de datos (análisis de causa raíz, análisis de supuestos y restricciones, análisis FODA, análisis de documentos)', 'Habilidades interpersonales y de equipo (facilitación)', 'Listas rápidas', REU],
         outputs: [doc('registro-riesgos'), doc('informe-riesgos'), PDU('registro de supuestos, registro de incidentes, registro de lecciones aprendidas'), upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-lecciones')],
         inputsDocs: ['plan-gestion-requisitos', 'plan-gestion-cronograma', 'plan-gestion-costos', 'plan-gestion-calidad', 'plan-gestion-recursos', 'plan-gestion-riesgos', 'registro-supuestos', 'estimacion-costos', 'estimaciones-duracion', 'registro-incidentes', 'registro-lecciones', 'documentacion-requisitos', 'requisitos-recursos', 'registro-interesados', 'registro-adquisiciones'],
+        toolViews: ['estructuras'],
+        toolParams: BRK('riesgos'),
       }),
     P('11.3', 'Realizar el Análisis Cualitativo de Riesgos', 'riesgos', 'planificacion', 'continua',
       'Prioriza los riesgos individuales del proyecto para análisis o acción posterior, evaluando su probabilidad de ocurrencia e impacto, así como otras características. Beneficio clave: concentra los esfuerzos en los riesgos de alta prioridad.', {
@@ -771,6 +788,7 @@
     edt: 'EDT', cronograma: 'Cronograma (Gantt)', red: 'Diagrama de red', recursos: 'Recursos', 'valor-ganado': 'Curva S y valor ganado',
     raci: 'Matriz RACI', 'riesgos-matriz': 'Probabilidad e impacto', 'interesados-matriz': 'Interesados', calidad: 'Ishikawa y Pareto', flujogramas: 'Diagramas de flujo',
     backlog: 'Backlog del producto', kanban: 'Tablero Kanban', iteraciones: 'Releases e iteraciones', 'metricas-agiles': 'Métricas ágiles',
+    estructuras: 'Estructuras de desglose',
   };
   /* Vistas de la capa ágil (grupo «agil», SPEC §9.4) */
   const AGILE_VIEWS = ['backlog', 'kanban', 'iteraciones', 'metricas-agiles'];
@@ -962,6 +980,17 @@
     { term: 'Reserva de gestión', area: 'costos', view: 'valor-ganado',
       definition: 'Monto del presupuesto o del cronograma retenido fuera de la línea base para fines de control de gestión y reservado para trabajo imprevisto dentro del alcance, las «incógnitas desconocidas». No forma parte de la línea base de costos; usarla requiere un cambio aprobado.',
       formula: 'Presupuesto del proyecto = línea base de costos + reserva de gestión' },
+    { term: 'Estructura de desglose de costos', abbr: 'EDC/CBS', area: 'costos', view: 'estructuras',
+      definition: 'Representación jerárquica del presupuesto del proyecto: la reserva de gestión y la línea base de costos, que a su vez suma la reserva para contingencias y las cuentas de control con sus paquetes de trabajo y actividades (Guía del PMBOK® 6.ª ed., gráfico 7-8). También puede agruparse por categoría de costo: mano de obra, materiales, equipos, subcontratos y transporte.',
+      formula: 'Presupuesto del proyecto = reserva de gestión + línea base de costos · Línea base de costos = reserva para contingencias + Σ cuentas de control · Cuenta de control = Σ paquetes de trabajo (actividades)' },
+    { term: 'Precio global (a todo costo)', area: 'costos', view: 'cronograma',
+      definition: 'Forma de costeo en la que el valor de una actividad se pacta como una suma fija que incluye mano de obra, equipos, materiales e indirectos del contratista. Agregar recursos a la actividad no cambia su costo: el valor solo cambia si cambian las cantidades o el alcance, mediante control de cambios. Es la forma por defecto de las actividades del gestor.' },
+    { term: 'Precios unitarios', area: 'costos', view: 'cronograma',
+      definition: 'Forma de costeo en la que el costo de la actividad resulta de la cantidad de obra por el precio pactado para cada unidad (m², m³, kg, día). Es la base de los contratos a precios unitarios: el valor final depende de las cantidades medidas en obra.',
+      formula: 'Costo de la actividad = cantidad de obra × precio unitario' },
+    { term: 'Costeo por recursos', area: 'costos', view: 'cronograma',
+      definition: 'Forma de costeo en la que el costo de la actividad se calcula con los recursos asignados y su costo unitario en el catálogo de recursos (estimación ascendente); en la forma mixta se suma además una parte fija. Al agregar o quitar recursos cambia el costo vigente; la línea base de costos solo cambia con un cambio aprobado.',
+      formula: 'Trabajo: unidades por día × días hábiles × costo por unidad-día · Consumible: cantidad × costo unitario · Mixto: costo fijo + costo de los recursos' },
     /* Calidad */
     { term: 'Costo de la calidad', abbr: 'COQ', area: 'calidad',
       definition: 'Todos los costos incurridos durante la vida del producto por la inversión en prevenir el incumplimiento de los requisitos, evaluar la conformidad y no cumplir los requisitos (retrabajo, desperdicio, garantías).',
@@ -977,8 +1006,15 @@
     /* Recursos */
     { term: 'Matriz RACI', area: 'recursos', view: 'raci',
       definition: 'Matriz de asignación de responsabilidades que relaciona actividades o entregables con roles mediante cuatro estados: R (responsable de ejecutar), A (persona que rinde cuentas y aprueba), C (consultado) e I (informado). Cada actividad debe tener una sola A.' },
-    { term: 'Estructura de desglose de recursos', abbr: 'EDR/RBS', area: 'recursos',
-      definition: 'Representación jerárquica de los recursos del proyecto por categoría y tipo: mano de obra, equipos, materiales y suministros.' },
+    { term: 'Estructura de desglose de recursos', abbr: 'EDR/RBS', area: 'recursos', view: 'estructuras', doc: 'estructura-desglose-recursos',
+      definition: 'Representación jerárquica de los recursos del proyecto por categoría y tipo: mano de obra, equipos, materiales, transporte y servicios. En el gestor se arma desde el catálogo de recursos (tipo, subtipo y recurso) con la cantidad y el costo planificados en el cronograma, y distingue los recursos no planificados.' },
+    { term: 'Catálogo de recursos', area: 'recursos', view: 'recursos',
+      definition: 'Lista de los recursos del proyecto (personas, cuadrillas, maquinaria, herramienta, materiales, servicios y transporte) con su tipo, unidad, disponibilidad, calendario y costo unitario. Alimenta las asignaciones del cronograma, el histograma, el costeo por recursos y la capacidad del equipo, y se amplía en cualquier momento, también con recursos que no se planificaron.' },
+    { term: 'Recurso no planificado', area: 'recursos', view: 'recursos',
+      definition: 'Recurso que se incorpora después de fijada la línea base de costos o del cronograma, con su motivo. Una sustitución equivalente, un recurso aportado por el contratista dentro de un precio global, la respuesta a un riesgo identificado (consume la reserva para contingencias) o un refuerzo por menor rendimiento no cambian la línea base; un cambio de alcance, de diseño o de método, o un imprevisto pagado con la reserva de gestión, requieren solicitud de cambio (4.6) y, aprobada, una nueva línea base.' },
+    { term: 'Capacidad del equipo', area: 'recursos', view: 'iteraciones',
+      definition: 'Cantidad de trabajo que el equipo puede asumir en una iteración según la disponibilidad real de sus miembros: dedicación al proyecto, festivos, ausencias y fechas de vinculación. Se mide en días-persona y se lleva a la unidad de estimación: en horas, con las horas por día de cada miembro; en puntos, con la velocidad media ajustada por la proporción de disponibilidad frente a una iteración habitual.',
+      formula: 'Días-persona = Σ (días hábiles disponibles × unidades × dedicación) · Proporción = días-persona de la iteración / días-persona de una iteración habitual · Capacidad sugerida en puntos = velocidad media × proporción · en horas = Σ días-persona × horas por día' },
     /* Riesgos */
     { term: 'Riesgo', area: 'riesgos', view: 'riesgos-matriz',
       definition: 'Evento o condición incierta que, si se produce, tiene un efecto positivo (oportunidad) o negativo (amenaza) en uno o más de los objetivos del proyecto.' },
@@ -988,6 +1024,8 @@
     { term: 'Valor monetario esperado', abbr: 'EMV', area: 'riesgos',
       definition: 'Concepto estadístico que calcula el resultado promedio cuando el futuro incluye escenarios que pueden ocurrir o no. Se usa en el análisis cuantitativo y en los árboles de decisión, por ejemplo para dimensionar la reserva para contingencias.',
       formula: 'EMV = Σ (probabilidad × impacto monetario); amenazas con signo negativo y oportunidades con signo positivo' },
+    { term: 'Estructura de desglose de los riesgos', abbr: 'RBS (riesgos)', area: 'riesgos', view: 'estructuras', doc: 'plan-gestion-riesgos',
+      definition: 'Representación jerárquica de las fuentes de riesgo del proyecto por categoría (técnica, de gestión, comercial y externa) y subcategoría (Guía del PMBOK® 6.ª ed., gráfico 11-4). Se define en el plan de gestión de los riesgos, ayuda a identificar riesgos de forma sistemática y muestra dónde se concentran; en el gestor cada riesgo del registro se ubica bajo su subcategoría.' },
     /* Interesados */
     { term: 'Interesado', area: 'interesados', view: 'interesados-matriz',
       definition: 'Individuo, grupo u organización que puede afectar, verse afectado, o percibirse a sí mismo como afectado por una decisión, actividad o resultado del proyecto.' },
@@ -1101,6 +1139,9 @@
       return processes.filter((p) => p.outputs.some((o) => o.view === viewId) || p.toolViews.includes(viewId));
     },
     outputsOf: (code) => { const p = procByCode.get(String(code)); return p ? p.outputs.slice() : []; },
+    /* Parámetros de navegación de una herramienta en un proceso (p. ej. la pestaña de «estructuras» en 7.3 o 11.2);
+       {} si el proceso no los define. Uso: PM.navigate(viewId, KB.toolParams(code, viewId)). */
+    toolParams(code, viewId) { const p = procByCode.get(String(code)); const x = p && p.toolParams && p.toolParams[viewId]; return x ? { ...x } : {}; },
     /* Todos los ids de documentos canónicos referenciados (salidas y entradas), en orden de primera aparición. */
     docIds() {
       const seen = new Set();

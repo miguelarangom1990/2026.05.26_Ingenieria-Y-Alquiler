@@ -278,7 +278,7 @@
   }
   /* Tipo sugerido según el nombre (solo una sugerencia visible: la persona la confirma al guardar). */
   const GUESS = [
-    { edr: 'Personal', kind: 'trabajo', re: /(cuadrilla|operari|ayudante|oficial|ingenier|residente|coordinador|supervisor|director|inspector|montador|almacenista|conductor|tecnico|analista|desarrollador|soldador|topografo|maestro de obra|profesional|auxiliar|arquitect|abogad|contador|vigilante|scrum|disenador|interventor|electricista|lider)/ },
+    { edr: 'Personal', kind: 'trabajo', re: /(cuadrilla|operari|ayudante|oficial|ingenier|residente|coordinador|supervisor|director|inspector|montador|almacenista|conductor|tecnico|analista|desarrollador|soldador|topografo|maestro de obra|profesional|auxiliar|arquitect|abogad|contador|vigilante|scrum|disenador|interventor|electricista|lider|consultor(?!ia)|usuario|dueno del producto|product owner|jefe|asesor|gerente|estructurador|instructor|personal|persona competente|equipo de (desarrollo|diseno|ingenieria|trabajo|proyecto|montaje))/ },
     { edr: 'Transporte', kind: 'trabajo', re: /(camion|tractomula|volqueta|transporte|flete|acarreo|vehiculo|camioneta|furgon)/ },
     { edr: 'Equipos', kind: 'trabajo', re: /(grua|montacargas|andamio|formaleta|equipo|maquina|retroexcavadora|compresor|mezcladora|vibrador|izaje|elevador|herramienta|taladro|pulidora|servidor|computador|portatil|torre grua|malacate|diferencial)/ },
     { edr: 'Materiales', kind: 'consumible', re: /(concreto|cemento|acero|madera|tornill|pintura|material|insumo|repuesto|arena|grava|ladrillo|varilla|malla|tubo|cable|combustible|aceite|gasolina|acpm|diesel|perno|grapa|tabla)/ },
@@ -293,6 +293,16 @@
       const t = (g.kind && list.find((x) => x.kind === g.kind)) || list[0];
       if (t) return t.id;
     }
+    return '';
+  }
+
+  /* unidad sugerida para el tipo sugerido (solo si la unidad sigue siendo la de omisión) */
+  function guessUnit(types, typeId, name) {
+    const t = arr(types).find((x) => x.id === typeId);
+    if (!t) return '';
+    const n = norm(name);
+    if (t.edr === 'Personal') return /cuadrilla/.test(n) ? 'cuadrilla' : 'persona';
+    if ((t.edr === 'Equipos' || t.edr === 'Transporte') && t.kind === 'trabajo') return 'equipo';
     return '';
   }
 
@@ -585,7 +595,7 @@
     const missing = !!itemId && !orig;
     const [f, setF] = useState(() => {
       const x = formOf(orig || { ...RES.DEFAULT_ITEM, ...(isObj(initial) ? initial : {}) }, cat);
-      if (!x.typeId && x.name && !ro) { const g = guessType(cat.types, x.name); if (g) { x.typeId = g; x.guessed = true; } }
+      if (!x.typeId && x.name && !ro) { const g = guessType(cat.types, x.name); if (g) { x.typeId = g; x.guessed = true; if (x.unit === 'unidad') x.unit = guessUnit(cat.types, g, x.name) || x.unit; } }
       return x;
     });
     const [plan, setPlan] = useState(() => planOf(orig || (isObj(initial) ? initial : null)));
@@ -595,9 +605,9 @@
     const [err, setErr] = useState({});
     const busy = useRef(false);
     const idp = useMemo(() => PM.uid('rce'), []);
-    const set = (k) => (v) => setF((x) => ({ ...x, [k]: v, ...(k === 'typeId' ? { guessed: false, typeTouched: true } : null) }));
+    const set = (k) => (v) => setF((x) => ({ ...x, [k]: v, ...(k === 'typeId' ? { guessed: false, typeTouched: true } : k === 'status' ? { statusTouched: true } : null) }));
     /* recurso nuevo: al salir del nombre, si aún no se eligió el tipo, se sugiere uno según el nombre */
-    const suggestType = () => { if (ro || (orig && !virtual)) return; setF((x) => { if (x.typeTouched || (x.typeId && !x.guessed)) return x; const g = guessType(cat.types, x.name); return g ? { ...x, typeId: g, guessed: true } : x.guessed ? { ...x, typeId: '', guessed: false } : x; }); };
+    const suggestType = () => { if (ro || (orig && !virtual)) return; setF((x) => { if (x.typeTouched || (x.typeId && !x.guessed)) return x; const g = guessType(cat.types, x.name); return g ? { ...x, typeId: g, guessed: true, unit: x.unit === 'unidad' || !str(x.unit).trim() ? guessUnit(cat.types, g, x.name) || 'unidad' : x.unit } : x.guessed ? { ...x, typeId: '', guessed: false } : x; }); };
     const type = f.typeId ? cat.types.find((t) => t.id === f.typeId) || null : null;
     const typeKind = type ? type.kind : RES.UNCLASSIFIED.kind;
     const kind = f.kind || typeKind;
@@ -634,7 +644,7 @@
       const e = {};
       if (!name) e.name = 'Escribe el nombre del recurso (p. ej. «Cuadrilla de montaje» o «Camión grúa de 30 t»).';
       else if (saved.some((x) => x.id !== ownId && R.key(x.name) === R.key(name))) e.name = 'Ya existe un recurso llamado «' + name + '» en el catálogo. Usa otro nombre o edita el existente.';
-      if (!codeIn && !isNew) e.code = 'Escribe el código del recurso (p. ej. REC-012).';
+      if (!codeIn && !isNew && str(orig.code).trim()) e.code = 'Escribe el código del recurso (p. ej. REC-012).';
       else if (codeIn && saved.some((x) => x.id !== ownId && str(x.code).trim().toLowerCase() === codeIn.toLowerCase())) e.code = 'Ya existe otro recurso con el código ' + codeIn + '.';
       if (f.availability !== null && f.availability < 0) e.availability = 'La disponibilidad no puede ser negativa.';
       if (f.unitCost !== null && f.unitCost < 0) e.unitCost = 'El costo unitario no puede ser negativo.';
@@ -661,7 +671,7 @@
       try {
         const base = raw ? PM.clone(raw) : R.newItem(saved, { addedDate: L.statusDate || D.today() });
         const draft = {
-          ...base, code: codeIn || (raw ? str(raw.code) : base.code), name, typeId: f.typeId || null, subtype: str(f.subtype).trim(), unit: str(f.unit).trim() || 'unidad',
+          ...base, code: codeIn || (raw ? str(raw.code).trim() || R.nextCode(saved) : base.code), name, typeId: f.typeId || null, subtype: str(f.subtype).trim(), unit: str(f.unit).trim() || 'unidad',
           availability: f.availability, availableFrom: f.availableFrom || null, availableTo: f.availableTo || null, unitCost: f.unitCost,
           origin: f.origin || 'Interno', supplier: str(f.supplier).trim(), contract: str(f.contract).trim(), responsible: str(f.responsible).trim(),
           status: f.status, notes: str(f.notes).trim(),
@@ -681,6 +691,8 @@
           p = planOf(r);
         }
         const next = { ...draft, ...planFields(p, base.addedDate) };
+        /* un recurso nuevo no planificado ya se pidió: «Planificado» (aún sin solicitar) no le aplica salvo que se elija */
+        if (!raw && !next.planned && next.status === 'planificado' && !f.statusTouched) next.status = 'solicitado';
         const L2 = live.current;
         const savedItem = await L2.saveItem(next);
         if (orig && orig.name !== name) {
@@ -1002,8 +1014,10 @@
     const live = useRef(m); live.current = m;
     const ready = useRef(false);
     if (!m.loading) ready.current = true;
+    const canWrite = PM.useCanWrite();
     if (!ready.current) return loadingModal('Clasificar recursos', close);
     if (!m.pid || !m.catalog) return noProjectModal('Clasificar recursos', close);
+    if (!canWrite) return html`<${ui.Modal} title="Clasificar recursos" onClose=${close} footer=${html`<${ui.Button} onClick=${close}>Cerrar</${ui.Button}>`}><p>Modo de solo lectura: no se pueden clasificar recursos.</p></${ui.Modal}>`;
     return html`<${ClassifyForm} live=${live} close=${close} onDone=${onDone} />`;
   }
   function ClassifyForm({ live, close, onDone }) {
@@ -1015,7 +1029,8 @@
       const usage = usageOf(cat, m0.schedule.tasks);
       return cat.items.filter((it) => isUnclassified(cat, it)).map((it) => {
         const g = guessType(cat.types, it.name);
-        return { id: it.id, name: it.name, virtual: !!it.virtual, code: str(it.code), typeId: g, guessed: !!g, unit: str(it.unit) || 'unidad', unitCost: isNum(it.unitCost) ? Number(it.unitCost) : null, availability: isNum(it.availability) ? Number(it.availability) : null, n: (usage.get(it.id) || {}).n || 0 };
+        const unit = str(it.unit) || 'unidad';
+        return { id: it.id, name: it.name, virtual: !!it.virtual, code: str(it.code), typeId: g, guessed: !!g, unit: g && unit === 'unidad' ? guessUnit(cat.types, g, it.name) || unit : unit, unitCost: isNum(it.unitCost) ? Number(it.unitCost) : null, availability: isNum(it.availability) ? Number(it.availability) : null, n: (usage.get(it.id) || {}).n || 0 };
       });
     });
     const [all, setAll] = useState('');
@@ -1133,7 +1148,7 @@
       : html`<div class="rcat-plan">
         <${ui.Chip} tone="warn" icon="alert">No planificado</${ui.Chip}>
         <span class="rcat-sub">${reason ? reason.label : 'Motivo sin registrar'}</span>
-        ${it.reason === 'riesgo' ? html`<span class="rcat-sub">${it.riskId ? 'Riesgo ' + it.riskId : 'Sin riesgo vinculado'}${isNum(it.reserveAmount) ? ' · reserva ' + fmt.money(it.reserveAmount, currency) : ''}</span>` : null}
+        ${it.reason === 'riesgo' ? html`<span class="rcat-sub">${it.riskId ? 'Riesgo ' + it.riskId : 'Sin riesgo vinculado'}${isNum(it.reserveAmount) ? html` · reserva <span class="rcat-nowrap">${fmt.money(it.reserveAmount, currency)}</span>` : ''}</span>` : null}
         ${str(it.changeRef).trim() ? html`<button type="button" class="rcat-link is-ref" onClick=${call('cc')} title="Abrir la solicitud de cambio"><${ui.Icon} name="file" size=${12} />Solicitud ${it.changeRef}</button>`
           : reason && reason.baseline ? html`<span class="rcat-sub rcat-crit"><${ui.Icon} name="alert" size=${12} />Sin solicitud de cambio</span>` : null}
         ${canWrite && ((reason && reason.baseline && !str(it.changeRef).trim()) || !reason) ? html`<${ui.Button} size="sm" icon=${reason ? 'file' : 'edit'} onClick=${call('flow')}>${reason ? 'Registrar solicitud' : 'Registrar motivo'}</${ui.Button}>` : null}
@@ -1203,7 +1218,10 @@
       }
       return s;
     }, [descs]);
+    /* un tipo elegido en el filtro que ya no existe (se eliminó) deja de filtrar */
+    const typeFv = typeF && (typeF === UNCL || (cat && cat.types.some((t) => t.id === typeF))) ? typeF : '';
     const visible = useMemo(() => {
+      const typeF = typeFv;
       const qq = norm(q).trim();
       const out = descs.filter((d) => {
         if (qq && !d.search.includes(qq)) return false;
@@ -1224,11 +1242,11 @@
       }[sort.key] || byName;
       const nullsLast = sort.key === 'cost';
       return out.sort((a, b) => { if (nullsLast) { const na = !isNum(a.it.unitCost), nb = !isNum(b.it.unitCost); if (na !== nb) return na ? 1 : -1; } return cmp(a, b) * sort.dir; });
-    }, [descs, q, typeF, planF, sort]);
+    }, [descs, q, typeFv, planF, sort]);
     const agileOn = !!(PM.agile && PM.agile.enabled && PM.agile.enabled(m.project));
     const showAgile = agileOn || descs.some((d) => d.it.agileTeam);
 
-    const add = () => PM.resourceDialog(live.current, null, typeF && typeF !== UNCL ? { typeId: typeF } : null);
+    const add = () => PM.resourceDialog(live.current, null, typeFv && typeFv !== UNCL ? { typeId: typeFv } : null);
     const openTypes = () => PM.resourceTypesDialog(live.current);
     const api = useRef({});
     api.current = {
@@ -1289,7 +1307,7 @@
       onClick=${() => setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: key === 'use' ? -1 : 1 }))}>${label}${sort.key === key ? html`<${ui.Icon} name=${sort.dir > 0 ? 'arrow-up' : 'arrow-down'} size=${12} />` : null}</button>`;
     const ariaSort = (...keys) => (keys.includes(sort.key) ? (sort.dir > 0 ? 'ascending' : 'descending') : undefined);
     const colCount = 10 + (showAgile ? 1 : 0);
-    const filtered = q || typeF || planF;
+    const filtered = q || typeFv || planF;
     return html`<div class="rcat stack" data-rcat="1">
       ${stats.pending ? html`<${Note} tone="warn" icon="alert" role="status" data="pending"><div class="rcat-note-row"><span><strong>${plural(stats.pending, 'recurso no planificado', 'recursos no planificados')}</strong> ${stats.pending === 1 ? 'cambia' : 'cambian'} la línea base y aún no ${stats.pending === 1 ? 'tiene' : 'tienen'} solicitud de cambio (4.6 Realizar el control integrado de cambios).</span>${planF !== 'pendiente' ? html`<${ui.Button} size="sm" onClick=${() => setPlanF('pendiente')}>Ver pendientes</${ui.Button}>` : null}</div></${Note}>` : null}
       <section class="card rcat-tiles-card" aria-label="Indicadores del catálogo de recursos"><div class="rcat-tiles">
@@ -1299,7 +1317,7 @@
       </div></section>
       <div class="rcat-bar" data-rcat-bar="1">
         <${ui.Search} value=${q} onValue=${setQ} placeholder="Buscar nombre, código, proveedor…" aria-label="Buscar recursos" />
-        <${ui.Select} aria-label="Filtrar por tipo" value=${typeF} placeholder="Todos los tipos" options=${typeOpts} onValue=${setTypeF} />
+        <${ui.Select} aria-label="Filtrar por tipo" value=${typeFv} placeholder="Todos los tipos" options=${typeOpts} onValue=${setTypeF} />
         <${ui.Select} aria-label="Filtrar por planificación" value=${planF} placeholder="Planificados y no planificados" options=${PLAN_FILTERS} onValue=${setPlanF} />
         <span class="rcat-count" role="status" aria-live="polite">${visible.length === descs.length ? plural(descs.length, 'recurso', 'recursos') : fmt.num(visible.length) + ' de ' + plural(descs.length, 'recurso', 'recursos')}</span>
         <div class="rcat-bar-acts">

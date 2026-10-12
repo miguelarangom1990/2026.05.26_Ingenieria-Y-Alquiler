@@ -1,4 +1,5 @@
-// Valida la base de conocimiento PMBOK (PM.KB, src/10-pmbok.js) contra SPEC.md §4, §6 y §9 (capa ágil).
+// Valida la base de conocimiento PMBOK (PM.KB, src/10-pmbok.js) contra SPEC.md §4, §6, §9 (capa ágil) y §10 (recursos
+// y estructuras de desglose).
 // Uso: node test/kb.test.mjs [--file ruta.html]
 import { openApp } from './harness.mjs';
 
@@ -20,7 +21,11 @@ const AGILE_CATALOG = {
 };
 // SPEC §4 y §9.4 — ids de vistas
 const AGILE_VIEWS = ['backlog', 'kanban', 'iteraciones', 'metricas-agiles'];
-const VIEWS = ['tablero', 'procesos', 'documentos', 'documento', 'lineas-base', 'ficha', 'edt', 'cronograma', 'red', 'recursos', 'valor-ganado', 'raci', 'riesgos-matriz', 'interesados-matriz', 'calidad', 'flujogramas', ...AGILE_VIEWS];
+const VIEWS = ['tablero', 'procesos', 'documentos', 'documento', 'lineas-base', 'ficha', 'edt', 'cronograma', 'red', 'recursos', 'valor-ganado', 'raci', 'riesgos-matriz', 'interesados-matriz', 'calidad', 'flujogramas', ...AGILE_VIEWS, 'estructuras'];
+// SPEC §10.4 — «estructuras» (pestaña por proceso) y «recursos» (catálogo) como herramientas de sus procesos
+const BREAKDOWN_TOOLS = { '7.2': 'costos', '7.3': 'costos', '11.1': 'riesgos', '11.2': 'riesgos', '9.2': 'recursos' };
+const RESOURCE_VIEW_PROCS = ['9.2', '9.3', '9.6'];
+const RESOURCE_TERMS = ['Catálogo de recursos', 'Recurso no planificado', 'Estructura de desglose de costos', 'Estructura de desglose de recursos', 'Estructura de desglose de los riesgos', 'Precio global (a todo costo)', 'Precios unitarios', 'Costeo por recursos', 'Capacidad del equipo', 'Cuenta de control'];
 // Vistas ágiles como herramientas de sus procesos (encargo de la capa ágil; 6.6 Controlar el Cronograma)
 const AGILE_TOOLVIEWS = { backlog: ['5.2', '5.3', '5.4'], kanban: ['4.3', '6.6'], iteraciones: ['6.5', '6.6', '4.6'], 'metricas-agiles': ['4.5', '6.6', '7.4'] };
 
@@ -87,7 +92,7 @@ const MAP = {
   '8.3': { docs: ['mediciones-control-calidad', 'entregables', 'solicitud-cambio'], views: ['calidad'] },
   '9.1': { docs: ['plan-gestion-recursos', 'acta-constitucion-equipo'], views: ['raci'] },
   '9.2': { docs: ['requisitos-recursos', 'estructura-desglose-recursos'], views: ['recursos'] },
-  '9.3': { docs: ['asignaciones-recursos', 'solicitud-cambio'] },
+  '9.3': { docs: ['asignaciones-recursos', 'solicitud-cambio'], views: ['recursos'] },
   '9.4': { docs: ['evaluacion-desempeno-equipo', 'solicitud-cambio'] },
   '9.5': { docs: ['registro-incidentes', 'registro-lecciones', 'solicitud-cambio'], views: ['recursos'] },
   '9.6': { docs: ['registro-incidentes', 'registro-lecciones', 'solicitud-cambio'], views: ['recursos'] },
@@ -116,7 +121,7 @@ const AGILE_TERMS = ['Backlog del producto', 'Historia de usuario', 'Épica', 'I
 const REQUIRED_TERMS = ['Estructura de desglose del trabajo', 'Paquete de trabajo', 'Cuenta de control', 'Diccionario de la EDT/WBS', 'Línea base', 'Línea base para la medición del desempeño', 'Ruta crítica', 'Holgura total', 'Holgura libre', 'Adelanto', 'Retraso', 'Relación final a inicio', 'Relación inicio a inicio', 'Relación final a final', 'Relación inicio a final', 'Método de la ruta crítica', 'Estimación por tres valores', 'Compresión del cronograma', 'Intensificación', 'Ejecución rápida', 'Nivelación de recursos', 'Valor planificado', 'Valor ganado', 'Costo real', 'Variación del cronograma', 'Variación del costo', 'Índice de desempeño del cronograma', 'Índice de desempeño del costo', 'Estimación a la conclusión', 'Estimación hasta la conclusión', 'Variación a la conclusión', 'Índice de desempeño del trabajo por completar', 'Cronograma ganado', 'Reserva para contingencias', 'Reserva de gestión', 'Presupuesto hasta la conclusión', 'Matriz RACI', 'Matriz de probabilidad e impacto', 'Valor monetario esperado', 'Análisis de Pareto', 'Diagrama de Ishikawa', 'Gráfico de control', 'Solicitud de cambio', 'Comité de control de cambios', 'Control integrado de cambios', 'Interesado', 'Matriz de evaluación del involucramiento de los interesados', 'Acta de constitución del proyecto', 'Enunciado del alcance del proyecto'];
 
 const { browser, page, errors } = await openApp({ file });
-const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS }) => {
+const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS }) => {
   const out = [];
   const ok = (name, cond, detail) => out.push({ name, ok: !!cond, detail: cond ? '' : detail });
   const eq = (name, got, exp) => ok(name, JSON.stringify(got) === JSON.stringify(exp), 'obtenido ' + JSON.stringify(got) + ' · esperado ' + JSON.stringify(exp));
@@ -343,8 +348,44 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   }
   ok('searchGlossary(kanban) encuentra el tablero', KB.searchGlossary('kanban').some((g) => g.term === 'Tablero Kanban'), KB.searchGlossary('kanban').map((g) => g.term).join(','));
   ok('sin texto provisional en la capa ágil', !BAD_TEXT.test(JSON.stringify([KB.areas.map((a) => a.agile), KB.glossary.filter((g) => AGILE_TERMS.includes(g.term))])), '');
+
+  // ---------- recursos del proyecto y estructuras de desglose (SPEC §10)
+  eq('etiqueta de la vista «estructuras»', KB.VIEW_LABELS.estructuras, 'Estructuras de desglose');
+  eq('«estructuras» como herramienta de 7.2, 7.3, 9.2, 11.1 y 11.2', KB.processesForView('estructuras').map((p) => p.code), ['7.2', '7.3', '9.2', '11.1', '11.2']);
+  for (const [code, tab] of Object.entries(BREAKDOWN_TOOLS)) {
+    const p = KB.process(code);
+    ok(code + ': «estructuras» abre la pestaña «' + tab + '»', p.toolViews.includes('estructuras') && p.toolParams.estructuras && p.toolParams.estructuras.tab === tab && KB.toolParams(code, 'estructuras').tab === tab, JSON.stringify(p.toolParams));
+  }
+  ok('«estructuras» no es salida de ningún proceso (es herramienta)', !KB.processes.some((p) => p.outputs.some((o) => o.view === 'estructuras')), '');
+  eq('toolParams sin definir: objeto vacío', [KB.toolParams('4.1', 'estructuras'), KB.toolParams('99.9', 'recursos')], [{}, {}]);
+  const tp = KB.toolParams('7.3', 'estructuras'); tp.tab = 'x';
+  eq('toolParams devuelve una copia', KB.toolParams('7.3', 'estructuras').tab, 'costos');
+  ok('todos los procesos tienen toolParams (objeto) con vistas de sus herramientas', KB.processes.every((p) => p.toolParams && typeof p.toolParams === 'object' && Object.keys(p.toolParams).every((v) => p.toolViews.includes(v) || p.outputs.some((o) => o.view === v))), '');
+  for (const code of RESOURCE_VIEW_PROCS) {
+    const p = KB.process(code);
+    const o = p.outputs.find((x) => x.view === 'recursos');
+    ok(code + ': salida en la vista «recursos» con etiqueta propia y la pestaña del catálogo', !!o && o.label && o.label.length > 20 && o.params && o.params.tab === 'catalogo' && p.toolViews.includes('recursos'), JSON.stringify(o));
+  }
+  ok('9.2: requisitos de recursos con catálogo e histograma', /catálogo/.test(KB.process('9.2').outputs.find((o) => o.view === 'recursos').label) && /histograma/.test(KB.process('9.2').outputs.find((o) => o.view === 'recursos').label), '');
+  ok('9.3: los calendarios de recursos se llevan en el catálogo', /Calendarios de recursos/.test(KB.process('9.3').outputs.find((o) => o.view === 'recursos').label) && !KB.process('9.3').outputs.some((o) => o.text === 'Calendarios de recursos'), '');
+  ok('9.6: recursos no planificados', /no planificados/.test(KB.process('9.6').outputs.find((o) => o.view === 'recursos').label), '');
+  const missingRes = RESOURCE_TERMS.filter((t) => !KB.glossary.some((g) => g.term === t));
+  ok('glosario: términos de recursos y estructuras de desglose', !missingRes.length, missingRes.join(', '));
+  const g = (t) => KB.glossary.find((x) => x.term === t) || {};
+  eq('glosario: vistas de los términos nuevos', ['Catálogo de recursos', 'Recurso no planificado', 'Estructura de desglose de costos', 'Estructura de desglose de recursos', 'Estructura de desglose de los riesgos', 'Capacidad del equipo'].map((t) => g(t).view), ['recursos', 'recursos', 'estructuras', 'estructuras', 'estructuras', 'iteraciones']);
+  eq('glosario: áreas de los términos nuevos', ['Precio global (a todo costo)', 'Precios unitarios', 'Costeo por recursos', 'Estructura de desglose de los riesgos', 'Capacidad del equipo'].map((t) => g(t).area), ['costos', 'costos', 'costos', 'riesgos', 'recursos']);
+  ok('fórmulas: desglose de costos (gráfico 7-8), precios unitarios y costeo por recursos', /reserva de gestión \+ línea base de costos/.test(g('Estructura de desglose de costos').formula || '') && /cantidad de obra × precio unitario/.test(g('Precios unitarios').formula || '') && /unidades por día × días hábiles × costo por unidad-día/.test(g('Costeo por recursos').formula || '') && /costo fijo \+ costo de los recursos/.test(g('Costeo por recursos').formula || ''), '');
+  ok('fórmula de la capacidad sugerida (velocidad media × proporción)', /velocidad media × proporción/.test(g('Capacidad del equipo').formula || ''), g('Capacidad del equipo').formula);
+  ok('recurso no planificado: motivos que cambian o no la línea base', /no cambian la línea base/.test(g('Recurso no planificado').definition) && /solicitud de cambio/.test(g('Recurso no planificado').definition) && /reserva para contingencias/.test(g('Recurso no planificado').definition), '');
+  ok('precio global: no cambia al agregar recursos', /no cambia su costo/.test(g('Precio global (a todo costo)').definition), '');
+  eq('term(cbs) y term(edc)', [KB.term('cbs') && KB.term('cbs').term, KB.term('edc') && KB.term('edc').term], ['Estructura de desglose de costos', 'Estructura de desglose de costos']);
+  eq('term(rbs) sigue siendo la de recursos (EDR/RBS)', KB.term('rbs') && KB.term('rbs').term, 'Estructura de desglose de recursos');
+  eq('term(catalogo de recursos) sin tildes', KB.term('catalogo de recursos') && KB.term('catalogo de recursos').term, 'Catálogo de recursos');
+  ok('searchGlossary(desglose) encuentra las tres estructuras', ['Estructura de desglose de costos', 'Estructura de desglose de recursos', 'Estructura de desglose de los riesgos'].every((t) => KB.searchGlossary('desglose').some((x) => x.term === t)), KB.searchGlossary('desglose').map((x) => x.term).join(','));
+  ok('documentos relacionados de las estructuras', g('Estructura de desglose de recursos').doc === 'estructura-desglose-recursos' && g('Estructura de desglose de los riesgos').doc === 'plan-gestion-riesgos', '');
+  ok('sin texto provisional en los términos de recursos', !BAD_TEXT.test(JSON.stringify(KB.glossary.filter((x) => RESOURCE_TERMS.includes(x.term)))), '');
   return out;
-}, { CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS });
+}, { CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS });
 
 let fails = 0;
 for (const r of results) { if (!r.ok) fails++; if (!r.ok || args.includes('--verbose')) console.log((r.ok ? 'ok   ' : 'FAIL ') + r.name + (r.ok ? '' : '\n      ' + r.detail)); }
