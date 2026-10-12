@@ -218,12 +218,13 @@ async function validateInPage(page) {
           if (!tid) { refBad.push('sin plantilla ' + m[0]); continue; }
           const d = docOf(tid);
           if (!d) continue; /* documento de otro módulo que esta página no carga */
-          if (m[2] === undefined) continue;
+          /* con revisión: esa revisión aprobada a la fecha del plan; sin revisión (documentos de otros grupos): alguna versión
+             aprobada a esa fecha, porque el plan los da por aprobados */
           const all = [...(await revsOf(tid)).map((r) => [r.rev, r.status, String(r.date).slice(0, 10)]), [d.rev, d.status, String(d.updatedAt).slice(0, 10)]];
-          if (!all.some(([rv, sts, dt]) => rv === m[2] && sts === 'aprobado' && dt <= v.date)) refBad.push(v.date + ' → ' + m[0]);
+          if (!all.some(([rv, sts, dt]) => (m[2] === undefined || rv === m[2]) && sts === 'aprobado' && dt <= v.date)) refBad.push(v.date + ' → ' + m[0]);
         }
       }
-      ok(!refBad.length, 'plan para la dirección: cada documento citado existe con la revisión aprobada a la fecha del plan', refBad);
+      ok(!refBad.length, 'plan para la dirección: cada documento citado (si su módulo está cargado) está aprobado a la fecha del plan', refBad);
     }
 
     /* ---------- requisitos de financiamiento */
