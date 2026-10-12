@@ -1009,11 +1009,16 @@
     };
   }
 
-  /* ---------- documentos (contenido en 95-example-erp-docs.js: PM.exampleDocs.erp(F) → {plantilla: entrada}) */
+  /* ---------- documentos (contenido en 95-example-erp-docs.js: PM.exampleDocs.erp(F) → {plantilla: entrada}; y en los
+     módulos 97-example-erp-docs-*.js, que se registran en PM.exampleDocs.erpParts con la misma firma (F, ctx), donde
+     ctx = {R, CODE, STATUS_DATE, data}: data trae schedule, wbs, costs, agile, items, baselines y resources) */
   const ts = (date, hhmm) => date + 'T' + (hhmm || '21:00') + ':00.000Z';
-  function docsData(project, F) {
-    const fn = PM.exampleDocs && PM.exampleDocs.erp;
-    const src = typeof fn === 'function' ? fn(F, { R, CODE, STATUS_DATE }) : {};
+  function docsData(project, F, data) {
+    const parts = [PM.exampleDocs && PM.exampleDocs.erp, ...((PM.exampleDocs && Array.isArray(PM.exampleDocs.erpParts)) ? PM.exampleDocs.erpParts : [])].filter((f) => typeof f === 'function');
+    const ctx = { R, CODE, STATUS_DATE, data: { ...(data || {}), resources: resourcesData() } };
+    /* cada plantilla la aporta un solo módulo: la primera entrada gana */
+    const src = {};
+    for (const fn of parts) { const part = fn(F, ctx) || {}; for (const k of Object.keys(part)) if (!(k in src)) src[k] = part[k]; }
     const out = [];
     for (const templateId of Object.keys(src)) {
       const t = PM.templates && PM.templates[templateId];
@@ -1068,7 +1073,7 @@
     const project = { ...META };
     const data = buildData();
     const F = computeFacts(data);
-    const docs = docsData(project, F);
+    const docs = docsData(project, F, data);
     return {
       format: 'gestor-pmbok',
       version: 1,
