@@ -54,7 +54,7 @@
     UNITS: ['persona', 'cuadrilla', 'equipo', 'hora', 'día', 'mes', 'unidad', 'm', 'm²', 'm³', 'kg', 't', 'galón', 'licencia', 'global'],
     ORIGINS: ['Interno', 'Contratado', 'Alquilado', 'Compra', 'Suministro del cliente'],
     STATUS: [
-      { value: 'planificado', label: 'Planificado' }, { value: 'solicitado', label: 'Solicitado' },
+      { value: 'planificado', label: 'Por solicitar' }, { value: 'solicitado', label: 'Solicitado' },
       { value: 'disponible', label: 'Disponible' }, { value: 'liberado', label: 'Liberado' },
     ],
     /* motivos de un recurso no planificado y su efecto en la línea base (Guía del PMBOK® 6.ª ed.: 9.6, 7.4, 11.6 y 4.6) */
@@ -179,6 +179,21 @@
     return sum > 0 ? [...out.entries()].map(([category, v]) => ({ category, value: v * f })) : [{ category: own || 'Sin categoría', value: total }];
   };
 
+  /* Uso de cada recurso en el cronograma: Map(id → {tasks:[{task, units, qty, cost}], count, qty, cost}) */
+  res.usage = function (cat, tasks) {
+    const out = new Map();
+    for (const t of arr(tasks)) {
+      if (!isObj(t)) continue;
+      for (const a of arr(t.resources)) {
+        if (!isObj(a)) continue;
+        const l = res.assignment(cat, t, a); if (!l.item) continue;
+        let u = out.get(l.item.id); if (!u) { u = { tasks: [], count: 0, qty: 0, cost: 0 }; out.set(l.item.id, u); }
+        u.tasks.push({ task: t, units: l.units, qty: l.qty, cost: l.cost }); u.count++; u.qty += l.qty; u.cost += l.cost;
+      }
+    }
+    return out;
+  };
+
   /* ---------------------------------------------------------------- disponibilidad y capacidad */
   /* unidades disponibles de un recurso de trabajo en un día (fuera de su rango o en ausencia: 0; sin dato: null) */
   res.availableOn = function (item, day) {
@@ -195,14 +210,16 @@
     const members = cat.items.filter((it) => !it.virtual && it.agileTeam && cat.kindOf(it) === 'trabajo' && it.status !== 'liberado');
     const out = { members: [], personDays: 0, normal: 0, hours: 0, ratio: null, suggested: null, unit: settings && settings.estimationUnit === 'horas' ? 'horas' : 'puntos' };
     if (!members.length || !sprint || !D.valid(sprint.start) || !D.valid(sprint.end) || !cal) return out;
-    const days = []; for (let d = sprint.start, g = 0; d <= sprint.end && g < 400; d = D.add(d, 1), g++) if (cal.isWork(d)) days.push(d);
+    const days = [], holidays = [];
+    for (let d = sprint.start, g = 0; d <= sprint.end && g < 400; d = D.add(d, 1), g++) { if (cal.isWork(d)) days.push(d); else if (cal.holidayName && cal.holidayName(d)) holidays.push({ date: d, name: cal.holidayName(d) }); }
+    out.workdays = days.length; out.holidays = holidays;
     const L = Math.max(1, Math.round(num(settings && settings.sprintLength, days.length || 10)));
     for (const m of members) {
       const ded = Math.min(100, Math.max(0, num(m.dedication, 100))) / 100;
       const units = isNum(m.availability) && Number(m.availability) > 0 ? Number(m.availability) : 1;
-      let avail = 0; for (const d of days) { const a = res.availableOn(m, d); avail += a === null ? units : Math.min(units, a); }
+      let avail = 0, absent = 0; for (const d of days) { const a = res.availableOn(m, d); avail += a === null ? units : Math.min(units, a); if (a === 0) absent++; }
       const pd = avail * ded, normal = units * ded * L, hours = pd * Math.max(0, num(m.hoursPerDay, 8));
-      out.members.push({ id: m.id, name: m.name, dedication: ded * 100, personDays: pd, normal, hours });
+      out.members.push({ id: m.id, name: m.name, dedication: ded * 100, personDays: pd, normal, hours, absentDays: absent });
       out.personDays += pd; out.normal += normal; out.hours += hours;
     }
     out.ratio = out.normal > 0 ? out.personDays / out.normal : null;
@@ -357,7 +374,8 @@
   /* ---------------------------------------------------------------- control integrado de cambios (4.6) */
   /* Registra una solicitud de cambio (documento solicitud-cambio) y su fila en el registro de cambios. → {code, docId} */
   PM.changeControl = {
-    async register({ pid, project, description, justification, scope, days, cost, affected, requester, type, date }) {
+    async register({ pid, project, description, justification, scope, days, cost, affected, requester, type, date, quiet }) {
+      const wopts = quiet ? { quiet: true } : undefined;
       if (!pid) throw new Error('Sin proyecto');
       const d = D.valid(date) ? date : D.today();
       const regPath = PM.paths.doc(pid, 'registro-cambios');
@@ -374,12 +392,12 @@
         elementosAfectados: arr(affected), descripcionCambio: description || '', justificacion: justification || '', impactoAlcance: scope || '',
         diasCronograma: num(days, 0), valorCosto: num(cost, 0), decision: 'Registrada',
       });
-      await PM.store.set(PM.paths.doc(pid, docId), body);
+      await PM.store.set(PM.paths.doc(pid, docId), body, wopts);
       const row = { id: code, fecha: d, solicitante: requester || 'Director de proyecto', descripcion: description || '', tipo: type || 'Actualización', impactoAlcance: scope || '', impactoCronograma: num(days, 0), impactoCosto: num(cost, 0), estado: 'Registrada', fechaDecision: null, decisor: '' };
       const base = reg ? PM.clone(reg) : PM.newDocBody(PM.templates['registro-cambios'], project, { template: 'registro-cambios' });
       base.fields = { ...(base.fields || {}), cambios: [...rows, row] };
       base.updatedAt = PM.nowIso();
-      await PM.store.set(regPath, base);
+      await PM.store.set(regPath, base, wopts);
       PM.touchProject && PM.touchProject(pid);
       return { code, docId };
     },
@@ -392,16 +410,20 @@
     const m = PM.useProjectModel();
     const { useCallback, useRef } = PM.lib;
     const live = useRef(m); live.current = m;
-    const saveItem = useCallback((item) => {
-      const cur = live.current; const data = cur.resources || PM.EMPTY.resources;
+    /* último valor escrito: varias escrituras seguidas en el mismo ciclo se encadenan sobre él (no sobre el valor pintado) */
+    const latest = useRef({ src: null, data: null });
+    const current = () => { const src = live.current.resources || PM.EMPTY.resources; if (latest.current.src !== src) latest.current = { src, data: src }; return latest.current.data; };
+    const write = (data) => { latest.current = { src: live.current.resources || PM.EMPTY.resources, data }; return Promise.resolve(live.current.saveResources(data)); };
+    const prepare = (data, item) => {
       const clean = { ...item }; delete clean.virtual;
       if (!clean.id || String(clean.id).startsWith('v:')) { clean.id = PM.uid('rec'); clean.code = clean.code || res.nextCode(data.items); }
       const items = arr(data.items).filter(isObj);
       const i = items.findIndex((x) => x.id === item.id || x.id === clean.id);
-      const next = i >= 0 ? items.map((x, j) => (j === i ? clean : x)) : [...items, clean];
-      return Promise.resolve(cur.saveResources({ ...data, items: next })).then(() => clean);
-    }, []);
-    const removeItem = useCallback((id) => { const cur = live.current; const data = cur.resources || PM.EMPTY.resources; return cur.saveResources({ ...data, items: arr(data.items).filter((x) => isObj(x) && x.id !== id) }); }, []);
-    return { ...m, saveItem, removeItem };
+      return { clean, data: { ...data, items: i >= 0 ? items.map((x, j) => (j === i ? clean : x)) : [...items, clean] } };
+    };
+    const saveItem = useCallback((item) => { const p = prepare(current(), item); return write(p.data).then(() => p.clean); }, []);
+    const saveItems = useCallback((list) => { let data = current(); const out = []; for (const it of arr(list)) { const p = prepare(data, it); data = p.data; out.push(p.clean); } return write(data).then(() => out); }, []);
+    const removeItem = useCallback((id) => { const data = current(); return write({ ...data, items: arr(data.items).filter((x) => isObj(x) && x.id !== id) }); }, []);
+    return { ...m, saveItem, saveItems, removeItem };
   };
 })();

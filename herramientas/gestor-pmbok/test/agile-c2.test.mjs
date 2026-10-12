@@ -613,9 +613,13 @@ await section('C. tablero', async () => {
     if (await btn.count()) await btn.click();
     await page.waitForSelector('.dashboard-step');
     const ids = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
-    eq('ruta híbrida: pasos ágiles después del alcance y en la ejecución', ids, ['acta', 'interesados', 'alcance', 'edt', 'enfoque', 'vision', 'backlog', 'terminado', 'releases', 'cronograma', 'presupuesto', 'riesgos', 'lineabase', 'linea-base-release', 'primera-iteracion', 'avance', 'revision-retro', 'informe', 'cambios', 'entregables', 'informe-final', 'acta-cierre']);
+    /* «Catálogo de recursos» (9.2, §10.4) después del cronograma; el paso opcional «Estructuras de desglose revisadas»
+       (solo si la página incluye la vista 36) va en su propia fila al final de la planificación */
+    const hasBrk = await page.evaluate(() => !!PM.getView('estructuras'));
+    eq('ruta híbrida: pasos ágiles después del alcance y en la ejecución', ids, ['acta', 'interesados', 'alcance', 'edt', 'enfoque', 'vision', 'backlog', 'terminado', 'releases', 'cronograma', 'catalogo-recursos', 'presupuesto', 'riesgos', 'lineabase', 'linea-base-release', ...(hasBrk ? ['estructuras'] : []), 'primera-iteracion', 'avance', 'revision-retro', 'informe', 'cambios', 'entregables', 'informe-final', 'acta-cierre']);
     const phases = await page.$$eval('[data-card="route"] [data-phase]', (els) => els.map((e) => e.getAttribute('data-phase') + ':' + e.querySelectorAll('.dashboard-step').length));
-    eq('fases contiguas', phases, ['plan:14', 'control:8']);
+    eq('fases contiguas', phases, ['plan:' + (hasBrk ? 16 : 15), 'control:8']);
+    eq('ruta híbrida: 23 pasos obligatorios en el resumen', /de 23 pasos/.test(nb(await page.textContent('[data-route-summary]'))), true);
     const st = await page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
     eq('estados de los pasos ágiles detectados con los datos', ['enfoque', 'vision', 'backlog', 'terminado', 'releases', 'linea-base-release', 'primera-iteracion', 'revision-retro'].map((k) => st[k]), ['done', 'pending', 'done', 'pending', 'done', 'done', 'done', 'partial']);
     eq('enfoque: entregables adaptativos', nb(await page.textContent('.dashboard-step[data-step="enfoque"] .chip')), '1 entregable adaptativo');
@@ -662,7 +666,14 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     await page.waitForSelector('[data-card="route"]');
     const ids = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
     /* revisión integral: el cierre (4.7) aplica a cualquier ciclo de vida; la ruta adaptativa termina en el acta de cierre */
-    eq('ruta adaptativa (con informe de desempeño, entregables aceptados, informe final y acta de cierre)', ids, ['acta', 'interesados', 'riesgos', 'plan-cambios', 'vision', 'backlog', 'terminado', 'releases', 'linea-base-release', 'primera-iteracion', 'revision-retro', 'informe', 'entregables', 'informe-final', 'acta-cierre']);
+    eq('ruta adaptativa (catálogo de recursos para la capacidad del equipo; informe de desempeño, entregables aceptados, informe final y acta de cierre)', ids, ['acta', 'interesados', 'riesgos', 'plan-cambios', 'vision', 'backlog', 'terminado', 'catalogo-recursos', 'releases', 'linea-base-release', 'primera-iteracion', 'revision-retro', 'informe', 'entregables', 'informe-final', 'acta-cierre']);
+    check('ruta adaptativa: el catálogo habla de la capacidad de las iteraciones', /capacidad de las iteraciones/.test(nb(await page.textContent('.dashboard-step[data-step="catalogo-recursos"]'))), null);
+    eq('ruta adaptativa: catálogo vacío → pendiente', await page.getAttribute('.dashboard-step[data-step="catalogo-recursos"]', 'data-state'), 'pending');
+    /* una persona del equipo ágil guardada con tipo en el catálogo: el paso queda hecho */
+    await page.evaluate(async () => PM.store.set(PM.paths.tool(PM.getState().projectId, 'resources'), { preset: 'ti', types: [], items: [{ id: 'p1', code: 'REC-001', name: 'Desarrollador líder', typeId: 'personas', unit: 'persona', availability: 1, agileTeam: true, dedication: 100, hoursPerDay: 8, planned: true, status: 'disponible', absences: [] }] }));
+    await page.waitForFunction(() => { const b = document.querySelector('.dashboard-step[data-step="catalogo-recursos"]'); return b && b.dataset.state === 'done'; }, null, { timeout: 5000 });
+    eq('ruta adaptativa: catálogo con una persona del equipo con tipo → hecho', nb(await page.textContent('.dashboard-step[data-step="catalogo-recursos"] .chip')), '1 recurso con tipo');
+    eq('ruta adaptativa: sin no planificados no hay alerta de recursos', (await page.$$('[data-card="unplanned-resources"]')).length, 0);
     eq('fases de la ruta adaptativa', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución por iteraciones y cierre']);
     check('resumen de la ruta adaptativa', /preparar el backlog y los releases, iterar, aceptar los entregables y cerrar/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
     await page.click('.dashboard-step[data-step="acta-cierre"]'); await page.waitForTimeout(250);
@@ -686,11 +697,11 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     check('Kanban: WIP medido en todo el flujo', /Límite WIP superado en «En curso»/.test(nb(await page.textContent('[data-card="agile"] [data-agile="alerts"]'))), null);
     check('Kanban: rendimiento en lugar de velocidad', (await page.$$('[data-card="agile"] [data-agile="velocity"]')).length === 0 && /Rendimiento/.test(nb(await page.textContent('[data-card="agile"] [data-agile="throughput"]'))), null);
 
-    /* predictivo: sin tarjeta ágil y ruta sin cambios (14 pasos) */
+    /* predictivo: sin tarjeta ágil y ruta predictiva (15 pasos, con el catálogo de recursos) */
     await seed(page, { lifecycle: 'Predictivo', code: 'PRY-PR-007' }, { blank: true });
     await page.waitForSelector('[data-card="route"]');
     check('predictivo: sin tarjeta ágil', (await page.$$('[data-card="agile"]')).length === 0, null);
-    eq('predictivo: 14 pasos', await page.$$eval('.dashboard-step', (e) => e.length), 14);
+    eq('predictivo: 15 pasos', await page.$$eval('.dashboard-step', (e) => e.length), 15);
     check('predictivo: sin chip de enfoque', !/Enfoque/.test(nb(await page.textContent('[data-card="route"] h3'))), null);
     eq('sin errores de consola', errors, []);
   } finally { await browser.close(); }
@@ -810,7 +821,8 @@ await section('C4. tablero: Kanban (flujo continuo) en la tarjeta y en la ruta; 
     eq('Kanban con BAC: SPI ágil sin iteraciones (flujo continuo)', nb(await page.textContent(card + ' [data-index="spi-agil"] .stat-sub')), 'Sin iteraciones (flujo continuo)');
     check('Kanban con BAC: CPI ágil calculado', /^\d,\d\d$/.test(nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-value'))), nb(await page.textContent(card + ' [data-index="cpi-agil"] .stat-value')));
     if (await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).count()) await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
-    const hyb = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
+    /* pasos obligatorios (el opcional de las estructuras de desglose va en su propia fila) */
+    const hyb = await page.$$eval('.dashboard-step:not([data-optional])', (els) => els.map((e) => e.getAttribute('data-step')));
     eq('ruta híbrida en Kanban', hyb.slice(hyb.indexOf('lineabase'), hyb.indexOf('informe')), ['lineabase', 'linea-base-release', 'flujo-kanban', 'avance', 'revision-flujo']);
     eq('sin tarjetas de error', await errorCards(page), []);
     eq('sin errores de consola', errors, []);

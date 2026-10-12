@@ -127,7 +127,8 @@ PM.useProjectModel()            // {project, pid, schedule, effSchedule, saveSch
                                 // effSchedule = schedule con el avance ágil aplicado (§9.3); sched/forecast/evm/rollup se calculan con él.
                                 // Para editar el cronograma usa siempre `schedule` (lo guardado), nunca effSchedule.
 PM.useAgileModel()              // §9.2
-PM.useResourceModel()           // §10: useProjectModel + saveItem(recurso) (guarda; un recurso virtual recibe id y código) + removeItem(id)
+PM.useResourceModel()           // §10: useProjectModel + saveItem(recurso) (guarda; un recurso virtual recibe id y código), saveItems(lista) y removeItem(id);
+                                // las escrituras seguidas en el mismo ciclo se encadenan (no se pisan)
                                 // sched: red según lo programado (lo atrasado conserva sus fechas → «vencido»);
                                 // forecast: la misma red actualizada a la fecha de corte (fin, ruta crítica e hitos pronosticados, 6.6)
 PM.useProjectDocs()             // {list, byTemplate, get(templateId), loading}
@@ -628,6 +629,7 @@ Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto
   (`cost` = calculado, `costManual`, `costComputed: true`). `useProjectModel` lo aplica en `effSchedule`, así entra al CPM, la curva S,
   el valor ganado sin línea base y las nuevas líneas base. **La línea base guardada no cambia**: muestra la diferencia.
 - `costSplit(task, cat, cost?)` → `[{category, value}]` (por tipo de recurso; precio global por `costCategory`).
+- `usage(cat, tasks)` → `Map(id → {tasks:[{task, units, qty, cost}], count, qty, cost})` (uso de cada recurso en el cronograma).
 - `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members, personDays, normal, hours, ratio, suggested, unit}`
   (miembros: `agileTeam` y de trabajo; sugerida en horas, o en puntos = velocidad media × proporción de disponibilidad).
 - Árboles para diagramas (nodo `{id, label, code?, sub?, value, metric:'money'|'count'|'score', pct, tone?, badge?, kind:'root'|'group'|'reserve'|'leaf', children}`):
@@ -635,7 +637,7 @@ Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto
   source:'plan'|'baseline', controlDepth, showActivities, by:'edt'|'categoria'})` (costos, gráfico 7-8 del PMBOK),
   `riskTree({planRows, risks})` (riesgos: `plan-gestion-riesgos.edrRiesgos` (nivel1, nivel2, categoriaRegistro) → riesgos de
   `registro-riesgos.riesgos`, ubicados por `subcategoria` (columna opcional nueva) o por su `categoria`).
-- `PM.changeControl.register({pid, project, description, justification, scope, days, cost, affected, requester, type, date})` →
+- `PM.changeControl.register({pid, project, description, justification, scope, days, cost, affected, requester, type, date, quiet})` →
   `{code, docId}`: crea `solicitud-cambio--<uid>` (decisión «Registrada») y agrega la fila CC-00x a `registro-cambios`.
 
 ### 10.3 Recursos no planificados (9.6) y línea base

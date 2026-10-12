@@ -211,7 +211,8 @@ try {
     await row(i).locator('[data-col="num"]').dblclick();
     await page.waitForSelector('.modal');
     await page.click('.modal button:has-text("Agregar recurso")');
-    await page.fill('.modal input[aria-label="Nombre del recurso 1"]', name);
+    /* selector del catálogo (combobox): un nombre que no está en el catálogo queda como recurso «sin clasificar» */
+    await page.fill('.modal input[aria-label="Recurso 1"]', name);
     await page.fill('.modal input[aria-label="Unidades del recurso 1"]', String(units));
     await page.click('.modal button:has-text("Guardar cambios")');
     await page.waitForSelector('.modal', { state: 'detached' });
@@ -219,7 +220,7 @@ try {
   await addResource(1, 'Cuadrilla de montaje', 6);
   await addResource(2, 'Cuadrilla de montaje', 4);
   sch = await stored();
-  check('recursos guardados desde el editor', sch.tasks[1].resources[0].units === 6 && sch.tasks[2].resources[0].name === 'Cuadrilla de montaje', sch.tasks.map((t) => t.resources));
+  check('recursos guardados desde el editor', sch.tasks[1].resources[0].units === 6 && sch.tasks[2].resources[0].name === 'Cuadrilla de montaje' && !('resourceId' in sch.tasks[1].resources[0]), sch.tasks.map((t) => t.resources));
 
   /* ---------- diagrama de red */
   await gotoView(page, 'red');
@@ -233,7 +234,10 @@ try {
 
   /* ---------- recursos: histograma y sobreasignación */
   await gotoView(page, 'recursos');
+  check('recursos: pestañas Catálogo, Histograma y Consumo', (await page.locator('.tabs .tab').count()) === 3 && (await page.locator('.tabs .tab', { hasText: 'Catálogo' }).getAttribute('aria-selected')) === 'true');
+  await page.click('.tabs .tab:has-text("Histograma")');
   await page.fill('input[aria-label="Disponibilidad de Cuadrilla de montaje"]', '8');
+  await page.press('input[aria-label="Disponibilidad de Cuadrilla de montaje"]', 'Enter');
   await page.waitForTimeout(300);
   check('conflicto de sobreasignación listado', (await page.locator('.sched-conflicts tbody tr').count()) >= 1);
   check('periodo sobreasignado resaltado en el histograma', (await page.locator('.sched-hist-over').count()) >= 1);
@@ -241,7 +245,9 @@ try {
   await page.waitForTimeout(150);
   check('histograma de un recurso con la parte sobreasignada', (await page.locator('path.sched-hist-over').count()) >= 1);
   sch = await stored();
-  check('disponibilidad guardada en settings.resourceLimits', sch.settings.resourceLimits && sch.settings.resourceLimits['Cuadrilla de montaje'] === 8, sch.settings.resourceLimits);
+  const catRes = await page.evaluate(async (pid) => PM.store.get(PM.paths.tool(pid, 'resources')), pid);
+  const cuad = catRes && (catRes.items || []).find((x) => x.name === 'Cuadrilla de montaje');
+  check('disponibilidad guardada en el catálogo de recursos (el recurso «sin clasificar» se registra)', !!cuad && cuad.availability === 8 && /^REC-\d{3}$/.test(cuad.code) && !(sch.settings.resourceLimits || {})['Cuadrilla de montaje'], { cuad, lim: sch.settings.resourceLimits });
   await shot('recursos');
 
   /* ---------- eliminar con limpieza de dependencias */
@@ -469,7 +475,7 @@ try {
   await page.click('.tabs .tab:has-text("Actividades")');
   check('Actividades vacía con acción «Agregar actividad»', await page.locator('.empty button:has-text("Agregar actividad")').isVisible());
   await gotoView(page, 'recursos');
-  check('Recursos vacío explica cómo asignar recursos', (await page.locator('.empty').innerText()).includes('Recursos'));
+  check('Recursos vacío explica cómo asignar recursos', (await page.locator('.empty').innerText()).includes('Aún no hay recursos de trabajo asignados') && (await page.locator('.empty').innerText()).includes('«Recursos»'));
   await gotoView(page, 'red');
   check('Diagrama de red vacío', (await page.locator('.empty-title').innerText()).includes('Aún no hay actividades'));
   await page.evaluate(() => PM.setState({ canWrite: false }));

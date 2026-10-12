@@ -227,9 +227,10 @@ try {
   check('ruta sugerida: plegada al haber datos', await page.locator('[data-card="route"][data-prominent="false"]').count() === 1 && await page.locator('.dashboard-step').count() === 0);
   await page.locator('[data-card="route"]').getByRole('button', { name: 'Mostrar pasos' }).click();
   const states = await page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
-  /* el paso opcional «Estructuras de desglose revisadas» aparece solo si la página incluye la vista (36) */
+  /* el paso opcional «Estructuras de desglose revisadas» aparece solo si la página incluye la vista (36), en su propia fila
+     debajo de los pasos de planificación */
   const hasBrk = await page.evaluate(() => !!PM.getView('estructuras'));
-  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', 'catalogo-recursos': 'pending', presupuesto: 'done', riesgos: 'done', ...(hasBrk ? { estructuras: 'pending' } : {}), lineabase: 'pending', avance: 'done', informe: 'pending', cambios: 'partial', entregables: 'pending', 'informe-final': 'pending', 'acta-cierre': 'pending' }), states);
+  check('ruta sugerida: estados calculados', JSON.stringify(states) === JSON.stringify({ acta: 'pending', interesados: 'pending', alcance: 'pending', edt: 'done', cronograma: 'done', 'catalogo-recursos': 'pending', presupuesto: 'done', riesgos: 'done', lineabase: 'pending', ...(hasBrk ? { estructuras: 'pending' } : {}), avance: 'done', informe: 'pending', cambios: 'partial', entregables: 'pending', 'informe-final': 'pending', 'acta-cierre': 'pending' }), states);
   check('ruta sugerida: control de cambios con solicitudes pendientes de decisión', (await page.locator('.dashboard-step[data-step="cambios"] .chip').innerText()).trim() === '2 pendientes de decisión');
   check('ruta sugerida: no se declara completa', !(await page.locator('[data-route-summary]').innerText()).includes('Completaste'));
   check('ruta sugerida: siguiente paso = acta', (await page.locator('.dashboard-step[data-next="true"]').getAttribute('data-step')) === 'acta');
@@ -685,7 +686,7 @@ try {
   for (const [vw, vh] of [[2560, 1440], [1920, 1080], [1360, 900], [1100, 900]]) {
     await page.setViewportSize({ width: vw, height: vh });
     await wait(page, 400);
-    const grid = await page.$$eval('[data-card="route"] .dashboard-steps', (ols) => ols.map((ol) => {
+    const grid = await page.$$eval('[data-card="route"] .dashboard-steps:not(.is-optional)', (ols) => ols.map((ol) => {
       const r = ol.getBoundingClientRect(); const items = [...ol.children].map((c) => c.getBoundingClientRect());
       const rows = []; for (const b of items) { const row = rows.find((x) => Math.abs(x.top - b.top) < 2); if (row) { row.n++; row.right = Math.max(row.right, b.right); } else rows.push({ top: b.top, n: 1, right: b.right }); }
       return { n: items.length, rows: rows.map((x) => x.n), gap: Math.round(r.right - rows[0].right), minW: Math.round(Math.min(...items.map((b) => b.width))) };
@@ -799,6 +800,7 @@ try {
     const nReq = await page.$$eval('.dashboard-step:not([data-optional])', (e) => e.length);
     const sumTxt = await page.locator('[data-route-summary]').innerText();
     check('estructuras: paso opcional con distintivo «Opcional», sin número y fuera del conteo de la ruta', rst.estructuras === 'pending' && await page.locator('.dashboard-step[data-step="estructuras"][data-optional="true"] [data-optional-chip]').count() === 1 && new RegExp('de ' + nReq + ' pasos').test(sumTxt) && nReq === 15, { sumTxt, nReq });
+    check('estructuras: el opcional va en su propia fila debajo de la planificación (las filas de pasos obligatorios siguen parejas)', await page.locator('[data-phase="plan"] [data-phase-optional="plan"] .dashboard-step[data-step="estructuras"]').count() === 1 && await page.locator('[data-phase="plan"] ol.dashboard-steps .dashboard-step[data-step="estructuras"]').count() === 0 && /Opcional: no cuenta en el avance/.test(await page.locator('[data-phase-optional="plan"]').innerText()));
     check('estructuras: el paso opcional nunca es el «siguiente paso»', (await page.locator('.dashboard-step[data-step="estructuras"]').getAttribute('data-next')) === null);
     await page.evaluate(async (pid) => {
       const mk = (template, fields) => ({ template, title: template, status: 'borrador', rev: null, fields, titleBlock: {}, createdAt: PM.nowIso(), updatedAt: PM.nowIso() });

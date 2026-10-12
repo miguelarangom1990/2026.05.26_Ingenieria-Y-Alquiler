@@ -202,6 +202,16 @@ button.sched-day:hover { border-color: var(--line-strong); }
 .sched-cost-tbl td, .sched-cost-tbl th { white-space: nowrap; }
 .sched-cost-tbl td.wrap { white-space: normal; min-width: 150px; }
 .sched-cost-tbl tfoot td { font-weight: 600; background: var(--surface-2); border-top: 1px solid var(--line); }
+@media (max-width: 560px) {
+  .sched-cost-tbl thead { display: none; }
+  .sched-cost-tbl, .sched-cost-tbl tbody, .sched-cost-tbl tfoot { display: block; width: 100%; }
+  .sched-cost-tbl tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  .sched-cost-tbl tfoot tr { background: var(--surface-2); }
+  .sched-cost-tbl td, .sched-cost-tbl tfoot td { display: block; padding: 0; border: 0; background: transparent; white-space: normal; min-width: 0; }
+  .sched-cost-tbl tbody td:first-child { flex-basis: 100%; font-weight: 600; }
+  .sched-cost-tbl tbody td:nth-child(4)::before { content: '× '; color: var(--fg-3); }
+  .sched-cost-tbl tbody td:last-child, .sched-cost-tbl tfoot td:last-child { margin-left: auto; font-weight: 600; }
+}
 .sched-nocost { color: var(--warn); display: inline-flex; gap: 4px; align-items: center; font-weight: 500; }
 .sched-blcmp { display: flex; flex-direction: column; gap: 3px; padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--r-md); background: var(--surface); font-size: var(--fs-sm); }
 .sched-blcmp strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -309,6 +319,10 @@ button.sched-day:hover { border-color: var(--line-strong); }
   /* unidad en plural cuando la cantidad no es 1 (solo palabras: m³, kg o m² no cambian) */
   const PLURAL = { unidad: 'unidades', persona: 'personas', cuadrilla: 'cuadrillas', equipo: 'equipos', hora: 'horas', 'día': 'días', mes: 'meses', 'galón': 'galones', licencia: 'licencias' };
   const unitN = (n, unit) => (Math.abs(n - 1) < 1e-9 ? unit : PLURAL[unit] || unit);
+  /* ui.NumberInput muestra el valor sin separadores al enfocarse y eso borra la selección del navegador: al entrar con
+     Tab y escribir, los dígitos se sumaban al final. Se vuelve a seleccionar todo justo después de ese dibujo (microtarea,
+     antes de la siguiente tecla; solución local). */
+  const selectOnFocus = (e) => { const el = e.currentTarget; Promise.resolve().then(() => Promise.resolve()).then(() => { if (document.activeElement === el && el.select) el.select(); }); };
   const setOpt = (o, k, v) => { if (v === null || v === undefined || v === '') delete o[k]; else o[k] = v; };
   /* clave de un nombre de recurso (la misma de PM.res.key: sin mayúsculas ni espacios en los extremos) */
   const resKey = (s) => String(s || '').trim().toLowerCase();
@@ -680,39 +694,44 @@ button.sched-day:hover { border-color: var(--line-strong); }
   function ResPicker({ id, label, value, selId, cat, disabled, canCreate, currency, onText, onPick, onCreate, render }) {
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(0);
+    /* typed: se escribió desde la última elección; si no, la lista muestra todo el catálogo (con el elegido marcado) */
+    const [typed, setTyped] = useState(false);
     const inputRef = useRef();
     const raw = String(value || '');
     const sel = selId && cat ? cat.byId.get(selId) || null : null;
-    /* recién elegido: la lista muestra todo el catálogo; si se escribe, filtra */
-    const q = sel && resKey(sel.name) === resKey(raw) ? '' : normTxt(raw).trim();
+    const q = typed ? normTxt(raw).trim() : '';
     const exact = raw.trim() && cat ? cat.byKey.get(resKey(raw)) || null : null;
     const view = useMemo(() => {
       if (!open || !cat) return null;
-      const groups = []; const flat = []; let more = 0; let g = null;
+      const groups = []; const flat = []; let more = 0; let g = null; let exactK = -1;
+      const rk = resKey(raw);
       for (const r of pickIndex(cat).rows) {
         if (q && !r.hay.includes(q)) continue;
-        if (flat.length >= PICK_MAX) { more++; continue; }
+        if (flat.length >= PICK_MAX && !(rk && resKey(r.it.name) === rk)) { more++; continue; }
         if (!g || g.ty.id !== r.ty.id) { g = { ty: r.ty, items: [] }; groups.push(g); }
+        if (rk && resKey(r.it.name) === rk) exactK = flat.length;
         g.items.push({ r, k: flat.length });
         flat.push({ r });
       }
       const createTxt = canCreate ? (!raw.trim() ? 'Crear recurso nuevo…' : !exact ? 'Crear recurso nuevo «' + raw.trim() + '»…' : exact.virtual ? 'Registrar «' + exact.name + '» en el catálogo…' : null) : null;
       if (createTxt) flat.push({ create: true, text: createTxt });
-      return { groups, flat, more };
+      return { groups, flat, more, exactK };
     }, [open, cat, q, raw, exact, canCreate]);
     const n = view ? view.flat.length : 0;
-    const act = n ? Math.min(active, n - 1) : -1;
+    /* active < 0: automática (el recurso con el nombre escrito o el elegido; si no hay, la primera opción) */
+    const auto = view && view.exactK >= 0 ? view.exactK : 0;
+    const act = n ? Math.min(active < 0 ? auto : active, n - 1) : -1;
     const optId = (k) => id + '-o' + k;
     useLayoutEffect(() => { if (open && act >= 0) { const el = document.getElementById(optId(act)); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); } }, [open, act]);
     const choose = (o) => {
-      setOpen(false);
+      setOpen(false); setTyped(false);
       if (!o) return;
       if (o.create) onCreate(raw.trim());
       else onPick(o.r.it);
     };
     const onKey = (e) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); setActive(0); } else setActive((a) => Math.min(n - 1, a + 1)); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) setActive((a) => Math.max(0, a - 1)); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); setActive(-1); } else setActive(Math.min(n - 1, act + 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) setActive(Math.max(0, act - 1)); }
       else if (e.key === 'Home' && open) { e.preventDefault(); setActive(0); }
       else if (e.key === 'End' && open) { e.preventDefault(); setActive(Math.max(0, n - 1)); }
       else if (e.key === 'Enter') { if (open && act >= 0) { e.preventDefault(); choose(view.flat[act]); } }
@@ -724,11 +743,11 @@ button.sched-day:hover { border-color: var(--line-strong); }
       <input ref=${inputRef} id=${id} class="input" type="text" role="combobox" autocomplete="off" aria-autocomplete="list" aria-label=${label}
         aria-expanded=${open ? 'true' : 'false'} aria-controls=${open ? listId : undefined} aria-activedescendant=${open && act >= 0 ? optId(act) : undefined}
         value=${raw} placeholder="Busca o escribe un recurso" disabled=${disabled}
-        onInput=${(e) => { onText(e.currentTarget.value); setOpen(true); setActive(0); }}
-        onClick=${() => { if (!disabled && !open) { setOpen(true); setActive(0); } }}
-        onKeyDown=${onKey} onBlur=${() => setOpen(false)} />
+        onInput=${(e) => { onText(e.currentTarget.value); setTyped(true); setOpen(true); setActive(-1); }}
+        onClick=${() => { if (!disabled && !open) { setOpen(true); setActive(-1); } }}
+        onKeyDown=${onKey} onBlur=${() => { setOpen(false); setTyped(false); }} />
       ${disabled ? null : html`<button type="button" class="sched-pick-tog" tabindex="-1" aria-label=${(open ? 'Ocultar' : 'Mostrar') + ' los recursos del catálogo'} title="Recursos del catálogo"
-        onMouseDown=${(e) => e.preventDefault()} onClick=${() => { setOpen((o) => !o); setActive(0); if (inputRef.current) inputRef.current.focus(); }}><${ui.Icon} name=${open ? 'chevron-up' : 'chevron-down'} size=${14} /></button>`}
+        onMouseDown=${(e) => e.preventDefault()} onClick=${() => { setOpen((o) => !o); setActive(-1); if (inputRef.current) inputRef.current.focus(); }}><${ui.Icon} name=${open ? 'chevron-up' : 'chevron-down'} size=${14} /></button>`}
     </div>`;
     const pop = open && view ? html`<div class="sched-pick-pop" id=${listId} role="listbox" aria-label=${'Recursos del catálogo · ' + label} onMouseDown=${(e) => e.preventDefault()}>
       <div class="sched-pick-scroll">
@@ -955,8 +974,8 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <div class="sched-te-rmain">
             ${input}
             <div class="sched-te-qty">${kind === 'consumible'
-              ? html`<${ui.NumberInput} id=${'te-q-' + r.key} aria-label=${'Cantidad del recurso ' + (i + 1) + ' (' + unitOf(item) + ')'} value=${q} min=${0} placeholder="Cantidad" onValue=${(v) => setResK(r.key, { qty: v, fb: false })} disabled=${ro} /><span class="sched-te-unit" title=${unitOf(item)}>${unitOf(item)}</span>`
-              : html`<${ui.NumberInput} id=${'te-q-' + r.key} aria-label=${'Unidades del recurso ' + (i + 1)} title="Unidades por día hábil (personas, cuadrillas o equipos)" value=${r.units} min=${0} onValue=${(v) => setResK(r.key, { units: v })} disabled=${ro} /><span class="sched-te-unit">por día</span>`}</div>
+              ? html`<${ui.NumberInput} onFocus=${selectOnFocus} id=${'te-q-' + r.key} aria-label=${'Cantidad del recurso ' + (i + 1) + ' (' + unitOf(item) + ')'} value=${q} min=${0} placeholder="Cantidad" onValue=${(v) => setResK(r.key, { qty: v, fb: false })} disabled=${ro} /><span class="sched-te-unit" title=${unitOf(item)}>${unitOf(item)}</span>`
+              : html`<${ui.NumberInput} onFocus=${selectOnFocus} id=${'te-q-' + r.key} aria-label=${'Unidades del recurso ' + (i + 1)} title="Unidades por día hábil (personas, cuadrillas o equipos)" value=${r.units} min=${0} onValue=${(v) => setResK(r.key, { units: v })} disabled=${ro} /><span class="sched-te-unit">por día</span>`}</div>
             <div class="sched-te-lcost" data-line-cost=${l && l.priced ? String(Math.round(l.cost)) : ''} title=${formula}>${l && l.priced ? money(l.cost) : named && item ? html`<span class="faint">Sin costo</span>` : html`<span class="faint" aria-hidden="true">—</span>`}</div>
             ${ro ? html`<span></span>` : html`<${ui.IconButton} icon="trash" label=${'Quitar recurso ' + (i + 1)} onClick=${() => setD((y) => ({ ...y, resources: y.resources.filter((z) => z.key !== r.key) }))} />`}
           </div>
@@ -992,7 +1011,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       let body;
       if (mode === 'global') {
         body = html`<div class="sched-cost-grid">
-            <${ui.Field} label=${'Precio global (' + currency + ')'} for="te-cost" hint="A todo costo, escrito a mano: no cambia al agregar o quitar recursos."><${ui.NumberInput} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
+            <${ui.Field} label=${'Precio global (' + currency + ')'} for="te-cost" hint="A todo costo, escrito a mano: no cambia al agregar o quitar recursos."><${ui.NumberInput} onFocus=${selectOnFocus} id="te-cost" money currency=${currency} value=${d.cost} min=${0} onValue=${set('cost')} disabled=${ro} /></${ui.Field}>
             ${catField}
           </div>
           ${ci.resourcesTotal > 0 ? html`<div class="sched-note" data-cost-info="1"><${ui.Icon} name="info" size=${15} /><div>Los recursos asignados suman ${money(ci.resourcesTotal)} con los costos del catálogo. Con precio global ese valor es solo informativo: el costo de la actividad sigue siendo ${money(total)}.</div></div>` : null}`;
@@ -1000,14 +1019,14 @@ button.sched-day:hover { border-color: var(--line-strong); }
         body = html`${breakdown()}${totalBox('Costo calculado por recursos')}`;
       } else if (mode === 'mixto') {
         body = html`<div class="sched-cost-grid">
-            <${ui.Field} label=${'Parte fija (' + currency + ')'} for="te-cost-fixed" hint="Lo que no depende de los recursos asignados (p. ej. administración o un suministro a todo costo)."><${ui.NumberInput} id="te-cost-fixed" money currency=${currency} value=${d.costFixed} min=${0} onValue=${set('costFixed')} disabled=${ro} /></${ui.Field}>
+            <${ui.Field} label=${'Parte fija (' + currency + ')'} for="te-cost-fixed" hint="Lo que no depende de los recursos asignados (p. ej. administración o un suministro a todo costo)."><${ui.NumberInput} onFocus=${selectOnFocus} id="te-cost-fixed" money currency=${currency} value=${d.costFixed} min=${0} onValue=${set('costFixed')} disabled=${ro} /></${ui.Field}>
             ${catField}
           </div>${breakdown()}${totalBox('Costo total: parte fija + recursos', money(ci.fixed) + ' + ' + money(ci.resourcesTotal))}`;
       } else {
         body = html`<div class="sched-cost-grid">
-            <${ui.Field} label="Cantidad de obra" for="te-qty"><${ui.NumberInput} id="te-qty" value=${d.quantity} min=${0} onValue=${set('quantity')} disabled=${ro} /></${ui.Field}>
+            <${ui.Field} label="Cantidad de obra" for="te-qty"><${ui.NumberInput} onFocus=${selectOnFocus} id="te-qty" value=${d.quantity} min=${0} onValue=${set('quantity')} disabled=${ro} /></${ui.Field}>
             <${ui.Field} label="Unidad" for="te-qty-unit"><${ui.Input} id="te-qty-unit" list=${uidE + '-units'} value=${d.qtyUnit || ''} onValue=${set('qtyUnit')} placeholder="m², m³, global…" disabled=${ro} /><datalist id=${uidE + '-units'}>${RES_UNITS.map((u) => html`<option key=${u} value=${u}></option>`)}</datalist></${ui.Field}>
-            <${ui.Field} label=${'Precio unitario (' + currency + ')'} for="te-unit-price"><${ui.NumberInput} id="te-unit-price" money currency=${currency} value=${d.unitPrice} min=${0} onValue=${set('unitPrice')} disabled=${ro} /></${ui.Field}>
+            <${ui.Field} label=${'Precio unitario (' + currency + ')'} for="te-unit-price"><${ui.NumberInput} onFocus=${selectOnFocus} id="te-unit-price" money currency=${currency} value=${d.unitPrice} min=${0} onValue=${set('unitPrice')} disabled=${ro} /></${ui.Field}>
             ${catField}
           </div>${totalBox('Costo: cantidad × precio unitario', fmt.num(ci.unitario.qty, 2) + ' ' + (String(ci.unitario.unit || '').trim() || 'unidades') + ' × ' + money(ci.unitario.price))}`;
       }
@@ -1313,9 +1332,17 @@ button.sched-day:hover { border-color: var(--line-strong); }
       let n = 0; for (const t of sched.tasks) { const c = t.wbsId && tree.codes.get(t.wbsId); if (c) n = Math.max(n, String(c).length); }
       return Math.max(GCOLS.code.w, Math.ceil(n * 7 + 12));
     }, [sched, tree]);
+    /* «Costo» (solo con área amplia): el valor más largo con su distintivo de forma de costeo, sin recortes */
+    const costW = useMemo(() => {
+      if (cols !== COLS_WIDE) return GCOLS.cost.w;
+      let w0 = 0;
+      for (const t of sched.tasks) w0 = Math.max(w0, fmt.money(t.cost, currency).length * 7.4 + (costModeOf(t) === 'global' ? 0 : 44));
+      if (group) w0 = Math.max(w0, fmt.money(PM.sum(sched.tasks, (t) => num(t.cost)), currency).length * 7.8);
+      return Math.max(GCOLS.cost.w, Math.ceil(w0 + 22));
+    }, [sched, group, cols, currency]);
     /* «%» con decimales cuando hay avance calculado desde el backlog («38,2 %») */
     const anyDerived = useMemo(() => sched.tasks.some((t) => t.agileDerived), [sched]);
-    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : k === 'dur' ? durW : k === 'code' ? codeW : k === 'pct' && anyDerived ? 64 : GCOLS[k].w);
+    const colW = (k) => (k === 'name' && colSet === 'compact' ? (frameW && frameW < 520 ? 124 : 180) : k === 'dur' ? durW : k === 'code' ? codeW : k === 'cost' ? costW : k === 'pct' && anyDerived ? 64 : GCOLS[k].w);
     const gridW = cols.reduce((s, k) => s + colW(k), 0);
     const gridTemplate = cols.map((k) => colW(k) + 'px').join(' ');
     const idxById = useMemo(() => new Map(sched.tasks.map((t, i) => [t.id, i])), [sched]);
@@ -2504,7 +2531,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       last.current = nv;
       onCommit(R, nv);
     };
-    return html`<${ui.NumberInput} aria-label=${'Disponibilidad de ' + R.name} value=${v} min=${0} placeholder="Sin límite" onValue=${setV} onBlur=${commit}
+    return html`<${ui.NumberInput} onFocus=${selectOnFocus} aria-label=${'Disponibilidad de ' + R.name} value=${v} min=${0} placeholder="Sin límite" onValue=${setV} onBlur=${commit}
       onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />`;
   }
   const availNote = (item) => {
@@ -2596,7 +2623,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
           <thead><tr><th>Recurso</th><th>Tipo</th><th class="num">Actividades</th><th class="num" title="Unidades × duración en días hábiles">Días-recurso</th><th class="num" title="Mayor demanda diaria y su fecha">Máximo diario</th><th class="num" title="Unidades por día hábil del catálogo">Disponible (u./día)</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>${model.list.map((R) => html`<tr key=${R.key} data-res=${R.name} data-type=${R.type.id} class=${cx('clickable', sel === R.key && 'is-sel')} onClick=${(e) => { if (e.target.closest && e.target.closest('input, button')) return; toggleSel(R); }}>
             <td class="wrap sched-resname"><span class="row" style="gap:7px;flex-wrap:nowrap;align-items:baseline"><span class="swatch" style=${'background:' + R.color}></span><button type="button" class="sched-resbtn" aria-pressed=${sel === R.key ? 'true' : 'false'} title=${sel === R.key ? 'Volver a todos los recursos' : 'Ver solo este recurso en el histograma'} onClick=${() => toggleSel(R)}>${R.name}</button></span>${R.item && R.item.code ? html`<div class="mono xsmall faint">${R.item.code}</div>` : null}</td>
-            <td class="xsmall">${R.type.id === UNCL_TYPE.id ? html`<${ui.Chip} tone="warn" icon="alert">Sin clasificar</${ui.Chip}>` : R.type.name}</td>
+            <td class="xsmall">${R.type.id === UNCL_TYPE.id ? html`<${ui.Chip} tone="outline" title="Sin tipo de recurso: clasifícalo en la pestaña Catálogo">Sin clasificar</${ui.Chip}>` : R.type.name}</td>
             <td class="num">${new Set(R.tasks.map((x) => x.t.id)).size}</td>
             <td class="num">${fmt.num(R.rd, 1)}</td>
             <td class="num"><span style=${R.over ? 'color:var(--crit);font-weight:600' : ''}>${fmt.num(R.peak, 2)}</span>${R.peakDate ? html`<div class="mono xsmall faint" title="Fecha del máximo">${fmt.date(R.peakDate, 'short')}</div>` : null}</td>

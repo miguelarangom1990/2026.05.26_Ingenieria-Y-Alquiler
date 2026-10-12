@@ -64,6 +64,7 @@ const results = await page.evaluate(() => {
   const cap = R.teamCapacity({ data: team, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: { avg3: 30 } });
   eq('capacidad: días-persona, normal, proporción y sugerida', [cap.members.length, cap.personDays, cap.normal, Math.round(cap.ratio * 1000) / 1000, cap.suggested, cap.hours], [2, 14, 15, 0.933, 28, 112]);
   eq('capacidad en horas', R.teamCapacity({ data: team, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'horas' }, velocity: null }).suggested, 112);
+  eq('capacidad: ausencias por miembro y días hábiles', [cap.workdays, cap.members.map((x) => x.absentDays)], [10, [0, 2]]);
   eq('capacidad sin equipo', R.teamCapacity({ data: { items: [] }, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: {} }).suggested, null);
   // Estructura de desglose de recursos
   const sched = C.computeSchedule(R.applyCosts(schedule, data), '2026-08-03');
@@ -119,6 +120,8 @@ const results = await page.evaluate(() => {
   } catch (e) { bad = String(e && e.stack); }
   eq('mal formado: sin excepciones', bad, null);
   const nt = PM.normalizeTool('resources', { types: { a: 1 }, items: [null, { id: 'x', name: 'X', absences: 'y' }] });
+  const usage = R.usage(cat, schedule.tasks);
+  eq('uso por recurso', [usage.get('r1').count, usage.get('r1').qty, usage.get('r1').cost, usage.get('r2').qty], [3, 13, 13000, 12]);
   eq('normalizar herramienta de recursos', [nt.types, nt.items.length, nt.items[0].absences], [[], 1, []]);
   return out;
 });
@@ -161,6 +164,15 @@ const virt = await page.evaluate(async (pid) => {
   return { virtual: !!v.virtual, x, doc: await PM.store.get(PM.paths.tool(pid, 'resources')) };
 }, pid);
 ok('un recurso virtual se guarda con id y código nuevos al editarlo', virt.virtual && /^rec/.test(virt.x.id) && virt.x.code === 'REC-002' && virt.doc.items.length === 2 && !('virtual' in virt.doc.items[1]), virt);
+const chained = await page.evaluate(async (pid) => {
+  const m = window.__probe;
+  await m.saveItem({ name: 'Uno', typeId: 'personal' }); await m.saveItem({ name: 'Dos', typeId: 'personal' });
+  const many = await m.saveItems([{ name: 'Tres' }, { name: 'Cuatro' }]);
+  await new Promise((r) => setTimeout(r, 1000)); await PM.store.flush();
+  const doc = await PM.store.get(PM.paths.tool(pid, 'resources'));
+  return { names: doc.items.map((i) => i.name), codes: many.map((x) => x.code) };
+}, pid);
+ok('escrituras seguidas no se pisan (saveItem y saveItems)', ['Uno', 'Dos', 'Tres', 'Cuatro'].every((n) => chained.names.includes(n)) && chained.codes.length === 2 && chained.codes[0] !== chained.codes[1], chained);
 const cc = await page.evaluate(async (pid) => {
   const project = await PM.store.get(PM.paths.project(pid));
   const a = await PM.changeControl.register({ pid, project: { id: pid, ...project }, description: 'Grúa adicional', justification: 'Cambio de método', scope: 'Izaje', days: 2, cost: 1500, affected: ['Línea base de costos'], requester: 'Residente de obra' });

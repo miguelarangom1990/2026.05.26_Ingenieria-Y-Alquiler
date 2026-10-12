@@ -1120,7 +1120,7 @@
     const edr = rowsOf(docs.get('estructura-desglose-recursos'), 'recursos', 'recurso');
     const rbs = rowsOf(docs.get('plan-gestion-riesgos'), 'edrRiesgos', 'nivel1');
     return { phase: 'plan', id: 'estructuras', optional: true, label: 'Estructuras de desglose revisadas',
-      desc: '7.3 · 11.2 · 9.2 · Desglose de costos, de los riesgos y de los recursos en diagrama. Opcional: no cuenta en el avance de la ruta.',
+      desc: '7.3 · 11.2 · 9.2 · Desglose de costos, de los riesgos y de los recursos en diagrama, para revisarlos antes de fijar la línea base.',
       done: edr > 0 && rbs > 0, partial: edr > 0 || rbs > 0,
       stateLabel: edr && rbs ? 'EDR y categorías de riesgo documentadas' : edr ? 'EDR documentada · faltan las categorías de riesgo' : rbs ? 'Categorías de riesgo definidas · falta la EDR' : 'Sin revisar',
       action: () => go('estructuras', { tab: edr && !rbs ? 'riesgos' : rbs && !edr ? 'recursos' : 'costos' }) };
@@ -1339,12 +1339,17 @@
         const ph = labels[p0.id] ? { ...p0, label: labels[p0.id] } : p0;
         const items = route.map((s, i) => ({ s, i, n: nums[i] })).filter((x) => x.s.phase === ph.id);
         if (!items.length) return null;
+        /* los pasos opcionales van en su propia fila debajo de los de la fase (no cuentan ni rompen las filas parejas) */
         const reqItems = items.filter((x) => !x.s.optional);
+        const optItems = items.filter((x) => x.s.optional);
         const n = reqItems.filter((x) => x.s.done).length;
-        const cols = max ? Math.ceil(items.length / Math.ceil(items.length / max)) : 0;
+        const cols = max && reqItems.length ? Math.ceil(reqItems.length / Math.ceil(reqItems.length / max)) : 0;
+        const gridStyle = cols ? 'grid-template-columns:repeat(' + cols + ', minmax(0, 1fr))' : undefined;
         return html`<div class="stack-sm" key=${ph.id} data-phase=${ph.id}>
           <div class="dashboard-phase-head"><span class="label-caps">${ph.label}</span><span class="xsmall faint">${n} de ${reqItems.length}</span></div>
-          <ol class="dashboard-steps" start=${(reqItems[0] || items[0]).n} data-cols=${cols || undefined} style=${cols ? 'grid-template-columns:repeat(' + cols + ', minmax(0, 1fr))' : undefined}>${items.map(({ s, i, n: k }) => html`<${RouteStep} key=${s.id} s=${s} n=${k} next=${i === nextIdx} />`)}</ol>
+          ${reqItems.length ? html`<ol class="dashboard-steps" start=${reqItems[0].n} data-cols=${cols || undefined} style=${gridStyle}>${reqItems.map(({ s, i, n: k }) => html`<${RouteStep} key=${s.id} s=${s} n=${k} next=${i === nextIdx} />`)}</ol>` : null}
+          ${optItems.length ? html`<div class="stack-sm" style="gap:4px" data-phase-optional=${ph.id}><span class="xsmall faint">Opcional: no cuenta en el avance de la ruta</span>
+            <ul class="dashboard-steps is-optional" style=${gridStyle}>${optItems.map(({ s, i, n: k }) => html`<${RouteStep} key=${s.id} s=${s} n=${k} next=${false} />`)}</ul></div>` : null}
         </div>`;
       })}
     </div></div>`;
