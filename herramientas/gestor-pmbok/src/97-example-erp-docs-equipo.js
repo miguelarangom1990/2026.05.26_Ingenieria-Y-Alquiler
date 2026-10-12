@@ -92,7 +92,6 @@
     const LB0 = F.lb0Date;
     const t16 = task('t16'), t17 = task('t17'), t15 = task('t15');
     const golive1 = task('t29').actualFinish;
-    const reviewAfterGolive = cal.addWork(golive1, 1);
     const DOD_REV1 = (PM.templates['definicion-terminado'] && PM.templates['definicion-terminado'].example.fechaAcuerdo) || '2026-08-26';
     const it = (n) => sprints[n - 1];
     const R2 = rel('rel-2');
