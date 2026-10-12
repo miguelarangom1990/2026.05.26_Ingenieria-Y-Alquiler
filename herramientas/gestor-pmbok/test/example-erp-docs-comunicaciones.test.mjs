@@ -6,10 +6,14 @@
 //      revisiones; todas las claves de su plantilla con contenido y opciones válidas; cada cifra igual a la que calcula la aplicación
 //      (LB0, releases y velocidad con PM.calc y PM.agile, costo real de los releases, catálogo de recursos, cronograma) o a la de los
 //      documentos de 95 (incidentes, riesgos, solicitud de cambio, informe de desempeño); calendario de reuniones coherente (comité
-//      el jueves anterior a cada corte quincenal); ninguna fecha de un hecho pasa la fecha de corte ni la del documento, y los
-//      documentos aprobados (y sus revisiones) no citan hechos posteriores a su fecha.
-//   2) Interacción: crea el ejemplo desde el selector con el teclado, abre «Documentos» con el riel, revisa la lista maestra (código,
-//      estado, revisión y enfoque), abre el plan de gestión de las comunicaciones con Tab y Enter y abre un acta con el teclado.
+//      el jueves anterior a cada corte quincenal y periodo del informe de 95 sin traslape); restricciones del plan que cuadran con
+//      el cronograma (ninguna salida real o planificada en el cierre mensual ni en el anual); ninguna fecha de un hecho pasa la
+//      fecha de corte ni la del documento, y los documentos aprobados (y sus revisiones) no citan hechos posteriores a su fecha
+//      (ni por código ni por fechas escritas en el texto que no sean planes conocidos a esa fecha); toda revisión aprobada tiene
+//      aprobador en el cajetín.
+//   2) Interacción: pulsa «Crear proyecto de ejemplo» con el teclado (Tab y Enter), elige el ERP en el selector con Tab y Enter,
+//      abre «Documentos» con el riel, revisa la lista maestra (código, estado, revisión y enfoque), abre el plan de gestión de las
+//      comunicaciones con Tab y Enter y llega con Tab al acta del CC-001 para abrirla con Enter.
 //   3) Sin --quick: los ocho documentos en el editor en tema oscuro, a 400 px (claro y oscuro) y a 1920 px, sin desborde de página
 //      ni tarjetas de error.
 import { execFileSync } from 'node:child_process';
@@ -94,6 +98,13 @@ async function validateInPage(page) {
     const codeDates = Object.fromEntries(items.map((i) => [i.code, i.createdAt]));
     Object.assign(codeDates, { 'CC-001': R1.baseline.date, 'R-008': docOf('registro-riesgos').updatedAt.slice(0, 10) }, Object.fromEntries(inc.map((r) => [r.id, r.fecha])));
     const lateCodes = (fields, date) => [...new Set(strings(fields).flatMap((s) => s.match(/\b(?:HU|TA|DF|IN|ME|EP|CC|INC|R)-\d{3}\b/g) || []))].filter((c) => codeDates[c] && codeDates[c] > date);
+    /* fechas escritas en el texto («9 de septiembre de 2026», «25 de mayo»: sin año se toma 2026) */
+    const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const datesIn = (txt) => { const out = []; const re = /\b(\d{1,2}) de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?: de (20\d\d))?/g; const t = plain(txt); let m; while ((m = re.exec(t))) out.push((m[3] || '2026') + '-' + pad2(MONTHS.indexOf(m[2]) + 1) + '-' + pad2(+m[1])); return out; };
+    /* cinco primeros días hábiles del mes (cierre mensual) y último día hábil del mes */
+    const closeOf = (iso) => { const out = []; let d = D.startOfMonth(iso); while (out.length < 5) { if (cal.isWork(d)) out.push(d); d = D.add(d, 1); } return out; };
+    const lastWorkOfMonth = (iso) => { let d = D.add(D.startOfMonth(D.add(D.startOfMonth(iso), 40)), -1); while (!cal.isWork(d)) d = D.add(d, -1); return d; };
     const golive1 = task('t29').actualFinish;
     const review = cal.addWork(golive1, 1);
     const informe = docs.find((d) => d.data.template === 'informe-desempeno').data;
@@ -105,6 +116,29 @@ async function validateInPage(page) {
     const comite = D.add(lastCut, -1);
     const approval = (d) => cal.addWork(d, 2);
     const meetings = { arranque: task('t02').actualFinish, seleccion: task('t09').actualFinish, lb0: LB.date, cc001: R1.baseline.date, 'salida-r1': it4.end, 'comite-2026-10-08': comite };
+    const comites = [];
+    for (let d = comite; d >= D.add(meetings.arranque, 14); d = D.add(d, -14)) comites.unshift(d);
+    for (let d = D.add(comite, 14); d <= meta.end; d = D.add(d, 14)) comites.push(d);
+    /* fechas que un documento puede nombrar antes de que ocurran porque son planes conocidos a su fecha (cada una con la
+       fecha desde la que se conoce): LB0 (y el plan preliminar del arranque), hitos del acta de constitución, plan de
+       releases, iteraciones y releases (desde la LB0), calendario de comités (desde el arranque) e informes (desde la LB0),
+       último día de cada cierre mensual, fechas objetivo de los incidentes (desde su registro) y la decisión de R-008 */
+    const planned = new Map();
+    const addP = (from, ...ds) => ds.forEach((d) => { if (!d) return; const k = String(d).slice(0, 10); if (!planned.has(k) || planned.get(k) > from) planned.set(k, from); });
+    LB.schedule.tasks.forEach((t) => addP(meta.start, t.start, t.finish)); addP(meta.start, LB.schedule.start, LB.schedule.finish);
+    (await revsOf('acta-constitucion')).forEach((r) => (r.fields.hitos || []).forEach((h) => addP(String(r.date).slice(0, 10), h.fecha)));
+    (await revsOf('plan-release')).forEach((r) => (r.fields && r.fields.releases ? r.fields.releases : []).forEach((x) => addP(String(r.date).slice(0, 10), x.fechaInicio, x.fechaFin)));
+    sprints.forEach((x) => addP(LB.date, x.start, x.end)); agile.releases.forEach((r) => { addP(LB.date, r.start, r.end); if (r.baseline) addP(r.baseline.date || LB.date, r.baseline.end); });
+    comites.forEach((d) => addP(meetings.arranque, d)); cuts.forEach((c) => addP(LB.date, c, cal.addWork(c, 1)));
+    for (let m = D.startOfMonth(meta.start); m <= meta.end; m = D.startOfMonth(D.add(m, 40))) addP(meta.start, closeOf(m)[4]);
+    inc.forEach((r) => addP(r.fecha, r.fechaObjetivo));
+    addP(docOf('registro-riesgos').updatedAt.slice(0, 10), ...datesIn(((docOf('registro-riesgos').fields.riesgos.find((r) => r.id === 'R-008') || {}).respuesta) || ''));
+    const isPlanned = (d, at) => planned.has(d) && planned.get(d) <= at;
+    /* lo que un acta fija hacia adelante: fechas de sus decisiones y compromisos, próxima reunión y plazo de observaciones
+       (y el pronóstico del release 2 en el acta de octubre) */
+    const fcOct = C.releaseForecast({ release: R2, sprints: sprintsAt(it6.end), items: itemsAt(it6.end), settings: st, cal, statusDate: it6.end });
+    const ownPlans = (f) => new Set([...(f.compromisos || []).map((c) => c.fecha), ...datesIn(strings(f.decisiones || []).join(' ')), f.proximaFecha, f.fecha ? cal.addWork(f.fecha, 2) : null, f.fecha === comite ? fcOct.finish : null].filter(Boolean));
+    const lateDates = (fields, date) => { const own = ownPlans(fields); return [...new Set(strings(fields).flatMap(datesIn))].filter((d) => d > date && !isPlanned(d, date) && !own.has(d)); };
     const SPEC = {
       'plan-gestion-comunicaciones': { status: 'aprobado', rev: '1', date: review, revs: [['0', 'aprobado', LB.date], ['1', 'aprobado', review]] },
       'registro-comunicaciones': { status: 'revision', rev: '2A', date: cut, revs: [['0', 'aprobado', LB.date], ['1', 'aprobado', review]] },
@@ -118,11 +152,13 @@ async function validateInPage(page) {
       if (!ok(d, 'existe el documento ' + id)) continue;
       const tid = d.template, s = SPEC[id], tb = d.titleBlock || {}, upd = String(d.updatedAt).slice(0, 10);
       const revs = await revsOf(id);
-      V[id] = { tid, cur: { date: upd, status: d.status, fields: d.fields }, revs: revs.map((r) => ({ rev: r.rev, status: r.status, date: String(r.date).slice(0, 10), fields: r.fields, titleBlock: r.titleBlock })) };
+      V[id] = { tid, cur: { date: upd, status: d.status, fields: d.fields }, revs: revs.map((r) => ({ rev: r.rev, status: r.status, date: String(r.date).slice(0, 10), fields: r.fields, titleBlock: r.titleBlock, note: r.note || '' })) };
       ok(tb.codigo === meta.code + '-' + (s.abbr || PM.templates[tid].abbr), id + ': código ' + meta.code + '-' + (s.abbr || PM.templates[tid].abbr), tb.codigo);
       ok(d.status === s.status && d.rev === s.rev && upd === s.date, id + ': estado ' + s.status + ', revisión ' + s.rev + ' del ' + s.date, [d.status, d.rev, upd]);
-      ok(cal.isWork(upd) && upd <= cut && (d.status === 'aprobado' ? tb.fechaAprobacion === upd && tb.aprobo : !tb.fechaAprobacion) && tb.elaboro && tb.reviso, id + ': cajetín y fecha de aprobación coherentes (día hábil, hasta el corte)', tb);
+      ok(cal.isWork(upd) && upd <= cut && (d.status === 'aprobado' ? tb.fechaAprobacion === upd : !tb.fechaAprobacion) && tb.elaboro && tb.reviso && tb.aprobo, id + ': cajetín y fecha de aprobación coherentes (día hábil, hasta el corte; aprobador definido aunque esté en revisión)', tb);
       ok(JSON.stringify(V[id].revs.map((r) => [r.rev, r.status, r.date])) === JSON.stringify(s.revs) && V[id].revs.every((r) => cal.isWork(r.date) && r.date <= upd && r.titleBlock && (r.status !== 'aprobado' || r.titleBlock.fechaAprobacion === r.date)), id + ': historial de revisiones', V[id].revs.map((r) => [r.rev, r.status, r.date]));
+      const noApprover = V[id].revs.filter((r) => r.status === 'aprobado' && !(r.titleBlock && r.titleBlock.aprobo)).map((r) => r.rev);
+      ok(!noApprover.length, id + ': toda revisión aprobada tiene aprobador en el cajetín', noApprover);
       const keys = tplKeys(tid);
       const versions = [V[id].cur, ...V[id].revs];
       const missing = versions.flatMap((v, k) => keys.filter((key) => empty(v.fields[key])).map((key) => (k ? 'rev ' + V[id].revs[k - 1].rev : 'vigente') + '.' + key));
@@ -131,6 +167,8 @@ async function validateInPage(page) {
       ok(!isoBad.length, id + ': fechas de los campos entre abril de 2026 y el fin del proyecto', isoBad);
       const late = versions.filter((v) => v.status === 'aprobado' || id === ACTAS[5]).map((v) => [v.date, lateCodes(v.fields, v.date)]).filter(([, l]) => l.length);
       ok(!late.length, id + ': las versiones aprobadas no citan hechos posteriores a su fecha', late);
+      const lateD = versions.filter((v) => v.status === 'aprobado' || id === ACTAS[5]).map((v) => [v.date, lateDates(v.fields, v.date)]).filter(([, l]) => l.length);
+      ok(!lateD.length, id + ': las versiones aprobadas solo nombran fechas posteriores a la suya si son planes conocidos a esa fecha', lateD);
     }
     if (Object.keys(V).length !== MINE.length) return out;
     const revF = (id, r) => V[id].revs.find((x) => x.rev === r).fields;
@@ -150,10 +188,33 @@ async function validateInPage(page) {
       }
       const keysOf = (v) => v.matriz.map((r) => r.informacion);
       const added = keysOf(f).filter((k) => !keysOf(f0).includes(k));
-      ok(f.matriz.length === f0.matriz.length + 2 && added.length === 2 && added.some((k) => /defectos e incidentes de producción/.test(k)) && added.some((k) => /Acompañamiento en sitio/.test(k)), 'plan rev. 1: agrega el reporte de defectos de producción y el acompañamiento en sitio', added);
-      ok(f.escalamiento.some((e) => e.nivel === 'Emergencia') && !f0.escalamiento.some((e) => e.nivel === 'Emergencia') && !/producción del release 1|mesa de ayuda de TI|R-003/.test(text(f0)), 'plan: la emergencia de producción y la mesa de ayuda de TI llegan con la rev. 1 (después de la salida del release 1)');
+      ok(f.matriz.length === f0.matriz.length + 1 && added.length === 1 && /defectos e incidentes de producción/.test(added[0]), 'plan rev. 1: agrega el reporte de defectos e incidentes de producción', added);
+      /* lo que ya estaba aprobado el día de la LB0 (plan de gestión de cambios y registro de riesgos rev. 0) va desde la rev. 0 */
+      const umE = docOf('plan-gestion-cambios').fields.umbrales.find((u) => u.nivel === 'Emergencia');
+      const r003 = (await revsOf('registro-riesgos')).find((r) => r.rev === '0').fields.riesgos.find((r) => r.id === 'R-003');
+      const paper = ((/más de \d+(?:,\d+)? ?%/i.exec(plain(r003.disparador)) || [''])[0]).toLowerCase();
+      const em = (v) => v.escalamiento.find((e) => e.nivel === 'Emergencia');
+      ok(umE && /acompañamiento en sitio/.test(r003.respuesta) && paper && [f0, f].every((v) => em(v) && em(v).situacion === umE.criterio && /carril de urgencia/.test(em(v).escalaA) && has(em(v).plazo, umE.plazoDias + ' día') && v.glosario.some((g) => g.termino === 'Carril de urgencia') && v.matriz.some((r) => /Acompañamiento en sitio/.test(r.informacion) && /R-003/.test(r.formato) && /reporte semanal/.test(r.formato) && has(r.formato, paper))), 'plan rev. 0 y rev. 1: escalamiento de emergencia y carril de urgencia del plan de gestión de cambios, y acompañamiento en sitio con el disparador de R-003 (registro de riesgos rev. 0)', [em(f0), paper]);
+      const ch0 = f0.escalamiento.find((e) => e.nivel === 'Cambios');
+      ok(ch0 && /niveles 1 a 3/.test(ch0.situacion) && /emergencias/.test(ch0.situacion), 'plan rev. 0: la fila de cambios remite la emergencia a su propia fila');
+      ok(!/producción del release 1|mesa de ayuda de TI|Defecto de producción/.test(text(f0)) && /mesa de ayuda de TI/.test(text(f)) && f.glosario.some((g) => g.termino === 'Defecto de producción'), 'plan: la mesa de ayuda de TI para los defectos de producción llega con la rev. 1 (después de la salida del release 1)');
+      const note1 = V['plan-gestion-comunicaciones'].revs.find((r) => r.rev === '1').note;
+      ok(/mesa de ayuda de TI/.test(note1) && !/escalamiento de emergencia|acompañamiento en sitio después/i.test(note1), 'plan rev. 1: la nota solo describe lo que es nuevo después de la salida del release 1', note1);
+      /* restricciones frente al cronograma: ninguna salida real o planificada en el cierre mensual ni en el anual */
+      const r3 = lbT('t32').start;
+      const goLives = [task('t29').actualFinish, lbT('t29').start, lbT('t31').start, lbT('t33').start, task('t30').start, task('t32').start, ...informe.fields.hitos.filter((h) => /en producción/.test(h.hito)).flatMap((h) => [h.fechaBase, h.fechaPronostico])].filter(Boolean);
+      const inClose = goLives.filter((d) => closeOf(d).includes(d));
+      ok(goLives.length >= 6 && !inClose.length && r3.slice(5, 7) === '01' && r3 > closeOf(r3)[4] && [f0, f].every((v) => /ni durante el cierre anual/.test(v.restricciones) && !/antes del cierre anual/.test(v.restricciones) && has(v.restricciones, dl(r3))), 'plan: restricción de salidas = cronograma (ninguna salida real o planificada en el cierre mensual; el release 3 después del cierre anual)', { inClose, r3 });
+      /* motivo de los avisos en cartelera: la red inalámbrica de los patios se instala en julio (EDT 1.3.2) */
+      ok(!/conexión limitada/.test(text(f0) + text(f)) && [f0, f].every((v) => /no trabajan con correo corporativo/.test(v.restricciones)) && has(f0.restricciones, dl(lbT('t14').finish)) && lbT('t14').finish > LB.date && !/se instala/.test(f.restricciones) && task('t14').actualFinish < V['plan-gestion-comunicaciones'].cur.date, 'plan: motivo de los avisos en cartelera coherente con la red inalámbrica (planificada en la rev. 0, instalada antes de la rev. 1)');
+      const mailToYard = [f0, f].flatMap((v) => v.matriz.filter((r) => r.medio === 'Correo electrónico' && /personal de bodega/i.test(r.receptores) && !/cartelera/.test(r.receptores + r.formato)).map((r) => r.informacion));
+      ok(!mailToYard.length, 'plan: lo que va por correo al personal de bodega y a los conductores tiene copia en las carteleras', mailToYard);
       ok(has(f.requisitos, dl(golive1)), 'plan rev. 1: cita la salida a producción del release 1', golive1);
       const inf = f0.matriz.find((r) => /Informe de desempeño/.test(r.informacion));
+      ok(inf && /valor ganado se calcula a la fecha de corte de cada informe/.test(inf.formato) && /cortes de avance que guarda el gestor son mensuales \(último día hábil de cada mes\)/.test(inf.formato) && costs.statusUpdates.length >= 3 && costs.statusUpdates.every((u) => u.date === lastWorkOfMonth(u.date)), 'plan: el valor ganado de cada informe quincenal se calcula a su corte y los cortes de avance guardados son mensuales (último día hábil)', costs.statusUpdates.map((u) => u.date));
+      /* el periodo del informe de 95 empieza el día siguiente al corte del informe anterior (sin traslape ni hueco) */
+      { let next = D.add(cuts[nInf - 2], 1); while (!cal.isWork(next)) next = D.add(next, 1);
+        ok(informe.fields.periodoInicio > cuts[nInf - 2] && informe.fields.periodoInicio <= next, 'calendario: el periodo del informe n.º ' + nInf + ' (95) empieza después del corte del n.º ' + (nInf - 1) + ' (' + cuts[nInf - 2] + ') y a más tardar el ' + next, { periodoInicio: informe.fields.periodoInicio, corteAnterior: cuts[nInf - 2] }); }
       ok(inf && has(inf.formato, dl(cuts[0])) && cuts[0] > LB.date && D.add(cuts[0], -14) <= LB.date && cuts.every((c) => cal.isWork(c) && D.dow(c) === 5) && has(inf.receptores.replace(/; /g, ', ').replace(/, comité/, ' y comité'), informe.fields.destinatarios), 'plan: informe quincenal con corte cada dos viernes desde el primero después de la LB0 y destinatarios del informe de desempeño', [cuts[0], inf && inf.formato]);
       const um = Object.fromEntries(docOf('plan-gestion-cambios').fields.umbrales.map((u) => [u.nivel, u.plazoDias]));
       const ch = f.escalamiento.find((e) => e.nivel === 'Cambios');
@@ -169,9 +230,6 @@ async function validateInPage(page) {
     /* ---------- actas de reunión */
     const actaF = (k) => V['acta-reunion--' + k].cur.fields;
     {
-      const comites = [];
-      for (let d = comite; d >= D.add(meetings.arranque, 14); d = D.add(d, -14)) comites.unshift(d);
-      for (let d = D.add(comite, 14); d <= meta.end; d = D.add(d, 14)) comites.push(d);
       for (const id of ACTAS) {
         const f = V[id].cur.fields, s = SPEC[id], k = id.replace('acta-reunion--', '');
         ok(f.fecha === s.meeting && cal.isWork(f.fecha) && f.fecha <= V[id].cur.date && f.numero === s.abbr.slice(-2), k + ': fecha de la reunión (día hábil, no posterior al acta) y número del acta', [f.fecha, s.meeting, f.numero]);
@@ -191,6 +249,10 @@ async function validateInPage(page) {
       const actaRev0 = (await revsOf('acta-constitucion')).find((r) => r.rev === '0').fields;
       ok(has(a1.desarrollo, ms(actaRev0.presupuesto)) && actaRev0.hitos.every((h) => has(a1.desarrollo, dl(h.fecha))) && ['t07', 't08', 't09'].every((id, i) => has(a1.desarrollo, plain(Fm.date([lbT('t07').finish, lbT('t08').start, lbT('t09').finish][i], 'long')).replace(/ de 20\d\d$/, ''))) && has(a1.desarrollo, dl(lbT('t11').start)) && has(a1.desarrollo, '(seis en total)') && cat('uc').availability === 6, 'arranque: presupuesto e hitos del acta de constitución rev. 0, calendario de la selección y usuarios clave del catálogo');
       ok(has(text(a1.decisiones), dl(a1.proximaFecha)), 'arranque: la primera sesión del comité quincenal es la próxima reunión');
+      const comSel = a1.decisiones.find((x) => /comité de selección/.test(x.decision));
+      ok(comSel && /\(director, dueño del producto, jefe de TI y contador, con el consultor de selección como secretario técnico sin voto\)/.test(comSel.decision), 'arranque: el comité de selección lo forman el director, el dueño del producto, el jefe de TI y el contador; el consultor de selección es secretario técnico sin voto', comSel);
+      const pga = docOf('plan-gestion-adquisiciones');
+      if (pga) ok(/secretario técnico, sin voto/.test(text(pga.fields)), 'el plan de gestión de las adquisiciones (si está cargado) da la misma composición del comité de selección');
       /* selección: sin puntajes ni valores de los contratos */
       const a2 = actaF('seleccion');
       ok(/Criterios de selección y evaluación de ofertas/.test(a2.desarrollo) && !/\d+ puntos|\d+,\d+ %|ponderación de/.test(text(a2)) && has(a2.desarrollo, ms(actaRev0.presupuesto)), 'selección: cita los criterios por su nombre sin inventar puntajes ni valores de los contratos');
@@ -210,6 +272,10 @@ async function validateInPage(page) {
       ok(has(a4.desarrollo, pReq.done + ' de ' + relAt('rel-1', D.add(item('HU-038').createdAt, -1)).total + ' puntos') && has(a4.desarrollo, v2.join(' y ') + ' puntos') && has(a4.desarrollo, remaining + ' puntos para las iteraciones 3 y 4') && has(a4.desarrollo, '+' + plain(Fm.num(pct * 100, 1)) + ' %') && p0.total <= pReq.total, 'CC-001: avance, velocidad, puntos que faltan y variación calculados con el backlog', a4.desarrollo);
       const sol = docOf('solicitud-cambio--cc001').fields;
       ok(sol.alternativas.every((x) => has(a4.desarrollo, x.alternativa.slice(3, 20).toLowerCase())) && has(a4.desarrollo, ms(sol.alternativas.find((x) => x.costo).costo)) && sol.decision === 'Aprobada' && sol.fechaDecision === meetings.cc001 && has(a4.decisiones[0].decision, R1.baseline.points + ' puntos') && has(a4.decisiones[0].decision, ms(R1.baseline.budget)) && has(a4.decisiones[0].decision, dl(R1.baseline.end)), 'CC-001: alternativas y decisión iguales a la solicitud de cambio y a la línea base del release');
+      const pr1 = (await revsOf('plan-release')).find((r) => r.rev === '1');
+      ok(pr1 && pr1.date.slice(0, 10) === meetings.cc001 && pr1.titleBlock.aprobo === 'Gerencia General' && a4.asistentes.some((x) => x.rol === 'Gerencia General' && x.asistencia === 'Asistió') && a4.decisiones.some((x) => /revisión 1 del plan de releases y del plan para la dirección del proyecto/.test(x.decision) && x.aprobadaPor === 'Gerencia General' && has(x.decision, R1.baseline.points + ' puntos') && /LB0\) no cambia/.test(x.decision)) && a4.compromisos.some((x) => /revisión 1 del plan de releases/.test(x.compromiso) && x.fecha === meetings.cc001), 'CC-001: el acta registra la aprobación de la rev. 1 del plan de releases (95) y del plan para la dirección por la Gerencia General, presente en el comité', pr1 && [pr1.date, pr1.titleBlock.aprobo]);
+      const pdir1 = docOf('plan-direccion') ? (await revsOf('plan-direccion')).find((r) => r.rev === '1') : null;
+      if (docOf('plan-direccion')) ok(pdir1 && pdir1.date.slice(0, 10) === meetings.cc001, 'el plan para la dirección (si está cargado) tiene su rev. 1 en la fecha del CC-001', pdir1 && pdir1.date);
       const t16Late = cal.countWork(D.add(lbT('t16').finish, 1), task('t16').actualFinish);
       ok(/tres días hábiles/.test(a4.desarrollo) && t16Late === 3 && has(a4.desarrollo, /(\d+) %/.exec(task('t16').notes)[1] + ' %'), 'CC-001: atraso de la depuración frente a la LB0 y referencias sin peso');
       /* salida del release 1 */
@@ -235,6 +301,8 @@ async function validateInPage(page) {
       ok(informe.fields.proximosPasos.every((p) => a6.compromisos.some((c) => c.compromiso === p.accion && c.responsable === p.responsable && c.fecha === p.fecha)), 'comité de octubre: sus compromisos son los próximos pasos del informe de desempeño del 9 de octubre');
       const t23 = lbT('t23');
       ok(/el 29 y el 30 de octubre/.test(text(a6.decisiones)) && t23.start === '2026-10-29' && cal.isWork('2026-10-30') && !cal.isWork('2026-11-02'), 'comité de octubre: capacitación de facturación y cartera antes del cierre de noviembre');
+      const novClose = closeOf(t23.finish);
+      ok(has(a6.desarrollo, 'coincide con el cierre mensual (del ' + (+novClose[0].slice(8)) + ' al ' + plain(Fm.date(novClose[4], 'long')).replace(/ de 20\d\d$/, '') + ')') && !/corre el cierre mensual/.test(a6.desarrollo) && novClose[4] === '2026-11-09' && lbT('t30').start > novClose[4], 'comité de octubre: el cierre de noviembre va del 3 al 9 de noviembre (con el festivo del 2) y el release 2 sale después', [novClose, a6.desarrollo.split('\n')[5]]);
     }
 
     /* ---------- registro de comunicaciones */
@@ -275,6 +343,9 @@ async function validateInPage(page) {
       ok(['tab', 'lec', 'imp'].every((k) => { const q = task('t14').resources.find((a) => a.resourceId === 'rec-' + k).qty; return q && has(oc.asunto, ['', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis'][q] + ' '); }) && oc.receptores === cat('tab').supplier, 'registro: orden de compra con las cantidades y el proveedor del catálogo de recursos');
       ok(find(/caída del ambiente/).referencia === 'INC-002' && find(/auxiliar de cartera/).referencia === 'INC-003' && ['INC-002', 'INC-003'].every((c) => byRef(c).every((x) => x.estado === 'Pendiente de respuesta')), 'registro: reclamo al proveedor tecnológico y requerimiento a contabilidad pendientes de respuesta');
       ok(!/Pruebas de usuario|reunión diaria|retrospectiva/i.test(text(cur.map((c) => c.asunto))), 'registro: solo comunicaciones formales (sin la coordinación del equipo Scrum)');
+      ok(/comunicaciones formales del proyecto: las que van a terceros o vienen de ellos .* y las de gobierno del proyecto \(actas de los comités, informes quincenales, solicitudes y decisiones de cambio, comunicados de salida y requerimientos formales entre áreas\)/.test(V['registro-comunicaciones'].cur.fields.archivo), 'registro: el archivo define el alcance (comunicaciones formales con terceros y de gobierno del proyecto)');
+      const yardMail = cur.filter((c) => c.medio === 'Correo electrónico' && /personal de bodega/i.test(c.receptores) && !/cartelera/.test(c.receptores)).map((c) => c.id);
+      ok(!yardMail.length, 'registro: lo que va por correo al personal de bodega y a los conductores tiene copia en las carteleras', yardMail);
       const r0 = V['registro-comunicaciones'].revs.find((r) => r.rev === '0').fields;
       ok(r0.comunicaciones.every((c) => c.fecha <= LB.date) && !/defectos de producción/.test(r0.archivo) && /defectos de producción/.test(V['registro-comunicaciones'].cur.fields.archivo), 'registro rev. 0: solo comunicaciones hasta la LB0');
     }
@@ -299,13 +370,26 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
   const app = await openApp({ file, width: 1360, height: 900 });
   const { page, errors } = app;
   try {
+    /* Tab hasta un elemento que cumpla la condición (devuelve si llegó) */
+    const tabTo = async (pred, arg, max = 60) => {
+      for (let k = 0; k < max; k++) {
+        await page.keyboard.press('Tab');
+        if (await page.evaluate(pred, arg)) return true;
+      }
+      return false;
+    };
     const n = await page.evaluate(() => PM.examples.length);
-    await page.evaluate(() => { PM.createExampleProject(); });
+    /* portafolio vacío: el botón «Crear proyecto de ejemplo» con Tab y Enter */
+    await page.getByRole('button', { name: 'Crear proyecto de ejemplo' }).first().waitFor({ timeout: 8000 });
+    const onCreate = await tabTo(() => { const a = document.activeElement; return !!a && a.tagName === 'BUTTON' && a.textContent.trim() === 'Crear proyecto de ejemplo'; });
+    check(onCreate, 'con Tab el foco llega al botón «Crear proyecto de ejemplo» del portafolio');
+    await page.keyboard.press('Enter');
     if (n > 1) {
       await page.waitForSelector('.example-card', { timeout: 8000 });
       const card = page.locator('.example-card[aria-label*="ERP"]');
       check(await card.count() === 1, 'el selector ofrece el ejemplo del ERP');
-      await card.focus();
+      const onCard = await tabTo(() => { const a = document.activeElement; return !!a && a.classList.contains('example-card') && /ERP/.test(a.getAttribute('aria-label') || ''); }, null, 20);
+      check(onCard, 'con Tab el foco llega a la tarjeta del ejemplo del ERP en el selector');
       await page.keyboard.press('Enter');
     }
     await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 25000 });
@@ -353,7 +437,8 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
     await page.waitForTimeout(400);
     const link = page.locator('tr[data-doc="acta-reunion--cc001"] .docs-link');
     check(await link.count() === 1, 'la búsqueda «CC-001» encuentra el acta del comité de control de cambios');
-    await link.first().focus();
+    const onActa = await tabTo(() => { const a = document.activeElement; return !!a && a.classList.contains('docs-link') && !!a.closest('tr[data-doc="acta-reunion--cc001"]'); });
+    check(onActa, 'con Tab el foco llega desde la búsqueda al enlace del acta del CC-001');
     await page.keyboard.press('Enter');
     await page.waitForSelector('.page[data-doc-id="acta-reunion--cc001"] [data-section]', { timeout: 10000 });
     const acta = norm(await page.locator('.page[data-doc-id="acta-reunion--cc001"]').innerText());

@@ -14,9 +14,10 @@
    (BEN y ALT, abajo; docs/ejemplo-erp/supuestos-y-fuentes.md).
    Revisiones: el caso de negocio y los beneficios se revisan al cierre del
    release 1 (agilidad: se confirma el valor antes de liberar el siguiente
-   tramo); el plan para la dirección cambia con el CC-001; el registro de
-   supuestos y los requisitos de financiamiento tienen una revisión en curso
-   al corte. Los documentos aprobados (y sus revisiones) no citan hechos
+   tramo, que cubre desde el mes siguiente a la revisión); el plan para la
+   dirección cambia con el CC-001 y después del cierre del release 1 (con la
+   rev. 2 del plan de releases); el registro de supuestos y los requisitos de
+   financiamiento tienen una revisión en curso al corte. Los documentos aprobados (y sus revisiones) no citan hechos
    posteriores a su fecha. Se usan roles, no nombres de personas.
    ========================================================================== */
 (function () {
@@ -59,14 +60,13 @@
      negocio del ejemplo del andamio), cartera total y tiempo administrativo liberado. El costo del día de un usuario
      clave sale del catálogo de recursos (rec-uc). Horizonte: tres años de operación después del último release. */
   const BEN = {
-    ingresos: mm(22000), fuga: 0.01,
+    baseYear: '2025', ingresos: mm(22000), fuga: 0.01,
     m2: 20000, tarifa: 9800, utilBase: 0.62, utilMeta: 0.75, atribucion: 0.5, margen: 0.7,
     cartera: mm(5500), carteraBase: 0.18, carteraMeta: 0.10, tasa: 0.18,
     diasPersona: 420,
     years: ['2027', '2028', '2029'], rampa: [0.7, 1, 1],
     /* suscripción estimada en el caso de negocio inicial (antes de las propuestas), por mes */
     suscripcionEstimada: mm(11),
-    usuarios: 45,
   };
   /* alternativas que no se recomiendan: inversión, operación anual y beneficio que capturan */
   const ALT = {
@@ -115,6 +115,10 @@
     const t14Over = actualOf('t14') - task('t14').cost;
     const t16Late = cal.countWork(D.add(lbTask('t16').finish, 1), task('t16').actualFinish);
     const connectorExtra = (costs.actuals || []).filter((a) => a.releaseId === 'rel-2' && /conector/.test(a.description) && a.date <= STATUS_DATE).reduce((s, a) => s + a.amount, 0);
+    /* documentos de 95 que se citan: revisiones del registro de riesgos (reserva por riesgo) y del plan de releases */
+    const base = PM.exampleDocs && typeof PM.exampleDocs.erp === 'function' ? PM.exampleDocs.erp(F) : null;
+    const prelRevs = base && base['plan-release'] && Array.isArray(base['plan-release'].revs) ? base['plan-release'].revs : [];
+    const prelRev = (r) => (prelRevs.find((x) => x.rev === r) || {}).date;
 
     /* suscripción contratada (catálogo de recursos y asignación de t12): usuarios por mes y valor mensual */
     const t12 = task('t12');
@@ -122,6 +126,7 @@
     const subLines = (t12.resources || []).map((a) => ({ item: catItem(a.resourceId.replace('rec-', '')), users: a.qty / subMonths }));
     const subMonthly = subLines.reduce((s, l) => s + l.users * l.item.unitCost, 0);
     const subUsers = subLines.map((l) => n0(l.users) + ' ' + (/limitado/.test(l.item.name) ? 'limitados' : 'completos'));
+    const subTotalUsers = n0(subLines.reduce((s, l) => s + l.users, 0));
 
     /* equipo del implementador por iteración (catálogo: costo por día × dedicación × días de la iteración) y bolsas */
     const sprintDays = PM.agile.settings(agile).sprintLength;
@@ -168,15 +173,15 @@
           riesgos: 'El corte mensual sigue tardando hasta cinco días hábiles; el inventario de bodega no coincide con el de las obras y la cartera se conoce con una semana de retraso. La empresa no puede crecer en alquiler sin aumentar el personal administrativo.', recomendada: false },
         { opcion: 'B. Hacer lo mínimo', descripcion: 'Conectar la facturación electrónica al software contable y llevar el inventario en una aplicación de bodega independiente.', costo: ALT.minimo.inversion, ingreso: minIngreso,
           riesgos: 'Solo captura parte de la facturación y del tiempo administrativo: no resuelve la disponibilidad por obra, la utilización del inventario, la cartera ni el mantenimiento, y deja dos fuentes de datos por conciliar.', recomendada: false },
-        { opcion: 'C. ERP de mercado medio en la nube con socio implementador, por releases', descripcion: 'Suscripción en la nube para ' + BEN.usuarios + ' usuarios, implementación por iteraciones de precio fijo y tres releases: inventario y alquiler; facturación electrónica y cartera; mantenimiento y tablero gerencial.', costo: c.costo, ingreso: c.ingreso,
+        { opcion: 'C. ERP de mercado medio en la nube con socio implementador, por releases', descripcion: 'Suscripción en la nube para ' + subTotalUsers + ' usuarios, implementación por iteraciones de precio fijo y tres releases: inventario y alquiler; facturación electrónica y cartera; mantenimiento y tablero gerencial.', costo: c.costo, ingreso: c.ingreso,
           riesgos: stage >= 1 ? 'Calidad de los datos maestros (R-001), disponibilidad de los usuarios clave (R-002) e integración con la DIAN (R-004).' : 'Calidad de los datos maestros, disponibilidad de los usuarios clave e integración con la DIAN por medio del proveedor tecnológico.', recomendada: true },
         { opcion: 'D. ERP con servidores propios y desarrollos a la medida', descripcion: 'Licencia perpetua, servidores en la sede, desarrollo a la medida de la liquidación del alquiler y una sola salida a producción.', costo: ALT.propio.inversion, ingreso: propIngreso,
           riesgos: 'Inversión inicial y soporte anual altos; los beneficios llegan cerca de seis meses después y todo el alcance sale en una sola fecha.', recomendada: false },
       ]);
     };
     const benefitText = 'beneficio bruto anual a plena adopción de ' + ms(annual) + ': facturación completa ' + ms(benefit.fuga) + ', utilización del andamio ' + ms(benefit.util) + ', costo financiero de la cartera vencida ' + ms(benefit.cartera) + ' y tiempo administrativo liberado ' + ms(benefit.tiempo);
-    const driversText = (monthly, stage) => 'Bases del cálculo (supuestos del ejemplo): ingresos de alquiler y servicios de ' + ms(BEN.ingresos) + ' en 2025 con ' + pc(BEN.fuga) + ' de facturación que hoy no se cobra (días de alquiler, transportes, faltantes y daños sin soporte); ' + n0(BEN.m2) + ' m² de andamio multidireccional con tarifa de ' + money(BEN.tarifa) + ' por m² al mes y utilización de ' + pc(BEN.utilBase) + ' a ' + pc(BEN.utilMeta) + ', con ' + pc(BEN.atribucion) + ' de la mejora atribuida al ERP y margen de contribución de ' + pc(BEN.margen) + '; cartera total de ' + ms(BEN.cartera) + ' con ' + n0((BEN.carteraBase - BEN.carteraMeta) * 100) + ' puntos menos de cartera vencida a más de 60 días a un costo financiero de ' + pc(BEN.tasa) + ' anual; ' + n0(BEN.diasPersona) + ' días-persona al año liberados en facturación, conciliaciones y digitación a ' + money(dayCost) + ' por día. Horizonte de tres años de operación (' + BEN.years[0] + ' a ' + BEN.years[years - 1] + ') con ' + pc(BEN.rampa[0]) + ' del beneficio el primer año. ' + cap(benefitText) + '. ' +
-      (stage >= 1 ? 'Operación: suscripción contratada de ' + BEN.usuarios + ' usuarios (' + andList(subUsers) + ') por ' + money(monthly) + ' al mes durante los tres años. ' : 'Operación: suscripción estimada de ' + BEN.usuarios + ' usuarios por cerca de ' + ms(monthly) + ' al mes (referencia de mercado; se confirma con las propuestas). ') +
+    const driversText = (monthly, stage) => 'Bases del cálculo (supuestos del ejemplo): ingresos de alquiler y servicios de ' + ms(BEN.ingresos) + ' en ' + BEN.baseYear + ' con ' + pc(BEN.fuga) + ' de facturación que hoy no se cobra (días de alquiler, transportes, faltantes y daños sin soporte); ' + n0(BEN.m2) + ' m² de andamio multidireccional con tarifa de ' + money(BEN.tarifa) + ' por m² al mes y utilización de ' + pc(BEN.utilBase) + ' a ' + pc(BEN.utilMeta) + ', con ' + pc(BEN.atribucion) + ' de la mejora atribuida al ERP y margen de contribución de ' + pc(BEN.margen) + '; cartera total de ' + ms(BEN.cartera) + ' con ' + n0((BEN.carteraBase - BEN.carteraMeta) * 100) + ' puntos menos de cartera vencida a más de 60 días a un costo financiero de ' + pc(BEN.tasa) + ' anual; ' + n0(BEN.diasPersona) + ' días-persona al año liberados en facturación, conciliaciones y digitación a ' + money(dayCost) + ' por día. Horizonte de tres años de operación (' + BEN.years[0] + ' a ' + BEN.years[years - 1] + ') con ' + pc(BEN.rampa[0]) + ' del beneficio el primer año. ' + cap(benefitText) + '. ' +
+      (stage >= 1 ? 'Operación: suscripción contratada de ' + subTotalUsers + ' usuarios (' + andList(subUsers) + ') por ' + money(monthly) + ' al mes durante los tres años. ' : 'Operación: suscripción estimada de ' + subTotalUsers + ' usuarios por cerca de ' + ms(monthly) + ' al mes (referencia de mercado; se confirma con las propuestas). ') +
       'Alternativa B: inversión de ' + ms(ALT.minimo.inversion) + ' y operación de ' + ms(ALT.minimo.operacion) + ' al año; captura ' + pc(ALT.minimo.parteFuga) + ' de la facturación recuperada y ' + pc(ALT.minimo.parteTiempo) + ' del tiempo liberado. Alternativa D: inversión de ' + ms(ALT.propio.inversion) + ' y operación de ' + ms(ALT.propio.operacion) + ' al año; logra ' + pc(ALT.propio.rampa[0]) + ' del beneficio el primer año. Tasa de planificación de COP 4.000 por dólar para los equipos importados.';
     const casoFields = (stage) => {
       const budget = stage >= 1 ? F.budget : 700000000;
@@ -194,13 +199,13 @@
         costoEstimado: budget,
         margenEsperado: c.margen,
         flujoCaja: stage >= 1
-          ? 'Recursos propios de la empresa, liberados por tramos según el documento «Requisitos de financiamiento del proyecto» (rev. 0): un tramo por release, sujeto a la revisión de este caso al cierre del release anterior. La suscripción se paga mes vencido y el implementador al cierre de cada iteración. Margen calculado como beneficio neto a tres años (después de la suscripción) menos el presupuesto aprobado con sus reservas, sobre ese beneficio. Recuperación de la inversión en cerca de ' + n1(c.payback) + ' años desde ' + BEN.years[0] + '.'
-          : 'Recursos propios de la empresa. Se propone pagar la suscripción cada mes y al implementador por iteración terminada, y liberar el financiamiento por release según el valor demostrado en cada revisión. Margen calculado como beneficio neto a tres años (después de la suscripción) menos el presupuesto preliminar con reservas, sobre ese beneficio. Recuperación de la inversión en cerca de ' + n1(c.payback) + ' años desde ' + BEN.years[0] + '.',
+          ? 'Recursos propios de la empresa, liberados por tramos según el documento «Requisitos de financiamiento del proyecto» (rev. 0): después de la contratación, cada tramo se libera con la revisión de este caso al cierre de un release y cubre los meses siguientes. Los pagos a los proveedores siguen las condiciones de los contratos (registro de contratos y acuerdos). Margen calculado como beneficio neto a tres años (después de la suscripción) menos el presupuesto aprobado con sus reservas, sobre ese beneficio. Recuperación de la inversión en cerca de ' + n1(c.payback) + ' años desde ' + BEN.years[0] + '.'
+          : 'Recursos propios de la empresa. Se propone pagar la suscripción cada mes y al implementador por iteración terminada, y liberar el financiamiento por tramos según el valor demostrado en la revisión de cada release. Margen calculado como beneficio neto a tres años (después de la suscripción) menos el presupuesto preliminar con reservas, sobre ese beneficio. Recuperación de la inversión en cerca de ' + n1(c.payback) + ' años desde ' + BEN.years[0] + '.',
         recomendacion: stage >= 1
-          ? 'Continuar con los releases 2 y 3 (alternativa C). Revisión al cierre del release 1: el release está en producción desde el ' + dl(golive1) + ' con ' + r1prog.done + ' de ' + r1prog.total + ' puntos, incluida la integración con las básculas aprobada en el CC-001, y un costo real de ' + ms(r1ac) + ' frente a un presupuesto de ' + ms(R1.budget) + ' (CPI ' + ix(r1cpi) + '). El inventario de la bodega principal se migró con ' + migPct + ' de diferencia frente al conteo físico (meta: ' + m[2].meta + '). Con el presupuesto aprobado de ' + ms(F.budget) + ' (LB0 del ' + dl(LB0) + ') el beneficio neto a tres años es de ' + ms(c.neto) + '. Con esta revisión se libera el tramo 3 del financiamiento (release 2); el caso se revisa de nuevo al cierre del release 2.'
+          ? 'Continuar con los releases 2 y 3 (alternativa C). Revisión al cierre del release 1: el release está en producción desde el ' + dl(golive1) + ' con ' + r1prog.done + ' de ' + r1prog.total + ' puntos, incluida la integración con las básculas aprobada en el CC-001, y un costo real de ' + ms(r1ac) + ' frente a un presupuesto de ' + ms(R1.budget) + ' (CPI ' + ix(r1cpi) + '). El inventario de la bodega principal se migró con ' + migPct + ' de diferencia frente al conteo físico (meta: ' + m[2].meta + '). Con el presupuesto aprobado de ' + ms(F.budget) + ' (LB0 del ' + dl(LB0) + ') el beneficio neto a tres años es de ' + ms(c.neto) + '. Con esta revisión se libera el tramo 3 del financiamiento (' + ms(T3.amount) + ', de ' + tramoSpan(T3) + ': ' + tramoBrief(T3) + '); el ' + relShort('rel-2').toLowerCase() + ' empezó el ' + dl(rel('rel-2').start) + ' con el tramo 2, que cubre hasta el ' + dl(tramos[1].end) + '. El caso se revisa de nuevo al cierre del ' + relShort('rel-2').toLowerCase() + ', antes de liberar el tramo 4.'
           : 'Recomendar la alternativa C: es la única que cubre los cinco objetivos del negocio, entrega valor desde el primer release (inventario y alquiler) y deja un beneficio neto a tres años de ' + ms(c.neto) + ' aun con el presupuesto preliminar completo y sus reservas. Condiciones para continuar: seleccionar el ERP y el implementador con demostraciones guiadas con guiones de negocio propios, firmar los contratos dentro del presupuesto preliminar y revisar este caso al cierre de cada release antes de liberar el financiamiento del siguiente.',
         criteriosExito: stage >= 1
-          ? [0, 1, 2, 3, 4].map((i) => m[i].metrica + ': de ' + lc(m[i].lineaBase) + ' a ' + lc(m[i].meta) + ' al ' + dl(m[i].fecha) + '.')
+          ? [0, 1, 2, 3, 4].map((i) => m[i].metrica + (/^\d/.test(m[i].lineaBase) ? ': de ' + lc(m[i].lineaBase) + ' a ' + lc(m[i].meta) : ': línea base, ' + lc(m[i].lineaBase) + '; meta, ' + lc(m[i].meta)) + ' al ' + dl(m[i].fecha) + '.')
           : [
             'Cierre mensual de facturación de alquileres: de cerca de 5 días hábiles a 1.',
             'Facturas electrónicas rechazadas por la DIAN: menos de 1 % de las emitidas, sin digitarlas en el portal del proveedor tecnológico.',
@@ -224,7 +229,6 @@
         supuestosCaso: driversText(monthly, stage),
       };
     };
-    const casoNow = casoFields(1);
 
     /* ================================================================ 4.1 · PLAN DE GESTIÓN DE LOS BENEFICIOS */
     const plazoOf = (iso) => (iso <= END ? 'Corto plazo (durante el proyecto)' : 'Mediano plazo (hasta 1 año)');
@@ -236,6 +240,11 @@
         const m = metric(i);
         return { beneficio: BEN_NAME[i], tipo: 'Tangible', metrica: m.metrica, lineaBase: stage >= 1 ? m.lineaBase : EST0[i], meta: m.meta + ' al ' + dl(m.fecha), plazo: plazoOf(m.fecha), responsable: OWN[i] };
       }),
+      /* beneficios monetarios del caso de negocio que no son métricas de la visión: se siguen después del cierre, hasta el horizonte del caso */
+      { beneficio: 'Facturación recuperada: días de alquiler, transportes, faltantes y daños que hoy no se cobran', tipo: 'Tangible', metrica: 'Facturación anual de esos conceptos frente a la base de ' + BEN.baseYear + ' (COP al año)',
+        lineaBase: 'Base de ' + BEN.baseYear + ': cerca de ' + pc(BEN.fuga) + ' de los ingresos de alquiler y servicios (' + ms(BEN.ingresos) + ') no se factura (estimación)', meta: ms(benefit.fuga) + ' al año a plena adopción (' + pc(BEN.rampa[0]) + ' en ' + BEN.years[0] + ')', plazo: 'Largo plazo (más de 1 año)', responsable: ROLE.po },
+      { beneficio: 'Tiempo administrativo liberado en facturación, conciliaciones y digitación', tipo: 'Tangible', metrica: 'Días-persona al año que las áreas administrativas dejan de dedicar a esas tareas',
+        lineaBase: 'Procesos manuales de ' + BEN.baseYear + ': sin tiempo liberado', meta: n0(BEN.diasPersona) + ' días-persona al año (' + ms(benefit.tiempo) + ') a plena adopción (' + pc(BEN.rampa[0]) + ' en ' + BEN.years[0] + ')', plazo: 'Largo plazo (más de 1 año)', responsable: ROLE.po },
       { beneficio: 'Mantenimiento preventivo programado (release 3)', tipo: 'Tangible', metrica: 'Maquinaria serializada con plan de mantenimiento preventivo programado en el ERP', lineaBase: 'Sin programación: mantenimiento correctivo al devolver el equipo', meta: '100 % de la maquinaria serializada al 31 de marzo de 2027', plazo: 'Mediano plazo (hasta 1 año)', responsable: ROLE.mant },
       { beneficio: 'Un solo dato por equipo para todas las áreas', tipo: 'Intangible', metrica: 'Áreas que consultan la disponibilidad y el estado de los equipos en el ERP', lineaBase: 'Hojas de cálculo separadas por área', meta: 'Hojas de cálculo de control retiradas al salir cada release', plazo: 'Corto plazo (durante el proyecto)', responsable: ROLE.alm },
       { beneficio: 'Cobro con soporte de faltantes y daños', tipo: 'Intangible', metrica: stage >= 2 ? 'Devoluciones con faltantes o daños valorados al cerrar el conteo y con el peso de báscula (CC-001)' : 'Devoluciones con faltantes o daños valorados al cerrar el conteo', lineaBase: 'Faltantes detectados días después, sin soporte para cobrarlos', meta: stage >= 2 ? 'Toda devolución con diferencia de peso mayor a 3 % contada por pieza y valorada antes de facturar' : 'Faltantes y daños valorados en el ERP antes de facturar', plazo: 'Corto plazo (durante el proyecto)', responsable: ROLE.po },
@@ -246,9 +255,9 @@
       beneficios: beneficiosRows(stage),
       responsableBeneficios: 'Gerente administrativo y financiero (dueño del producto), que responde ante la Gerencia General; la Gerencia General responde por la utilización del inventario, el jefe de almacén y el coordinador logístico por el inventario y el jefe de mantenimiento por el preventivo.',
       frecuenciaMedicion: 'Mensual',
-      mecanismoMedicion: 'Cada beneficio se mide cada mes desde la salida a producción del release que lo habilita (' + relShort('rel-1').toLowerCase() + ': inventario y faltantes; ' + relShort('rel-2').toLowerCase() + ': facturación y cartera; ' + relShort('rel-3').toLowerCase() + ': utilización y mantenimiento) con los reportes del ERP, el tablero gerencial, los conteos cíclicos de bodega y el reporte de rechazos del proveedor tecnológico. Las líneas base anteriores salen de las hojas de cálculo y del software contable. El dueño del producto presenta el avance en el comité quincenal y en la revisión del caso de negocio al cierre de cada release.' +
+      mecanismoMedicion: 'Cada beneficio se mide cada mes desde la salida a producción del release que lo habilita: ' + relShort('rel-1').toLowerCase() + ', inventario, faltantes y utilización del andamio (el inventario por bodega, obra y estado da los m² alquilados y disponibles; la utilización sale de un reporte del ERP hasta que la reemplace el tablero gerencial); ' + relShort('rel-2').toLowerCase() + ', facturación y cartera; ' + relShort('rel-3').toLowerCase() + ', mantenimiento preventivo y tablero gerencial. Fuentes: los reportes del ERP, el tablero gerencial, los conteos cíclicos de bodega y el reporte de rechazos del proveedor tecnológico; las líneas base anteriores salen de las hojas de cálculo y del software contable. La facturación recuperada y el tiempo liberado se miden cada año frente a la base de ' + BEN.baseYear + ', con la facturación por concepto del ERP y el registro de tiempos de las áreas. El dueño del producto presenta el avance en el comité quincenal y en la revisión del caso de negocio al cierre de cada release.' +
         (stage >= 2 ? ' Primera medición al cierre del ' + relShort('rel-1').toLowerCase() + ' (' + dl(R1_REVIEW) + '): el inventario de la bodega principal se migró con ' + migPct + ' de diferencia frente al conteo físico (meta: ' + metric(2).meta + '). Es la diferencia de la migración, no todavía la del conteo cíclico, que empieza en ' + monthName(D.addMonths(D.startOfMonth(golive1), 1)) + '.' : ''),
-      transicion: 'Al cierre del proyecto (' + dl(END) + ') la PMO y la gerencia administrativa y financiera siguen midiendo cada mes hasta el ' + dl(metric(4).fecha) + ', fecha de la meta de cartera, y presentan el resultado a la Gerencia General. Después, los indicadores quedan en el tablero gerencial a cargo de cada dueño y la PMO cierra el seguimiento en el informe de beneficios.',
+      transicion: 'Al cierre del proyecto (' + dl(END) + ') la PMO y la gerencia administrativa y financiera siguen midiendo cada mes hasta el ' + dl(metric(4).fecha) + ', fecha de la meta de cartera, y presentan el resultado a la Gerencia General. Después, los indicadores quedan en el tablero gerencial a cargo de cada dueño y la PMO cierra su seguimiento en el informe de beneficios. Los beneficios monetarios del caso de negocio (' + ms(annual) + ' al año a plena adopción) se siguen hasta ' + BEN.years[years - 1] + ', el horizonte del caso: cada año el gerente administrativo y financiero presenta a la Gerencia General, en la revisión anual del caso de negocio, la facturación recuperada, el tiempo liberado y el valor de la utilización y de la cartera frente a lo previsto.',
       supuestosBeneficios: [
         'Las áreas usan el ERP como única fuente: las hojas de cálculo de control se retiran al salir cada release.',
         'El inventario de andamio multidireccional y las tarifas de alquiler se mantienen en el horizonte del caso de negocio (' + BEN.years[0] + ' a ' + BEN.years[years - 1] + ').',
@@ -295,7 +304,7 @@
           stage >= 2 ? it7.end : s3.end, 'Por validar'),
         S('S-11', 'Supuesto', 'Contabilidad entrega el auxiliar de cartera conciliado al cierre del mes anterior en los primeros días hábiles del mes de la migración de saldos.' + (stage >= 2 ? ' Por validar: el auxiliar a 30 de septiembre no ha llegado (INC-003, TA-011 bloqueado); compromiso para el 13 de octubre.' : ''), 'Recursos', ROLE.con,
           stage >= 2 ? '2026-10-13' : lbTask('t18').start, 'Por validar'),
-        S('S-12', 'Restricción', 'Suscripción de ' + BEN.usuarios + ' usuarios (' + andList(subUsers) + ') de ' + monthName(lbTask('t12').start) + ' a ' + monthName(lbTask('t12').finish) + ', con facturación mensual vencida; desde ' + monthName(D.addMonths(D.startOfMonth(lbTask('t12').finish), 1)) + ' pasa al presupuesto de operación de TI.', 'Contractual', ROLE.ti, F.milestones.t11.actual, 'Validado'),
+        S('S-12', 'Restricción', 'Suscripción de ' + subTotalUsers + ' usuarios (' + andList(subUsers) + ') de ' + monthName(lbTask('t12').start) + ' a ' + monthName(lbTask('t12').finish) + ', con facturación mensual vencida; desde ' + monthName(D.addMonths(D.startOfMonth(lbTask('t12').finish), 1)) + ' pasa al presupuesto de operación de TI.', 'Contractual', ROLE.ti, F.milestones.t11.actual, 'Validado'),
         S('S-13', 'Restricción', 'El implementador trabaja a precio fijo de ' + n0(implHours) + ' horas por iteración de ' + sprintDays + ' días hábiles; las horas adicionales solo entran con las bolsas del conector y del tablero gerencial o con una solicitud de cambio.', 'Contractual', R.dir, F.milestones.t11.actual, 'Validado'),
       );
       if (stage >= 2) list.push(
@@ -328,22 +337,37 @@
       { fase: 'Estabilización y cierre', entregables: 'Estabilización (hypercare) con el implementador, transferencia al soporte de TI, informe final, lecciones aprendidas y acta de cierre.', criterioSalida: 'Cero incidentes críticos abiertos, soporte transferido a TI y acta de cierre firmada.', fechaPrevista: lb('t06') },
     ]);
     const planRef = (tid, rev) => code(tid) + (rev !== undefined ? ' rev. ' + rev : '');
+    /* fechas de las emisiones del plan: LB0, CC-001 y, después del cierre del release 1, la de la rev. 2 del plan de releases
+       (planificación de la iteración 6, en 95), que incorpora la línea base del release 2 */
+    const PDP2 = prelRev('2') || sprintsOf('rel-2')[1].start;
+    const pdDate = (stage) => [LB0, CC1, PDP2][stage];
+    /* última emisión aprobada de un documento de 95 a una fecha (sin el documento, la referencia va sin revisión) */
+    const revAt = (tid, at) => {
+      const e = base && base[tid];
+      if (!e) return undefined;
+      const list = [...(e.revs || []).map((r) => [r.rev, r.status || 'aprobado', r.date]), [e.rev, e.status, e.date]].filter(([rv, st, d]) => st === 'aprobado' && d && d <= at && /^\d+$/.test(String(rv)));
+      list.sort((a, b) => String(a[2]).localeCompare(String(b[2])) || Number(a[0]) - Number(b[0]));
+      return list.length ? String(list[list.length - 1][0]) : undefined;
+    };
+    const R2B = rel('rel-2').baseline;
+    const r2PlanSprint = R2B ? agile.sprints.find((x) => x.start === R2B.date) : null;
+    const r2SameAsLb0 = !!R2B && R2B.end === lb(rel('rel-2').taskId, 'finish') && R2B.budget === lbTask(rel('rel-2').taskId).cost;
     const planesSub = (stage) => rows('ps', [
-      { plan: 'Plan de gestión del alcance', estado: 'Incluido en este plan', referencia: 'Visión del producto (' + planRef('vision-producto', 0) + ') y plan de releases (' + planRef('plan-release', stage >= 1 ? 1 : 0) + ')', responsable: 'Dueño del producto', resumen: 'La visión del producto y el backlog por release definen el alcance; la EDT conserva los nueve entregables y cada release es un entregable de la EDT. El alcance de un release se compromete con línea base en la planificación de su primera iteración.' },
-      { plan: 'Plan de gestión de los requisitos', estado: 'Incluido en este plan', referencia: 'Backlog del producto y definición de listo y de terminado (' + planRef('definicion-terminado', 0) + ')', responsable: 'Dueño del producto', resumen: 'Historias de usuario con criterios de aceptación, prioridad MoSCoW y estimación en puntos; se refinan cada semana con los usuarios clave.' },
+      { plan: 'Plan de gestión del alcance', estado: 'Incluido en este plan', referencia: 'Visión del producto (' + planRef('vision-producto', revAt('vision-producto', pdDate(stage))) + ') y plan de releases (' + planRef('plan-release', revAt('plan-release', pdDate(stage))) + ')', responsable: 'Dueño del producto', resumen: 'La visión del producto y el backlog por release definen el alcance; la EDT conserva los nueve entregables y cada release es un entregable de la EDT. El alcance de un release se compromete con línea base en la planificación de su primera iteración.' },
+      { plan: 'Plan de gestión de los requisitos', estado: 'Incluido en este plan', referencia: 'Backlog del producto y definición de listo y de terminado (' + planRef('definicion-terminado', revAt('definicion-terminado', pdDate(stage))) + ')', responsable: 'Dueño del producto', resumen: 'Historias de usuario con criterios de aceptación, prioridad MoSCoW y estimación en puntos; se refinan cada semana con los usuarios clave.' },
       { plan: 'Plan de gestión del cronograma', estado: 'Incluido en este plan', referencia: 'Cronograma (LB0) y plan de releases', responsable: R.dir, resumen: 'Cronograma por ruta crítica para los entregables predictivos y las salidas a producción; iteraciones de ' + sprintDays + ' días hábiles y pronóstico por velocidad para los releases. Calendario de lunes a viernes con festivos de Colombia.' },
       { plan: 'Plan de gestión de los costos', estado: 'Incluido en este plan', referencia: 'Requisitos de financiamiento (' + planRef('requisitos-financiamiento', 0) + ')', responsable: R.dir, resumen: 'Pesos colombianos sin decimales, valor ganado del proyecto sobre la LB0 en cada corte quincenal y AgileEVM de cada release; reserva para contingencias por riesgo y reserva de gestión de la Gerencia General.' },
-      { plan: 'Plan de gestión de la calidad', estado: 'Incluido en este plan', referencia: 'Definición de listo y de terminado (' + planRef('definicion-terminado', 0) + ')', responsable: R.sm, resumen: 'La definición de terminado es el estándar de calidad de cada elemento; la prueba de aceptación firmada por los usuarios clave, el de cada release; facturas validadas por la DIAN en habilitación antes del release 2.' },
+      { plan: 'Plan de gestión de la calidad', estado: 'Incluido en este plan', referencia: 'Definición de listo y de terminado (' + planRef('definicion-terminado', revAt('definicion-terminado', pdDate(stage))) + ')', responsable: R.sm, resumen: 'La definición de terminado es el estándar de calidad de cada elemento; la prueba de aceptación firmada por los usuarios clave, el de cada release; facturas validadas por la DIAN en habilitación antes del release 2.' },
       { plan: 'Plan de gestión de los recursos', estado: 'Incluido en este plan', referencia: 'Catálogo de recursos y capacidad de las iteraciones', responsable: R.dir, resumen: 'Equipo Scrum de cinco desarrolladores (dos al 50 %) del implementador y de TI, Scrum Master al 50 % y dueño del producto; la capacidad de cada iteración descuenta ausencias y festivos.' },
       { plan: 'Plan de gestión de las comunicaciones', estado: 'Aprobado', referencia: planRef('plan-gestion-comunicaciones'), responsable: R.dir, resumen: 'Eventos de Scrum, comité quincenal con el informe de desempeño y reunión semanal con el implementador.' },
-      { plan: 'Plan de gestión de los riesgos', estado: 'Aprobado', referencia: planRef('plan-gestion-riesgos', 0), responsable: R.dir, resumen: 'Riesgos en dos niveles (impedimentos en la iteración y riesgos del proyecto en el comité quincenal), matriz 5 × 5 y reserva para contingencias asignada por riesgo.' },
+      { plan: 'Plan de gestión de los riesgos', estado: 'Aprobado', referencia: planRef('plan-gestion-riesgos', revAt('plan-gestion-riesgos', pdDate(stage))), responsable: R.dir, resumen: 'Riesgos en dos niveles (impedimentos en la iteración y riesgos del proyecto en el comité quincenal), matriz 5 × 5 y reserva para contingencias asignada por riesgo.' },
       { plan: 'Plan de gestión de las adquisiciones', estado: 'Aprobado', referencia: planRef('plan-gestion-adquisiciones'), responsable: R.dir, resumen: 'Selección del ERP y del socio implementador con solicitud de propuestas, demostraciones guiadas y evaluación ponderada; contratos de suscripción y de implementación por iteraciones de precio fijo.' },
       { plan: 'Plan de involucramiento de los interesados', estado: 'Aprobado', referencia: planRef('plan-involucramiento-interesados'), responsable: R.dir, resumen: 'Red de usuarios clave, revisiones de iteración abiertas a las áreas y acompañamiento en las bodegas en cada salida a producción.' },
-      { plan: 'Plan de gestión de cambios', estado: 'Aprobado', referencia: planRef('plan-gestion-cambios', 0), responsable: R.dir, resumen: 'Control integrado de cambios en dos niveles: dentro de ±10 % del alcance de un release decide el dueño del producto; lo demás, el comité de control de cambios o la Gerencia General.' },
+      { plan: 'Plan de gestión de cambios', estado: 'Aprobado', referencia: planRef('plan-gestion-cambios', revAt('plan-gestion-cambios', pdDate(stage))), responsable: R.dir, resumen: 'Control integrado de cambios en dos niveles: dentro de ±10 % del alcance de un release decide el dueño del producto; lo demás, el comité de control de cambios o la Gerencia General.' },
       { plan: 'Plan de gestión de la configuración', estado: 'Incluido en este plan', referencia: 'Ambientes del ERP y revisiones de los documentos', responsable: ROLE.ti, resumen: 'Ambientes de pruebas y producción, parametrización documentada en cada historia y revisiones controladas de los documentos del proyecto en el gestor.' },
-      { plan: 'Plan de releases (hoja de ruta del producto)', estado: 'Aprobado', referencia: planRef('plan-release', stage >= 1 ? 1 : 0), responsable: 'Dueño del producto', resumen: 'Tres releases y ' + agile.sprints.length + ' iteraciones de ' + sprintDays + ' días hábiles con velocidad supuesta de ' + ((PM.templates['plan-release'] && PM.templates['plan-release'].example.velocidadSupuesta) || 30) + ' puntos; ' + relShort('rel-1').toLowerCase() + ' con ' + (stage >= 1 ? r1PointsCC + ' puntos de línea base (CC-001)' : r1Points0 + ' puntos de línea base') + '.' },
+      { plan: 'Plan de releases (hoja de ruta del producto)', estado: 'Aprobado', referencia: planRef('plan-release', revAt('plan-release', pdDate(stage))), responsable: 'Dueño del producto', resumen: 'Tres releases y ' + agile.sprints.length + ' iteraciones de ' + sprintDays + ' días hábiles con velocidad supuesta de ' + ((PM.templates['plan-release'] && PM.templates['plan-release'].example.velocidadSupuesta) || 30) + ' puntos; ' + relShort('rel-1').toLowerCase() + (stage >= 2 ? ' cerrado con ' + r1PointsCC + ' puntos de línea base (CC-001) y ' + relShort('rel-2').toLowerCase() + ' comprometido con ' + R2B.points + ' puntos el ' + dl(R2B.date) : ' con ' + (stage >= 1 ? r1PointsCC + ' puntos de línea base (CC-001)' : r1Points0 + ' puntos de línea base')) + '.' },
       { plan: 'Plan de gestión del cambio organizacional', estado: 'Aprobado', referencia: 'Entregable ' + wcode('w51') + ' de la EDT', responsable: R.dir, resumen: 'Análisis de impacto por área, red de usuarios clave y seguimiento de la adopción, elaborados con el consultor de gestión del cambio.' },
-      { plan: 'Caso de negocio y plan de gestión de los beneficios', estado: 'Aprobado', referencia: planRef('caso-negocio', 0) + ' y ' + planRef('plan-gestion-beneficios', 1), responsable: 'Dueño del producto', resumen: 'Justificación de la inversión y beneficios con su dueño y medición; se revisan al cierre de cada release.' },
+      { plan: 'Caso de negocio y plan de gestión de los beneficios', estado: 'Aprobado', referencia: planRef('caso-negocio', stage >= 2 ? 1 : 0) + ' y ' + planRef('plan-gestion-beneficios', stage >= 2 ? 2 : 1), responsable: 'Dueño del producto', resumen: 'Justificación de la inversión y beneficios con su dueño y medición; se revisan al cierre de cada release.' },
     ]);
     const pdFields = (stage) => ({
       cicloVida: 'Adaptativo (ágil)',
@@ -361,8 +385,10 @@
       ],
       planesSubsidiarios: planesSub(stage),
       lineasBase: rows('lb', [
-        { lineaBase: 'Alcance', contenido: 'EDT de ' + roots.length + ' entregables (' + wcode(roots[0].id) + ' a ' + wcode(roots[roots.length - 1].id) + ') con su diccionario; visión del producto y backlog por release. ' + cap(relShort('rel-1').toLowerCase()) + ' comprometido con ' + (stage >= 1 ? r1PointsCC : r1Points0) + ' puntos; los releases 2 y 3 se comprometen en la planificación de las iteraciones ' + sprintsOf('rel-2')[0].name.replace('Iteración ', '') + ' y ' + sprintsOf('rel-3')[0].name.replace('Iteración ', '') + '.', version: 'LB0', fechaAprobacion: LB0,
-          observaciones: stage >= 1 ? 'La línea base del ' + relShort('rel-1').toLowerCase() + ' pasó de ' + r1Points0 + ' a ' + r1PointsCC + ' puntos con el CC-001 (' + dl(CC1) + '), sin cambiar su fecha ni su presupuesto; la LB0 del proyecto no cambia.' : 'Las líneas base de cada release se mantienen en «Releases e iteraciones» y en el plan de releases.' },
+        { lineaBase: 'Alcance', contenido: 'EDT de ' + roots.length + ' entregables (' + wcode(roots[0].id) + ' a ' + wcode(roots[roots.length - 1].id) + ') con su diccionario; visión del producto y backlog por release. ' + (stage >= 2
+          ? cap(relShort('rel-1').toLowerCase()) + ' cerrado con ' + r1PointsCC + ' puntos; ' + relShort('rel-2').toLowerCase() + ' comprometido con ' + R2B.points + ' puntos en la planificación de la ' + (r2PlanSprint ? r2PlanSprint.name.toLowerCase() + ' (' + dl(R2B.date) + ')' : 'primera iteración del release (' + dl(R2B.date) + ')') + '; el ' + relShort('rel-3').toLowerCase() + ' se compromete en la planificación de la iteración ' + sprintsOf('rel-3')[0].name.replace('Iteración ', '') + '.'
+          : cap(relShort('rel-1').toLowerCase()) + ' comprometido con ' + (stage >= 1 ? r1PointsCC : r1Points0) + ' puntos; los releases 2 y 3 se comprometen en la planificación de las iteraciones ' + sprintsOf('rel-2')[0].name.replace('Iteración ', '') + ' y ' + sprintsOf('rel-3')[0].name.replace('Iteración ', '') + '.'), version: 'LB0', fechaAprobacion: LB0,
+          observaciones: stage >= 1 ? 'La línea base del ' + relShort('rel-1').toLowerCase() + ' pasó de ' + r1Points0 + ' a ' + r1PointsCC + ' puntos con el CC-001 (' + dl(CC1) + '), sin cambiar su fecha ni su presupuesto' + (stage >= 2 ? '; la del ' + relShort('rel-2').toLowerCase() + ' se registró en «Releases e iteraciones» con ' + (r2SameAsLb0 ? 'la fecha de fin y el presupuesto de la LB0' : 'fin el ' + dl(R2B.end) + ' y presupuesto de ' + ms(R2B.budget)) + ' (' + R2B.sprints + ' iteraciones). La LB0 del proyecto no cambia.' : '; la LB0 del proyecto no cambia.') : 'Las líneas base de cada release se mantienen en «Releases e iteraciones» y en el plan de releases.' },
         { lineaBase: 'Cronograma', contenido: 'Del ' + dl(LB.schedule.start) + ' al ' + dl(LB.schedule.finish) + ', ruta crítica con calendario de lunes a viernes y festivos de Colombia; salidas a producción el ' + andList([lb('t29'), lb('t31'), lb('t33')].map(dl)) + '.', version: 'LB0', fechaAprobacion: LB0, observaciones: 'Las salidas a producción evitan el cierre mensual y el cierre anual.' },
         { lineaBase: 'Costos', contenido: 'BAC de las actividades de ' + ms(lbBac) + ' más reserva para contingencias de ' + ms(lbCont) + ' = ' + ms(lbCostBase) + ', distribuidos por mes en los requisitos de financiamiento.', version: 'LB0', fechaAprobacion: LB0, observaciones: 'La reserva de gestión (' + ms(lbMan) + ') queda fuera de la línea base; los releases suman ' + ms(agile.releases.reduce((s, r) => s + r.budget, 0)) + '.' },
         { lineaBase: 'Medición del desempeño', contenido: 'Valor ganado del proyecto sobre la LB0 en cada corte quincenal y AgileEVM de cada release sobre su línea base (puntos, fin, presupuesto e iteraciones).', version: 'LB0', fechaAprobacion: LB0, observaciones: 'Los releases toman su avance del backlog y entran a la curva S del proyecto.' },
@@ -376,11 +402,12 @@
         { revision: 'Retrospectiva', momento: 'Después de cada revisión', participantes: 'Scrum Master, desarrolladores y dueño del producto', proposito: 'Acciones de mejora para la iteración siguiente y lecciones aprendidas.' },
         { revision: 'Comité de seguimiento', momento: 'Quincenal', participantes: 'Gerencia General, director de proyecto, dueño del producto, jefe de TI y líder del implementador', proposito: 'Informe de desempeño: valor ganado y AgileEVM, pronóstico de los releases, riesgos, incidentes y cambios.' },
         { revision: 'Comité de control de cambios', momento: 'Quincenal y a solicitud', participantes: 'Integrantes definidos en el plan de gestión de cambios', proposito: 'Decidir las solicitudes de cambio de nivel 2 y escalar las de nivel 3.' },
-        { revision: 'Cierre de cada release', momento: 'Al salir a producción cada release', participantes: 'Gerencia General, dueño del producto y director de proyecto', proposito: 'Aceptación del release, revisión del caso de negocio y de los beneficios y liberación del tramo de financiamiento del release siguiente.' },
+        { revision: 'Cierre de cada release', momento: 'Día hábil siguiente a la salida a producción de cada release', participantes: 'Gerencia General, dueño del producto y director de proyecto', proposito: 'Resultados del release en producción, revisión del caso de negocio y de los beneficios y liberación del siguiente tramo de financiamiento, que cubre desde el mes siguiente.' },
         { revision: 'Reunión con el implementador', momento: 'Semanal', participantes: 'Director de proyecto, líder del implementador y Scrum Master', proposito: 'Capacidad del equipo del implementador, facturación por iteración y cumplimiento del contrato.' },
         { revision: 'Revisión de cierre', momento: 'Al terminar la estabilización', participantes: 'Gerencia General, director de proyecto, dueño del producto y jefe de TI', proposito: 'Aceptación final, transferencia al soporte, informe final y lecciones aprendidas.' },
       ]),
-      mantenimientoPlan: 'El director de proyecto mantiene el plan. Se revisa al cerrar cada release y con cada cambio aprobado a una línea base del proyecto o de un release comprometido; cada revisión la aprueba la Gerencia General y queda en el historial del documento (borradores A, B…; emisiones aprobadas 0, 1…).' + (stage >= 1 ? ' Revisión 1 (' + dl(CC1) + '): CC-001, línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + r1PointsCC + ' puntos.' : ''),
+      mantenimientoPlan: 'El director de proyecto mantiene el plan. Se revisa después del cierre de cada release, con la hoja de ruta actualizada del plan de releases, y con cada cambio aprobado a una línea base del proyecto o de un release comprometido; cada revisión la aprueba la Gerencia General y queda en el historial del documento (borradores A, B…; emisiones aprobadas 0, 1…).' + (stage >= 1 ? ' Revisión 1 (' + dl(CC1) + '): CC-001, línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + r1PointsCC + ' puntos.' : '') +
+        (stage >= 2 ? ' Revisión 2 (' + dl(PDP2) + '): cierre del ' + relShort('rel-1').toLowerCase() + ', línea base del ' + relShort('rel-2').toLowerCase() + ' en ' + R2B.points + ' puntos, plan de releases (' + planRef('plan-release', revAt('plan-release', PDP2)) + '), caso de negocio (' + planRef('caso-negocio', 1) + ') y plan de gestión de los beneficios (' + planRef('plan-gestion-beneficios', 2) + ').' : ''),
     });
 
     /* ================================================================ 7.3 · REQUISITOS DE FINANCIAMIENTO */
@@ -391,73 +418,122 @@
     const cumPv = months.map((m) => r100k(evm.pvAt(monthEnd(m))));
     const egresos = cumPv.map((c, i) => c - (i ? cumPv[i - 1] : 0));
     /* reserva para contingencias por mes: cada riesgo del registro (rev. 0) en proporción al valor planificado de sus actividades */
-    const base = PM.exampleDocs && typeof PM.exampleDocs.erp === 'function' ? PM.exampleDocs.erp(F) : null;
     const rr0 = base && base['registro-riesgos'] && Array.isArray(base['registro-riesgos'].revs) ? (base['registro-riesgos'].revs.find((r) => r.rev === '0') || {}).fields : null;
     const risks0 = rr0 && Array.isArray(rr0.riesgos) ? rr0.riesgos.filter((r) => r.reserva > 0) : [];
-    const taskPvMonth = (tid, i) => { const t = lbTask(tid); if (!t.cost) return 0; const f = (at) => PM.calc.plannedFraction(cal, t.start, t.finish, t.milestone, at); return t.cost * (f(monthEnd(months[i])) - (i ? f(monthEnd(months[i - 1])) : 0)); };
+    const pvBetween = (tid, a, b) => { const t = lbTask(tid); if (!t.cost) return 0; const f = (at) => PM.calc.plannedFraction(cal, t.start, t.finish, t.milestone, at); return t.cost * (f(b) - f(D.add(a, -1))); };
+    const taskPvMonth = (tid, i) => pvBetween(tid, months[i], monthEnd(months[i]));
     const contRaw = months.map(() => 0);
     for (const r of risks0) {
       const w = months.map((m, i) => (RISK_TASKS[r.id] || []).reduce((s, tid) => s + taskPvMonth(tid, i), 0));
       const tot = w.reduce((s, x) => s + x, 0);
       w.forEach((x, i) => { contRaw[i] += tot ? (r.reserva * x) / tot : 0; });
     }
-    const contTotal = risks0.reduce((s, r) => s + r.reserva, 0) || lbCont;
     if (!risks0.length) months.forEach((m, i) => { contRaw[i] = (lbCont * egresos[i]) / lbBac; });
     const cumC = []; contRaw.reduce((acc, x, i) => { cumC[i] = r100k(acc + x); return acc + x; }, 0);
     const contingencia = cumC.map((c, i) => c - (i ? cumC[i - 1] : 0));
-    /* tramos: uno por ventana (selección; preparación y release 1; release 2; release 3 y cierre), redondeados al millón */
+    /* tramos: ventanas de meses completos. El tramo 1 se libera con el acta de constitución y el 2 al firmar los contratos;
+       desde el 3, cada tramo se libera con la revisión del caso de negocio al cierre de un release (día hábil siguiente a su
+       salida a producción, según la LB0) y cubre desde el mes siguiente a esa revisión. Así cada tramo está disponible antes de
+       empezar su ventana, y el arranque del release siguiente lo financia el tramo anterior, que cubre su mes completo. */
     const monthIdx = (iso) => months.indexOf(D.startOfMonth(iso));
-    const cuts = [0, monthIdx(LB0), monthIdx(lb('t29')) + 1, monthIdx(lb('t31')) + 1, months.length];
+    const SIGN = F.milestones.t11.actual || lb('t11');
+    const GATES0 = [START, lb('t11'), cal.addWork(lb('t29'), 1), cal.addWork(lb('t31'), 1)];
+    const cuts = [0, ...GATES0.slice(1).map((g) => monthIdx(g) + 1), months.length];
     const tramos = cuts.slice(0, -1).map((a, k) => {
       const b = cuts[k + 1];
       const need = egresos.slice(a, b).reduce((s, x) => s + x, 0) + contingencia.slice(a, b).reduce((s, x) => s + x, 0);
-      return { n: k + 1, from: a, to: b - 1, need, amount: Math.ceil(need / 1e5) * 1e5 };
+      return { n: k + 1, from: a, to: b - 1, need, amount: Math.ceil(need / 1e5) * 1e5, start: a === 0 ? LB.schedule.start : months[a], end: monthEnd(months[b - 1]) };
     });
-    const TRAMO_WHEN = ['con el acta de constitución (presupuesto preliminar)', 'con la LB0 (' + dl(LB0) + ')', 'con la revisión del caso de negocio al cierre del ' + relShort('rel-1').toLowerCase(), 'con la revisión al cierre del ' + relShort('rel-2').toLowerCase()];
-    const TRAMO_WHAT = ['selección y contratación', 'planificación, infraestructura, migración del inventario y ' + relShort('rel-1').toLowerCase(), relShort('rel-2').toLowerCase() + ' y migración de cartera', relShort('rel-3').toLowerCase() + ', estabilización y cierre'];
+    /* alcance real de cada ventana: actividades predictivas con valor planificado en ella (LB0) e iteraciones de los releases */
+    const WORK = {
+      t02: 'arranque', t07: 'descubrimiento', t08: 'solicitud de propuestas', t09: 'demostraciones', t10: 'negociación de los contratos',
+      t03: 'planificación', t13: 'ambientes', t14: 'equipos de bodega', t15: 'habilitación del proveedor tecnológico', t20: 'gestión del cambio', t21: 'formación de usuarios clave',
+      t16: 'depuración de datos', t17: 'migración del inventario', t18: 'migración de cartera', t19: 'migración de hojas de vida',
+      t22: 'capacitación del release 1', t23: 'capacitación del release 2', t24: 'capacitación del release 3',
+      t28: 'salida del release 1', t30: 'salida del release 2', t32: 'salida del release 3', t34: 'estabilización', t05: 'cierre',
+    };
+    const workIn = (t) => [...new Set(LB.schedule.tasks.filter((x) => WORK[x.id] && pvBetween(x.id, t.start, t.end) > 0).sort((x, y) => String(x.start).localeCompare(String(y.start))).map((x) => WORK[x.id]))];
+    const iterNum = (s) => s.name.replace('Iteración ', '');
+    const relParts = (t) => ['rel-1', 'rel-2', 'rel-3'].map((rid) => {
+      const all = sprintsOf(rid), over = all.filter((s) => s.start <= t.end && s.end >= t.start);
+      if (!over.length) return null;
+      const head = over.find((s) => s.start < t.start), tail = over.find((s) => s.end > t.end && s !== head);
+      const full = over.filter((s) => s !== head && s !== tail);
+      const rn = relShort(rid).toLowerCase();
+      const brief = !head && !tail && full.length === all.length ? rn : all[0].start >= t.start ? 'el inicio del ' + rn : all[all.length - 1].end <= t.end ? 'el resto del ' + rn : 'parte del ' + rn;
+      if (!head && !tail && full.length === all.length) return { brief, long: rn + ' (' + iterRange(rid) + ')' };
+      const parts = [];
+      if (head) parts.push('el final de la iteración ' + iterNum(head));
+      if (full.length) parts.push(full.length === 1 ? 'la iteración ' + iterNum(full[0]) : 'las iteraciones ' + andList(full.map(iterNum)));
+      if (tail) parts.push('el inicio de la iteración ' + iterNum(tail));
+      return { brief, long: andList(parts) + ' del ' + rn };
+    }).filter(Boolean);
+    const tramoWhat = (t) => [andList(workIn(t)), ...relParts(t).map((p) => p.long)].filter(Boolean).join('; ');
+    const tramoBrief = (t) => andList(relParts(t).map((p) => p.brief));
+    const span = (a, b) => (a === b ? monthName(months[a]) : (months[a].slice(0, 4) === months[b].slice(0, 4) ? monthName(months[a]).replace(/ de 20\d\d$/, '') : monthName(months[a])) + ' a ' + monthName(months[b]));
+    const tramoSpan = (t) => span(t.from, t.to);
+    /* revisiones que liberan los tramos 3 y 4: la del release 1 ya ocurrió al corte (R1_REVIEW); la del release 2, prevista */
+    const tramoWhen = (k, stage) => [
+      'liberado con el acta de constitución (' + dl(START) + ')',
+      'liberado al firmar los contratos (' + dl(SIGN) + ') y confirmado con la LB0 (' + dl(LB0) + ')',
+      stage >= 1 ? 'liberado con la revisión del caso de negocio al cierre del ' + relShort('rel-1').toLowerCase() + ' (' + dl(R1_REVIEW) + ')' : 'que se libera con la revisión del caso de negocio al cierre del ' + relShort('rel-1').toLowerCase() + ', prevista para el ' + dl(GATES0[2]),
+      'que se libera con la revisión del caso de negocio al cierre del ' + relShort('rel-2').toLowerCase() + ', prevista para el ' + dl(GATES0[3]),
+    ][k];
     const periodos = rows('pe', months.map((m, i) => {
       const t = tramos.find((x) => x.from === i);
       return { periodo: cap(monthName(m)), fecha: i === 0 ? LB.schedule.start : firstWork(m), egresos: egresos[i], contingencia: contingencia[i], financiamiento: t ? t.amount : 0, fuente: 'Capital de trabajo de la empresa' };
     }));
     const need = egresos.map((e, i) => e + contingencia[i]);
     const peak = need.reduce((b, x, i) => (x > need[b] ? i : b), 0);
-    const span = (a, b) => (a === b ? monthName(months[a]) : (months[a].slice(0, 4) === months[b].slice(0, 4) ? monthName(months[a]).replace(/ de 20\d\d$/, '') : monthName(months[a])) + ' a ' + monthName(months[b]));
-    const tramoText = tramos.map((t, k) => 'tramo ' + t.n + ', ' + ms(t.amount) + ' ' + TRAMO_WHEN[k] + ' para ' + span(t.from, t.to) + ' (' + TRAMO_WHAT[k] + ')').join('; ');
     const fundTotal = tramos.reduce((s, t) => s + t.amount, 0);
-    const finFields0 = {
+    const tramoText = (stage) => tramos.map((t, k) => cap('tramo ' + t.n + ' (' + ms(t.amount) + '), ' + tramoWhen(k, stage) + ', para ' + tramoSpan(t) + ': ' + tramoWhat(t) + '.')).join(' ');
+    /* costos que forman los egresos (catálogo de recursos, EDT y releases), sin fijar momentos de pago: esos los fijan los contratos */
+    const condicionesPago = 'Proyecto interno: no hay contrato con un cliente ni ingresos que programar. Los egresos de la tabla son el valor planificado de la LB0, es decir, el costo devengado en cada mes, no un programa de pagos: el equipo del implementador a precio fijo de ' + ms(implFee) + ' por iteración, más las bolsas de ' + ms(bolsa2) + ' del conector en el ' + relShort('rel-2').toLowerCase() + ' y de ' + ms(bolsa3) + ' del tablero gerencial en el ' + relShort('rel-3').toLowerCase() + '; la suscripción del ERP, ' + money(subMonthly) + ' al mes de ' + monthName(lbTask('t12').start) + ' a ' + monthName(lbTask('t12').finish) + '; los equipos de bodega, el paquete de facturación electrónica y los consultores, y las horas internas, que se pagan con la nómina de cada mes. Los pagos a los proveedores siguen las condiciones de cada contrato (plazo de pago después de la factura electrónica y retención en garantía hasta la aceptación de cada release), que están en el registro de contratos y acuerdos; por eso el desembolso de caja va detrás del devengo y los tramos, calculados sobre el devengo, dejan un margen de caja en cada ventana.';
+    const finFieldsAt = (stage) => ({
       presupuestoTotal: F.budget,
       lineaBaseCostos: lbCostBase,
       reservaGestion: lbMan,
-      fuentes: 'Recursos propios de la empresa (capital de trabajo); no hay anticipos ni crédito. La Gerencia General libera el financiamiento por tramos, uno por release, y cada tramo después del primero se libera solo si la revisión del release anterior confirma el valor del caso de negocio: ' + tramoText + '. La reserva de gestión (' + ms(lbMan) + ') queda en la tesorería y no entra en los tramos: si la Gerencia General autoriza su uso, se gira como un tramo adicional.',
+      fuentes: 'Recursos propios de la empresa (capital de trabajo); no hay anticipos ni crédito. La Gerencia General libera el financiamiento por tramos que cubren meses completos: el primero con el acta de constitución y el segundo al firmar los contratos. Desde el tercero, cada tramo se libera solo si la revisión del caso de negocio al cierre de un release confirma su valor, y cubre desde el mes siguiente a esa revisión: el arranque del release siguiente lo financia el tramo anterior, que cubre su mes completo, para que el equipo no se detenga mientras se hace la revisión. Cada tramo incluye también los costos continuos de sus meses (la dirección del proyecto y, desde ' + monthName(lb('t12')).replace(/ de 20\d\d$/, '') + ', la suscripción del ERP y la facilitación ágil) y la parte de la reserva para contingencias de esos meses. ' + tramoText(stage) + ' La reserva de gestión (' + ms(lbMan) + ') queda en la tesorería y no entra en los tramos: si la Gerencia General autoriza su uso, se gira como un tramo adicional.',
       periodos,
-      condicionesPago: 'Proyecto interno: no hay contrato con un cliente. Los egresos siguen los pagos a los proveedores, como los programa la LB0: al implementador, al cierre de cada iteración (' + ms(implFee) + ' por iteración de precio fijo, más las bolsas de ' + ms(bolsa2) + ' del conector en el ' + relShort('rel-2').toLowerCase() + ' y de ' + ms(bolsa3) + ' del tablero gerencial en el ' + relShort('rel-3').toLowerCase() + '); la suscripción del ERP, mes vencido (' + money(subMonthly) + ' al mes de ' + monthName(lbTask('t12').start) + ' a ' + monthName(lbTask('t12').finish) + '); los equipos de bodega, contra entrega en ' + monthName(lb('t14')).replace(/ de 20\d\d$/, '') + ', y el paquete anual de facturación electrónica, en ' + monthName(lb('t15')).replace(/ de 20\d\d$/, '') + '. Las horas internas se pagan con la nómina de cada mes. Detalle de los contratos en el registro de contratos y acuerdos.',
-      conciliacionLimite: 'Los egresos de cada mes son el valor planificado de la línea base de costos (LB0) y la reserva para contingencias (' + ms(lbCont) + ') se reparte por mes según el registro de riesgos: cada riesgo, en los meses de las actividades que expone y en proporción a su valor planificado. Límite de financiamiento: el presupuesto aprobado de ' + ms(F.budget) + '; los tramos suman ' + ms(fundTotal) + ', la línea base de costos, y la reserva de gestión queda en la tesorería. La holgura acumulada nunca es negativa: cada tramo cubre su ventana completa antes de empezarla y queda en cero al terminarla. El mes de mayor egreso es ' + monthName(months[peak]) + ' (' + ms(need[peak]) + ' con la contingencia), por ' + (peak === monthIdx(lb('t14')) ? 'los equipos de bodega, la formación de usuarios clave y el inicio del ' + relShort('rel-1').toLowerCase() : 'las iteraciones de los releases') + '.',
+      condicionesPago,
+      conciliacionLimite: 'Los egresos de cada mes son el valor planificado de la línea base de costos (LB0) y la reserva para contingencias (' + ms(lbCont) + ') se reparte por mes según el registro de riesgos: cada riesgo, en los meses de las actividades que expone y en proporción a su valor planificado. Límite de financiamiento: el presupuesto aprobado de ' + ms(F.budget) + '; los tramos suman ' + ms(fundTotal) + ', la línea base de costos, y la reserva de gestión queda en la tesorería. La holgura acumulada nunca es negativa: cada tramo está disponible desde el primer día de su ventana, la cubre completa y queda en cero al terminarla. El mes de mayor egreso es ' + monthName(months[peak]) + ' (' + ms(need[peak]) + ' con la contingencia), por ' + (peak === monthIdx(lb('t14')) ? 'los equipos de bodega, la formación de usuarios clave y el inicio del ' + relShort('rel-1').toLowerCase() : 'las iteraciones de los releases') + '.',
       riesgosFinanciamiento: 'Tasa de cambio de los equipos de bodega importados (supuesto de COP 4.000 por dólar) y horas adicionales del conector con el proveedor tecnológico por encima de su bolsa (R-004). Se cubren con la reserva para contingencias, que el director de proyecto autoriza por riesgo; lo que supere esa reserva es un cambio de nivel 3 que decide la Gerencia General con la reserva de gestión.',
-    };
+    });
+    const finFields0 = finFieldsAt(0);
     /* revisión en curso al corte: desembolso real frente a la LB0 y a los tramos liberados */
     const acMonth = (m) => (costs.actuals || []).filter((a) => a.date >= m && a.date <= monthEnd(m) && a.date <= STATUS_DATE).reduce((s, a) => s + a.amount, 0);
     const closedMonths = months.filter((m) => monthEnd(m) <= STATUS_DATE);
-    const released = tramos.filter((t) => firstWork(months[t.from]) <= STATUS_DATE || t.from === 0);
+    const GATES_NOW = [START, SIGN, R1_REVIEW, GATES0[3]];
+    const released = tramos.filter((t, k) => GATES_NOW[k] <= STATUS_DATE);
     const releasedSum = released.reduce((s, t) => s + t.amount, 0);
     const E = F.evm;
-    const closedTramos = tramos.filter((t) => monthEnd(months[t.to]) <= STATUS_DATE).map((t) => {
+    const closedTramos = tramos.filter((t) => t.end <= STATUS_DATE).map((t) => {
       const ac = months.slice(t.from, t.to + 1).reduce((sum, m) => sum + acMonth(m), 0);
-      return 'tramo ' + t.n + ', real ' + ms(ac) + ' frente a ' + ms(t.amount) + (ac > t.amount ? ' (el exceso de ' + ms(ac - t.amount) + ' lo absorbió el tramo ' + (t.n + 1) + ')' : '');
+      return 'tramo ' + t.n + ', real ' + ms(ac) + ' frente a ' + ms(t.amount) + (ac > t.amount ? ' (el exceso de ' + ms(ac - t.amount) + ' lo absorbió el tramo ' + (t.n + 1) + ', disponible desde el ' + dl(GATES_NOW[t.n]) + ')' : '');
     });
+    /* bolsa del conector (t26, costo fijo de la LB0): consumo real frente a la parte que corresponde al avance del release 2 */
+    const r2prog = F.releases && F.releases['rel-2'] ? F.releases['rel-2'].prog : PM.calc.releaseProgress({ release: rel('rel-2'), items, settings: PM.agile.settings(agile) });
+    const bolsaEarned = bolsa2 * r2prog.pct;
+    const bolsaProj = r2prog.pct ? connectorExtra / r2prog.pct : 0;
+    const bolsaText = 'el conector con el proveedor tecnológico ha consumido ' + ms(connectorExtra) + ' de la bolsa de ' + ms(bolsa2) + ' con el ' + pc(r2prog.pct, 1) + ' del ' + relShort('rel-2').toLowerCase() + ' terminado (' + r2prog.done + ' de ' + r2prog.total + ' puntos), ' +
+      (connectorExtra > bolsaEarned ? ms(connectorExtra - bolsaEarned) + ' por encima de la parte de la bolsa que corresponde a ese avance' : 'dentro de la parte de la bolsa que corresponde a ese avance') +
+      (bolsaProj > bolsa2 ? '; al mismo ritmo, el consumo llegaría a ' + ms(bolsaProj) + ' al terminar el release, ' + ms(bolsaProj - bolsa2) + ' más que la bolsa' : '') + '.';
     const finFields = {
-      ...cp(finFields0),
+      ...finFieldsAt(1),
       conciliacionLimite: finFields0.conciliacionLimite + ' Al corte del ' + dl(STATUS_DATE) + ' se han liberado los tramos ' + andList(released.map((t) => String(t.n))) + ' (' + ms(releasedSum) + ') y el costo real acumulado es de ' + ms(E.ac) + ' frente a un valor planificado de ' + ms(E.pv) + ': holgura de ' + ms(releasedSum - E.ac) + '. Por mes, real frente a la LB0: ' + closedMonths.map((m) => { const i = months.indexOf(m); return monthName(m).replace(/ de 20\d\d$/, '') + ' ' + ms(acMonth(m)) + ' frente a ' + ms(egresos[i]); }).join('; ') + '. Ventanas cerradas: ' + closedTramos.join('; ') + '.',
-      riesgosFinanciamiento: 'Materializados: la tasa de cambio encareció los equipos de bodega en ' + ms(t14Over) + ' y el conector con el proveedor tecnológico ha requerido ' + ms(connectorExtra) + ' en horas adicionales del implementador (R-004). El EAC al corte es de ' + ms(E.eac) + ' frente a un BAC de ' + ms(E.bac) + ' (VAC de ' + ms(E.vac) + '): la diferencia cabe en la reserva para contingencias, que ya está en los tramos, así que el financiamiento total no cambia. Como propone el informe de desempeño del corte del ' + dl(STATUS_DATE) + ', el uso de la reserva se decide si el EAC se confirma en el siguiente corte; el tramo 4 se ajusta en la revisión al cierre del ' + relShort('rel-2').toLowerCase() + '.',
+      riesgosFinanciamiento: 'Materializado: la tasa de cambio encareció los equipos de bodega en ' + ms(t14Over) + ' (S-03, descartado). En seguimiento (R-004): ' + bolsaText + ' El EAC al corte es de ' + ms(E.eac) + ' frente a un BAC de ' + ms(E.bac) + ' (VAC de ' + ms(E.vac) + '): la diferencia cabe en la reserva para contingencias, que ya está en los tramos, así que el financiamiento total no cambia. Como propone el informe de desempeño del corte del ' + dl(STATUS_DATE) + ', el uso de la reserva se decide si el EAC se confirma en el siguiente corte; el tramo 4 se ajusta en la revisión al cierre del ' + relShort('rel-2').toLowerCase() + '.',
     };
+    /* tramo 3 (el que libera la revisión del caso al cierre del release 1), para el caso de negocio rev. 1 */
+    const T3 = tramos[2];
 
     /* ================================================================ entradas por plantilla */
     const TB_PO = { elaboro: ROLE.pof, reviso: R.dir, aprobo: ROLE.pat };
     return {
       'caso-negocio': {
-        status: 'aprobado', rev: '1', date: R1_REVIEW, created: START, titleBlock: TB_PO, fields: casoNow,
+        status: 'aprobado', rev: '1', date: R1_REVIEW, created: START, titleBlock: TB_PO, fields: casoFields(1),
         revs: [
           { rev: '0', status: 'aprobado', date: START, note: 'Emisión inicial con el presupuesto preliminar de orden de magnitud, aprobada junto con el acta de constitución.', fields: casoFields(0) },
-          { rev: '1', status: 'aprobado', date: R1_REVIEW, note: 'Revisión al cierre del ' + relShort('rel-1').toLowerCase() + ': presupuesto aprobado, suscripción contratada y primeros resultados; se libera el tramo 3 del financiamiento.' },
+          { rev: '1', status: 'aprobado', date: R1_REVIEW, note: 'Revisión al cierre del ' + relShort('rel-1').toLowerCase() + ': presupuesto aprobado, suscripción contratada y primeros resultados; se libera el tramo 3 del financiamiento, desde ' + monthName(T3.start) + '.' },
         ],
       },
       'plan-gestion-beneficios': {
@@ -469,21 +545,22 @@
         ],
       },
       'registro-supuestos': {
-        status: 'revision', rev: '2A', date: '2026-10-08', created: '2026-05-05', titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: '' }, fields: supFields(2),
+        status: 'revision', rev: '2A', date: '2026-10-08', created: '2026-05-05', titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: supFields(2),
         revs: [
           { rev: '0', status: 'aprobado', date: '2026-05-05', note: 'Emisión inicial después de la reunión de arranque.', fields: supFields(0) },
           { rev: '1', status: 'aprobado', date: LB0, note: 'Revisión con el plan de releases y la LB0: supuestos de la planificación y restricciones de los contratos.', fields: supFields(1) },
         ],
       },
       'plan-direccion': {
-        status: 'aprobado', rev: '1', date: CC1, created: lb('t03'), titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: pdFields(1),
+        status: 'aprobado', rev: '2', date: PDP2, created: lb('t03'), titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: pdFields(2),
         revs: [
           { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con la LB0 y el plan de releases.', fields: pdFields(0) },
-          { rev: '1', status: 'aprobado', date: CC1, note: 'CC-001: línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + r1PointsCC + ' puntos; la LB0 del proyecto no cambia.' },
+          { rev: '1', status: 'aprobado', date: CC1, note: 'CC-001: línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + r1PointsCC + ' puntos; la LB0 del proyecto no cambia.', fields: pdFields(1) },
+          { rev: '2', status: 'aprobado', date: PDP2, note: 'Después del cierre del ' + relShort('rel-1').toLowerCase() + ': línea base del ' + relShort('rel-2').toLowerCase() + ' en ' + R2B.points + ' puntos, plan de releases, caso de negocio y beneficios revisados; la LB0 del proyecto no cambia.' },
         ],
       },
       'requisitos-financiamiento': {
-        status: 'revision', rev: '1A', date: STATUS_DATE, created: lb('t03'), titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: '' }, fields: finFields,
+        status: 'revision', rev: '1A', date: STATUS_DATE, created: lb('t03'), titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: finFields,
         revs: [
           { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con la LB0.', fields: finFields0 },
         ],

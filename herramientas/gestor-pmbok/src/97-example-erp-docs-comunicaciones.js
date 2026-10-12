@@ -12,12 +12,14 @@
    Enfoque ágil (11-doc-approach): los eventos de Scrum y el tablero cubren al
    equipo y tienen sus propias actas (95); este plan se centra en los
    interesados que no asisten a ellos, el registro guarda solo comunicaciones
-   formales y las actas son de comités y reuniones con decisiones.
+   formales (con terceros y de gobierno del proyecto) y las actas son de
+   comités y reuniones con decisiones.
    Este módulo fija el calendario y las decisiones del comité quincenal de
    seguimiento y del comité de control de cambios (supuestos en MEET, abajo):
    informe quincenal con corte cada dos viernes (el n.º 7 es el del 9 de
-   octubre, el de 95), comité el jueves anterior a cada corte y actas que se
-   aprueban si no hay observaciones en dos días hábiles. Los documentos
+   octubre, el de 95) y periodo desde el día siguiente al corte anterior,
+   comité el jueves anterior a cada corte y actas que se aprueban si no hay
+   observaciones en dos días hábiles. Los documentos
    aprobados (y sus revisiones) no citan hechos posteriores a su fecha.
    Se usan roles, no nombres de personas.
    ========================================================================== */
@@ -99,6 +101,8 @@
     const stakeholders = base['registro-interesados'].fields.interesados;
     const rfOrg = (stakeholders.find((s) => /Revisor fiscal/.test(s.nombre)) || {}).organizacion || 'Revisoría fiscal';
     const umbral = Object.fromEntries(cambiosPlan.umbrales.map((u) => [u.nivel, u]));
+    /* disparador de R-003 en el registro de riesgos rev. 0 (LB0): «Más de 5 % de remisiones o devoluciones registradas en papel en una semana» */
+    const r003Paper = ((/(más de \d+(?:,\d+)?\s*%)/i.exec((riesgosRev('0').find((r) => r.id === 'R-003') || {}).disparador || '') || [])[1] || '').replace(/^M/, 'm').replace(/\s+%/, ' %');
 
     /* ---------------- fechas del proyecto */
     const KICKOFF = task('t02').actualFinish;                 // reunión de arranque (registro de interesados rev. 0)
@@ -112,6 +116,7 @@
     const GOLIVE1 = F.milestones.t29.actual;                  // salida a producción del release 1
     const GO_CCB = it4.end;                                   // comité de control de cambios que autoriza la salida
     const PLAN_REV1 = cal.addWork(GOLIVE1, 1);                // revisión del plan después de la salida (con el registro de interesados rev. 2)
+    const R3_GO = lbT('t32').start;                           // salida del release 3 en la LB0: después del cierre anual
 
     /* informe quincenal: cortes cada dos viernes hasta el del informe de 95 (n.º N, 9 de octubre) */
     const nInf = Number((/(\d+)/.exec(informe.fields.numeroInforme) || [])[1]) || 1;
@@ -166,7 +171,7 @@
     /* ============================================================ 10.1 · PLAN DE GESTIÓN DE LAS COMUNICACIONES */
     const MATRIX = (stage) => {
       const list = [
-        { informacion: 'Informe de desempeño del trabajo (informe quincenal)', proposito: 'Estado general, valor ganado del proyecto sobre la LB0 y AgileEVM de cada release, velocidad y pronóstico, riesgos, incidentes, cambios y decisiones requeridas.', emisor: R.dir, receptores: 'Gerencia General; dueño del producto; comité de control de cambios', medio: 'Informe escrito', metodo: 'De tipo push (enviar)', frecuencia: 'Quincenal', formato: 'Informe de desempeño del trabajo del gestor; corte cada dos viernes desde el ' + dl(cuts[0]) + ' y emisión dentro de los dos días hábiles siguientes', responsable: R.dir },
+        { informacion: 'Informe de desempeño del trabajo (informe quincenal)', proposito: 'Estado general, valor ganado del proyecto sobre la LB0 y AgileEVM de cada release, velocidad y pronóstico, riesgos, incidentes, cambios y decisiones requeridas.', emisor: R.dir, receptores: 'Gerencia General; dueño del producto; comité de control de cambios', medio: 'Informe escrito', metodo: 'De tipo push (enviar)', frecuencia: 'Quincenal', formato: 'Informe de desempeño del trabajo del gestor; corte cada dos viernes desde el ' + dl(cuts[0]) + ', periodo desde el día siguiente al corte anterior y emisión dentro de los dos días hábiles siguientes. El valor ganado se calcula a la fecha de corte de cada informe; los cortes de avance que guarda el gestor son mensuales (último día hábil de cada mes)', responsable: R.dir },
         { informacion: 'Comité quincenal de seguimiento', proposito: 'Revisar el estado del proyecto y de los releases y decidir sobre riesgos, reservas, incidentes escalados y cambios de nivel 2 (sesión del comité de control de cambios).', emisor: R.dir, receptores: 'Gerencia General; dueño del producto; jefe de TI; líder del implementador; Scrum Master; gerente comercial y contador (invitados)', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Quincenal', formato: 'Jueves anterior a cada corte, de ' + MEET.comiteHours[0] + ' a ' + MEET.comiteHours[1] + ' (el implementador se conecta por videoconferencia); acta de reunión cuando hay decisiones', responsable: R.dir },
         { informacion: 'Planificación de la iteración', proposito: 'Acordar el objetivo, la capacidad y el compromiso de cada iteración de ' + st.sprintLength + ' días hábiles.', emisor: R.sm, receptores: 'Dueño del producto; desarrolladores (equipo Scrum)', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Quincenal', formato: 'Planificación de la iteración en el gestor, el primer día de cada iteración', responsable: R.sm },
         { informacion: 'Reunión diaria del equipo Scrum', proposito: 'Sincronizar el trabajo del día y levantar impedimentos.', emisor: 'Desarrolladores (equipo Scrum)', receptores: 'Equipo Scrum; Scrum Master', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Diaria', formato: '15 minutos frente al tablero Kanban; sin acta (los impedimentos quedan en el tablero)', responsable: R.sm },
@@ -178,7 +183,7 @@
         { informacion: 'Espacio del proyecto en la reunión semanal de bodega', proposito: 'Contar a almacén y bodega qué cambia con cada release, recoger novedades y seguir la adopción en las dos bodegas.', emisor: 'Dueño del producto con el usuario clave de almacén', receptores: 'Jefe de almacén; personal de bodega y conductores', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Semanal', formato: '15 minutos en la reunión semanal de las bodegas principal y de Funza', responsable: 'Dueño del producto' },
         { informacion: 'Avisos en las carteleras de las bodegas', proposito: 'Preparar al personal de bodega y a los conductores para la capacitación y la salida de cada release.', emisor: 'Dueño del producto', receptores: 'Personal de bodega y conductores', medio: 'Cartelera de obra', metodo: 'De tipo push (enviar)', frecuencia: 'Por hito', formato: 'Aviso impreso en las carteleras de las bodegas principal y de Funza antes de la capacitación de cada release', responsable: 'Dueño del producto' },
         { informacion: 'Capacitación de usuarios finales por release', proposito: 'Formar a cada rol en los procesos del release antes de su salida a producción.', emisor: R.ins, receptores: 'Usuarios finales de cada release (por grupos y por rol)', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Por hito', formato: 'Sesiones por grupo y guías rápidas; registro de asistencia y evaluación', responsable: 'Dueño del producto' },
-        { informacion: 'Comunicado de salida a producción', proposito: 'Informar la fecha del corte, qué cambia en cada área, el canal de soporte y el retiro de los formatos anteriores.', emisor: R.dir, receptores: 'Todas las áreas; personal de bodega y conductores', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por hito', formato: 'Comunicado el día en que el comité de control de cambios autoriza cada salida', responsable: R.dir },
+        { informacion: 'Comunicado de salida a producción', proposito: 'Informar la fecha del corte, qué cambia en cada área, el canal de soporte y el retiro de los formatos anteriores.', emisor: R.dir, receptores: 'Todas las áreas; personal de bodega y conductores (copia en las carteleras)', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por hito', formato: 'Comunicado por correo el día en que el comité de control de cambios autoriza cada salida; copia impresa en las carteleras de las bodegas principal y de Funza', responsable: R.dir },
         { informacion: 'Reunión con la revisoría fiscal antes de cada corte', proposito: 'Revisar los soportes de la conciliación de los saldos migrados (inventario, cartera y hojas de vida) antes de cada salida a producción.', emisor: 'Contador', receptores: 'Revisor fiscal; director de proyecto', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Por hito', formato: 'Conciliación firmada por contabilidad y conformidad escrita de la revisoría fiscal', responsable: 'Contador' },
         { informacion: 'Revisión trimestral con el fabricante del ERP', proposito: 'Revisar el uso de la suscripción, las funciones estándar y la hoja de ruta del producto.', emisor: R.dir, receptores: 'Gerente de cuenta del fabricante del ERP; jefe de TI', medio: 'Reunión virtual', metodo: 'Interactiva', frecuencia: 'Por evento', formato: 'Una reunión por trimestre de la suscripción; acta de reunión si hay acuerdos', responsable: R.jti },
         { informacion: 'Casos en la mesa de ayuda del proveedor tecnológico', proposito: 'Reportar fallas del ambiente de habilitación y de la API y tramitar credenciales y certificados de firma.', emisor: R.di, receptores: 'Proveedor tecnológico de facturación electrónica', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por evento', formato: 'Caso en la mesa de ayuda del proveedor con número de seguimiento', responsable: R.di },
@@ -187,11 +192,12 @@
         { informacion: 'Comunicaciones formales con proveedores y entes externos', proposito: 'Dejar soporte de las solicitudes, notificaciones, reclamos y entregas que comprometen a la empresa o a un proveedor.', emisor: R.dir, receptores: 'Socio implementador; fabricante del ERP; proveedor tecnológico; distribuidores; revisoría fiscal', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por evento', formato: 'Correo u oficio con el consecutivo COM-### del registro de comunicaciones', responsable: R.dir },
         { informacion: 'Decisión de las solicitudes de cambio', proposito: 'Informar al solicitante y al equipo la decisión de cada solicitud de cambio y su efecto en los releases.', emisor: R.dir, receptores: 'Solicitante; equipo Scrum; interesados afectados', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por evento', formato: 'Correo con la solicitud de cambio decidida, dentro de un día hábil', responsable: R.dir },
         { informacion: 'Documentos del proyecto', proposito: 'Consultar la versión vigente de planes, registros, actas y líneas base.', emisor: R.dir, receptores: 'Equipo del proyecto; interesados autorizados', medio: 'Repositorio de documentos', metodo: 'De tipo pull (consultar)', frecuencia: 'Por evento', formato: 'Gestor de proyectos: cada documento con código, revisión y estado', responsable: R.sm },
+        /* respuesta de R-003 en el registro de riesgos desde la rev. 0 (LB0): acompañamiento en sitio y medición semanal del papel */
+        { informacion: 'Acompañamiento en sitio después de cada salida a producción', proposito: 'Resolver dudas en el puesto de trabajo y medir el uso del ERP frente a los formatos en papel.', emisor: 'Usuarios clave de almacén y logística con el analista de TI', receptores: 'Personal de bodega y conductores; jefe de almacén', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Diaria', formato: 'Dos semanas después de cada salida, en las bodegas principal y de Funza (respuesta del riesgo R-003); reporte semanal del porcentaje de remisiones y devoluciones registradas en papel (disparador de R-003' + (r003Paper ? ': ' + r003Paper + ' en una semana' : '') + ')', responsable: 'Dueño del producto' },
       ];
       if (stage >= 1) {
         list.push(
           { informacion: 'Reporte de defectos e incidentes de producción', proposito: 'Reportar las fallas del ERP en producción y atender el mismo día las que impiden facturar o despachar.', emisor: 'Usuarios de las áreas, por medio de su usuario clave', receptores: 'Jefe de TI; Scrum Master; dueño del producto (fallas críticas)', medio: 'Correo electrónico', metodo: 'De tipo push (enviar)', frecuencia: 'Por evento', formato: 'Caso en la mesa de ayuda de TI; las fallas críticas, además por llamada al jefe de TI y por el carril de urgencia del tablero', responsable: R.jti },
-          { informacion: 'Acompañamiento en sitio después de cada salida a producción', proposito: 'Resolver dudas en el puesto de trabajo y medir el uso del ERP frente a los formatos en papel.', emisor: 'Usuarios clave de almacén y logística con el analista de TI', receptores: 'Personal de bodega y conductores; jefe de almacén', medio: 'Reunión presencial', metodo: 'Interactiva', frecuencia: 'Diaria', formato: 'Dos semanas después de cada salida; reporte semanal del porcentaje de remisiones y devoluciones registradas en papel (disparador de R-003)', responsable: 'Dueño del producto' },
         );
       }
       return rows('pgcm-m', list);
@@ -200,8 +206,9 @@
       { nivel: 'Nivel 1', situacion: 'Impedimento del equipo Scrum o duda operativa de un usuario clave.', escalaA: R.sm + ', en la reunión diaria', plazo: 'Menos de un día hábil' },
       { nivel: 'Nivel 2', situacion: 'Impedimento que el Scrum Master no resuelve en un día hábil, incidente de prioridad alta sin solución en dos días hábiles o incumplimiento de un proveedor.', escalaA: R.dir, plazo: '1 día hábil' },
       { nivel: 'Nivel 3', situacion: 'Incidente que afecta una salida a producción o la facturación, variación fuera de los umbrales del plan para la dirección del proyecto o necesidad de usar la reserva de gestión.', escalaA: 'Gerencia General (patrocinador)', plazo: '2 días hábiles' },
-      { nivel: 'Cambios', situacion: 'Cambio en el alcance, la fecha o el presupuesto de un release o del proyecto.', escalaA: 'Según el plan de gestión de cambios: dueño del producto (nivel 1), comité de control de cambios (nivel 2) o Gerencia General (nivel 3)', plazo: 'De ' + umbral['Nivel 1'].plazoDias + ' a ' + umbral['Nivel 3'].plazoDias + ' días hábiles según el nivel' },
-      ...(stage >= 1 ? [{ nivel: 'Emergencia', situacion: 'Falla crítica en producción que impide facturar o despachar.', escalaA: 'Dueño del producto y jefe de TI (carril de urgencia); el comité de control de cambios la ratifica en su siguiente sesión', plazo: 'Mismo día' }] : []),
+      { nivel: 'Cambios', situacion: 'Cambio en el alcance, la fecha o el presupuesto de un release o del proyecto (niveles 1 a 3 del plan de gestión de cambios; las emergencias, en la fila siguiente).', escalaA: 'Según el plan de gestión de cambios: dueño del producto (nivel 1), comité de control de cambios (nivel 2) o Gerencia General (nivel 3)', plazo: 'De ' + umbral['Nivel 1'].plazoDias + ' a ' + umbral['Nivel 3'].plazoDias + ' días hábiles según el nivel' },
+      /* nivel «Emergencia» del plan de gestión de cambios (rev. 0, con la LB0): carril de urgencia y ratificación del comité */
+      ...(umbral.Emergencia ? [{ nivel: 'Emergencia', situacion: umbral.Emergencia.criterio, escalaA: 'Dueño del producto y jefe de TI, que autorizan la corrección por el carril de urgencia del tablero (plan de gestión de cambios); el comité de control de cambios la ratifica en su siguiente sesión', plazo: 'Atención el mismo día; se documenta en ' + umbral.Emergencia.plazoDias + (umbral.Emergencia.plazoDias === 1 ? ' día hábil' : ' días hábiles') }] : []),
     ]);
     const glossary = (stage) => rows('pgcm-g', [
       { termino: 'Release', definicion: 'Entrega de un conjunto de procesos completos del ERP que sale a producción; el proyecto tiene ' + word(agile.releases.length) + ': ' + relList() + '.' },
@@ -215,9 +222,9 @@
       { termino: 'Salida a producción', definicion: 'Corte en el que un release empieza a usarse en la operación con los datos migrados.' },
       { termino: 'Estabilización (hypercare)', definicion: 'Acompañamiento intensivo del implementador después de la última salida, antes de pasar al soporte de TI.' },
       { termino: 'Proveedor tecnológico', definicion: 'Empresa autorizada por la DIAN que valida y transmite las facturas electrónicas.' },
+      { termino: 'Carril de urgencia', definicion: 'Fila del tablero para las fallas críticas de producción, que pueden superar el límite WIP una vez por iteración (plan de gestión de cambios).' },
       ...(stage >= 1 ? [
-        { termino: 'Defecto de producción', definicion: 'Falla del ERP que aparece en la operación después de una salida; se atiende como soporte, sin release.' },
-        { termino: 'Carril de urgencia', definicion: 'Fila del tablero para las fallas críticas de producción, que pueden superar el límite WIP una vez por iteración.' },
+        { termino: 'Defecto de producción', definicion: 'Falla del ERP que aparece en la operación después de una salida; se reporta en la mesa de ayuda de TI y se atiende como soporte, sin release.' },
       ] : []),
     ]);
     function lcFirst(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
@@ -231,7 +238,11 @@
         (stage >= 1 ? ' Mesa de ayuda de TI para los defectos de producción.' : '') +
         ' El grupo de mensajería del equipo es solo para coordinación operativa: las decisiones se formalizan en acta o por correo.',
       recursos: 'Las comunicaciones no tienen presupuesto propio. El tiempo del director de proyecto (' + cat('dir').dedication + ' % de dedicación) para informes, comités y reuniones con proveedores está en «' + task('t04').name.replace(/ \(esfuerzo de nivel\)/, '') + '» (EDT ' + wcode(task('t04').wbsId) + ', ' + ms(task('t04').cost) + ') y el del Scrum Master (' + cat('sm').dedication + ' %) para los eventos, en «' + task('t35').name.replace(/ \(esfuerzo de nivel\)/, '') + '» (' + ms(task('t35').cost) + '). Este plan y la red de usuarios clave se elaboraron con el consultor de gestión del cambio en «' + task('t20').name + '» (EDT ' + wcode(task('t20').wbsId) + ', ' + ms(task('t20').cost) + '); la capacitación por release está en la EDT ' + wcode('w53') + ' (' + ms(['t22', 't23', 't24'].reduce((s, id) => s + task(id).cost, 0)) + ').',
-      restricciones: 'Ninguna salida a producción durante los cinco primeros días hábiles del mes (cierre mensual) ni antes del cierre anual; las capacitaciones de facturación, cartera y contabilidad tampoco se programan en esos días. El dueño del producto dedica al menos dos horas diarias al proyecto y los usuarios clave asisten al refinamiento y a las revisiones: las reuniones con ellos se agrupan en esos eventos. Las bodegas tienen conexión limitada en los patios: los avisos al personal de bodega van en cartelera y en la capacitación por grupos. Los datos personales de clientes, contactos y empleados se tratan según la Ley 1581 de 2012.',
+      restricciones: 'Ninguna salida a producción durante los cinco primeros días hábiles del mes (cierre mensual) ni durante el cierre anual: el ' + relShort('rel-3').toLowerCase() + ' sale el ' + dl(R3_GO) + ', después del cierre anual. Las capacitaciones de facturación, cartera y contabilidad tampoco se programan en los días de cierre. El dueño del producto dedica al menos dos horas diarias al proyecto y los usuarios clave asisten al refinamiento y a las revisiones: las reuniones con ellos se agrupan en esos eventos. ' +
+        (stage >= 1
+          ? 'El personal de bodega y los conductores no trabajan con correo corporativo y en las obras la señal falla: los avisos para ellos van en cartelera, en la reunión semanal de bodega y en la capacitación por grupos.'
+          : 'El personal de bodega y los conductores no trabajan con correo corporativo y la red inalámbrica de los patios se instala hasta el ' + dl(lbT('t14').finish) + ' (EDT ' + wcode(task('t14').wbsId) + '): los avisos para ellos van en cartelera, en la reunión semanal de bodega y en la capacitación por grupos.') +
+        ' Los datos personales de clientes, contactos y empleados se tratan según la Ley 1581 de 2012.',
       escalamiento: escalation(stage),
       flujoInformacion: 'El equipo Scrum actualiza cada día el tablero y el backlog → el Scrum Master consolida la velocidad, el burndown y los impedimentos → el director calcula el valor ganado del proyecto sobre la LB0 y el AgileEVM de cada release, y actualiza riesgos, incidentes y cambios → el comité quincenal decide el jueves anterior al corte → el informe quincenal del viernes recoge sus decisiones y llega a la Gerencia General, al dueño del producto y al comité de control de cambios. Las necesidades de las áreas entran por los usuarios clave al refinamiento con el dueño del producto. Las comunicaciones formales con proveedores y entes externos entran y salen por el director y quedan en el registro de comunicaciones con su consecutivo.' +
         (stage >= 1 ? ' Desde la salida del ' + relShort('rel-1').toLowerCase() + ', los defectos de producción entran por la mesa de ayuda de TI: el jefe de TI los clasifica y el dueño del producto los ordena en el backlog como soporte (sin release) o, si son críticos, por el carril de urgencia.' : ''),
@@ -274,7 +285,7 @@
           { decision: 'Designar un usuario clave por área (comercial, logística, almacén, mantenimiento, facturación y cartera) con tiempo para los talleres de descubrimiento y las demostraciones.', tema: 'Usuarios clave', aprobadaPor: R.pat },
           { decision: 'Hacer los talleres de descubrimiento por área hasta el ' + dl(lbT('t07').finish) + '.', tema: 'Descubrimiento', aprobadaPor: R.dir + ' y dueño del producto' },
           { decision: 'Instalar el comité quincenal de seguimiento (Gerencia General, director, dueño del producto y jefe de TI; gerente comercial y contador como invitados), jueves de por medio de ' + MEET.comiteHours[0] + ' a ' + MEET.comiteHours[1] + '; primera sesión el ' + dl(comites[0]) + '.', tema: 'Comunicaciones', aprobadaPor: R.pat },
-          { decision: 'Conformar el comité de selección (director, dueño del producto, jefe de TI, contador y consultor de selección) para evaluar las propuestas y recomendar a la Gerencia General.', tema: 'Selección del ERP', aprobadaPor: R.pat },
+          { decision: 'Conformar el comité de selección (director, dueño del producto, jefe de TI y contador, con el consultor de selección como secretario técnico sin voto) para evaluar las propuestas y recomendar a la Gerencia General.', tema: 'Selección del ERP', aprobadaPor: R.pat },
         ],
         compromisos: [
           { compromiso: 'Publicar el registro de interesados con los canales de comunicación acordados.', responsable: R.dir, fecha: KICKOFF },
@@ -359,11 +370,12 @@
         decisiones: [
           { decision: 'Aprobar el CC-001 con la alternativa A: la línea base del ' + relShort('rel-1').toLowerCase() + ' pasa de ' + r1Lb0 + ' a ' + R1.baseline.points + ' puntos, sin cambiar su fecha de fin (' + dl(R1.baseline.end) + ') ni su presupuesto (' + ms(R1.baseline.budget) + ').', tema: 'Solicitud de cambio CC-001', aprobadaPor: ROLE.ccb },
           { decision: 'Si al cerrar la iteración 3 el pronóstico mueve el fin del release, el dueño del producto difiere elementos «Debería tener» al ' + relShort('rel-2').toLowerCase() + ' (nivel 1).', tema: 'Solicitud de cambio CC-001', aprobadaPor: ROLE.ccb },
-          { decision: 'La línea base del proyecto (LB0) no cambia.', tema: 'Líneas base', aprobadaPor: ROLE.ccb },
+          { decision: 'Aprobar la revisión 1 del plan de releases y del plan para la dirección del proyecto con el CC-001: línea base del ' + relShort('rel-1').toLowerCase() + ' en ' + R1.baseline.points + ' puntos; la línea base del proyecto (LB0) no cambia.', tema: 'Líneas base', aprobadaPor: R.pat },
         ],
         compromisos: [
           { compromiso: 'Actualizar la línea base del ' + relShort('rel-1').toLowerCase() + ' en «Releases e iteraciones» con la referencia CC-001.', responsable: R.sm, fecha: CC1 },
           { compromiso: 'Comunicar la decisión al solicitante, al equipo Scrum y al implementador.', responsable: R.dir, fecha: CC1 },
+          { compromiso: 'Emitir en el gestor la revisión 1 del plan de releases y del plan para la dirección del proyecto.', responsable: 'Dueño del producto y ' + lcFirst(R.dir), fecha: CC1 },
           { compromiso: 'Reevaluar el registro de riesgos con el CC-001 y la depuración de datos maestros.', responsable: R.dir, fecha: riskRev1Date },
           { compromiso: 'Coordinar con el proveedor de las básculas la configuración de su salida de datos.', responsable: R.di, fecha: sprints[2].end },
           { compromiso: 'Incluir HU-038, HU-039 y HU-040 en la planificación de la iteración 4.', responsable: 'Dueño del producto', fecha: sprints[3].start },
@@ -413,7 +425,7 @@
           '3. Cambios: el alcance del release pasó de ' + R2.baseline.points + ' a ' + r2at6.total + ' puntos (' + signedPct((r2at6.total - R2.baseline.points) / R2.baseline.points) + ') con HU-041 y ME-009, dentro del umbral de ±' + st.scopeChangeThreshold + ' %: lo decide el dueño del producto (nivel 1).',
           '4. Riesgos: se registra R-008 (velocidad insuficiente para el ' + relShort('rel-2').toLowerCase() + ') con una reserva de ' + andList(reserveDiff.added.map((r) => ms(r.reserva))) + ' y se ajustan las de ' + andList(reserveDiff.changed.map((r) => r.id + ' (de ' + ms(reserveDiff.before[r.id]) + ' a ' + ms(r.reserva) + ')')) + '. La reserva para contingencias sigue en ' + ms(reserveDiff.total) + ' y no se ha usado.',
           '5. Incidentes: ' + incTxt('INC-002') + ' ' + incTxt('INC-003'),
-          '6. Capacitación del ' + relShort('rel-2').toLowerCase() + ': ' + rangeTxt(t23.start, t23.finish) + '; ' + (() => { const x = novClose.filter((d) => t23Days.includes(d)); return x.length ? rangeTxt(x[0], x[x.length - 1]) + ' corre el cierre mensual de noviembre.' : 'no coincide con el cierre mensual.'; })(),
+          '6. Capacitación del ' + relShort('rel-2').toLowerCase() + ': ' + rangeTxt(t23.start, t23.finish) + '; ' + (() => { const x = novClose.filter((d) => t23Days.includes(d)); return x.length ? rangeTxt(x[0], x[x.length - 1]) + ' coincide con el cierre mensual (' + rangeTxt(novClose[0], novClose[novClose.length - 1]) + ').' : 'no coincide con el cierre mensual (' + rangeTxt(novClose[0], novClose[novClose.length - 1]) + ').'; })(),
           '7. El informe quincenal n.º ' + nInf + ' (corte del ' + dl(lastCut) + ') recogerá estas decisiones con el valor ganado al corte.',
         ].join('\n'),
         decisiones: [
@@ -429,7 +441,7 @@
           { compromiso: 'Emitir el informe quincenal n.º ' + nInf + ' (corte del ' + dl(lastCut) + ').', responsable: R.dir, fecha: issueOf(lastCut) },
         ].sort((a, b) => a.fecha.localeCompare(b.fecha)),
         proximaFecha: nextComite(COMITE_OCT), proxima: 'Comité quincenal de seguimiento del ' + dl(nextComite(COMITE_OCT)) + '.',
-        titleBlock: { elaboro: R.sm, reviso: R.dir, aprobo: '' },
+        titleBlock: { elaboro: R.sm, reviso: ROLE.po, aprobo: R.dir },
       }),
     ];
     function resUnits(tid, key) { const a = (task(tid).resources || []).find((x) => x.resourceId === 'rec-' + key); return a ? a.units : 0; }
@@ -455,8 +467,9 @@
     });
 
     /* ============================================================ 10.2 / 10.3 · REGISTRO DE COMUNICACIONES
-       Solo comunicaciones formales (soporte legal y contractual); la coordinación del equipo queda en el tablero y en los
-       eventos. Fechas del cronograma, de los incidentes (95) y del calendario de este módulo. */
+       Solo comunicaciones formales: con terceros (soporte legal y contractual) y de gobierno del proyecto (actas de comités,
+       informes quincenales, cambios, comunicados de salida y requerimientos formales entre áreas); la coordinación del equipo
+       queda en el tablero y en los eventos. Fechas del cronograma, de los incidentes (95) y del calendario de este módulo. */
     const C = (o) => ({ requiereRespuesta: false, fechaRespuesta: null, referencia: '', ...o });
     const destinatarios = informe.fields.destinatarios.replace(/ y /, ', ').split(/,\s*/).map((x, i) => (i ? lcFirst(x) : x)).join('; ');
     const supplierTab = cat('tab').supplier || 'Distribuidor de equipos de cómputo';
@@ -478,7 +491,7 @@
       C({ fecha: task('t15').actualFinish, tipo: 'Correo', asunto: 'Entrega de las credenciales del ambiente de habilitación y del certificado de firma digital', emisor: supplierFe, receptores: R.jti + '; desarrollador de integraciones', medio: 'Correo electrónico', referencia: feDoc ? 'Factura ' + feDoc : '', estado: 'Recibida' }),
       C({ fecha: cal.addWork(task('t22').actualStart, -2), tipo: 'Comunicado', asunto: 'Aviso en las carteleras: capacitación por grupos ' + rangeTxt(task('t22').actualStart, task('t22').actualFinish) + ' y salida a producción del ' + relShort('rel-1').toLowerCase() + ' el ' + dl(lbT('t29').start), emisor: 'Dueño del producto', receptores: 'Personal de bodega y conductores', medio: 'Cartelera de obra', referencia: '' }),
       C({ fecha: cal.addWork(task('t17').actualFinish, 1), tipo: 'Oficio', asunto: 'Entrega del inventario de la bodega principal conciliado (diferencia de ' + mig + ' frente al conteo físico) para revisión antes de la salida del ' + relShort('rel-1').toLowerCase(), emisor: 'Contador', receptores: 'Revisor fiscal (' + rfOrg.replace(/ \(externa\)/, '') + ')', medio: 'Correo electrónico', referencia: 'Migración del inventario (EDT ' + wcode('w42') + ')', requiereRespuesta: true, fechaRespuesta: GO_CCB }),
-      C({ fecha: GO_CCB, tipo: 'Comunicado', asunto: 'Salida a producción del ' + relShort('rel-1').toLowerCase() + ' el ' + dl(GOLIVE1) + ': qué cambia en cada área, canal de soporte y retiro de los formatos en papel', emisor: R.dir, receptores: 'Todas las áreas; personal de bodega y conductores', medio: 'Correo electrónico', referencia: MEETINGS[4].code }),
+      C({ fecha: GO_CCB, tipo: 'Comunicado', asunto: 'Salida a producción del ' + relShort('rel-1').toLowerCase() + ' el ' + dl(GOLIVE1) + ': qué cambia en cada área, canal de soporte y retiro de los formatos en papel', emisor: R.dir, receptores: 'Todas las áreas; personal de bodega y conductores (copia en las carteleras)', medio: 'Correo electrónico', referencia: MEETINGS[4].code }),
       C({ fecha: PLAN_REV1, tipo: 'Comunicado', asunto: 'Canal de reporte de defectos de producción (mesa de ayuda de TI) y acompañamiento en sitio en las bodegas', emisor: R.jti, receptores: 'Todas las áreas; usuarios clave', medio: 'Correo electrónico', referencia: docCode('plan-gestion-comunicaciones') + ' rev. 1' }),
       ...cuts.slice(0, -1).map((cut, i) => C({ fecha: issueOf(cut), tipo: 'Informe', asunto: 'Informe de desempeño del trabajo, corte del ' + dl(cut), emisor: R.dir, receptores: destinatarios, medio: 'Informe escrito', referencia: 'Informe quincenal n.º ' + (i + 1), estado: 'Enviada' })),
       C({ fecha: lastCut, tipo: 'Informe', asunto: 'Borrador del informe de desempeño del trabajo, corte del ' + dl(lastCut) + ', para revisión del dueño del producto', emisor: R.dir, receptores: 'Dueño del producto', medio: 'Repositorio de documentos', referencia: 'Informe quincenal n.º ' + nInf, requiereRespuesta: true }),
@@ -497,7 +510,7 @@
       else estado = c.estado || (c.tipo === 'Comunicado' ? 'Enviada' : 'Archivada');
       return { id: c.id, fecha: c.fecha, tipo: c.tipo, asunto: c.asunto, emisor: c.emisor, receptores: c.receptores, medio: c.medio, referencia: c.referencia, requiereRespuesta: !!c.requiereRespuesta, fechaRespuesta: answered ? c.fechaRespuesta : null, estado };
     });
-    const archivo = (at) => 'Las comunicaciones formales se archivan en la carpeta del proyecto del repositorio de la PMO con su código COM-###: los correos en PDF con sus anexos y los oficios con la constancia de recibido. Los documentos del gestor (actas, informes, solicitudes de cambio) se citan por su código o su número. En el gestor quedan las actas de las sesiones con decisiones; los acuerdos de las sesiones ordinarias del comité quincenal quedan en el informe quincenal siguiente. La coordinación del equipo Scrum no se registra aquí: queda en el tablero y en las actas de los eventos. Conservación: diez años después del cierre (artículo 28 de la Ley 962 de 2005).' +
+    const archivo = (at) => 'Se registran las comunicaciones formales del proyecto: las que van a terceros o vienen de ellos (proveedores y revisoría fiscal) y las de gobierno del proyecto (actas de los comités, informes quincenales, solicitudes y decisiones de cambio, comunicados de salida y requerimientos formales entre áreas). Se archivan en la carpeta del proyecto del repositorio de la PMO con su código COM-###: los correos en PDF con sus anexos y los oficios con la constancia de recibido. Los documentos del gestor (actas, informes, solicitudes de cambio) se citan por su código o su número. En el gestor quedan las actas de las sesiones con decisiones; los acuerdos de las sesiones ordinarias del comité quincenal quedan en el informe quincenal siguiente. La coordinación del equipo Scrum no se registra aquí: queda en el tablero y en las actas de los eventos. Conservación: diez años después del cierre (artículo 28 de la Ley 962 de 2005).' +
       (at >= PLAN_REV1 ? ' Los defectos de producción se registran en la mesa de ayuda de TI, no en este registro.' : '');
     const REG_REV0 = LB0, REG_REV1 = PLAN_REV1;
 
@@ -507,12 +520,13 @@
       'plan-gestion-comunicaciones': {
         status: 'aprobado', rev: '1', date: PLAN_REV1, created: lbT('t20').start, titleBlock: PLAN_TB, fields: planFields(1),
         revs: [
-          { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con el plan para la dirección del proyecto y la LB0: matriz de comunicaciones con los canales del registro de interesados, eventos de Scrum, comité quincenal e informe quincenal.', fields: planFields(0) },
-          { rev: '1', status: 'aprobado', date: PLAN_REV1, note: 'Revisión después de la salida a producción del ' + relShort('rel-1').toLowerCase() + ': canal de reporte de defectos de producción, acompañamiento en sitio después de cada salida y escalamiento de emergencia.' },
+          { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con el plan para la dirección del proyecto y la LB0: matriz de comunicaciones con los canales del registro de interesados, eventos de Scrum, comité quincenal, informe quincenal, acompañamiento en sitio de R-003 y escalamiento de emergencia del plan de gestión de cambios.', fields: planFields(0) },
+          { rev: '1', status: 'aprobado', date: PLAN_REV1, note: 'Revisión después de la salida a producción del ' + relShort('rel-1').toLowerCase() + ': canal único de reporte de defectos de producción por la mesa de ayuda de TI (matriz, tecnologías y flujo de la información) y motivo de los avisos en cartelera para el personal de bodega y los conductores, con la red inalámbrica de las bodegas ya instalada.' },
         ],
       },
       'registro-comunicaciones': {
-        status: 'revision', rev: '2A', date: STATUS_DATE, created: KICKOFF, titleBlock: { elaboro: R.sm, reviso: R.dir, aprobo: '' },
+        /* el cajetín vigente se copia a cada revisión (94): el aprobador va aunque la vigente esté en revisión */
+        status: 'revision', rev: '2A', date: STATUS_DATE, created: KICKOFF, titleBlock: { elaboro: R.sm, reviso: ROLE.po, aprobo: R.dir },
         fields: { comunicaciones: commsAt(STATUS_DATE), archivo: archivo(STATUS_DATE) },
         revs: [
           { rev: '0', status: 'aprobado', date: REG_REV0, note: 'Emisión con el plan de gestión de las comunicaciones: comunicaciones de la selección y la contratación.', fields: { comunicaciones: commsAt(REG_REV0), archivo: archivo(REG_REV0) } },

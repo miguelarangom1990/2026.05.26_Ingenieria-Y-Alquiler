@@ -7,7 +7,8 @@
 //      ganado con PM.calc, AgileEVM y releases con PM.agile, catálogo de recursos); fechas dentro del proyecto; los documentos y
 //      revisiones aprobados no citan hechos posteriores a su fecha.
 //   2) Interacción: crea el ejemplo desde el selector, abre «Documentos» con el riel, busca y abre el caso de negocio con el
-//      teclado (Tab y Enter), y abre los requisitos de financiamiento (tabla con la holgura calculada).
+//      teclado (Tab y Enter), abre los requisitos de financiamiento (tabla con la holgura calculada) y, en el registro de
+//      supuestos, abre con el teclado el historial y la rev. 0 (cajetín con quien aprobó).
 //   3) Sin --quick: los cinco documentos en el editor en tema oscuro, a 400 px (claro y oscuro) y a 1920 px, sin desborde de
 //      página ni tarjetas de error.
 import { execFileSync } from 'node:child_process';
@@ -90,11 +91,13 @@ async function validateInPage(page) {
     const lateCodes = (fields, date) => [...new Set(strings(fields).flatMap((s) => s.match(/\b(?:HU|TA|DF|IN|ME|EP|CC|INC|R)-\d{3}\b/g) || []))].filter((c) => codeDates[c] && codeDates[c] > date);
     const golive1 = task('t29').actualFinish;
     const review1 = cal.addWork(golive1, 1);
+    const prel2 = String(((await revsOf('plan-release')).find((r) => r.rev === '2') || {}).date || '').slice(0, 10);
+    ok(prel2 && prel2 > golive1, 'el plan de releases tiene su rev. 2 después de la salida del release 1 (95)', prel2);
     const SPEC = {
       'caso-negocio': { status: 'aprobado', rev: '1', date: review1, revs: [['0', 'aprobado', meta.start], ['1', 'aprobado', review1]] },
       'plan-gestion-beneficios': { status: 'aprobado', rev: '2', date: review1, revs: [['0', 'aprobado', meta.start], ['1', 'aprobado', LB.date], ['2', 'aprobado', review1]] },
       'registro-supuestos': { status: 'revision', rev: '2A', date: '2026-10-08', revs: [['0', 'aprobado', '2026-05-05'], ['1', 'aprobado', LB.date]] },
-      'plan-direccion': { status: 'aprobado', rev: '1', date: R1.baseline.date, revs: [['0', 'aprobado', LB.date], ['1', 'aprobado', R1.baseline.date]] },
+      'plan-direccion': { status: 'aprobado', rev: '2', date: prel2, revs: [['0', 'aprobado', LB.date], ['1', 'aprobado', R1.baseline.date], ['2', 'aprobado', prel2]] },
       'requisitos-financiamiento': { status: 'revision', rev: '1A', date: cut, revs: [['0', 'aprobado', LB.date]] },
     };
 
@@ -108,8 +111,9 @@ async function validateInPage(page) {
       V[id] = { cur: { date: upd, status: d.status, fields: d.fields }, revs: revs.map((r) => ({ rev: r.rev, status: r.status, date: String(r.date).slice(0, 10), fields: r.fields, titleBlock: r.titleBlock })) };
       ok(d.template === id && tb.codigo === meta.code + '-' + PM.templates[id].abbr, id + ': código ' + meta.code + '-' + PM.templates[id].abbr, tb.codigo);
       ok(d.status === s.status && d.rev === s.rev && upd === s.date, id + ': estado ' + s.status + ', revisión ' + s.rev + ' del ' + s.date, [d.status, d.rev, upd]);
-      ok(cal.isWork(upd) && upd <= cut && (d.status === 'aprobado' ? tb.fechaAprobacion === upd && tb.aprobo : !tb.fechaAprobacion) && tb.elaboro && tb.reviso, id + ': cajetín y fecha de aprobación coherentes (día hábil, hasta el corte)', tb);
+      ok(cal.isWork(upd) && upd <= cut && (d.status === 'aprobado' ? tb.fechaAprobacion === upd : !tb.fechaAprobacion) && tb.aprobo && tb.elaboro && tb.reviso, id + ': cajetín y fecha de aprobación coherentes (día hábil, hasta el corte; aprobador también en los documentos en revisión)', tb);
       ok(JSON.stringify(V[id].revs.map((r) => [r.rev, r.status, r.date])) === JSON.stringify(s.revs) && V[id].revs.every((r) => cal.isWork(r.date) && r.date <= upd && r.titleBlock && (r.status !== 'aprobado' || r.titleBlock.fechaAprobacion === r.date)), id + ': historial de revisiones', V[id].revs.map((r) => [r.rev, r.status, r.date]));
+      ok(V[id].revs.every((r) => r.status !== 'aprobado' || (r.titleBlock.aprobo && r.titleBlock.aprobo.trim())), id + ': cada revisión aprobada muestra quién la aprobó en el cajetín (no «Aprobó: —»)', V[id].revs.map((r) => [r.rev, r.titleBlock.aprobo]));
       const keys = tplKeys(id);
       const versions = [V[id].cur, ...V[id].revs];
       const missing = versions.flatMap((v, k) => keys.filter((key) => empty(v.fields[key])).map((key) => (k ? 'rev ' + V[id].revs[k - 1].rev : 'vigente') + '.' + key));
@@ -153,6 +157,11 @@ async function validateInPage(page) {
       ok(vis.every((m) => f.criteriosExito.some((c) => has(c, m.metrica) && has(c, m.meta.toLowerCase()) && has(c, Fm.date(m.fecha, 'long')))), 'caso de negocio rev. 1: criterios de éxito = métricas de la visión del producto');
       const t0 = text(f0);
       ok(!/680|LB0|CC-001|R-00\d|básculas/.test(t0) && !has(t0, ms(meta.budget)), 'caso de negocio rev. 0: no cita el presupuesto aprobado, la LB0, los riesgos registrados ni el CC-001');
+      /* regresiones de la auditoría: línea base no numérica, momentos de pago y total de usuarios calculado */
+      ok(!f.criteriosExito.some((c) => /: de (?!\d)/.test(plain(c))) && f.criteriosExito.some((c) => /línea base, sin integración/.test(plain(c))), 'caso de negocio rev. 1: criterios con línea base no numérica redactados aparte (sin «de sin integración»)', f.criteriosExito);
+      ok(!/mes vencido|al cierre de cada iteración|contra entrega|un tramo por release/.test(f.flujoCaja) && /registro de contratos y acuerdos/.test(f.flujoCaja), 'caso de negocio rev. 1: el flujo de caja remite a las condiciones de los contratos sin fijar momentos de pago', f.flujoCaja);
+      const users = sum(t12.resources, (a) => a.qty / subMonths);
+      ok(Number.isInteger(users) && has(f.supuestosCaso, users + ' usuarios') && has(f0.supuestosCaso, users + ' usuarios') && f.opciones.some((o) => o.recomendada && has(o.descripcion, users + ' usuarios')), 'caso de negocio: total de usuarios = suma de las líneas de la suscripción (t12 y catálogo)', users);
     }
 
     /* ---------- plan de gestión de los beneficios */
@@ -169,6 +178,18 @@ async function validateInPage(page) {
       ok(has(f.mecanismoMedicion, mig + ' %') && has(f.mecanismoMedicion, Fm.date(review1, 'long')) && !/\d+,\d+ %/.test(f1.mecanismoMedicion), 'beneficios rev. 2: primera medición al cierre del release 1 (migración del inventario)');
       ok(!/CC-001|báscula/.test(text(f1)) && !/CC-001|báscula|R-00\d/.test(text(f0)) && /CC-001/.test(text(f)), 'beneficios: la revisión 1 (10 de julio) no cita el CC-001 y la 0 no cita riesgos registrados');
       ok(has(f.transicion, Fm.date(meta.end, 'long')) && has(f.transicion, Fm.date(vis[4].fecha, 'long')), 'beneficios: transición a la operación hasta la meta de cartera');
+      /* beneficios monetarios del caso de negocio: filas tangibles a largo plazo y seguimiento hasta el horizonte del caso */
+      const B = PM.exampleDocs.erpIntegracion.BEN;
+      const comp = [r100k(B.ingresos * B.fuga), r100k(B.m2 * (B.utilMeta - B.utilBase) * B.tarifa * 12 * B.atribucion * B.margen), r100k(B.cartera * (B.carteraBase - B.carteraMeta) * B.tasa), r100k(B.diasPersona * cat('uc').unitCost)];
+      for (const [v, name] of [[f, 'vigente'], [f1, 'rev. 1'], [f0, 'rev. 0']]) {
+        const long = v.beneficios.filter((b) => b.plazo === 'Largo plazo (más de 1 año)');
+        ok(long.some((b) => b.tipo === 'Tangible' && /[Ff]acturación recuperada/.test(b.beneficio) && has(b.meta, ms(comp[0])) && has(b.lineaBase, B.baseYear) && b.responsable) && long.some((b) => b.tipo === 'Tangible' && has(b.meta, Fm.num(B.diasPersona, 0) + ' días-persona') && has(b.meta, ms(comp[3])) && b.responsable), 'beneficios (' + name + '): facturación recuperada y tiempo liberado del caso de negocio, a largo plazo y con dueño', long.map((b) => b.beneficio));
+        /* la utilización se mide desde un release que sale antes de la fecha de su meta */
+        const mec = plain(v.mecanismoMedicion);
+        const utilRel = [1, 2, 3].find((n) => new RegExp('release ' + n + ', [^;]*utilización').test(mec));
+        ok(utilRel && lbT(['t29', 't31', 't33'][utilRel - 1]).start <= vis[3].fecha, 'beneficios (' + name + '): la utilización se mide desde el release ' + utilRel + ', que sale antes de su meta (' + Fm.date(vis[3].fecha, 'long') + ')', mec);
+      }
+      ok(has(f.transicion, B.years[B.years.length - 1]) && has(f.transicion, ms(sum(comp, (x) => x))), 'beneficios: los beneficios monetarios se siguen hasta el horizonte del caso de negocio', f.transicion);
     }
 
     /* ---------- registro de supuestos */
@@ -186,6 +207,8 @@ async function validateInPage(page) {
       const S = Object.fromEntries(V['registro-supuestos'].cur.fields.supuestos.map((s) => [s.id, s]));
       ok(S['S-08'].estado === 'Descartado' && S['S-08'].fechaValidacion === task('t16').actualFinish && has(S['S-08'].descripcion, String(cal.countWork(D.add(lbT('t16').finish, 1), task('t16').actualFinish)) + ' días hábiles más') && has(S['S-08'].descripcion, lbT('t16').duration + ' días hábiles'), 'supuestos: depuración de datos descartada con el atraso real frente a la LB0');
       ok(S['S-09'].estado === 'Validado' && S['S-09'].fechaValidacion === task('t15').actualFinish && S['S-03'].estado === 'Descartado' && S['S-03'].fechaValidacion === task('t14').actualFinish && has(S['S-03'].descripcion, ms(sum(costs.actuals.filter((a) => a.taskId === 't14'), (a) => a.amount) - task('t14').cost)), 'supuestos: ambiente de habilitación validado y tasa de cambio descartada con el sobrecosto real de los equipos');
+      const subMonthsS = (() => { let n = 0; for (let m = D.startOfMonth(lbT('t12').start); m <= lbT('t12').finish; m = D.addMonths(m, 1)) n++; return n; })();
+      ok(has(S['S-12'].descripcion, sum(task('t12').resources, (a) => a.qty / subMonthsS) + ' usuarios'), 'supuestos: S-12 con el total de usuarios de la suscripción (suma de sus líneas)', S['S-12'].descripcion);
       ok(S['S-14'].fechaValidacion === R1.baseline.date && S['S-12'].fechaValidacion === task('t11').actualFinish && S['S-13'].fechaValidacion === task('t11').actualFinish, 'supuestos: básculas validadas con el CC-001 y restricciones de los contratos del 30 de junio');
       ok(S['S-10'].estado === 'Por validar' && S['S-10'].fechaValidacion === sprints.find((s) => s.status === 'en-curso').end && /R-008/.test(S['S-10'].descripcion) && S['S-11'].estado === 'Por validar' && /INC-003/.test(S['S-11'].descripcion), 'supuestos: velocidad (R-008) y auxiliar de cartera (INC-003) por validar al corte');
       ok(['S-07'].every((k) => [meta.budget, LB.cost.bac, LB.cost.contingency, LB.cost.management].every((x) => has(S[k].descripcion, ms(x)))) && /700 millones/.test(versions[1][1].fields.supuestos[6].descripcion), 'supuestos: restricción de presupuesto con el BAC y las reservas de la LB0 (y el preliminar en la rev. 0)');
@@ -207,11 +230,17 @@ async function validateInPage(page) {
       ok(has(lbRows.Costos.contenido, ms(LB.cost.bac)) && has(lbRows.Costos.contenido, ms(LB.cost.contingency)) && has(lbRows.Costos.contenido, ms(LB.cost.bac + LB.cost.contingency)) && has(lbRows.Costos.observaciones, ms(LB.cost.management)) && has(lbRows.Costos.observaciones, ms(sum(agile.releases, (r) => r.budget))), 'plan para la dirección: línea base de costos = BAC + contingencia de la LB0');
       ok(has(lbRows.Cronograma.contenido, Fm.date(LB.schedule.start, 'long')) && has(lbRows.Cronograma.contenido, Fm.date(LB.schedule.finish, 'long')), 'plan para la dirección: fechas de la línea base del cronograma');
       const r1base0 = (await revsOf('plan-release')).find((r) => r.rev === '0').fields.releases[0].puntos;
-      ok(has(f0.lineasBase[0].contenido, r1base0 + ' puntos') && !/CC-001|118/.test(text(f0)) && has(lbRows.Alcance.contenido, R1.baseline.points + ' puntos') && /CC-001/.test(lbRows.Alcance.observaciones), 'plan para la dirección: release 1 con ' + r1base0 + ' puntos en la rev. 0 y ' + R1.baseline.points + ' con el CC-001 en la rev. 1');
+      ok(has(f0.lineasBase[0].contenido, r1base0 + ' puntos') && !/CC-001|118/.test(text(f0)) && has(lbRows.Alcance.contenido, R1.baseline.points + ' puntos') && /CC-001/.test(lbRows.Alcance.observaciones), 'plan para la dirección: release 1 con ' + r1base0 + ' puntos en la rev. 0 y ' + R1.baseline.points + ' con el CC-001 después');
+      /* rev. 1 (CC-001) y rev. 2 (después del cierre del release 1, con la línea base del release 2) */
+      const f1 = rev('plan-direccion', '1'), R2 = rel('rel-2');
+      ok(has(f1.lineasBase[0].contenido, R1.baseline.points + ' puntos') && /CC-001/.test(f1.lineasBase[0].observaciones) && !has(text(f1), R2.baseline.points + ' puntos'), 'plan para la dirección rev. 1 (CC-001): release 1 con ' + R1.baseline.points + ' puntos, sin la línea base del release 2');
+      const r2sprint = sprints.find((x) => x.start === R2.baseline.date);
+      ok(r2sprint && has(lbRows.Alcance.contenido, R2.baseline.points + ' puntos') && has(lbRows.Alcance.contenido, r2sprint.name.toLowerCase()) && has(lbRows.Alcance.contenido, Fm.date(R2.baseline.date, 'long')) && has(f.mantenimientoPlan, 'Revisión 2 (' + Fm.date(prel2, 'long') + ')'), 'plan para la dirección rev. 2: línea base del release 2 (' + R2.baseline.points + ' puntos) y revisión después del cierre del release 1', lbRows.Alcance.contenido);
+      ok(V['plan-direccion'].cur.date >= golive1 && /después del cierre de cada release/.test(f.mantenimientoPlan) && /Gerencia General/.test(V['plan-direccion'].revs.find((r) => r.rev === '2').titleBlock.aprobo), 'plan para la dirección: la versión vigente es posterior al cierre del release 1, como manda su regla de mantenimiento');
       ok(f.planesSubsidiarios.length >= 12 && f.planesSubsidiarios.every((p) => optsOf('plan-direccion', 'planesSubsidiarios', 'estado').includes(p.estado) && p.referencia && p.responsable && p.resumen), 'plan para la dirección: planes subsidiarios con estado, referencia, responsable y resumen');
       /* las referencias a documentos del ejemplo existen con esa revisión, aprobada a la fecha de la versión del plan */
       const abbr = Object.fromEntries(Object.entries(PM.templates).map(([id, t]) => [t.abbr, id]));
-      const refBad = [];
+      const refBad = [], stale = [];
       for (const v of [V['plan-direccion'].cur, ...V['plan-direccion'].revs]) {
         for (const p of v.fields.planesSubsidiarios) for (const m of p.referencia.matchAll(new RegExp(meta.code + '-([A-Z]+)(?: rev\\. (\\d+))?', 'g'))) {
           const tid = abbr[m[1]];
@@ -222,9 +251,13 @@ async function validateInPage(page) {
              aprobada a esa fecha, porque el plan los da por aprobados */
           const all = [...(await revsOf(tid)).map((r) => [r.rev, r.status, String(r.date).slice(0, 10)]), [d.rev, d.status, String(d.updatedAt).slice(0, 10)]];
           if (!all.some(([rv, sts, dt]) => (m[2] === undefined || rv === m[2]) && sts === 'aprobado' && dt <= v.date)) refBad.push(v.date + ' → ' + m[0]);
+          /* con revisión: es la última emisión aprobada a la fecha de esa versión del plan */
+          const later = m[2] === undefined ? [] : all.filter(([rv, sts, dt]) => /^\d+$/.test(String(rv)) && sts === 'aprobado' && dt <= v.date && Number(rv) > Number(m[2]));
+          if (later.length) stale.push(v.date + ' → ' + m[0] + ' (ya existía la rev. ' + later.map((x) => x[0]).join(', ') + ')');
         }
       }
       ok(!refBad.length, 'plan para la dirección: cada documento citado (si su módulo está cargado) está aprobado a la fecha del plan', refBad);
+      ok(!stale.length, 'plan para la dirección: cada versión cita la última revisión aprobada a su fecha', stale);
     }
 
     /* ---------- requisitos de financiamiento */
@@ -253,8 +286,51 @@ async function validateInPage(page) {
       const gaps = P2.map((p) => gap(p, P2));
       ok(gaps.every((g) => g >= 0) && gaps[gaps.length - 1] === 0 && sum(P2, (p) => p.financiamiento) === f.lineaBaseCostos && P2.filter((p) => p.financiamiento > 0).length === 4, 'financiamiento: cuatro tramos que suman la línea base de costos; holgura acumulada (columna calculada) nunca negativa y en cero al final', gaps);
       ok(P2.every((p) => optsOf('requisitos-financiamiento', 'periodos', 'fuente').includes(p.fuente)), 'financiamiento: fuentes de la plantilla');
-      const tramoMonths = P2.map((p, i) => (p.financiamiento > 0 ? months[i] : null)).filter(Boolean);
-      ok(tramoMonths[1] === D.startOfMonth(LB.date) && tramoMonths[2] === D.addMonths(D.startOfMonth(lbT('t29').start), 1) && tramoMonths[3] === D.addMonths(D.startOfMonth(lbT('t31').start), 1), 'financiamiento: tramos con la LB0 y después de la salida de los releases 1 y 2', tramoMonths);
+      const tramoIdx = P2.map((p, i) => (p.financiamiento > 0 ? i : -1)).filter((i) => i >= 0);
+      const tramoMonths = tramoIdx.map((i) => months[i]);
+      /* liberación de cada tramo: acta, firma de los contratos y revisión del caso al cierre de los releases 1 y 2 (día hábil
+         siguiente a la salida a producción, según la LB0); cada tramo cubre desde el mes siguiente a su liberación */
+      const sign = task('t11').actualFinish;
+      const gates = [meta.start, sign, cal.addWork(lbT('t29').start, 1), cal.addWork(lbT('t31').start, 1)];
+      ok(tramoMonths[0] === months[0] && gates.slice(1).every((g, k) => tramoMonths[k + 1] === D.addMonths(D.startOfMonth(g), 1)), 'financiamiento: tramos desde el acta y desde el mes siguiente a la firma de los contratos y a la revisión del caso al cierre de los releases 1 y 2', tramoMonths);
+      ok(gates.every((g, k) => g <= P2[tramoIdx[k]].fecha) && review1 <= P2[tramoIdx[2]].fecha && V['caso-negocio'].cur.date <= P2[tramoIdx[2]].fecha, 'financiamiento: cada tramo se libera a más tardar en la fecha requerida de su ventana (sin días sin financiar)', gates.map((g, k) => [g, P2[tramoIdx[k]].fecha]));
+      /* el texto de cada tramo cita su monto, su liberación y el alcance real de su ventana (iteraciones y releases) */
+      const segs = plain(f.fuentes).split(/(?=Tramo \d \()/).slice(1);
+      const segs0 = plain(f0.fuentes).split(/(?=Tramo \d \()/).slice(1);
+      ok(segs.length === 4 && segs0.length === 4, 'financiamiento: un párrafo por tramo en las fuentes (rev. 0 y 1A)', [segs.length, segs0.length]);
+      const cites = (seg) => {
+        const full = new Set(), fin = new Set(), ini = new Set();
+        for (const m of seg.matchAll(/iteraciones (\d+) a (\d+)/g)) for (let x = +m[1]; x <= +m[2]; x++) full.add(x);
+        for (const m of seg.matchAll(/las iteraciones ((?:\d+, )*\d+ y \d+)/g)) m[1].split(/, | y /).forEach((x) => full.add(+x));
+        for (const m of seg.matchAll(/(final|inicio) de la iteración (\d+)/g)) (m[1] === 'final' ? fin : ini).add(+m[2]);
+        for (const m of seg.matchAll(/(?<!(?:final|inicio) de )la iteración (\d+)/g)) full.add(+m[1]);
+        return { full, fin, ini };
+      };
+      const segBad = [];
+      segs.forEach((seg, k) => {
+        const a = k ? months[tramoIdx[k]] : LB.schedule.start, b = monthEnd(months[(k < 3 ? tramoIdx[k + 1] : months.length) - 1]);
+        if (!has(seg, ms(P2[tramoIdx[k]].financiamiento)) || !has(segs0[k], ms(P2[tramoIdx[k]].financiamiento))) segBad.push(k + 1 + ': monto');
+        const c = cites(seg);
+        const over = sprints.filter((x) => x.start <= b && x.end >= a);
+        for (const x of over) {
+          const n = +x.name.replace('Iteración ', '');
+          if (!(x.start < a ? c.fin.has(n) : x.end > b ? c.ini.has(n) : c.full.has(n))) segBad.push(k + 1 + ': ' + x.name);
+        }
+        if (c.full.size + c.fin.size + c.ini.size !== over.length) segBad.push(k + 1 + ': iteraciones de más ' + JSON.stringify([[...c.full], [...c.fin], [...c.ini]]));
+        const iterParts = seg.split(/; /).filter((x) => /iteraci/.test(x));
+        ['rel-1', 'rel-2', 'rel-3'].forEach((rid, j) => {
+          const t = lbT(rel(rid).taskId);
+          const pv = t.cost * (C.plannedFraction(cal, t.start, t.finish, t.milestone, b) - C.plannedFraction(cal, t.start, t.finish, t.milestone, D.add(a, -1)));
+          const cited = iterParts.some((x) => new RegExp('\\brelease ' + (j + 1) + '\\b').test(x));
+          if ((pv > 0) !== cited) segBad.push(k + 1 + ': ' + rid + ' con valor planificado ' + Math.round(pv));
+        });
+      });
+      ok(!segBad.length, 'financiamiento: el alcance escrito de cada tramo coincide con las iteraciones y los releases de su ventana', segBad);
+      ok(has(segs[1], 'al firmar los contratos (' + Fm.date(sign, 'long') + ')') && has(segs[2], Fm.date(review1, 'long')) && has(segs0[2], 'prevista para el ' + Fm.date(gates[2], 'long')) && has(segs[3], 'prevista para el ' + Fm.date(gates[3], 'long')) && !/un tramo por release|uno por release/.test(f.fuentes + f0.fuentes), 'financiamiento: cada tramo dice cuándo se libera (contratos, revisión del release 1 ya hecha al corte, revisión del release 2 prevista)');
+      /* el caso de negocio rev. 1 libera el tramo 3 desde su ventana y reconoce que el release 2 arrancó con el tramo 2 */
+      const rec = plain(V['caso-negocio'].cur.fields.recomendacion);
+      ok(has(rec, 'tramo 3 del financiamiento (' + ms(P2[tramoIdx[2]].financiamiento)) && has(rec, Fm.date(rel('rel-2').start, 'long') + ' con el tramo 2, que cubre hasta el ' + Fm.date(monthEnd(months[tramoIdx[2] - 1]), 'long')) && /el resto del release 2 y el inicio del release 3/.test(rec), 'caso de negocio rev. 1: el tramo 3 cubre desde el mes siguiente a la revisión y el release 2 arrancó con el tramo 2', rec);
+      for (const [v, name] of [[f, 'rev. 1A'], [f0, 'rev. 0']]) ok(!/mes vencido|al cierre de cada iteración|contra entrega|como los programa/.test(v.condicionesPago) && /valor planificado de la LB0/.test(v.condicionesPago) && /registro de contratos y acuerdos/.test(v.condicionesPago), 'financiamiento (' + name + '): los egresos son el devengo de la LB0 y los momentos de pago quedan en los contratos', v.condicionesPago);
       /* condiciones de pago con el catálogo de recursos y los releases */
       const implFee = sum(['cf', 'de', 'di', 'ap'], (k) => cat(k).unitCost * (cat(k).dedication ?? 100) / 100 * st.sprintLength);
       ok(has(f.condicionesPago, ms(implFee)) && has(f.condicionesPago, ms(task('t26').costFixed)) && has(f.condicionesPago, ms(rel('rel-3').budget - rel('rel-3').plannedSprints * (implFee + cat('at').unitCost * st.sprintLength))), 'financiamiento: pagos al implementador (precio fijo por iteración y bolsas) desde el catálogo y los releases');
@@ -263,6 +339,11 @@ async function validateInPage(page) {
       const acM = (m) => sum(costs.actuals.filter((a) => a.date >= m && a.date <= monthEnd(m) && a.date <= cut), (a) => a.amount);
       ok(months.filter((m) => monthEnd(m) <= cut).every((m) => has(f.conciliacionLimite, ms(acM(m)))), 'financiamiento rev. 1A: costo real de cada mes cerrado');
       ok(!/costo real|EAC|VAC/.test(text(f0)) && !has(text(f0), ms(evm.ac)), 'financiamiento rev. 0 (10 de julio): no cita costos reales ni pronósticos');
+      /* bolsa del conector: consumo frente a la bolsa de la LB0 y al avance del release 2, no un riesgo ya materializado */
+      const conn = sum(costs.actuals.filter((a) => a.releaseId === 'rel-2' && /conector/.test(a.description) && a.date <= cut), (a) => a.amount);
+      const r2p = C.releaseProgress({ release: rel('rel-2'), items, settings: st });
+      const bolsa = task('t26').costFixed;
+      ok(conn > 0 && conn < bolsa && has(f.riesgosFinanciamiento, ms(conn) + ' de la bolsa de ' + ms(bolsa)) && has(f.riesgosFinanciamiento, Fm.pct(r2p.pct, 1)) && has(f.riesgosFinanciamiento, r2p.done + ' de ' + r2p.total + ' puntos') && has(f.riesgosFinanciamiento, ms(conn - bolsa * r2p.pct)) && has(f.riesgosFinanciamiento, ms(conn / r2p.pct)) && !/Materializad[oa]s?:[^.]*conector/.test(f.riesgosFinanciamiento), 'financiamiento rev. 1A: el consumo del conector se compara con su bolsa y con el avance del release 2 (no se presenta como materializado)', f.riesgosFinanciamiento);
     }
     ok(MINE.every((id) => PM.docApproach && PM.docApproach(id) && PM.docApproach(id).id === 'ambos'), 'los cinco documentos son de «Ambos enfoques» (11-doc-approach)');
     return out;
@@ -303,7 +384,7 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
     await page.waitForFunction(() => PM.getState().view === 'documentos', null, { timeout: 8000 });
     await page.waitForSelector('tr[data-doc]', { timeout: 10000 });
     const rowsInfo = await page.evaluate(() => [...document.querySelectorAll('tr[data-doc]')].map((tr) => ({ key: tr.getAttribute('data-doc'), ap: tr.getAttribute('data-approach'), name: (tr.querySelector('.docs-link') || {}).textContent || '', code: (tr.querySelector('.docs-c-code') || {}).textContent || '', status: (tr.querySelector('.docs-c-status') || {}).textContent || '', rev: (tr.querySelector('.docs-c-rev') || {}).textContent || '' })));
-    const want = { 'Caso de negocio': ['CNEG', 'Aprobado', '1'], 'Plan de gestión de los beneficios': ['PBEN', 'Aprobado', '2'], 'Registro de supuestos': ['RSUP', 'En revisión', '2A'], 'Plan para la dirección del proyecto': ['PDP', 'Aprobado', '1'], 'Requisitos de financiamiento del proyecto': ['RFI', 'En revisión', '1A'] };
+    const want = { 'Caso de negocio': ['CNEG', 'Aprobado', '1'], 'Plan de gestión de los beneficios': ['PBEN', 'Aprobado', '2'], 'Registro de supuestos': ['RSUP', 'En revisión', '2A'], 'Plan para la dirección del proyecto': ['PDP', 'Aprobado', '2'], 'Requisitos de financiamiento del proyecto': ['RFI', 'En revisión', '1A'] };
     const rowBad = Object.entries(want).filter(([name, [ab, stt, rv]]) => { const r = rowsInfo.find((x) => norm(x.name).trim() === name); return !r || !norm(r.code).includes('PRY-2026-021-' + ab) || !norm(r.status).includes(stt) || !norm(r.rev).trim().endsWith(rv) || (r.ap !== null && r.ap !== 'ambos'); });
     check(!rowBad.length, 'lista maestra: los cinco documentos con código, estado y revisión (y enfoque «ambos» si la columna existe)', rowBad.map(([n]) => [n, rowsInfo.find((x) => norm(x.name).trim() === n)]));
     if (shots) await page.screenshot({ path: shots + '/documentos.png', fullPage: false });
@@ -345,6 +426,31 @@ section('Interacción: selector de ejemplos, lista de documentos y teclado');
     check(finRows >= 9, 'tabla de financiamiento con un periodo por mes (mayo de 2026 a enero de 2027)', finRows);
     check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
     if (shots) await page.screenshot({ path: shots + '/requisitos-financiamiento.png', fullPage: true });
+    /* registro de supuestos: historial y rev. 0 con el teclado; el cajetín de la revisión aprobada muestra quién aprobó */
+    await page.locator('button.nav-item', { hasText: 'Documentos' }).first().click();
+    await page.waitForSelector('tr[data-doc]', { timeout: 8000 });
+    await page.getByLabel('Buscar documentos').fill('');
+    await page.getByLabel('Buscar documentos').click();
+    await page.keyboard.type('supuestos');
+    await page.waitForTimeout(400);
+    await page.locator('tr[data-doc] .docs-link', { hasText: 'Registro de supuestos' }).first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.page[data-doc-id="registro-supuestos"] [data-section]', { timeout: 10000 });
+    const tbNow = await page.evaluate(() => { const c = [...document.querySelectorAll('.page[data-doc-id="registro-supuestos"] .title-block > div')].find((d) => /^Aprobó/.test((d.querySelector('.tb-k') || {}).textContent || '')); if (!c) return null; const inp = c.querySelector('input'); return inp ? inp.value : (c.querySelector('.tb-v') || {}).textContent; });
+    check(tbNow === 'Gerencia General', 'registro de supuestos en revisión: el cajetín dice a quién le toca aprobar', tbNow);
+    const histBtn = page.getByRole('button', { name: /^Historial/ });
+    await histBtn.first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.docs-hist tr[data-rev="0"]', { timeout: 8000 });
+    await page.locator('.docs-hist tr[data-rev="0"] button', { hasText: 'Ver' }).first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.docs-snap .title-block', { timeout: 8000 });
+    const snapTb = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.docs-snap .title-block > div')].map((d) => [(d.querySelector('.tb-k') || {}).textContent, (d.querySelector('.tb-v') || {}).textContent])));
+    check(snapTb['Aprobó'] === 'Gerencia General' && /2026/.test(snapTb['Fecha de aprobación'] || ''), 'registro de supuestos rev. 0 (historial → Ver, con el teclado): el cajetín muestra quién aprobó y la fecha de aprobación', snapTb);
+    if (shots) await page.screenshot({ path: shots + '/supuestos-rev0.png', fullPage: false });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    check(!(await errorCards(page)).length && !errors.length, 'historial sin tarjetas de error ni errores de consola', errors);
   } finally { await app.browser.close(); }
 }
 
