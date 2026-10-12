@@ -4,7 +4,8 @@
 //   Sin --file construye núcleo + módulos de vistas y plantillas + 94 y 95 (sin los otros ejemplos).
 //   1) Constructor, importación y estructura: EDT con enfoques, cronograma, releases, iteraciones, backlog, costos, RACI.
 //   2) Cifras de los documentos frente a los cálculos de la aplicación (PM.calc.*, PM.agile.*), con datos leídos del almacenamiento,
-//      y cifras y referencias de docs/ejemplo-erp/supuestos-y-fuentes.md.
+//      y cifras y referencias de docs/ejemplo-erp/supuestos-y-fuentes.md. Cada iteración cerrada (1 a 6) tiene acta de revisión
+//      y retrospectiva vinculadas, y toda cita a una revisión o retrospectiva (backlog y documentos) tiene su acta.
 //   3) Vistas: crea el ejemplo con el selector, revisa métricas ágiles (burndown, burnup, velocidad 31/32/30/26, AgileEVM),
 //      tablero Kanban (WIP y bloqueado), curva S con el avance de los releases y recorre todas las vistas sin tarjetas de error.
 //   4) Sin --quick: tema oscuro y 400 px en las vistas ágiles y el tablero (sin desborde de página).
@@ -219,7 +220,7 @@ async function validateInPage(page) {
     ok(!raciBad.length, 'cada fila de la RACI con exactamente una A y al menos una R', raciBad);
 
     /* ---------- documentos: claves, estados y revisiones */
-    const EXPECT_DOCS = ['acta-constitucion', 'registro-interesados', 'registro-riesgos', 'plan-gestion-cambios', 'vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint--it6', 'planificacion-sprint--it7', 'acta-revision-sprint--it5', 'acta-revision-sprint--it6', 'retrospectiva--it5', 'retrospectiva--it6', 'registro-incidentes', 'registro-lecciones', 'registro-cambios', 'solicitud-cambio--cc001', 'informe-desempeno--corte-2026-10-09'];
+    const EXPECT_DOCS = ['acta-constitucion', 'registro-interesados', 'registro-riesgos', 'plan-gestion-cambios', 'vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint--it6', 'planificacion-sprint--it7', ...[1, 2, 3, 4, 5, 6].flatMap((n) => ['acta-revision-sprint--it' + n, 'retrospectiva--it' + n]), 'registro-incidentes', 'registro-lecciones', 'registro-cambios', 'solicitud-cambio--cc001', 'informe-desempeno--corte-2026-10-09'];
     ok(EXPECT_DOCS.every((id) => docOf(id)), 'documentos PMBOK y ágiles del ejemplo', EXPECT_DOCS.filter((id) => !docOf(id)));
     const keyBad = [];
     for (const d of docs) { const t = PM.templates[d.data.template]; const keys = t.sections.flatMap((s) => s.fields.map((x) => x.key)); const miss = keys.filter((k) => !(k in d.data.fields)); if (miss.length) keyBad.push(d.id + ': ' + miss.join(',')); }
@@ -245,6 +246,25 @@ async function validateInPage(page) {
     ok(docs.filter((d) => PM.templates[d.data.template].multiple).every((d) => d.data.seq >= 1 && /-\d{2}$/.test(d.data.titleBlock.codigo)), 'instancias múltiples numeradas');
     const sd = agile.sprints.find((s) => s.id === 'spr-06').docs;
     ok(sd.planificacion === 'planificacion-sprint--it6' && sd.revision === 'acta-revision-sprint--it6' && sd.retrospectiva === 'retrospectiva--it6' && docOf(sd.planificacion) && agile.sprints.find((s) => s.id === 'spr-05').docs.revision === 'acta-revision-sprint--it5' && agile.sprints.find((s) => s.id === 'spr-07').docs.planificacion === 'planificacion-sprint--it7', 'documentos vinculados a sus iteraciones');
+    /* regresión: cada iteración cerrada tiene acta de revisión y retrospectiva aprobadas y vinculadas (la ruta del tablero
+       cuenta «N de N iteraciones cerradas documentadas») */
+    const closedSprints = sprints.filter((s) => s.status === 'cerrado');
+    const undocumented = closedSprints.filter((s) => ['revision', 'retrospectiva'].some((k) => { const d = s.docs && s.docs[k] ? docOf(s.docs[k]) : null; return !d || d.status !== 'aprobado' || d.template !== (k === 'revision' ? 'acta-revision-sprint' : 'retrospectiva') || d.fields.iteracion !== s.name; })).map((s) => s.name);
+    ok(closedSprints.length === 6 && !undocumented.length, 'las 6 iteraciones cerradas tienen acta de revisión y retrospectiva aprobadas y vinculadas', undocumented);
+    ok(docs.filter((d) => d.data.template === 'acta-revision-sprint').every((d) => { const s = sprints.find((x) => x.name === d.data.fields.iteracion); return s && s.docs.revision === d.id; }) && docs.filter((d) => d.data.template === 'retrospectiva').every((d) => { const s = sprints.find((x) => x.name === d.data.fields.iteracion); return s && s.docs.retrospectiva === d.id; }), 'cada acta de revisión y retrospectiva está vinculada a su iteración');
+    /* regresión: toda cita a la revisión o la retrospectiva de una iteración (backlog y documentos) tiene su acta, y el acta de
+       revisión menciona los elementos que nacieron en ella */
+    const citeRe = /(revisión|retrospectiva) de la iteración (\d+)/g;
+    const citeBad = [];
+    const citeTexts = [...items.map((i) => [i.code, i.description + ' ' + i.acceptance]), ...docs.map((d) => [d.id, strings(d.data.fields).join(' ')])];
+    for (const [who, txt] of citeTexts) for (const m of String(txt).matchAll(citeRe)) {
+      const s = sprints.find((x) => x.name === 'Iteración ' + m[2]);
+      const d = s && s.docs[m[1] === 'revisión' ? 'revision' : 'retrospectiva'];
+      if (!d || !docOf(d)) citeBad.push(who + ' → ' + m[0]);
+    }
+    ok(!citeBad.length, 'las revisiones y retrospectivas citadas en el backlog y los documentos tienen acta', citeBad);
+    const bornBad = items.filter((i) => /revisión de la iteración \d+/.test(i.description)).filter((i) => { const n = /revisión de la iteración (\d+)/.exec(i.description)[1]; const s = sprints.find((x) => x.name === 'Iteración ' + n); const d = s && docOf(s.docs.revision); return !d || !strings(d.fields).some((t) => t.includes(i.code)); }).map((i) => i.code);
+    ok(!bornBad.length && items.filter((i) => /revisión de la iteración [1-3]\b/.test(i.description)).length >= 5, 'cada acta de revisión menciona los elementos que nacieron en ella (DF-001, ME-001, ME-002, DF-002, ME-003, HU-041)', bornBad);
 
     /* ---------- cifras de los documentos frente a los cálculos */
     const asOf = (at) => {
@@ -264,13 +284,13 @@ async function validateInPage(page) {
     const it7start = countable.filter((i) => i.sprintId === it7.id && !i.sprintAddedDate);
     ok(p7.compromiso === it7.committed && it7.committed === sum(it7start, A.estimate) && p7.capacidad === it7.capacity && p7.velocidadReferencia === round1(at7.vel.avg3) && p7.velocidadReferencia === 29.3 && has(p7.riesgos, F.num(at7.vel.avg3, 1)), 'planificación de la iteración 7: compromiso 31, capacidad 32 y velocidad de referencia 29,3', [p7.compromiso, p7.velocidadReferencia]);
     ok(JSON.stringify(p7.elementos.map((r) => r.codigo).sort()) === JSON.stringify(it7start.map((i) => i.code).sort()) && sum(p7.elementos, (r) => r.estimacion) === p7.compromiso, 'elementos de la planificación 7 = elementos comprometidos al iniciar');
-    /* revisiones 5 y 6 */
-    for (const [id, s] of [['acta-revision-sprint--it5', sprints[4]], ['acta-revision-sprint--it6', it6]]) {
-      const r = docOf(id).fields;
+    /* revisiones de las iteraciones 1 a 6 */
+    for (const s of closedSprints) {
+      const r = docOf(s.docs.revision).fields;
       const accepted = r.elementos.filter((x) => x.resultado === 'Aceptado');
       ok(r.iteracion === s.name && r.fecha === s.end && r.comprometido === s.committed && r.terminado === s.completed && sum(accepted, (x) => x.estimacion) === s.completed && sum(r.elementos, (x) => x.estimacion) === s.committed, 'acta de revisión de la ' + s.name.toLowerCase() + ': comprometido ' + s.committed + ' y terminado ' + s.completed);
       const doneCodes = countable.filter((i) => i.sprintId === s.id && A.isDone(st, i)).map((i) => i.code).sort();
-      ok(JSON.stringify(accepted.map((x) => x.codigo).sort()) === JSON.stringify(doneCodes) && r.elementos.filter((x) => x.resultado !== 'Aceptado').map((x) => x.codigo).join() === s.unfinished.map((u) => u.code).join(), 'resultados de la revisión de la ' + s.name.toLowerCase() + ' = elementos terminados y no terminados');
+      ok(JSON.stringify(accepted.map((x) => x.codigo).sort()) === JSON.stringify(doneCodes) && r.elementos.filter((x) => x.resultado !== 'Aceptado').map((x) => x.codigo).join() === (s.unfinished || []).map((u) => u.code).join(), 'resultados de la revisión de la ' + s.name.toLowerCase() + ' = elementos terminados y no terminados');
     }
     const r6 = docOf('acta-revision-sprint--it6').fields;
     const r2at7 = C.releaseProgress({ release: R2, items: at7.its, settings: st });
@@ -283,14 +303,33 @@ async function validateInPage(page) {
     const r2at5 = C.releaseProgress({ release: R2, items: at5.its, settings: st });
     const fc5 = C.releaseForecast({ release: R2, sprints: at5.sps, items: at5.its, settings: st, cal, statusDate: '2026-09-23' });
     ok(has(r5.estadoRelease, r2at5.done + ' de ' + r2at5.total + ' puntos terminados (' + F.pct(r2at5.pct) + ')') && has(r5.estadoRelease, F.num(at5.vel.avg3, 0) + ' puntos en las tres últimas') && has(r5.estadoRelease, F.date(fc5.finish, 'long')) && fc5.finish === R2.end, 'acta de revisión 5: 30 de 112 puntos, velocidad 31 y pronóstico al 6 de noviembre', r5.estadoRelease);
+    /* revisiones de las iteraciones 1 a 4 (release 1): avance, velocidad y pronóstico a la fecha de cada revisión */
+    for (const s of closedSprints.slice(0, 4)) {
+      const r = docOf(s.docs.revision).fields;
+      const at = asOf(s.end);
+      const rp = C.releaseProgress({ release: R1, items: at.its, settings: st });
+      const fc = C.releaseForecast({ release: R1, sprints: at.sps, items: at.its, settings: st, cal, statusDate: s.end });
+      const head = s === sprints[1]
+        ? (() => { const before = C.releaseProgress({ release: R1, items: asOf(D.add(s.end, -1)).its, settings: st }); return has(r.estadoRelease, rp.done + ' de ' + before.total + ' puntos terminados (' + F.pct(rp.done / before.total) + ')') && has(r.estadoRelease, 'faltarían ' + rp.remaining + ' puntos') && has(r.cambiosBacklog, before.total + ' a ' + rp.total + ' puntos'); })()
+        : has(r.estadoRelease, rp.done + ' de ' + rp.total + ' puntos terminados (' + F.pct(rp.pct) + ')');
+      const fcOk = rp.remaining === 0 ? fc.sprintsNeeded === 0 : has(r.estadoRelease, F.date(fc.finish, 'long'));
+      const velOk = has(r.estadoRelease, F.num(at.vel.avg3, Number.isInteger(at.vel.avg3) ? 0 : 1) + ' puntos');
+      ok(head && fcOk && velOk && r.objetivo === s.goal, 'acta de revisión de la ' + s.name.toLowerCase() + ': avance del release 1, velocidad y pronóstico a la fecha de la revisión', r.estadoRelease);
+    }
+    const r1d = docs.find((d) => d.id === sprints[0].docs.revision).data;
+    ok(r1d.titleBlock.fechaAprobacion === D.add(sprints[0].end, 1) && r1d.fields.fecha === sprints[0].end && /DF-001/.test(r1d.fields.cambiosBacklog), 'acta de revisión de la iteración 1: revisión del 27 de julio aprobada el 28 con DF-001 registrado');
+    ok(/HU-006/.test(docOf(sprints[2].docs.revision).fields.estadoRelease) && /HU-014/.test(docOf(sprints[2].docs.revision).fields.estadoRelease) && /CC-001/.test(docOf(sprints[2].docs.revision).fields.estadoRelease), 'acta de revisión de la iteración 3: elementos «Debería tener» por diferir según la condición del CC-001');
     /* retrospectivas → registro de lecciones */
     const lec = docOf('registro-lecciones').fields.lecciones;
-    for (const [id, s] of [['retrospectiva--it5', sprints[4]], ['retrospectiva--it6', it6]]) {
-      const rt = docOf(id).fields;
-      ok(rt.iteracion === s.name && rt.fecha === s.end && rt.lecciones.length >= 2 && rt.lecciones.every((l) => lec.some((x) => x.situacion === l.situacion && x.recomendacion === l.recomendacion && x.impacto === l.impacto && x.fecha === rt.fecha && x.area === 'Integración' && x.registradoPor === 'Retrospectiva ' + s.name)), 'lecciones de la retrospectiva de la ' + s.name.toLowerCase() + ' enviadas al registro de lecciones');
+    for (const s of closedSprints) {
+      const rt = docOf(s.docs.retrospectiva).fields;
+      ok(rt.iteracion === s.name && rt.fecha === s.end && rt.lecciones.length >= (s.end >= '2026-09-23' ? 2 : 1) && rt.lecciones.every((l) => lec.some((x) => x.situacion === l.situacion && x.recomendacion === l.recomendacion && x.impacto === l.impacto && x.fecha === rt.fecha && x.area === 'Integración' && x.registradoPor === 'Retrospectiva ' + s.name)), 'lecciones de la retrospectiva de la ' + s.name.toLowerCase() + ' enviadas al registro de lecciones');
       ok(rt.acciones.every((a) => a.fechaObjetivo > s.end && a.fechaObjetivo <= sprints[sprints.indexOf(s) + 1].end), 'acciones de la retrospectiva de la ' + s.name.toLowerCase() + ' con fecha en la iteración siguiente');
     }
     ok(lec.every((l, k) => l.id === 'LA-' + String(k + 1).padStart(3, '0')) && lec.every((l, k) => !k || l.fecha >= lec[k - 1].fecha), 'lecciones LA-### en orden de fecha');
+    const retroFollow = closedSprints.slice(1).filter((s) => !new RegExp('^Acciones de la ' + sprints[sprints.indexOf(s) - 1].name.toLowerCase() + ':').test(docOf(s.docs.retrospectiva).fields.seguimientoAnteriores)).map((s) => s.name);
+    ok(!retroFollow.length && /^Primera retrospectiva/.test(docOf(sprints[0].docs.retrospectiva).fields.seguimientoAnteriores), 'cada retrospectiva revisa las acciones de la anterior', retroFollow);
+    ok(lec.some((l) => l.registradoPor === 'Retrospectiva Iteración 3' && /Pruebas de usuario/.test(l.recomendacion) && /DF-001/.test(l.situacion) && /DF-002/.test(l.situacion)), 'la lección de la retrospectiva 3 («Pruebas de usuario») sale de su acta y cita los defectos que la originaron');
     /* plan de releases, definición de terminado y visión */
     const pr = docOf('plan-release').fields;
     ok(pr.releases.length === 3 && pr.releases.every((x, k) => { const r = [R1, R2, R3][k]; return x.release === r.name && x.fechaInicio === r.start && x.fechaFin === r.end && x.iteraciones === r.plannedSprints && x.presupuesto === r.budget; }) && pr.duracionIteracion === st.sprintLength, 'plan de releases: nombres, fechas, iteraciones y presupuestos de los releases');
@@ -395,6 +434,11 @@ section('Vistas con el ejemplo creado desde el selector');
     if (shots) await page.screenshot({ path: shots + '/tablero.png', fullPage: true });
     const board = norm(await page.evaluate(() => document.querySelector('.page').innerText));
     check(/Iteración 7/.test(board) && /Release 2/.test(board) && /29,3/.test(board), 'tablero: tarjeta ágil con la iteración 7, el release 2 y la velocidad 29,3');
+    /* regresión: la ruta sugerida da por documentadas la revisión y la retrospectiva de las 6 iteraciones cerradas */
+    const showSteps = page.locator('[data-card="route"] button', { hasText: 'Mostrar pasos' });
+    if (await showSteps.count()) { await showSteps.first().click(); await page.waitForTimeout(300); }
+    const revStep = await page.evaluate(() => { const b = document.querySelector('[data-step="revision-retro"]'); return b ? { state: b.getAttribute('data-state'), text: b.innerText } : null; });
+    check(revStep && revStep.state === 'done' && /6 de 6 iteraciones cerradas documentadas/.test(norm(revStep.text)), 'ruta sugerida: revisión y retrospectiva de las 6 iteraciones cerradas documentadas', revStep);
 
     /* métricas ágiles */
     await gotoView(page, 'metricas-agiles');
@@ -442,6 +486,11 @@ section('Vistas con el ejemplo creado desde el selector');
     await page.waitForTimeout(300);
     const bl1 = norm(await page.evaluate(() => (document.querySelector('[data-role="baseline-summary"]') || {}).textContent || ''));
     check(/CC-001/.test(bl1) && /118 pts/.test(bl1), 'release 1: línea base actualizada con el CC-001', bl1);
+    /* regresión: la iteración 1 muestra su acta de revisión y su retrospectiva aprobadas y su lección ya enviada al registro */
+    await page.locator('tr[data-sprint-id="spr-01"] button.ags-link').first().click();
+    await page.waitForTimeout(300);
+    const sd1 = norm(await page.evaluate(() => (document.querySelector('[data-role="sprint-docs"]') || {}).innerText || ''));
+    check(/Acta de revisión de la iteración — Iteración 1 · Aprobado/.test(sd1) && /Retrospectiva de la iteración — Iteración 1 · Aprobado/.test(sd1) && /1 de 1 lección enviada/.test(sd1), 'iteración 1: acta de revisión y retrospectiva aprobadas y lección enviada al registro', sd1);
 
     /* todas las vistas sin tarjetas de error */
     const views = await page.evaluate(() => PM.views.map((v) => v.id));

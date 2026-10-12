@@ -9,9 +9,14 @@
    rubro de publicidad y mercadeo de la actividad C02.
 
    Reglas de la capa (las cifras del proyecto no cambian):
-   - El release no se vincula a una actividad del cronograma (taskId null): C02
-     agrupa también medios, eventos y alianzas y se mide por nivel de esfuerzo;
-     así el valor ganado del proyecto (PV, EV, AC, SPI, CPI, EAC) es idéntico.
+   - El release se vincula a la actividad C02D del cronograma (release.taskId),
+     definida en 91-example-medellin.js: del 2 de marzo al 23 de diciembre de 2026
+     en el paquete 1.4.2, en la LB1 y con costo 0. Su avance sale del backlog
+     (PM.agile.applyToSchedule) y es igual al guardado en cada corte; el Gantt
+     muestra el release con sus iteraciones y el pronóstico por velocidad. El
+     presupuesto sigue en C02 (agrupa también medios, eventos y alianzas y se mide
+     por nivel de esfuerzo), así que el valor ganado del proyecto (PV, EV, AC, SPI,
+     CPI, EAC) es idéntico.
    - Su costo real sale de los registros mensuales de C02 de marzo a septiembre
      de 2026, divididos en dos líneas de la misma factura (mismo día, misma
      actividad, misma suma): la parte digital lleva releaseId.
@@ -36,6 +41,7 @@
   const M = 1e6;
   const CUT = '2026-09-30';
   const REL = 'rel-canales-e2';
+  const RELEASE_TASK = 'C02D';   /* actividad del cronograma que representa el release (91-example-medellin.js) */
   const RELEASE_WBS = 'w142';
   const WBS = 'w142';
   const BASELINE_DATE = '2026-02-27';
@@ -349,9 +355,9 @@
     });
     const release = {
       id: REL, name: RELEASE_NAME, goal: RELEASE_GOAL, start: RELEASE_START, end: RELEASE_END, status: 'en-curso', budget: BUDGET, plannedSprints: PLANNED_SPRINTS,
-      wbsId: RELEASE_WBS, taskId: null,
+      wbsId: RELEASE_WBS, taskId: RELEASE_TASK,
       baseline: { date: BASELINE_DATE, points: BASE_POINTS, end: RELEASE_END, budget: BUDGET, sprints: PLANNED_SPRINTS, changeRef: null },
-      notes: 'Release adaptativo del paquete 1.4.2 Mercadeo y publicidad (enfoque adaptativo desde marzo de 2026, decisión de la junta directiva del 10 de febrero de 2026). Presupuesto de COP 245 millones dentro del rubro de publicidad y mercadeo (COP 1.459 millones de la actividad C02): no aumenta el BAC del proyecto. No se vincula a una actividad del cronograma: C02 agrupa también medios, eventos y alianzas y se mide por nivel de esfuerzo hasta junio de 2028, de modo que vincularla cambiaría el valor ganado del proyecto; el avance del release se mide con su valor ganado ágil. Está vinculado al entregable 1.4.2, pero su costo real son solo los registros de costos marcados con este release (la parte digital de las facturas mensuales de la agencia, CT-013), no todo el gasto del paquete. Línea base comprometida el 27 de febrero de 2026: 213 puntos, 12 iteraciones, COP 245 millones y fin el 23 de diciembre de 2026. Al corte el alcance es de 232 puntos (+8,9 %) por cinco elementos agregados en las revisiones (HU-032, DF-001, HU-033, IN-003 y HU-035): dentro del umbral del 10 % y sin cambio de fecha ni de presupuesto, es un cambio de nivel 1 del control en dos niveles que decide el dueño del producto sin solicitud de cambio.',
+      notes: 'Release adaptativo del paquete 1.4.2 Mercadeo y publicidad (enfoque adaptativo desde marzo de 2026, decisión de la junta directiva del 10 de febrero de 2026). Presupuesto de COP 245 millones dentro del rubro de publicidad y mercadeo (COP 1.459 millones de la actividad C02): no aumenta el BAC del proyecto. En el cronograma lo representa la actividad C02D (del 2 de marzo al 23 de diciembre de 2026, en la LB1), con costo 0: su avance se calcula desde este backlog y su fin pronosticado, con la velocidad; el presupuesto sigue en C02, que agrupa también medios, eventos y alianzas y se mide por nivel de esfuerzo hasta junio de 2028, de modo que el valor ganado del proyecto no cambia y el del release se mide con su valor ganado ágil. Está vinculado al entregable 1.4.2, pero su costo real son solo los registros de costos marcados con este release (la parte digital de las facturas mensuales de la agencia, CT-013), no todo el gasto del paquete. Línea base comprometida el 27 de febrero de 2026: 213 puntos, 12 iteraciones, COP 245 millones y fin el 23 de diciembre de 2026. Al corte el alcance es de 232 puntos (+8,9 %) por cinco elementos agregados en las revisiones (HU-032, DF-001, HU-033, IN-003 y HU-035): dentro del umbral del 10 % y sin cambio de fecha ni de presupuesto, es un cambio de nivel 1 del control en dos niveles que decide el dueño del producto sin solicitud de cambio.',
     };
     return { settings: { ...SETTINGS, columns: COLUMNS.map((c) => ({ ...c })) }, releases: [release], sprints };
   }
@@ -393,13 +399,13 @@
     const cal = (ctx && ctx.cal) || PM.cal.make({ workweek: 6, holidaysCO: true, extraHolidays: [] }, '2025-01-13');
     return {
       lifecycle: 'Híbrido',
-      description: 'Ciclo de vida híbrido: la estructuración, los diseños y las licencias, la obra y la entrega siguen en cascada; desde marzo de 2026 los canales digitales de venta del paquete 1.4.2 se gestionan con Scrum y tablero Kanban (un release de 12 iteraciones de 20 días hábiles dentro del presupuesto de publicidad y mercadeo).',
-      wbs: { [WBS]: { approach: 'adaptativo', notes: 'Enfoque adaptativo desde marzo de 2026 (decisión de la junta directiva del 10 de febrero de 2026): los canales digitales de venta de la etapa 2 se gestionan como un release de 12 iteraciones de 20 días hábiles con COP 245 millones de este paquete. La actividad C02 sigue midiéndose por nivel de esfuerzo; el release se mide con su valor ganado ágil.' } },
+      description: 'Ciclo de vida híbrido: la estructuración, los diseños y las licencias, la obra y la entrega siguen en cascada; desde marzo de 2026 los canales digitales de venta del paquete 1.4.2 se gestionan con Scrum y tablero Kanban (un release de 12 iteraciones de 20 días hábiles dentro del presupuesto de publicidad y mercadeo, representado en el cronograma por la actividad C02D).',
+      wbs: { [WBS]: { approach: 'adaptativo', notes: 'Enfoque adaptativo desde marzo de 2026 (decisión de la junta directiva del 10 de febrero de 2026): los canales digitales de venta de la etapa 2 se gestionan como un release de 12 iteraciones de 20 días hábiles con COP 245 millones de este paquete. La actividad C02 sigue midiéndose por nivel de esfuerzo; el release se representa en el cronograma con la actividad C02D (costo 0), que toma su avance del backlog, y se mide con su valor ganado ágil.' } },
       agile: buildAgile(),
       backlog: buildBacklog(cal),
       actuals: splitActuals,
       raci: raciWithAgile,
-      facts: { releaseId: REL, wbsId: WBS, releaseWbs: RELEASE_WBS, budget: BUDGET, basePoints: BASE_POINTS, plannedSprints: PLANNED_SPRINTS, digital: Object.fromEntries(Object.entries(DIGITAL).map(([k, v]) => [k, Math.round(v * M)])), raciRoles: RACI_ROLES.map(([id, name]) => ({ id, name })), raciEvents: RACI_EVENTS.map(([a]) => a), statusDate: CUT },
+      facts: { releaseId: REL, taskId: RELEASE_TASK, wbsId: WBS, releaseWbs: RELEASE_WBS, budget: BUDGET, basePoints: BASE_POINTS, plannedSprints: PLANNED_SPRINTS, digital: Object.fromEntries(Object.entries(DIGITAL).map(([k, v]) => [k, Math.round(v * M)])), raciRoles: RACI_ROLES.map(([id, name]) => ({ id, name })), raciEvents: RACI_EVENTS.map(([a]) => a), statusDate: CUT },
     };
   };
 
@@ -453,7 +459,7 @@
         'Datos personales solo con autorización previa, expresa e informada, aviso de privacidad y política de tratamiento (Ley 1581 de 2012); contacto comercial solo por los canales autorizados y en el horario de la Ley 2300 de 2023.',
         'Los recursos de los compradores se reciben solo en el encargo fiduciario, con la vinculación y el SARLAFT de la fiduciaria.',
         'Presupuesto de COP 245 millones dentro del rubro de publicidad y mercadeo del proyecto, sin aumentar el BAC.',
-        'El release no se vincula a una actividad del cronograma: la actividad C02 sigue midiéndose por nivel de esfuerzo.',
+        'En el cronograma del proyecto el release se representa con una actividad de costo 0 que toma su avance del backlog; el presupuesto sigue en la actividad C02 de publicidad y mercadeo, que se mide por nivel de esfuerzo.',
       ],
     },
   };
@@ -531,7 +537,7 @@
       ],
       supuestos: [
         'El presupuesto del release (COP 245 millones) sale del rubro de publicidad y mercadeo de la actividad C02 (COP 1.459 millones): no aumenta el BAC ni cambia la línea base de costos.',
-        'El release no se vincula a una actividad del cronograma: C02 agrupa también medios, eventos y alianzas y se mide por nivel de esfuerzo hasta junio de 2028, así que vincularla cambiaría el valor ganado del proyecto. El avance del release se mide con su valor ganado ágil y su costo real con la parte digital de las facturas de la agencia, marcada con el release.',
+        'El release se representa en el cronograma maestro con una actividad de costo 0 (C02D, del 2 de marzo al 23 de diciembre de 2026, que entra en la LB1): su avance se calcula desde el backlog (puntos terminados / alcance) y su fin pronosticado, con la velocidad, de modo que el Gantt muestra el release con sus iteraciones. El presupuesto sigue en C02, que agrupa también medios, eventos y alianzas y se mide por nivel de esfuerzo hasta junio de 2028: así el valor ganado del proyecto no cambia. El release se controla con su valor ganado ágil y su costo real con la parte digital de las facturas de la agencia, marcada con el release.',
         'La comercializadora entrega cada día el inventario de la etapa 2 por bloque, piso y apartamento.',
         'La fiduciaria habilita la vinculación digital de compradores al encargo antes de la iteración 9.',
         'El abogado del proyecto revisa las piezas y los formularios dentro de la misma iteración.',

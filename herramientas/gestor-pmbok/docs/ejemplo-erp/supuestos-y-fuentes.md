@@ -106,6 +106,7 @@ Iteraciones de 10 días hábiles con el calendario de lunes a viernes y los fest
 - **Capacidad**: cinco personas, dos de ellas al 50 % = 4 personas equivalentes × 10 días = 40 días-persona por iteración, menos ausencias.
 - **Salidas a producción** el día hábil siguiente a la última revisión del release, salvo cierres: release 1 el 10 de septiembre, release 2 el 10 de noviembre (después de los cinco primeros días hábiles de noviembre) y release 3 el 12 de enero de 2027 (después del cierre anual).
 - **Tablero**: columnas por defecto (Por hacer; En curso, WIP 3; En revisión, WIP 2; Terminado) más «Pruebas de usuario» (en curso, WIP 2), agregada en la retrospectiva de la iteración 3 (26 de agosto). Umbral de cambio de alcance de los releases: 10 %.
+- **Eventos documentados**: cada iteración cerrada (1 a 6) tiene su acta de revisión y su retrospectiva, vinculadas a la iteración en «Releases e iteraciones»; las iteraciones 6 y 7 tienen además su planificación. Las actas citan los elementos que nacieron en cada revisión (por ejemplo, DF-001 y ME-001 en la iteración 1, ME-002 y la solicitud de las básculas en la 2, DF-002 y ME-003 en la 3) y las lecciones de cada retrospectiva están en el registro de lecciones aprendidas. El acta de revisión de la iteración 1 se aprobó el día hábil siguiente (28 de julio), con DF-001 ya registrado.
 
 ---
 

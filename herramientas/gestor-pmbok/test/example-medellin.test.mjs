@@ -150,6 +150,9 @@ async function validateInPage(page, expect) {
     ok(['Debida diligencia', 'Factibilidad técnica', 'Proyecto arquitectónico', 'Diseño estructural', 'Trámite de la licencia', 'Preventas de la etapa 1', 'Preliminares de la etapa 1', 'Movimiento de tierras, contención', 'Pilas pre-excavadas de la etapa 1', 'Estructura de la plataforma de parqueaderos de la etapa 1'].every((s) => byName(new RegExp('^' + s)).progress === 100), 'estructuración, diseños, licencia, preventas de la etapa 1 y cimentación terminadas');
     ok(byName(/^Estructura del bloque A/).progress === 75 && byName(/^Estructura del bloque B/).progress > 0 && byName(/^Estructura del bloque B/).progress < 50, 'estructura del bloque A al 75 % y bloque B en curso');
     ok(tasks.filter((t) => /etapa 2/.test(t.name) && /^(Pilas|Estructura|Movimiento)/.test(t.name)).every((t) => t.progress === 0), 'obra de la etapa 2 sin iniciar');
+    /* enfoque híbrido: el release de los canales digitales se representa con C02D (costo 0, justo después de C02) */
+    const c02d = tasks.find((t) => t.id === 'C02D');
+    ok(c02d && c02d.wbsId === 'w142' && c02d.cost === 0 && c02d.actualStart === '2026-03-02' && !c02d.actualFinish && c02d.progress === 64.7 && sched.byId.get('C02D').finishDate === '2026-12-23' && tasks[tasks.indexOf(c02d) - 1].id === 'C02' && !fc.criticalIds.has('C02D'), 'actividad C02D del release de los canales digitales: 1.4.2, costo 0, 2 de marzo a 23 de diciembre de 2026, avance 64,7 % y fuera de la ruta crítica', c02d && { cost: c02d.cost, progress: c02d.progress, start: c02d.actualStart });
 
     /* costos */
     const fact = Object.fromEntries(f.tasks.map((t) => [t.id, t]));
@@ -209,6 +212,11 @@ async function validateInPage(page, expect) {
     const mit = (b) => b.data.scope.wbs.find((n) => n.id === 'w1531');
     ok(!/mitigación/i.test(mit(lb0).description) && /mitigación/i.test(mit(lb1).description), 'diccionario de 1.5.3.1 sin la mitigación vial en LB0 y con ella en LB1');
     ok(!lb0.data.schedule.tasks.some((t) => t.id === 'U02') && lb1.data.schedule.tasks.some((t) => t.id === 'U02') && !lb1.data.schedule.tasks.some((t) => t.id === 'K03C'), 'la mitigación vial entra en la LB1; la contención del CC-003 no está en ninguna línea base');
+    ok(!lb0.data.schedule.tasks.some((t) => t.id === 'C02D') && lb1.data.schedule.tasks.some((t) => t.id === 'C02D' && t.start === '2026-03-02' && t.finish === '2026-12-23') && /C02D/.test(lb1.data.note), 'la actividad del release (C02D) entra en la LB1 con el enfoque híbrido; no está en la LB0', lb1.data.note);
+    /* el plan para la dirección declara el número de actividades de cada línea base del cronograma */
+    const pdLb = ((await P('/docs/plan-direccion')) || { fields: {} }).fields.lineasBase || [];
+    const cronoRow = (v) => pdLb.find((r) => r.lineaBase === 'Cronograma' && r.version === v);
+    ok([[lb0, 'LB0'], [lb1, 'LB1']].every(([b, v]) => cronoRow(v) && new RegExp('\\b' + b.data.schedule.tasks.length + ' actividades').test(cronoRow(v).contenido)), 'plan para la dirección: número de actividades de la LB0 (' + lb0.data.schedule.tasks.length + ') y de la LB1 (' + lb1.data.schedule.tasks.length + ') igual al de cada línea base', pdLb.filter((r) => r.lineaBase === 'Cronograma').map((r) => r.version + ': ' + r.contenido.slice(0, 60)));
     /* la LB1 sale del CPM con las dependencias vigentes; ambas con duraciones en días hábiles */
     const idx = (d) => sched.cal.indexOf(d);
     for (const bl of [lb0, lb1]) {

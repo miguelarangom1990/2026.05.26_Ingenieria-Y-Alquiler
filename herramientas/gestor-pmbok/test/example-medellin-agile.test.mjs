@@ -2,12 +2,15 @@
 // Uso: node test/example-medellin-agile.test.mjs [--file <página.html>] [--shots dir]
 //   Sin --file construye una página completa (todos los módulos) en el directorio temporal.
 //   1) Valor ganado del proyecto idéntico con y sin la capa ágil (PV, EV, AC, SPI, CPI, EAC, serie de la curva S) e igual
-//      a las cifras del informe de septiembre; costos divididos sin cambiar los totales por fecha ni por actividad.
+//      a las cifras del informe de septiembre; costos divididos sin cambiar los totales por fecha ni por actividad. El
+//      release se vincula a la actividad C02D (costo 0, en la LB1): su avance sale del backlog, es igual al guardado en
+//      cada corte y su pronóstico por velocidad no mueve el fin del proyecto ni la ruta crítica.
 //   2) Enfoque por entregable de la EDT, configuración ágil, release, iteraciones (20 días hábiles del calendario del
 //      proyecto), backlog (35 a 50 elementos con historial coherente), métricas con datos y RACI con roles y eventos ágiles.
 //   3) Documentos ágiles (claves de 14-templates-agile), textos del enfoque híbrido en 92 y 93 y lecciones de la
 //      retrospectiva en el registro de lecciones aprendidas.
-//   4) Ejemplo creado desde la app: vistas ágiles, EDT, RACI, valor ganado ágil y tablero sin errores (1360 px y 400 px oscuro).
+//   4) Ejemplo creado desde la app: vistas ágiles, EDT, RACI, valor ganado ágil y tablero sin errores (1360 px y 400 px oscuro);
+//      el Gantt dibuja el release en C02D con sus iteraciones y las vistas ágiles muestran la actividad vinculada.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -63,19 +66,26 @@ async function validateData(page) {
       const actives = PM.calc.activeBaselines(d.collections.baselines.map((b) => ({ id: b.id, data: b.data })));
       const agile = tool(d, 'agile');
       const items = (d.collections.backlog || []).map((x) => ({ ...x.data, id: x.id }));
-      /* como useProjectModel: el avance ágil se aplica al cronograma antes del CPM */
-      const eff = agile ? PM.agile.applyToSchedule(tool(d, 'schedule'), agile, items) : tool(d, 'schedule');
+      /* como useProjectModel: el avance ágil (y su pronóstico por velocidad a la fecha de corte) se aplica al cronograma antes del CPM */
+      const eff = agile ? PM.agile.applyToSchedule(tool(d, 'schedule'), agile, items, { statusDate: d.project.statusDate }) : tool(d, 'schedule');
       const sched = PM.calc.computeSchedule(eff, d.project.start);
       const fc = PM.calc.computeSchedule(eff, d.project.start, d.project.statusDate);
       const e = PM.calc.evm({ sched, costBaseline: actives.cost, costs: tool(d, 'costs'), statusDate: d.project.statusDate });
       const pick = {}; for (const k of ['bac', 'pv', 'ev', 'ac', 'sv', 'cv', 'spi', 'cpi', 'eac', 'eacAtypical', 'eacComposite', 'etc', 'vac', 'tcpi', 'pctPlanned', 'pctComplete', 'pctSpent', 'spiT', 'forecastFinish', 'totalBudget']) pick[k] = e[k];
-      return { e: pick, series: e.series, finish: fc.finish, critical: [...fc.criticalIds].sort(), eff };
+      return { e: pick, series: e.series, finish: fc.finish, critical: [...fc.criticalIds].sort(), eff, sched, fc };
     };
     const A = evmOf(data), B = evmOf(base);
     ok(same(A.e, B.e), 'valor ganado del proyecto idéntico con y sin la capa ágil (BAC, PV, EV, AC, SPI, CPI, EAC, TCPI…)', { con: A.e, sin: B.e });
     ok(same(A.series, B.series), 'curva S (PV, EV y AC por fecha) idéntica con y sin la capa ágil');
     ok(A.finish === B.finish && same(A.critical, B.critical), 'fin pronosticado y ruta crítica idénticos', [A.finish, B.finish]);
-    ok(A.eff === tool(data, 'schedule'), 'el avance ágil no modifica el cronograma (ningún release vinculado a una actividad)');
+    /* el release se representa con C02D: el avance ágil cambia solo esa actividad y deja el mismo avance guardado */
+    const sTasks = tool(data, 'schedule').tasks;
+    const effOther = A.eff.tasks.filter((t, i) => t.id !== F.taskId && t !== sTasks[i]).map((t) => t.id);
+    const effT = A.eff.tasks.find((t) => t.id === F.taskId), savedT = sTasks.find((t) => t.id === F.taskId);
+    ok(A.eff !== tool(data, 'schedule') && !effOther.length, 'el avance ágil solo cambia la actividad del release (las demás actividades quedan intactas)', effOther);
+    ok(effT && savedT && effT.agileDerived === true && effT.releaseId === F.releaseId && effT.progress === savedT.progress && savedT.progress === 64.7 && effT.actualStart === savedT.actualStart && !effT.actualFinish, 'avance de C02D calculado desde el backlog (64,7 %) = avance guardado, con el mismo inicio real (SPEC §9.7)', effT && { eff: effT.progress, saved: savedT.progress });
+    ok(effT && effT.forecastFinish === '2027-01-19' && A.fc.byId.get(F.taskId).finishDate === '2027-01-19' && !A.fc.byId.get(F.taskId).critical, 'pronóstico de C02D por velocidad (19 de enero de 2027) en el cronograma actualizado al corte, fuera de la ruta crítica', effT && [effT.forecastFinish, A.fc.byId.get(F.taskId).finishDate]);
+    ok(A.sched.byId.get(F.taskId).startDate === '2026-03-02' && A.sched.byId.get(F.taskId).finishDate === '2026-12-23', 'C02D en el cronograma del 2 de marzo al 23 de diciembre de 2026 (inicio y fin del release)', [A.sched.byId.get(F.taskId).startDate, A.sched.byId.get(F.taskId).finishDate]);
     ok(A.e.bac === X.bac && Math.round(A.e.pv) === X.pv && Math.round(A.e.ev) === X.ev && Math.round(A.e.ac) === X.ac, 'BAC, PV, EV y AC al corte iguales a los del informe de septiembre', A.e);
     ok(A.e.spi.toFixed(2) === '0.96' && A.e.cpi.toFixed(2) === '0.96' && Math.round(A.e.eac / 1e6) === 144703, 'SPI 0,96, CPI 0,96 y EAC de COP 144.703 M sin cambio', [A.e.spi, A.e.cpi, A.e.eac]);
     out.info.evm = A.e;
@@ -116,10 +126,34 @@ async function validateData(page) {
     ok(agile.releases.length === 1, 'un release');
     const rel = agile.releases[0];
     const c02 = tool(data, 'schedule').tasks.find((t) => t.id === 'C02');
-    ok(rel.name === 'Canales digitales de venta — etapa 2' && rel.taskId === null && rel.wbsId === F.releaseWbs && rel.status === 'en-curso', 'release «Canales digitales de venta — etapa 2» sin actividad del cronograma', { taskId: rel.taskId, wbsId: rel.wbsId, status: rel.status });
-    ok(PM.agile.linksOf(tool(data, 'schedule').tasks, agile).size === 0 && !tool(data, 'schedule').tasks.some((t) => t.releaseId), 'ninguna actividad del cronograma representa el release (C02 sigue por nivel de esfuerzo)');
+    ok(rel.name === 'Canales digitales de venta — etapa 2' && rel.taskId === 'C02D' && F.taskId === rel.taskId && rel.wbsId === F.releaseWbs && rel.status === 'en-curso', 'release «Canales digitales de venta — etapa 2» vinculado a la actividad C02D del cronograma', { taskId: rel.taskId, wbsId: rel.wbsId, status: rel.status });
+    const links = PM.agile.linksOf(tool(data, 'schedule').tasks, agile);
+    ok(links.size === 1 && links.get(F.taskId) === rel && !tool(data, 'schedule').tasks.some((t) => t.releaseId), 'C02D es la única actividad que representa el release (vínculo release.taskId; C02 sigue por nivel de esfuerzo)', [...links.keys()]);
+    const relTask = tool(data, 'schedule').tasks.find((t) => t.id === F.taskId);
+    const iRel = tool(data, 'schedule').tasks.indexOf(relTask);
+    ok(relTask && relTask.cost === 0 && relTask.wbsId === rel.wbsId && relTask.wbsId === 'w142' && !relTask.milestone && relTask.start === rel.start && tool(data, 'schedule').tasks[iRel - 1].id === 'C02' && /Canales digitales de venta/.test(relTask.name) && /costo 0/i.test(relTask.notes), 'C02D: costo 0, paquete 1.4.2, inicio del release y justo después de C02 en el cronograma', relTask && { cost: relTask.cost, wbsId: relTask.wbsId, start: relTask.start });
+    const blData = (lbl) => data.collections.baselines.find((b) => b.data.label === lbl).data;
+    const lb1Rel = blData('LB1').schedule.tasks.find((t) => t.id === F.taskId);
+    ok(lb1Rel && lb1Rel.start === rel.start && lb1Rel.finish === rel.baseline.end && !blData('LB0').schedule.tasks.some((t) => t.id === F.taskId) && blData('LB1').cost.bac === 139576e6, 'C02D en la LB1 (2 de marzo a 23 de diciembre de 2026, sin cambiar el BAC) y no en la LB0', lb1Rel);
+    /* avance de cada corte mensual = terminado / alcance del backlog en esa fecha (lo que el corte congeló) */
+    {
+      const itemsAll = data.collections.backlog.map((x) => ({ ...x.data, id: x.id }));
+      const relItems = itemsAll.filter((i) => PM.agile.countable(i) && i.releaseId === rel.id);
+      const sumEst = (l) => l.reduce((s2, i) => s2 + PM.agile.estimate(i), 0);
+      const bad = [];
+      let n = 0;
+      for (const u of cA.statusUpdates) {
+        if (!(F.taskId in u.progress)) continue;
+        n++;
+        const scope = sumEst(relItems.filter((i) => !i.createdAt || i.createdAt <= u.date));
+        const done = sumEst(relItems.filter((i) => PM.agile.isDone(st, i) && i.doneDate && i.doneDate <= u.date));
+        const want = Math.round((1000 * done) / scope) / 10;
+        if (u.progress[F.taskId] !== want) bad.push(u.date + ': ' + u.progress[F.taskId] + ' ≠ ' + want);
+      }
+      ok(n === 7 && !bad.length && cA.statusUpdates.filter((u) => u.date < rel.start).every((u) => !(F.taskId in u.progress)), 'cortes mensuales de C02D (marzo a septiembre de 2026) con el avance del backlog en cada fecha', bad);
+    }
     ok(c02.cost === 1459e6 && rel.budget === F.budget && rel.budget > 0 && rel.budget < c02.cost, 'presupuesto del release (COP 245 M) dentro del rubro de publicidad y mercadeo de C02 (COP 1.459 M) sin agregar costo', [rel.budget, c02.cost]);
-    ok(/nivel de esfuerzo/.test(rel.notes) && /no aumenta el BAC/.test(rel.notes) && /nivel 1/.test(rel.notes) && /sin solicitud de cambio/.test(rel.notes), 'las notas del release explican el vínculo con C02, el presupuesto y el cambio de nivel 1');
+    ok(/nivel de esfuerzo/.test(rel.notes) && /no aumenta el BAC/.test(rel.notes) && /nivel 1/.test(rel.notes) && /sin solicitud de cambio/.test(rel.notes) && /C02D/.test(rel.notes) && !/No se vincula/.test(rel.notes), 'las notas del release explican el vínculo con C02D y C02, el presupuesto y el cambio de nivel 1');
     ok(PM.agile.hasBaseline(rel) && rel.baseline.date <= rel.start && rel.baseline.points === F.basePoints && rel.baseline.end === rel.end && rel.baseline.budget === rel.budget && rel.baseline.sprints === rel.plannedSprints && rel.baseline.changeRef === null, 'línea base del release comprometida al inicio (213 pts, fin, presupuesto y 12 iteraciones)', rel.baseline);
     const cal = PM.cal.make(tool(data, 'schedule').settings, data.project.start);
     const sprints = PM.agile.sortSprints(agile.sprints);
@@ -320,7 +354,7 @@ async function validateData(page) {
     ok(fromRetro.length === rt8.lecciones.length && reg.slice(-fromRetro.length).every((r) => fromRetro.includes(r)) && nums.every((n, i) => n === i + 1), 'el registro conserva sus lecciones (LA-01 a LA-10) y agrega al final solo las de la retrospectiva, con códigos consecutivos', reg.map((r) => r.id + ' ' + r.registradoPor));
     const pr = docOf('plan-release'), prRow = pr.releases[0];
     ok(pr.duracionIteracion === st.sprintLength && pr.unidadEstimacion === 'Puntos de historia' && prRow.release === rel.name && prRow.fechaInicio === rel.start && prRow.fechaFin === rel.end && prRow.iteraciones === rel.plannedSprints && prRow.puntos === rel.baseline.points && prRow.presupuesto === rel.budget, 'plan de releases coherente con el release y su línea base');
-    ok(pr.supuestos.some((x) => /no se vincula a una actividad del cronograma/.test(x) && /nivel de esfuerzo/.test(x)), 'el plan de releases explica por qué el release no se vincula a una actividad');
+    ok(pr.supuestos.some((x) => /C02D/.test(x) && /costo 0/.test(x) && /nivel de esfuerzo/.test(x)) && !pr.supuestos.some((x) => /no se vincula/.test(x)), 'el plan de releases explica la actividad C02D (costo 0) y por qué el presupuesto sigue en C02');
     const dlt = docOf('definicion-terminado');
     ok(dlt.columnasTablero.map((r) => r.columna + '|' + (r.wip || '')).join(';') === st.columns.map((c) => c.name + '|' + (c.wip || '')).join(';'), 'definición de terminado con las columnas y límites WIP del tablero');
     ok(dlt.definicionTerminado.some((x) => /aprobación legal del abogado del proyecto/.test(x)) && dlt.definicionTerminado.some((x) => /Ley 1480 de 2011/.test(x)) && dlt.definicionTerminado.some((x) => /Ley 1581 de 2012/.test(x)), 'definición de terminado con aprobación legal de piezas, Ley 1480 y Ley 1581');
@@ -329,7 +363,9 @@ async function validateData(page) {
     /* ---------------- textos del enfoque híbrido (92 y 93) */
     const pd = src['plan-direccion'];
     const rev0 = pd.revs.find((r) => r.rev === '0').fields;
-    ok(pd.fields.cicloVida === 'Híbrido' && /adaptativo/.test(pd.fields.enfoqueDesarrollo) && /1\.4\.2/.test(pd.fields.enfoqueDesarrollo) && /nivel de esfuerzo/.test(pd.fields.enfoqueDesarrollo), 'plan para la dirección rev. 1: ciclo de vida híbrido con el paquete 1.4.2 adaptativo');
+    ok(pd.fields.cicloVida === 'Híbrido' && /adaptativo/.test(pd.fields.enfoqueDesarrollo) && /1\.4\.2/.test(pd.fields.enfoqueDesarrollo) && /nivel de esfuerzo/.test(pd.fields.enfoqueDesarrollo) && /C02D/.test(pd.fields.enfoqueDesarrollo) && !/no se vincula/.test(pd.fields.enfoqueDesarrollo), 'plan para la dirección rev. 1: ciclo de vida híbrido con el paquete 1.4.2 adaptativo y su release en la actividad C02D');
+    const allMed = JSON.stringify([src, rel.notes, nodes.find((n) => n.id === 'w142').notes]);
+    ok(!/no se vincula a una actividad|sin actividad del cronograma|taskId null/i.test(allMed), 'ningún texto del ejemplo dice que el release no tiene actividad del cronograma', allMed.match(/.{60}(no se vincula a una actividad|sin actividad del cronograma).{60}/i));
     ok(rev0.cicloVida === 'Predictivo' && !/adaptativo|ágil/i.test(JSON.stringify(rev0)), 'plan para la dirección rev. 0 (LB0, 2025): predictivo, sin el enfoque adaptativo posterior');
     ok(/10 de febrero de 2026/.test(pd.fields.enfoqueDesarrollo) && '2026-02-10' < pd.date && pd.date === '2026-03-13', 'la decisión de la junta (10 de febrero de 2026) es anterior a la rev. 1 del plan (13 de marzo de 2026)');
     const com = src['registro-comunicaciones'].fields.comunicaciones;
@@ -394,6 +430,25 @@ for (const [label, opts] of [['escritorio (1360 px)', { width: 1360, height: 900
       check(!cards.length && !fresh.length && ov <= 1 && re.test(txt) && !/\bundefined\b|\bNaN\b|\[object Object\]/.test(txt), 'vista ' + id + ' con datos, sin errores ni desborde' + (ov > 1 ? ' (desborde ' + ov + ' px)' : ''), { cards, fresh: fresh.slice(0, 2), match: re.test(txt) });
       if (shots) await page.screenshot({ path: join(shots, 'agil-' + id + (opts.width < 900 ? '-m' : '') + '.png'), fullPage: true });
     }
+    /* el release vinculado a C02D: Gantt con sus iteraciones y vistas ágiles con la actividad vinculada (antes: «Sin actividad vinculada») */
+    {
+      const REL_TASK = 'Canales digitales de venta: release de la etapa 2';
+      await gotoView(page, 'iteraciones');
+      await page.waitForTimeout(500);
+      const it = await page.$eval('.view-host', (el) => el.innerText);
+      check(it.includes(REL_TASK) && /calculado desde el backlog/.test(it) && !/Sin actividad vinculada/.test(it), 'Releases e iteraciones: actividad del cronograma C02D con el avance calculado desde el backlog', it.match(/Actividad del cronograma.{0,160}/));
+      await gotoView(page, 'metricas-agiles');
+      await page.waitForTimeout(600);
+      const mt = await page.$eval('.view-host', (el) => el.innerText);
+      check(mt.includes('Actividad vinculada: «' + REL_TASK) && !/no tiene una actividad del cronograma vinculada/.test(mt), 'Métricas ágiles: el valor ganado ágil se compara con la actividad vinculada C02D', mt.match(/.{0,80}actividad del cronograma vinculada.{0,80}|Actividad vinculada: .{0,120}/));
+      if (opts.width >= 900) {
+        await gotoView(page, 'cronograma');
+        await page.waitForSelector('.sched-bar[data-id="C02D"]', { timeout: 8000 }).catch(() => null);
+        const g = await page.evaluate(() => { const el = document.querySelector('.sched-bar[data-id="C02D"]'); const row = document.querySelector('.sched-row[data-id="C02D"]'); return el ? { rel: el.getAttribute('data-release'), iters: [...el.querySelectorAll('.sched-iter')].map((x) => x.getAttribute('data-sprint')), relIcon: !!(row && row.querySelector('.sched-rel[data-release="rel-canales-e2"]')) } : null; });
+        check(g && g.rel === 'rel-canales-e2' && g.iters.length === 12 && g.iters.includes('spr-cd-09') && g.relIcon, 'Gantt: C02D con el distintivo del release y las marcas de sus 12 iteraciones', g);
+        if (shots) await page.screenshot({ path: join(shots, 'agil-cronograma.png'), fullPage: false });
+      }
+    }
     /* valor ganado ágil del release frente al del proyecto */
     {
       const n0 = errors.length;
@@ -401,6 +456,8 @@ for (const [label, opts] of [['escritorio (1360 px)', { width: 1360, height: 900
       await page.waitForTimeout(700);
       const txt = await page.$eval('.view-host', (el) => el.innerText);
       check(/Canales digitales de venta — etapa 2/.test(txt) && !(await errorCards(page)).length && errors.length === n0 && (await horizontalOverflow(page)) <= 1, 'pestaña «Valor ganado ágil» con el release, sin errores');
+      const link = await page.evaluate(() => { const r = document.querySelector('[data-role="agile-link-table"] tr[data-link="rel-canales-e2"]'); const notes = document.querySelector('[data-role="agile-notes"]'); return { row: r ? r.innerText : null, notes: notes ? notes.innerText : '' }; });
+      check(link.row && link.row.includes('Canales digitales de venta: release de la etapa 2') && /Avance desde el backlog/.test(link.row) && !/Fuera de la línea base/.test(link.row) && /64,7/.test(link.row) && !/no está vinculado/.test(link.notes), 'Valor ganado ágil: release vinculado a C02D (en la línea base, avance de 64,7 % desde el backlog)', link);
       if (shots) await page.screenshot({ path: join(shots, 'agil-valor-ganado' + (opts.width < 900 ? '-m' : '') + '.png'), fullPage: true });
     }
     /* documentos ágiles en el editor */

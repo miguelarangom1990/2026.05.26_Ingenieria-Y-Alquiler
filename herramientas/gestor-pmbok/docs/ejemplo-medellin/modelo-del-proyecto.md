@@ -189,7 +189,7 @@ Fuentes y usos al corte: costo real acumulado 48.593 M = aporte del promotor 24.
 
 ## 10. Cronograma
 
-Calendario L-S con festivos de Colombia. 151 actividades, 50 elementos de EDT. Fin LB0 = LB1 = 2029-03-28; pronóstico 2029-06-29. Ruta crítica pronosticada: preventas E2 → punto de equilibrio E2 → obra E2 → certificado técnico de ocupación E2 → entregas E2 → entrega de cesiones → informe final → acta de cierre.
+Calendario L-S con festivos de Colombia. 152 actividades (149 en la LB0 y 151 en la LB1: U02 y C02D; K03C es posterior), 50 elementos de EDT. Fin LB0 = LB1 = 2029-03-28; pronóstico 2029-06-29. Ruta crítica pronosticada: preventas E2 → punto de equilibrio E2 → obra E2 → certificado técnico de ocupación E2 → entregas E2 → entrega de cesiones → informe final → acta de cierre.
 
 | Hito | EDT | LB0 | LB1 | Real o pronóstico |
 |---|---|---|---|---|
@@ -273,6 +273,7 @@ Entregas E1: LB1 2027-07-29 a 2027-10-28; pronóstico 2027-08-20 a 2027-11-19. E
 | D16 | 1.3.6 | Diseños de detalle y planos de taller de la etapa 2 | 2026-06-01 → 2026-12-18 | 2026-06-01 → 2027-01-29 | 51 % | 163 | Arquitecto diseñador |
 | C01 | 1.4.1 | Sala de ventas y apartamento modelo | 2025-05-19 → 2025-07-04 | 2025-05-19 → 2025-07-04 | 100 % | 680 | Gerente comercial |
 | C02 | 1.4.2 | Plan de mercadeo y publicidad | 2025-05-19 → 2028-06-30 | 2025-05-19 → 2028-09-29 | 44 % | 1.459 | Gerente comercial |
+| C02D | 1.4.2 | Canales digitales de venta: release de la etapa 2 (12 iteraciones de 20 días hábiles) | 2026-03-02 → 2026-12-23 | 2026-03-02 → 2027-01-19 (velocidad) | 64,7 % (backlog) | 0 | Gerente comercial |
 | C03 | 1.4.3 | Lanzamiento de la etapa 1 | 2025-07-07 | 2025-07-07 | 100 % | 0 | Gerente comercial |
 | C04 | 1.4.3 | Preventas de la etapa 1 hasta el punto de equilibrio (156 de 208 viviendas) | 2025-07-08 → 2026-02-27 | 2025-07-08 → 2026-02-27 | 100 % | 912 | Gerente comercial |
 | C05 | 1.4.3 | Punto de equilibrio de la etapa 1 declarado por la fiduciaria | 2026-02-27 | 2026-02-27 | 100 % | 0 | Fiduciaria |
@@ -781,7 +782,7 @@ Informe de agosto: Con 11 ventas al mes la etapa 2 tarda unos ocho meses en vend
 
 Fuente: `src/96-example-medellin-agile.js` (`PM.exampleAgile.medellin`), incorporada por `src/91-example-medellin.js`. Prueba: `test/example-medellin-agile.test.mjs`.
 
-**Regla de oro.** La capa no cambia ninguna cifra del proyecto: cronograma, líneas base LB0 y LB1, costos por actividad y por fecha, reservas y documentos aprobados con cifras son los mismos. El valor ganado del proyecto al corte sigue siendo BAC 139.576 M, PV 48.807,2 M, EV 46.871,4 M, AC 48.593 M, SPI 0,96, CPI 0,965 y EAC 144.702,8 M (la prueba lo compara con el constructor sin la capa).
+**Regla de oro.** La capa no cambia ninguna cifra del proyecto: cronograma, líneas base LB0 y LB1, costos por actividad y por fecha, reservas y documentos aprobados con cifras son los mismos con o sin ella. La actividad C02D, que representa el release en el cronograma, está en 91 (y en la LB1) con costo 0 y con el avance que registró cada corte mensual, igual al que da el backlog en esa fecha; con la capa, su avance se calcula desde el backlog (64,7 % al corte, el mismo guardado) y su fin pronosticado, con la velocidad (19 de enero de 2027), sin mover el fin del proyecto ni la ruta crítica. El valor ganado del proyecto al corte sigue siendo BAC 139.576 M, PV 48.807,2 M, EV 46.871,4 M, AC 48.593 M, SPI 0,96, CPI 0,965 y EAC 144.702,8 M (la prueba lo compara con el constructor sin la capa).
 
 **Decisión y documentos.** La reunión de arranque (21 de enero de 2025) adoptó un ciclo de vida predictivo por etapas y así quedó el plan para la dirección rev. 0 (LB0). Después del atraso del punto de equilibrio de la etapa 1 (INC-003), la junta aprobó el 10 de febrero de 2026 (COM-008 del registro de comunicaciones) gestionar los canales digitales de venta con un enfoque adaptativo; el plan para la dirección rev. 1 (13 de marzo de 2026, LB1) lo incorpora: ciclo de vida «Híbrido», enfoque de desarrollo, decisión de adaptación (7), proceso simplificado de requisitos del 1.4.2, componentes ágiles en los planes subsidiarios y eventos ágiles en las revisiones. En la EDT solo el paquete 1.4.2 «Mercadeo y publicidad» declara `approach: 'adaptativo'`; el resto hereda predictivo.
 
@@ -795,7 +796,7 @@ Fuente: `src/96-example-medellin-agile.js` (`PM.exampleAgile.medellin`), incorpo
 | Presupuesto (BAC del release) | 245 M dentro del rubro de publicidad y mercadeo de C02 (1.459 M); no se agrega costo |
 | Línea base del release | 2026-02-27: 213 pts, fin 2026-12-23, 245 M, 12 iteraciones |
 | Alcance al corte | 232 pts (+8,9 %): HU-032 (+5), DF-001 (+3), HU-033 (+5), IN-003 (+3) y HU-035 (+3, CC-004); dentro del umbral y sin cambio de fecha ni presupuesto → cambio de nivel 1, sin solicitud de cambio |
-| Vínculos | `taskId: null` (C02 sigue por nivel de esfuerzo; vincularla cambiaría el valor ganado del proyecto). `wbsId: null`: el núcleo imputa a un release todos los costos sin marca de su paquete de la EDT y el 1.4.2 tiene gasto que no es del release (medios, eventos y alianzas desde mayo de 2025); los elementos del backlog sí llevan `wbsId: 'w142'` |
+| Vínculos | `taskId: 'C02D'`: actividad «Canales digitales de venta: release de la etapa 2» del paquete 1.4.2, del 2026-03-02 al 2026-12-23 (en la LB1, no en la LB0), con costo 0 y dependencia FS del punto de equilibrio de la etapa 1 (C05) con inicio no antes del 2 de marzo. El Gantt la muestra con el distintivo del release y sus iteraciones; su avance sale del backlog y el presupuesto sigue en C02 (nivel de esfuerzo), así que PV, EV, AC y BAC no cambian. Avance registrado en los cortes: marzo 6,1 %; abril 16 %; mayo 23,9 %; junio 34,4 %; julio 46,5 %; agosto 54,1 %; septiembre 64,7 % (terminado / alcance del backlog en cada fecha). `wbsId: 'w142'`: el paquete tiene gasto que no es del release (medios, eventos y alianzas desde mayo de 2025), pero como el release tiene registros marcados con `releaseId`, el núcleo solo le imputa esos; los elementos del backlog también llevan `wbsId: 'w142'` |
 
 | Iteración | Fechas | Comprometido | Terminado | Estado |
 |---|---|---|---|---|

@@ -222,7 +222,7 @@
     { id: 'pruebas-usuario', name: 'Pruebas de usuario', category: 'en-curso', wip: 2 },
     { id: 'terminado', name: 'Terminado', category: 'terminado', wip: null },
   ];
-  /* la columna «Pruebas de usuario» se agregó en la retrospectiva de la iteración 3 (26 de agosto) */
+  /* la columna «Pruebas de usuario» se agregó en la retrospectiva de la iteración 3 (26 de agosto; acta retrospectiva--it3) */
   const UAT_FROM = '2026-08-27';
   const AGILE_SETTINGS = { framework: 'scrum-kanban', estimationUnit: 'puntos', sprintLength: 10, columns: COLUMNS, scopeChangeThreshold: 10 };
   const REL = {
@@ -251,8 +251,13 @@
     ['spr-11', 'Iteración 11', 'r3', '2026-12-09', '2026-12-22', 'planeado', 28, null, null, 'Tablero gerencial de utilización del inventario, ingresos y cartera.'],
   ];
   const SPRINT_BY_KEY = Object.fromEntries(SPRINTS.map((s) => [s[0], s]));
-  /* documentos de cada iteración (los crea 95-example-erp-docs.js con estos ids) */
+  /* documentos de cada iteración (los crea 95-example-erp-docs.js con estos ids): acta de revisión y retrospectiva de
+     cada iteración cerrada (1 a 6) y planificación de las iteraciones 6 y 7 */
   const SPRINT_DOCS = {
+    'spr-01': { revision: 'acta-revision-sprint--it1', retrospectiva: 'retrospectiva--it1' },
+    'spr-02': { revision: 'acta-revision-sprint--it2', retrospectiva: 'retrospectiva--it2' },
+    'spr-03': { revision: 'acta-revision-sprint--it3', retrospectiva: 'retrospectiva--it3' },
+    'spr-04': { revision: 'acta-revision-sprint--it4', retrospectiva: 'retrospectiva--it4' },
     'spr-05': { revision: 'acta-revision-sprint--it5', retrospectiva: 'retrospectiva--it5' },
     'spr-06': { planificacion: 'planificacion-sprint--it6', revision: 'acta-revision-sprint--it6', retrospectiva: 'retrospectiva--it6' },
     'spr-07': { planificacion: 'planificacion-sprint--it7' },

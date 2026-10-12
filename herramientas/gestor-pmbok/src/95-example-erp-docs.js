@@ -10,7 +10,10 @@
    Entrada: {status, rev, date (emisión vigente), created, titleBlock, fields,
    revs:[{rev, status, date, note, fields}]}; las plantillas múltiples llevan
    {instances:[{key, title, …}]}. Los documentos aprobados no citan hechos
-   posteriores a su fecha. Se usan roles, no nombres de personas.
+   posteriores a su fecha. Cada iteración cerrada (1 a 6) tiene su acta de
+   revisión y su retrospectiva (vinculadas en sprint.docs por 94), y las
+   lecciones de cada retrospectiva están en el registro de lecciones.
+   Se usan roles, no nombres de personas.
    ========================================================================== */
 (function () {
   'use strict';
@@ -319,17 +322,201 @@
       aprendizajes: ['Una historia rechazada en la revisión vuelve a la iteración siguiente con su estimación original y solo cuenta en la velocidad cuando se acepta.'],
     };
 
+    /* ============================================================ iteraciones 1 a 4 (release 1): revisión y retrospectiva
+       Actas breves de cada iteración cerrada del release 1. Las cifras salen del backlog a la fecha de cada revisión
+       (F.releaseAt, F.velocityAt, F.forecastAt); los elementos revisados, de la iteración (aceptados) y de sus no terminados. */
+    const it1 = sprint('spr-01'), it2 = sprint('spr-02'), it3 = sprint('spr-03'), it4 = sprint('spr-04');
+    const r1Base = 102;
+    const signedPct = (x) => (x >= 0 ? '+' : '−') + plain(PM.fmt.num(Math.abs(x) * 100, 1)) + ' %';
+    /* alcance del release 1 antes de la solicitud de las básculas (sus historias se crearon el día de la solicitud, último día de
+       la iteración 2) y terminado a esa fecha */
+    const r1before = F.releaseAt('rel-1', D.add(F.cc1Request, -1));
+    const r1at11 = F.releaseAt('rel-1', F.cc1Request);
+    const vel2 = F.velocityAt(F.cc1Request);
+    const pts = (codes) => codes.reduce((s, c) => s + (item(c).estimate || 0), 0);
+    const reviewRows = (s, obs) => rows('el', [
+      ...sprintCodes(s.id).map((code) => [code, 'Aceptado']),
+      ...s.unfinished.map((u) => [u.code, 'No terminado']),
+    ].map(([code, resultado]) => { const it = item(code); return { codigo: it.code, titulo: it.title, estimacion: it.estimate, resultado, observaciones: obs[code] || '' }; }));
+    const relEnd = it4.end;
+    /* iteraciones del plan que el pronóstico agrega después del fin del release */
+    const lateNote = (fc) => {
+      const n = F.sprintsList.filter((s) => s.end > relEnd && s.end <= fc.finish).length;
+      return n ? ', ' + (n === 1 ? 'una iteración' : n + ' iteraciones') + ' después del plan (' + dlShort(relEnd) + ')' : ', dentro del plan';
+    };
+    const TEAM_ROLES = [ROLE.po, 'Scrum Master / facilitador', 'Equipo de desarrollo (cinco personas)'];
+
+    /* iteración 1 (27 de julio): el acta se aprueba el 28, con el defecto del traslado de prueba ya registrado (DF-001) */
+    const s1 = F.releaseAt('rel-1', it1.end), v1 = F.velocityAt(it1.end), f1 = F.forecastAt('rel-1', it1.end);
+    const s1next = F.releaseAt('rel-1', D.add(it1.end, 1));
+    const it1Review = {
+      iteracion: it1.name, fecha: it1.end, objetivo: it1.goal, objetivoCumplido: 'Sí', comprometido: it1.committed, terminado: it1.completed,
+      incremento: 'Con 200 referencias depuradas de la bodega principal se demostraron el catálogo de equipos y piezas con su familia y unidad de alquiler, las bodegas y ubicaciones del inventario y la consulta de disponibilidad por bodega, obra y estado. El jefe de almacén hizo un traslado de prueba de 120 montantes entre las dos bodegas.',
+      elementos: reviewRows(it1, {
+        'IN-001': 'Decisión: serial para la maquinaria y cantidad por referencia para andamio, formaleta y puntales.',
+        'HU-003': 'Aceptada; en el traslado de prueba la disponibilidad no descontó las piezas en tránsito (DF-001).',
+        'HU-004': 'Empezó el 24 de julio y faltó probar el cupo de crédito con datos reales; pasa a la iteración 2.',
+      }),
+      retroalimentacion: 'El coordinador logístico confirmó que la consulta de disponibilidad le evita llamar a la bodega. El jefe de almacén pidió adjuntar fotos de las piezas dañadas al registrar las devoluciones (ME-001). El traslado de prueba de 120 montantes mostró las piezas disponibles en las dos bodegas mientras estaban en tránsito: se registra como defecto (DF-001).',
+      cambiosBacklog: 'ME-001 entra al release 3 (mantenimiento). DF-001 se registró el 28 de julio para la iteración 2 (' + item('DF-001').estimate + ' puntos, «Debe tener») y HU-004 pasa a la iteración 2 con su estimación original. El alcance del release 1 pasa de ' + s1.total + ' a ' + s1next.total + ' puntos (' + signedPct((s1next.total - r1Base) / r1Base) + ' frente a su línea base de ' + r1Base + '), dentro del umbral de ±10 %: lo decide el dueño del producto (nivel 1).',
+      estadoRelease: 'Release 1: ' + s1.done + ' de ' + s1.total + ' puntos terminados (' + pc(s1.pct) + ') después de 1 de sus 4 iteraciones. Faltan ' + s1.remaining + ' puntos para las iteraciones 2 a 4 (' + nm(s1.remaining / 3) + ' por iteración) frente a una velocidad de ' + nm(v1.avg3) + ' puntos. Con esa velocidad el pronóstico necesita ' + f1.sprintsNeeded + ' iteraciones más y termina el ' + dl(f1.finish) + lateNote(f1) + '; con una sola iteración cerrada la velocidad todavía no es representativa y el pronóstico se revisa al cerrar la iteración 2.',
+      asistentes: [...TEAM_ROLES, 'Coordinador logístico', 'Jefe de almacén'],
+    };
+    const it1Retro = {
+      iteracion: it1.name, fecha: it1.end, formato: 'Bien, mejorar y acciones', facilitador: 'Scrum Master / facilitador', satisfaccion: 3.9,
+      seguimientoAnteriores: 'Primera retrospectiva del proyecto: no hay acciones anteriores.',
+      queFueBien: [
+        'La investigación IN-001 resolvió en dos días el manejo de la maquinaria serializada y de las piezas a granel, antes de construir el catálogo.',
+        'Los usuarios clave de almacén y logística asistieron a la revisión y probaron la consulta de disponibilidad con datos reales.',
+      ],
+      queMejorar: [
+        'HU-003 (8 puntos) se terminó el último día de la iteración y HU-004 empezó el 24 de julio, el penúltimo día hábil de la iteración, sin tiempo para probarla con datos reales.',
+        'Algunas historias llegaron a la planificación sin criterios de aceptación revisados con los usuarios clave.',
+      ],
+      propuestas: ['Dividir las historias de 8 puntos o más que dependan de datos que todavía se están depurando.'],
+      aprendizajes: [],
+      acciones: rows('ac', [
+        { accion: 'No empezar una historia que no se alcance a probar antes del cierre de la iteración; el Scrum Master lo revisa en la reunión diaria.', responsable: 'Scrum Master / facilitador', fechaObjetivo: '2026-07-28', estado: 'Pendiente' },
+        { accion: 'Refinar con los usuarios clave los criterios de aceptación de las historias de despacho antes de la planificación de la iteración 2.', responsable: 'Dueño del producto', fechaObjetivo: '2026-07-28', estado: 'Pendiente' },
+      ]),
+      lecciones: rows('le', [
+        { situacion: 'En la iteración 1 una historia de 8 puntos se terminó el último día y otra que empezó el penúltimo día hábil quedó sin terminar (HU-004).', impacto: 'Negativo', recomendacion: 'Dividir las historias grandes antes de la planificación y no empezar trabajo que no se alcance a probar dentro de la iteración.' },
+      ]),
+    };
+
+    /* iteración 2 (11 de agosto): el coordinador logístico pide integrar las básculas (solicitud de cambio del mismo día) */
+    const f2 = F.forecastAt('rel-1', it2.end);
+    const basculas = ['HU-038', 'HU-039', 'HU-040'];
+    const it2Review = {
+      iteracion: it2.name, fecha: it2.end, objetivo: it2.goal, objetivoCumplido: 'Sí', comprometido: it2.committed, terminado: it2.completed,
+      incremento: 'Con el catálogo depurado y dos obras de prueba se demostraron el pedido de alquiler convertido en remisión de despacho con las piezas por paquete, el acta de entrega firmada en la tableta (también sin conexión), los movimientos de despacho, devolución y traslado, la etiqueta con código de barras de los equipos serializados y los clientes con sus obras.',
+      elementos: reviewRows(it2, {
+        'HU-004': 'Viene de la iteración 1.',
+        'IN-002': 'Recomendación de lector y tableta aprobada por el jefe de TI.',
+        'DF-001': 'Verificado con el traslado de prueba de 120 montantes.',
+        'HU-008': 'Probada en una obra sin señal: el acta se sincronizó al recuperar la conexión.',
+      }),
+      retroalimentacion: 'El coordinador logístico confirmó que la remisión desde el pedido evita digitar dos veces las piezas. Pidió integrar las básculas de despacho para no contar pieza a pieza cada devolución (3,5 horas por vehículo en promedio) y agrupar la remisión por torre y nivel de montaje (ME-002).',
+      cambiosBacklog: 'Entran la épica EP-008 con ' + basculas.join(', ').replace(/, ([^,]+)$/, ' y $1') + ' (integración con las básculas, ' + pts(basculas) + ' puntos) y ME-002 (sin release, «No en este release»). Con las básculas el alcance del release 1 pasaría de ' + r1before.total + ' a ' + r1at11.total + ' puntos (' + signedPct((r1at11.total - r1Base) / r1Base) + ' frente a su línea base de ' + r1Base + '): supera el umbral de ±10 %, así que el coordinador logístico radicó una solicitud de cambio para el comité de control de cambios (nivel 2). Las historias de las básculas no entran a una iteración hasta su aprobación.',
+      estadoRelease: 'Release 1: ' + r1at11.done + ' de ' + r1before.total + ' puntos terminados (' + pc(r1at11.done / r1before.total) + ') después de 2 de sus 4 iteraciones, sin las básculas. Con ellas faltarían ' + r1at11.remaining + ' puntos para las iteraciones 3 y 4 (' + n1(r1at11.remaining / 2) + ' por iteración); la iteración 2 terminó ' + vel2.rows[1].completed + ' y el promedio de las dos es de ' + n1(vel2.avg3) + ' puntos. Con ese promedio el pronóstico termina el ' + dl(f2.finish) + lateNote(f2) + ': el análisis de la solicitud propone que el dueño del producto difiera elementos «Debería tener» al release 2 si la velocidad no alcanza.',
+      asistentes: [...TEAM_ROLES, 'Coordinador logístico', 'Jefe de almacén', 'Jefe de TI'],
+    };
+    const it2Retro = {
+      iteracion: it2.name, fecha: it2.end, formato: 'Empezar, dejar y continuar', facilitador: 'Scrum Master / facilitador', satisfaccion: 4.2,
+      seguimientoAnteriores: 'Acciones de la iteración 1: (1) no empezar historias que no se alcancen a probar — hecha: ninguna historia empezó en los dos últimos días y la iteración cerró completa; (2) criterios de aceptación refinados con los usuarios clave — hecha para las historias de despacho.',
+      queFueBien: [
+        'Continuar terminando lo comprometido: la iteración cerró sus ' + it2.completed + ' puntos, incluida HU-004, que venía de la iteración 1.',
+        'Continuar diseñando sin conexión las funciones de campo: el acta de entrega pasó la prueba en una obra sin señal.',
+      ],
+      queMejorar: [
+        'Dejar historias para el final: HU-005 y HU-008 se terminaron en los dos últimos días hábiles y su revisión de pares se hizo con prisa.',
+        'Dejar de probar con datos inventados cuando ya hay datos maestros depurados de la bodega principal.',
+      ],
+      propuestas: ['Empezar a revisar cada historia apenas pase a «En revisión», sin esperar al final de la iteración.'],
+      aprendizajes: [],
+      acciones: rows('ac', [
+        { accion: 'Hacer la revisión de pares el mismo día en que una historia pasa a «En revisión».', responsable: 'Equipo de desarrollo', fechaObjetivo: '2026-08-13', estado: 'Pendiente' },
+        { accion: 'Probar las historias de la iteración 3 con los datos maestros depurados de la bodega principal.', responsable: 'Analista de TI', fechaObjetivo: '2026-08-14', estado: 'Pendiente' },
+      ]),
+      lecciones: rows('le', [
+        { situacion: 'El acta de entrega en la tableta se diseñó desde el principio para trabajar sin conexión y pasó la prueba en una obra sin señal.', impacto: 'Positivo', recomendacion: 'Diseñar y probar sin conexión toda función que se use en obra o en patio.' },
+      ]),
+    };
+
+    /* iteración 3 (26 de agosto): primera revisión con el CC-001 aprobado; HU-006 queda sin terminar */
+    const s3 = F.releaseAt('rel-1', it3.end), v3 = F.velocityAt(it3.end), f3 = F.forecastAt('rel-1', it3.end);
+    const deferible = ['HU-006', 'HU-014'];
+    const [c2, c3] = [v3.rows[1].completed, v3.rows[2].completed];
+    const it3Review = {
+      iteracion: it3.name, fecha: it3.end, objetivo: it3.goal, objetivoCumplido: 'Sí', comprometido: it3.committed, terminado: it3.completed,
+      incremento: 'Con los datos maestros depurados se demostraron la devolución con conteo por pieza y estado (buenas, para reparación y para baja), la valoración de faltantes y daños, el traslado entre bodegas con remisión, las listas de precios por familia y por cliente y el contrato de alquiler con tarifas, mínimo de días y fecha de corte. También se probó la carga de saldos de la bodega de Funza.',
+      elementos: reviewRows(it3, {
+        'TA-006': 'Tarifas de julio revisadas por el gerente comercial.',
+        'TA-005': 'Carga de prueba de la bodega de Funza conciliada con su conteo físico.',
+        'HU-006': 'Empezó el 24 de agosto; continúa en la iteración 4.',
+      }),
+      retroalimentacion: 'El usuario clave de facturación pidió filtrar la prefactura por obra y por centro de costos del cliente (ME-003). En la prueba con la bodega de Funza la etiqueta de código de barras salió cortada en su impresora (DF-002). El gerente comercial validó las listas de precios.',
+      cambiosBacklog: 'Entran al release 2 DF-002 (' + item('DF-002').estimate + ' punto, «Debería tener»: no impide la salida del release 1) y ME-003 (' + item('ME-003').estimate + ' puntos). HU-006 pasa a la iteración 4. Las historias de las básculas (CC-001, aprobado el 13 de agosto) entran a la iteración 4. El alcance del release 1 sigue en ' + s3.total + ' puntos, igual a su línea base actualizada con el CC-001.',
+      estadoRelease: 'Release 1: ' + s3.done + ' de ' + s3.total + ' puntos terminados (' + pc(s3.pct) + ') después de 3 de sus 4 iteraciones. Faltan ' + s3.remaining + ' puntos para la iteración 4 frente a una velocidad promedio de ' + n1(v3.avg3) + ' puntos: con ella el pronóstico termina el ' + dl(f3.finish) + lateNote(f3) + '. Como lo prevé la condición del CC-001, el dueño del producto identificó los elementos «Debería tener» que pasan al release 2 si la iteración 4 no alcanza (' + deferible.join(' y ') + ', ' + pts(deferible) + ' puntos); el equipo comprometió los ' + it4.committed + ' puntos, igual a su capacidad, porque HU-006 llega casi terminada y las iteraciones 2 y 3 terminaron ' + (c2 === c3 ? c2 + ' puntos cada una' : c2 + ' y ' + c3 + ' puntos') + '.',
+      asistentes: [...TEAM_ROLES, 'Coordinador logístico', 'Jefe de almacén', 'Gerente comercial', 'Jefe de facturación y cartera'],
+    };
+    const it3Retro = {
+      iteracion: it3.name, fecha: it3.end, formato: 'Bien, mejorar y acciones', facilitador: 'Scrum Master / facilitador', satisfaccion: 3.7,
+      seguimientoAnteriores: 'Acciones de la iteración 2: (1) revisión de pares el mismo día — hecha: ninguna historia esperó más de un día hábil en «En revisión»; (2) pruebas con los datos maestros depurados — hecha desde el 14 de agosto.',
+      queFueBien: [
+        'Los datos maestros depurados de la bodega principal permitieron probar devoluciones y contratos con referencias reales.',
+        'La solicitud de cambio de las básculas (CC-001) se decidió en dos días hábiles y entró a la planificación de la iteración 4 sin afectar la iteración en curso.',
+      ],
+      queMejorar: [
+        'Dos historias terminadas en iteraciones anteriores fallaron con el usuario clave (DF-001 y DF-002): se habían probado solo con datos de prueba y sin el usuario clave.',
+        'HU-006 (kárdex) quedó sin terminar porque empezó el 24 de agosto, cuando el resto de la iteración ya estaba en revisión.',
+      ],
+      propuestas: ['Agregar al tablero una columna «Pruebas de usuario» entre «En revisión» y «Terminado».'],
+      aprendizajes: [],
+      acciones: rows('ac', [
+        { accion: 'Agregar la columna «Pruebas de usuario» (límite WIP 2) y la prueba con datos migrados a la definición de terminado (revisión 1).', responsable: 'Scrum Master / facilitador', fechaObjetivo: '2026-08-27', estado: 'Pendiente' },
+        { accion: 'Ensayar la carga del inventario migrado de la bodega principal en el ambiente de pruebas antes del corte del release 1 (TA-008).', responsable: 'Analista de TI', fechaObjetivo: '2026-09-07', estado: 'Pendiente' },
+      ]),
+      lecciones: rows('le', [
+        { situacion: 'Dos historias terminadas sin que el usuario clave las probara con datos reales fallaron después en una revisión: la disponibilidad no descontaba las piezas en tránsito (DF-001) y la etiqueta salía cortada en la impresora de Funza (DF-002).', impacto: 'Negativo', recomendacion: 'Agregar al tablero una columna «Pruebas de usuario» con límite WIP para que el usuario clave apruebe cada historia antes de terminarla.' },
+      ]),
+    };
+
+    /* iteración 4 (9 de septiembre): release 1 terminado y aceptado; salida a producción el 10 de septiembre */
+    const s4 = F.releaseAt('rel-1', it4.end), v4 = F.velocityAt(it4.end);
+    const pruebaDf = ['DF-003', 'DF-004', 'DF-005', 'DF-007'];
+    const it4Review = {
+      iteracion: it4.name, fecha: it4.end, objetivo: it4.goal, objetivoCumplido: 'Sí', comprometido: it4.committed, terminado: it4.completed,
+      incremento: 'Se demostró el ciclo completo del alquiler con el inventario migrado de la bodega principal en el ambiente de pruebas: remisión con peso teórico, captura del peso de las básculas, devolución con alerta de diferencia de peso, kárdex por equipo, equipos en obra por cliente y liquidación del alquiler por días calendario desde las actas.',
+      elementos: reviewRows(it4, {
+        'HU-006': 'Viene de la iteración 3.',
+        'HU-013': 'Verificada con 300 m² entregados el 3 de agosto y 120 m² devueltos el 17 de agosto.',
+        'TA-008': 'Diferencia de 0,4 % frente al conteo físico (meta: 0,5 % o menos).',
+        'HU-040': 'Alerta probada con una devolución con 4 % de diferencia de peso.',
+      }),
+      retroalimentacion: 'Los usuarios clave firmaron la prueba de aceptación del release 1. Dejó defectos menores que no impiden la salida (' + pruebaDf.join(', ').replace(/, ([^,]+)$/, ' y $1') + '); el ensayo de corte dejó DF-006 (peso con coma decimal en la báscula de Funza) y logística pidió mostrar en la remisión el saldo del cliente en obra (ME-004). El jefe de almacén pidió acompañamiento en sitio durante las dos primeras semanas en producción.',
+      cambiosBacklog: 'Durante la iteración entraron al release 2 los defectos de la prueba de aceptación y del ensayo de corte (DF-003 a DF-007, ' + pts([...pruebaDf, 'DF-006']) + ' puntos), ME-004, ME-005 y ME-006 (pedidos de logística y de cartera) e IN-004. El release 2 se compromete con su línea base en la planificación de la iteración 5. El release 1 cierra con ' + s4.total + ' puntos, igual a su línea base.',
+      estadoRelease: 'Release 1: ' + s4.done + ' de ' + s4.total + ' puntos terminados (' + pc(s4.pct) + ') en sus 4 iteraciones, sin diferir elementos: ' + deferible.join(' y ') + ' se terminaron. Velocidad promedio de las tres últimas iteraciones: ' + n1(v4.avg3) + ' puntos. El dueño del producto acepta el release y el comité de control de cambios autoriza la salida a producción del 10 de septiembre.',
+      asistentes: [...TEAM_ROLES, 'Coordinador logístico', 'Jefe de almacén', 'Jefe de TI', 'Gerencia General (patrocinador)'],
+    };
+    const it4Retro = {
+      iteracion: it4.name, fecha: it4.end, formato: 'Bien, mejorar y acciones', facilitador: 'Scrum Master / facilitador', satisfaccion: 4.4,
+      seguimientoAnteriores: 'Acciones de la iteración 3: (1) columna «Pruebas de usuario» y prueba con datos migrados en la definición de terminado — hecha el 27 de agosto; (2) ensayo de carga del inventario migrado de la bodega principal (TA-008) — hecha el 7 de septiembre, con una diferencia de 0,4 % frente al conteo físico.',
+      queFueBien: [
+        'El release 1 terminó sus ' + s4.total + ' puntos en las cuatro iteraciones del plan, con la integración de las básculas (CC-001).',
+        'Con la columna «Pruebas de usuario» los usuarios clave aprobaron cada historia antes de terminarla: ninguna se rechazó en la revisión.',
+      ],
+      queMejorar: [
+        'La prueba de aceptación dejó defectos menores que el equipo no había detectado (' + pruebaDf.join(', ').replace(/, ([^,]+)$/, ' y $1') + ').',
+        'Las historias de las básculas se probaron solo con la báscula de la bodega principal: el formato de la de Funza apareció en el ensayo de corte (DF-006).',
+        'Los perfiles de bodega se probaron en el ambiente de pruebas (TA-007), pero no con los usuarios que entran a producción.',
+      ],
+      propuestas: ['Probar cada integración con todos los equipos de campo antes de presentarla en la revisión.'],
+      aprendizajes: [],
+      acciones: rows('ac', [
+        { accion: 'Seguir en la salida a producción del 10 de septiembre el guion del ensayo de corte con los datos migrados, con el plan de reversión probado.', responsable: ROLE.ti, fechaObjetivo: '2026-09-10', estado: 'Pendiente' },
+        { accion: 'Revisar con los usuarios de producción de cada perfil los permisos de bodega y logística antes de la salida.', responsable: 'Analista de TI', fechaObjetivo: '2026-09-10', estado: 'Pendiente' },
+      ]),
+      lecciones: rows('le', [
+        { situacion: 'La báscula de Funza envía el peso con coma decimal; el error solo apareció en el ensayo de corte porque las historias de las básculas se probaron con la báscula de la bodega principal (DF-006).', impacto: 'Negativo', recomendacion: 'Probar cada integración con todos los equipos de campo donde se usará, no con uno de muestra.' },
+      ]),
+    };
+
     /* ============================================================ 4.4 · REGISTRO DE LECCIONES APRENDIDAS */
     const fromRetro = (retro, sprintName) => retro.lecciones.map((l) => ({ fecha: retro.fecha, area: 'Integración', situacion: l.situacion, impacto: l.impacto, recomendacion: l.recomendacion, registradoPor: 'Retrospectiva ' + sprintName }));
     const leccionesAll = [
       { fecha: '2026-06-22', area: 'Adquisiciones', situacion: 'Las demostraciones guiadas con guiones de negocio propios (pedido, despacho, devolución, liquidación y factura) mostraron diferencias entre los tres finalistas que las presentaciones comerciales ocultaban.', impacto: 'Positivo', recomendacion: 'Exigir en toda selección de software demostraciones con guiones y datos de la empresa, iguales para todos los oferentes.', registradoPor: ROLE.dir },
       { fecha: F.cc1Date, area: 'Integración', situacion: 'La integración con las básculas (CC-001) superaba el umbral de ±10 % del release 1; el comité la decidió en dos días hábiles porque el análisis mostró con la velocidad real que cabía sin mover la fecha ni el presupuesto.', impacto: 'Positivo', recomendacion: 'Analizar los cambios de alcance de un release con la velocidad real y decidirlos en el comité en menos de una semana.', registradoPor: ROLE.dir },
       { fecha: '2026-08-14', area: 'Calidad', situacion: 'El 14 % de las referencias del catálogo no tenía peso unitario y había clientes duplicados: la depuración de datos maestros tardó tres días hábiles más y costó ' + ms(-cv('t16')) + ' más de lo presupuestado.', impacto: 'Negativo', recomendacion: 'Medir la calidad de los datos maestros en el descubrimiento y presupuestar la depuración con esa medición.', registradoPor: 'Dueño del producto' },
-      { fecha: '2026-08-26', area: 'Integración', situacion: 'Dos historias del release 1 se dieron por terminadas sin que el usuario clave las probara con datos reales y fallaron en la prueba de aceptación.', impacto: 'Negativo', recomendacion: 'Agregar al tablero una columna «Pruebas de usuario» con límite WIP para que el usuario clave apruebe cada historia antes de terminarla.', registradoPor: 'Retrospectiva Iteración 3' },
       { fecha: '2026-09-10', area: 'Cronograma', situacion: 'El ensayo de corte con el inventario migrado (TA-008) permitió salir a producción con el release 1 en un día y fuera del cierre mensual.', impacto: 'Positivo', recomendacion: 'Ensayar cada corte con los datos migrados una semana antes y programar la salida después de los cinco primeros días hábiles del mes.', registradoPor: ROLE.dir },
+      ...fromRetro(it1Retro, it1.name),
+      ...fromRetro(it2Retro, it2.name),
+      ...fromRetro(it3Retro, it3.name),
+      ...fromRetro(it4Retro, it4.name),
       ...fromRetro(it5Retro, it5.name),
       ...fromRetro(it6Retro, it6.name),
-    ].map((r, i) => ({ id: 'LA-' + String(i + 1).padStart(3, '0'), ...r }));
+    ].map((r, i) => ({ r, i })).sort((a, b) => a.r.fecha.localeCompare(b.r.fecha) || a.i - b.i)
+      .map(({ r }, i) => ({ id: 'LA-' + String(i + 1).padStart(3, '0'), ...r }));
     const leccionesFields = {
       lecciones: leccionesAll,
       momentosCaptura: 'Al final de cada retrospectiva (las lecciones se envían desde «Releases e iteraciones»), al decidir cada solicitud de cambio, después de cada salida a producción y al cierre del proyecto.',
@@ -338,13 +525,8 @@
     };
 
     /* ============================================================ 4.6 · REGISTRO Y SOLICITUD DE CAMBIO (CC-001) */
-    /* alcance del release 1 antes de la solicitud (las historias de las básculas se crearon el día de la solicitud) y terminado a esa fecha */
-    const r1before = F.releaseAt('rel-1', D.add(F.cc1Request, -1));
-    const r1at11 = F.releaseAt('rel-1', F.cc1Request);
-    const r1Base = 102;
+    /* r1before, r1at11, r1Base, signedPct y vel2 se definen con las actas de las iteraciones 1 a 4 */
     const cc1Pct = (R1.prog.total - r1Base) / r1Base;
-    const signedPct = (x) => (x >= 0 ? '+' : '−') + plain(PM.fmt.num(Math.abs(x) * 100, 1)) + ' %';
-    const vel2 = F.velocityAt('2026-08-11');
     const remaining11 = R1.prog.total - r1at11.done;
     const cc1Row = {
       id: 'CC-001', fecha: F.cc1Request, solicitante: 'Coordinador logístico',
@@ -476,17 +658,23 @@
         { key: 'it7', title: 'Planificación de la iteración — ' + it7.name, status: 'aprobado', rev: '0', date: it7.start, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it7Plan },
       ] },
       'acta-revision-sprint': { instances: [
+        /* iteración 1: revisión del 27 de julio, acta aprobada el 28 con DF-001 registrado */
+        { key: 'it1', title: 'Acta de revisión de la iteración — ' + it1.name, status: 'aprobado', rev: '0', date: D.add(it1.end, 1), created: it1.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it1Review },
+        { key: 'it2', title: 'Acta de revisión de la iteración — ' + it2.name, status: 'aprobado', rev: '0', date: it2.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it2Review },
+        { key: 'it3', title: 'Acta de revisión de la iteración — ' + it3.name, status: 'aprobado', rev: '0', date: it3.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it3Review },
+        { key: 'it4', title: 'Acta de revisión de la iteración — ' + it4.name, status: 'aprobado', rev: '0', date: it4.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it4Review },
         { key: 'it5', title: 'Acta de revisión de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it5Review },
         { key: 'it6', title: 'Acta de revisión de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: 'Gerente administrativo y financiero' }, fields: it6Review },
       ] },
       'retrospectiva': { instances: [
+        ...[[it1, it1Retro], [it2, it2Retro], [it3, it3Retro], [it4, it4Retro]].map(([sp, fields], i) => ({ key: 'it' + (i + 1), title: 'Retrospectiva de la iteración — ' + sp.name, status: 'aprobado', rev: '0', date: sp.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields })),
         { key: 'it5', title: 'Retrospectiva de la iteración — ' + it5.name, status: 'aprobado', rev: '0', date: it5.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields: it5Retro },
         { key: 'it6', title: 'Retrospectiva de la iteración — ' + it6.name, status: 'aprobado', rev: '0', date: it6.end, titleBlock: { elaboro: ROLE.sm, reviso: 'Equipo de desarrollo', aprobo: ROLE.sm }, fields: it6Retro },
       ] },
       'registro-incidentes': { status: 'revision', rev: 'B', date: F.statusDate, created: '2026-07-22', titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: incidentesFields,
         revs: [{ rev: 'A', status: 'revision', date: '2026-07-24', note: 'Primera emisión con el INC-001.', fields: { ...cp(incidentesFields), incidentes: incidentesFields.incidentes.slice(0, 1) } }] },
       'registro-lecciones': { status: 'revision', rev: 'B', date: '2026-10-08', created: '2026-06-22', titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: leccionesFields,
-        revs: [{ rev: 'A', status: 'revision', date: '2026-09-11', note: 'Primera emisión para revisión: selección, CC-001, depuración de datos, retrospectiva 3 y salida del release 1.', fields: { ...cp(leccionesFields), lecciones: leccionesAll.filter((l) => l.fecha <= '2026-09-11') } }] },
+        revs: [{ rev: 'A', status: 'revision', date: '2026-09-11', note: 'Primera emisión para revisión: selección, CC-001, depuración de datos, retrospectivas de las iteraciones 1 a 4 y salida del release 1.', fields: { ...cp(leccionesFields), lecciones: leccionesAll.filter((l) => l.fecha <= '2026-09-11') } }] },
       'registro-cambios': { status: 'revision', rev: '1A', date: '2026-10-08', created: F.cc1Request, titleBlock: { elaboro: ROLE.sm, reviso: ROLE.dir, aprobo: '' }, fields: registroCambiosFields,
         revs: [{ rev: '0', status: 'aprobado', date: F.cc1Date, note: 'Emisión con la decisión del CC-001.', fields: registroCambiosRev0 }] },
       'solicitud-cambio': { instances: [

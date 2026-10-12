@@ -20,7 +20,9 @@
    Proyecto, empresas y cifras son ficticios; se usan roles, no nombres de personas.
    Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93 y 96).
    Ciclo de vida híbrido: la capa ágil de los canales digitales de venta (paquete
-   1.4.2) sale de PM.exampleAgile.medellin (archivo 96) y no cambia ninguna cifra.
+   1.4.2) sale de PM.exampleAgile.medellin (archivo 96). El release se representa en
+   el cronograma con la actividad C02D (costo 0, en la LB1), que toma su avance del
+   backlog; ninguna cifra financiera cambia (el presupuesto sigue en C02).
    ========================================================================== */
 (function () {
   'use strict';
@@ -362,7 +364,9 @@
      o.prog: avance al corte (actividades en curso); o.fc: [inicio, fin] pronosticados (re-estimación; inicio null = el del CPM);
      o.deps: 'ID' (FS), 'ID:SS', 'ID:FF', 'ID:FS+2' (la primera impulsa; las demás no empujan); o.fix: fecha impuesta (no comenzar antes de);
      o.name0: nombre en la LB0 si difiere; o.cost: presupuesto en millones (LB1; o.cost0 para la LB0); o.k: lote | vip | dir | ind | fin; o.cap: capítulos (directos) o rubro (indirectos);
-     o.loe: esfuerzo de nivel (avance = tiempo planificado transcurrido); o.st: etapa E1 | E2; o.f: costo real / valor ganado. */
+     o.loe: esfuerzo de nivel (avance = tiempo planificado transcurrido); o.st: etapa E1 | E2; o.f: costo real / valor ganado;
+     o.rel: avance registrado en cada corte mensual { 'AAAA-MM-DD': % } de una actividad que representa un release (su avance
+     sale del backlog; en el plan vigente conserva la duración de la LB1 y el pronóstico lo da la velocidad del release). */
   const DEFS = [];
   /* Honorarios del constructor (administración delegada, CT-015): 5 % sobre los costos reembolsables. El presupuesto de cada
      actividad de obra (o.cost) ya los incluye; o.cap trae los capítulos con honorarios y feeSplit los separa en costo
@@ -432,7 +436,14 @@
 
   /* 1.4 Comercialización y ventas */
   A('C01', 'w141', 'Sala de ventas y apartamento modelo', { p: ['2025-05-19', '2025-07-04'], a: ['2025-05-19', '2025-07-04'], deps: ['D01'], cost: 680, k: 'ind', cap: 'sala', resp: ROLE.com, res: res([RS.com, 0.5]), cat: 'Subcontratos', doc: 'FE', f: 1.04 });
-  A('C02', 'w142', 'Plan de mercadeo y publicidad', { p: ['2025-05-19', '2028-06-30'], a: ['2025-05-19', null], fc: [null, '2028-09-29'], loe: true, deps: ['D01'], cost: 1459, k: 'ind', cap: 'pub', resp: ROLE.com, res: res([RS.com, 0.25]), cat: 'Otros', doc: 'FE', f: 1.06, notes: 'Pauta adicional en 2026 para sostener la velocidad de ventas de la etapa 2.' });
+  A('C02', 'w142', 'Plan de mercadeo y publicidad', { p: ['2025-05-19', '2028-06-30'], a: ['2025-05-19', null], fc: [null, '2028-09-29'], loe: true, deps: ['D01'], cost: 1459, k: 'ind', cap: 'pub', resp: ROLE.com, res: res([RS.com, 0.25]), cat: 'Otros', doc: 'FE', f: 1.06, notes: 'Pauta adicional en 2026 para sostener la velocidad de ventas de la etapa 2. Incluye los COP 245 millones del release de los canales digitales de venta, que se sigue en la actividad C02D.' });
+  /* Release de los canales digitales de venta (enfoque híbrido; capa ágil en 96-example-medellin-agile.js, release.taskId =
+     'C02D'). Entra en la LB1 (plan rev. 1 del 13 de marzo de 2026, con el enfoque que la junta aprobó el 10 de febrero) con
+     costo 0: el presupuesto del release es parte de C02, que se mide por nivel de esfuerzo, así que PV, EV, AC y BAC no
+     cambian. Su avance es el del backlog (terminado / alcance, PM.agile.applyToSchedule); REL_PROGRESS es el que registró cada
+     corte mensual, igual al del backlog en esa fecha (la prueba de la capa ágil lo verifica). */
+  const REL_PROGRESS = { '2026-03-31': 6.1, '2026-04-30': 16, '2026-05-31': 23.9, '2026-06-30': 34.4, '2026-07-31': 46.5, '2026-08-31': 54.1, '2026-09-30': 64.7 };
+  A('C02D', 'w142', 'Canales digitales de venta: release de la etapa 2 (12 iteraciones de 20 días hábiles)', { b0: null, p: ['2026-03-02', '2026-12-23'], a: ['2026-03-02', null], rel: REL_PROGRESS, fix: true, deps: ['C05'], resp: ROLE.com, notes: 'Representa en el cronograma el release «Canales digitales de venta — etapa 2» (Scrum con tablero Kanban; línea base del release del 27 de febrero de 2026: 213 puntos, 12 iteraciones y fin el 23 de diciembre de 2026). El avance se calcula desde el backlog del producto (puntos terminados / alcance) y el fin pronosticado, con la velocidad de las iteraciones. Costo 0: el presupuesto del release (COP 245 millones) es parte del rubro de publicidad y mercadeo de C02, así que no cambia el valor ganado del proyecto; el release se controla con su valor ganado ágil.' });
   M('C03', 'w143', 'Lanzamiento de la etapa 1', { p: '2025-07-07', a: ['2025-07-07', '2025-07-07'], fix: true, deps: ['C01', 'E11'], resp: ROLE.com });
   A('C04', 'w143', 'Preventas de la etapa 1 hasta el punto de equilibrio (156 de 208 viviendas)', { b0: ['2025-07-08', '2026-01-30'], p: ['2025-07-08', '2026-02-27'], a: ['2025-07-08', '2026-02-27'], sales: 'C04', deps: ['C03'], cost: 912, k: 'ind', cap: 'comi', resp: ROLE.com, res: res([RS.ase, 4]), cat: 'Otros', doc: 'COM' });
   M('C05', 'w143', 'Punto de equilibrio de la etapa 1 declarado por la fiduciaria', { b0: '2026-01-30', p: '2026-02-27', a: ['2026-02-27', '2026-02-27'], deps: ['C04', 'E14', 'D13'], resp: ROLE.fid, notes: '156 viviendas vinculadas (75 % de la etapa), licencia ejecutoriada, lote libre de gravámenes y crédito aprobado. Cuatro semanas después de lo planeado (INC-003).' });
@@ -635,6 +646,7 @@
   function progressAt(def, at) {
     const a = def.a;
     if (!a || !a[0] || a[0] > at) return 0;
+    if (def.rel) { let v = 0; for (const d of Object.keys(def.rel).sort()) if (d <= at) v = def.rel[d]; return v; }
     if (def.sales) return SALES_PROGRESS[def.sales](salesCum(monthOf(at)));
     if (def.ms) return a[0] <= at ? 100 : 0;
     if (a[1] && a[1] <= at) return 100;
@@ -682,8 +694,9 @@
       const prog = progressNow(def);
       let duration = x.duration;
       if (!def.ms && a && a[0] && a[1]) duration = cal.countWork(a[0], a[1]);
-      else if (!def.ms && a && a[0]) {
-        /* en curso: hasta el fin pronosticado o, sin él, al ritmo observado (transcurrido / avance) */
+      else if (!def.ms && a && a[0] && !def.rel) {
+        /* en curso: hasta el fin pronosticado o, sin él, al ritmo observado (transcurrido / avance); la actividad de un
+           release conserva la duración de la LB1 (su pronóstico sale de la velocidad, PM.agile.applyToSchedule) */
         if (def.fc) duration = cal.countWork(a[0], prevWork(def.fc[1]));
         else if (!def.loe && prog > 0) duration = Math.max(elapsedOf(def) + 1, Math.round((elapsedOf(def) * 100) / prog));
       } else if (!def.ms && def.fc) {
@@ -1116,14 +1129,16 @@
     const snap1 = PM.calc.makeBaselineSnapshot({ includes: ['scope', 'schedule', 'cost'], sched: lb1.sched, wbs: { nodes: wbsNodes(lb1.data.tasks, 'lb1') }, costs: { reserves: { ...RESERVES_LB1 } }, scopeStatement: approvedFieldsAt(scopeDoc, LB1_DATE) });
     return [
       { id: 'lb0', data: { number: 0, label: 'LB0', date: LB0_DATE, includes: ['scope', 'schedule', 'cost'], note: 'Línea base inicial aprobada por la junta directiva con la factibilidad y el plan para la dirección del proyecto (decisión de inversión).', changeRef: null, byId: null, ...snap0 } },
-      { id: 'lb1', data: { number: 1, label: 'LB1', date: LB1_DATE, includes: ['scope', 'schedule', 'cost'], note: 'Mitigación vial exigida en la licencia (+COP 430 millones con cargo a la reserva para contingencias) y reprogramación del inicio de obra de la etapa 1 al 16 de marzo de 2026 (+4 semanas); fin del proyecto sin cambio.', changeRef: 'CC-002', byId: null, ...snap1 } },
+      { id: 'lb1', data: { number: 1, label: 'LB1', date: LB1_DATE, includes: ['scope', 'schedule', 'cost'], note: 'Mitigación vial exigida en la licencia (+COP 430 millones con cargo a la reserva para contingencias) y reprogramación del inicio de obra de la etapa 1 al 16 de marzo de 2026 (+4 semanas); fin del proyecto sin cambio. Incluye la actividad C02D, que representa el release de los canales digitales de venta (costo 0; enfoque híbrido aprobado por la junta el 10 de febrero de 2026).', changeRef: 'CC-002', byId: null, ...snap1 } },
     ];
   }
 
   /* ---------------------------------------------------------------- constructor */
   /* Capa ágil (96-example-medellin-agile.js): ciclo de vida híbrido, enfoque adaptativo del paquete 1.4.2, herramienta
-     «agile», backlog, parte digital de los costos de C02 marcada con el release y roles y eventos ágiles en la RACI.
-     No toca el cronograma ni las líneas base: el valor ganado del proyecto es el mismo con o sin la capa. */
+     «agile» (con el release vinculado a la actividad C02D, release.taskId), backlog, parte digital de los costos de C02
+     marcada con el release y roles y eventos ágiles en la RACI. El cronograma y las líneas base son los mismos con o sin la
+     capa (C02D está en DEFS con el avance que registró cada corte); con la capa, el avance de C02D sale del backlog y es
+     igual al guardado. El valor ganado del proyecto es el mismo con o sin la capa (C02D tiene costo 0). */
   const agileLayer = () => (PM.exampleAgile && typeof PM.exampleAgile.medellin === 'function' ? PM.exampleAgile.medellin({ cal, statusDate: STATUS_DATE }) : null);
   function buildExample() {
     const layer = agileLayer();
