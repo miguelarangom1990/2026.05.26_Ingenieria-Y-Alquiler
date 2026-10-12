@@ -122,14 +122,24 @@ async function validateInPage(page, expect) {
     ok(tasks.every((t) => TK.every((k) => k in t)), 'forma de Task (SPEC §3)', tasks.find((t) => !TK.every((k) => k in t)));
     ok(tasks.every((t) => t.wbsId && ids.has(t.wbsId) && tree.leaves.has(t.wbsId)), 'toda actividad cuelga de un paquete de trabajo existente', tasks.filter((t) => !tree.leaves.has(t.wbsId)).map((t) => t.id));
     ok(tasks.every((t) => t.deps.every((d) => tids.has(d.id) && d.id !== t.id && ['FS', 'SS', 'FF', 'SF'].includes(d.type) && Number.isInteger(d.lag))), 'toda dependencia apunta a una actividad existente');
-    ok(tasks.every((t) => t.responsible && t.resources.every((r) => r.name && r.units > 0 && schedule.settings.resourceLimits[r.name])), 'responsables y recursos con límite definido');
-    /* ningún recurso supera su límite diario, ni en el plan ni en el pronóstico al corte (vista Recursos sin sobreasignaciones) */
+    /* recursos: cada asignación es un recurso del catálogo (trabajo con disponibilidad, consumibles con cantidad) */
+    const resources = await P('/tools/resources');
+    const cat0 = PM.res.catalog(resources, schedule);
+    ok(tasks.every((t) => t.responsible && t.resources.every((r) => { const it = cat0.resolve(r); return r.name && it && !it.virtual && (cat0.kindOf(it) === 'consumible' ? r.qty > 0 : r.units > 0 && PM.isNum(it.availability)); })), 'responsables y recursos del catálogo con disponibilidad (trabajo) o cantidad (consumibles)');
+    /* ningún recurso supera su disponibilidad diaria del catálogo, ni en el plan ni en el pronóstico al corte, salvo en los días de
+       ausencia registrados (vacaciones del diseñador de contenidos en la iteración 8, que el histograma muestra sin disponibilidad) */
     for (const [lbl, sd] of [['plan vigente', undefined], ['pronóstico al corte', meta.statusDate]]) {
       const s = PM.calc.computeSchedule(schedule, meta.start, sd);
-      const daily = new Map(); const over = [];
-      for (const t of s.tasks) { if (t.milestone || t.duration <= 0) continue; for (const r of t.resources || []) for (let i = t.es; i < t.ef; i++) { const k = r.name + '|' + s.cal.dateOf(i); daily.set(k, (daily.get(k) || 0) + r.units); } }
-      for (const [k, v] of daily) { const n = k.split('|')[0]; if (v > schedule.settings.resourceLimits[n] + 1e-9) over.push(k + ' = ' + v); }
+      const daily = new Map(); const over = [], absent = [];
+      for (const t of s.tasks) { if (t.milestone || t.duration <= 0) continue; for (const r of t.resources || []) { const it = cat0.resolve(r); if (cat0.kindOf(it) !== 'trabajo') continue; for (let i = t.es; i < t.ef; i++) { const k = it.id + '|' + s.cal.dateOf(i); daily.set(k, (daily.get(k) || 0) + r.units); } } }
+      for (const [k, v] of daily) {
+        const [id, d] = k.split('|'); const it = cat0.byId.get(id); const av = PM.res.availableOn(it, d);
+        const lim = schedule.settings.resourceLimits[it.name];
+        if (PM.isNum(lim) && v > lim + 1e-9) over.push(it.name + ' ' + d + ' = ' + v + ' > límite ' + lim);
+        if (av !== null && v > av + 1e-9) ((it.absences || []).some((a) => d >= a.from && d <= (a.to || a.from)) ? absent : over).push(it.name + ' ' + d);
+      }
       ok(!over.length, 'sin sobreasignación de recursos (' + lbl + ')', over.slice(0, 5));
+      ok(absent.length <= 3 && absent.every((x) => /^Diseñador de contenidos de la agencia 2026-09-0[2-4]$/.test(x)), 'solo los días de vacaciones registrados quedan sin disponibilidad (' + lbl + ')', absent);
     }
     const types = new Set(tasks.flatMap((t) => t.deps.map((d) => d.type)));
     ok(['FS', 'SS', 'FF'].every((x) => types.has(x)) && tasks.some((t) => t.deps.some((d) => d.lag > 0)), 'dependencias FS, SS y FF con desfases');
@@ -266,6 +276,35 @@ async function validateInPage(page, expect) {
     ok(evm.cpi >= R.cpi[0] && evm.cpi <= R.cpi[1], 'CPI dentro de ' + R.cpi.join('–'), evm.cpi);
     ok(evm.ac > 0.3 * X.bac && evm.ac < 0.4 * X.bac, 'costo real acumulado entre 30 y 40 % del BAC', evm.ac);
 
+    /* catálogo de recursos (SPEC §10): tipos, un recurso por nombre asignado, forma de costeo de K03C, no planificados y valor ganado
+       idéntico calculado como useProjectModel (avance ágil del release y formas de costeo aplicados) */
+    ok(resources.preset === 'construccion' && PM.RES.PRESETS.construccion.types.every((t) => resources.types.some((x) => x.id === t.id)) && ['diseno', 'comercial'].every((id) => resources.types.some((x) => x.id === id)), 'tipos del preset «Construcción y obra» más consultoría de diseños y equipo comercial y digital', resources.types.map((t) => t.id));
+    const typeIds = new Set(cat0.types.map((t) => t.id));
+    const STATUS = PM.RES.STATUS.map((x) => x.value);
+    ok(resources.items.length >= 30 && resources.items.every((it) => typeIds.has(it.typeId) && /^REC-\d{3}$/.test(it.code) && it.unit && it.subtype && PM.RES.ORIGINS.includes(it.origin) && STATUS.includes(it.status) && PM.isNum(it.unitCost) && it.notes) && new Set(resources.items.map((i) => i.code)).size === resources.items.length, 'recursos con tipo, subtipo, código único, unidad, costo unitario, origen y estado', resources.items.length);
+    const asg = tasks.flatMap((t) => t.resources.map((a) => ({ t, a, it: cat0.resolve(a) })));
+    ok(asg.every((x) => x.it && !x.it.virtual && x.a.resourceId === x.it.id && x.a.name === x.it.name && typeIds.has(x.it.typeId)), 'cada asignación resuelve a un recurso del catálogo con tipo (mismo nombre y resourceId)', asg.filter((x) => !x.it || x.a.resourceId !== x.it.id).map((x) => x.t.id + ' ' + x.a.name).slice(0, 8));
+    ok(Object.entries(schedule.settings.resourceLimits).every(([n, v]) => { const it = cat0.byKey.get(PM.res.key(n)); return it && it.availability === v; }), 'disponibilidad del catálogo = límites de recursos del cronograma');
+    const qtyOf = (name, ids) => PM.sum(asg.filter((x) => x.it.name === name && ids.includes(x.t.id)), (x) => x.a.qty);
+    ok(qtyOf('Concreto premezclado de 28 MPa fluido', ['K06', 'K07', 'K09']) === 7500 && qtyOf('Acero de refuerzo de 420 MPa', ['K06', 'K07', 'K09']) === 605000, 'concreto (7.500 m³) y acero (605 t) de la estructura de la etapa 1 como en los requisitos de recursos');
+    const modes = tasks.filter((t) => (t.costMode || 'global') !== 'global');
+    const k03c = tasks.find((t) => t.id === 'K03C');
+    ok(modes.map((t) => t.id + ':' + t.costMode).join() === 'K03C:unitario' && k03c.quantity === 60 && k03c.unitPrice === 10e6 && PM.res.taskCost(k03c, cat0).total === k03c.cost && k03c.cost === 600e6, 'K03C a precios unitarios (60 m × COP 10 millones = COP 600 millones, su mismo costo); las demás a precio global', modes.map((t) => [t.id, t.costMode, PM.res.taskCost(t, cat0).total, t.cost]));
+    const agileT = await P('/tools/agile');
+    const itemsB = (await PM.store.list(PM.paths.backlog(pid))).map((d) => ({ ...d.data, id: d.id }));
+    const effM = PM.res.applyCosts(PM.agile.applyToSchedule(schedule, agileT, itemsB, { statusDate: st }), resources);
+    const evmM = PM.calc.evm({ sched: PM.calc.computeSchedule(effM, meta.start), costBaseline: actives.cost, costs, statusDate: st });
+    const EVM_EXPECTED = { bac: 139576000000, pv: 48807248307.96991, ev: 46871360000, ac: 48593020000, spi: 0.9603360489459556, cpi: 0.9645698085856775, eac: 144702849661.7124 };
+    const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    ok(Object.entries(EVM_EXPECTED).every(([k, v]) => near(evm[k], v) && near(evmM[k], v)), 'valor ganado idéntico al esperado (BAC, PV, EV, AC, SPI, CPI y EAC), también con el avance ágil y las formas de costeo aplicados', Object.keys(EVM_EXPECTED).map((k) => [k, evm[k], evmM[k]]));
+    ok(effM.tasks.every((t, i) => t.cost === tasks[i].cost), 'las formas de costeo no cambian el presupuesto de ninguna actividad');
+    const unpl = resources.items.filter((i) => i.planned === false);
+    ok(unpl.map((i) => i.name + ':' + i.reason + ':' + (i.changeRef || '')).sort().join('|') === 'Segundo desarrollador web de la agencia:rendimiento:|Subcontratista de pantalla anclada y drenajes:cambio-alcance:CC-003|Turno extendido de formaleta del bloque B:rendimiento:', 'no planificados: pantalla anclada (CC-003), turno extendido de formaleta (INC-006) y segundo desarrollador web', unpl.map((i) => [i.name, i.reason, i.changeRef]));
+    ok(unpl.every((i) => !PM.isNum(i.reserveAmount) && D.valid(i.addedDate) && i.addedDate > X.lb1Date && i.addedDate <= st) && costs.reserves.contingency === X.contVigente, 'ninguno consume la reserva para contingencias (la disponible ya descuenta los COP 600 millones del CC-003)');
+    const team = resources.items.filter((i) => i.agileTeam);
+    ok(team.length === 5 && team.every((i) => i.typeId === 'comercial' && i.dedication === 85 && i.hoursPerDay === 8) && team.filter((i) => i.absences.length).length === 1, 'equipo de la capa ágil: cinco personas de lunes a viernes (dedicación 85 %) con las vacaciones del diseñador', team.map((i) => i.name));
+    out.resources = { items: resources.items.length, unplanned: unpl.length };
+
     /* RACI */
     const raci = await P('/tools/raci');
     const roleNames = raci.roles.map((r) => r.name);
@@ -332,6 +371,22 @@ async function validateInPage(page, expect) {
     const expected = Object.keys(src).filter((k) => PM.templates[k]).reduce((s, k) => s + (PM.templates[k].multiple ? ((src[k].instances || []).filter((x) => x && x.key).length) : 1), 0);
     ok(docs.length === expected, 'un documento por entrada de PM.exampleDocs.medellin con plantilla', [docs.length, expected]);
     ok(docs.every((d) => d.data.template && PM.templates[d.data.template] && d.data.titleBlock.codigo.startsWith('PRY-2025-003-' + PM.templates[d.data.template].abbr)), 'cajetín con el código del proyecto y la abreviatura de la plantilla');
+    /* estructura de desglose de los riesgos: cada riesgo del registro (y de sus revisiones) con una subcategoría del plan */
+    const pgri = docs.find((d) => d.id === 'plan-gestion-riesgos'), rrie = docs.find((d) => d.id === 'registro-riesgos');
+    if (pgri && rrie) {
+      const planRows = pgri.data.fields.edrRiesgos || [];
+      const n2 = new Set(planRows.map((r) => PM.res.key(r.nivel2)));
+      const risks = rrie.data.fields.riesgos;
+      const revs = await PM.store.list(PM.paths.revs(pid, 'registro-riesgos'));
+      ok(risks.length >= 12 && risks.every((k) => n2.has(PM.res.key(k.subcategoria))) && revs.length >= 2 && revs.every((r) => r.data.fields.riesgos.every((k) => n2.has(PM.res.key(k.subcategoria)))), 'cada riesgo del registro y de sus revisiones con una subcategoría del plan de gestión de los riesgos', risks.filter((k) => !n2.has(PM.res.key(k.subcategoria))).map((k) => k.id));
+      const rbr = PM.res.riskTree({ planRows, risks });
+      const leaves = []; const walk = (n, path) => { if (n.kind === 'leaf') leaves.push(path.join(' › ')); n.children.forEach((c) => walk(c, path.concat(n.label))); };
+      walk(rbr, []);
+      ok(leaves.length === risks.length && leaves.every((p) => p.split(' › ').length === 3 && !/Sin subcategoría/.test(p)), 'estructura de desglose de los riesgos completa (categoría → subcategoría → riesgo)', leaves.filter((p) => /Sin/.test(p)));
+      ok(risks.find((k) => k.id === 'R-004').subcategoria === 'Geotecnia y taludes en ladera' && risks.find((k) => k.id === 'R-013').subcategoria === 'Recursos y mano de obra', 'R-004 en geotecnia y taludes y R-013 en recursos y mano de obra');
+      const cc3 = ((docs.find((d) => d.id === 'registro-cambios') || { data: { fields: {} } }).data.fields.cambios || []).find((r) => r.id === 'CC-003');
+      ok(cc3 && cc3.estado === 'Aprobada', 'el CC-003 del recurso no planificado (pantalla anclada) está aprobado en el registro de cambios', cc3 && cc3.estado);
+    }
     out.docs = docs.length;
     out.pid = pid;
     return out;
@@ -411,6 +466,36 @@ section('Portafolio vacío → «Crear proyecto de ejemplo» → tarjeta de Mede
     const pid2 = await page.evaluate(() => PM.createExampleProject('medellin'));
     check(!!pid2, 'PM.createExampleProject(\'medellin\') crea el ejemplo sin selector');
     check(errors.length === 0, 'sin errores de consola', errors);
+  } finally { await browser.close(); }
+  console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);
+}
+
+section('Recursos del ejemplo en las vistas (catálogo y reserva para contingencias)');
+{
+  const before = { passes, failures };
+  const { browser, page, errors } = await openApp({ file, width: 1440, height: 900 });
+  try {
+    await page.evaluate(() => PM.createExampleProject('medellin'));
+    await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 30000 });
+    await page.waitForTimeout(800);
+    const norm = (x) => String(x).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
+    await page.evaluate(() => PM.navigate('recursos', { tab: 'catalogo' }));
+    await page.waitForSelector('[data-rcat="1"] [data-tile="total"]', { timeout: 10000 });
+    const tile = async (id) => norm(await page.locator('[data-tile="' + id + '"] .rcat-tile-value').innerText());
+    check(await tile('total') === '32' && await tile('no-planificados') === '3' && await tile('sin-clasificar') === '0' && await tile('consumibles') === '3', 'catálogo: 32 recursos (3 consumibles), 3 no planificados y ninguno sin clasificar', [await tile('total'), await tile('consumibles'), await tile('no-planificados'), await tile('sin-clasificar')]);
+    await page.getByLabel('Filtrar por tipo').selectOption('comercial');
+    await page.waitForTimeout(300);
+    const rows = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
+    check(rows.length === 8 && ['Analista de CRM', 'Desarrollador web de la agencia', 'Gerente comercial', 'Segundo desarrollador web de la agencia'].every((n) => rows.includes(n)), 'filtro por tipo «Equipo comercial y digital»: fuerza de ventas y equipo de la capa ágil', rows);
+    await page.evaluate(() => PM.navigate('valor-ganado'));
+    await page.waitForTimeout(400);
+    await page.getByRole('tab', { name: 'Presupuesto' }).click();
+    await page.waitForSelector('[data-role="reserve-use"]', { timeout: 8000 });
+    const chg = await page.getAttribute('[data-change-resource="rec-pan"]', 'data-change-state');
+    const used = norm(await page.locator('[data-role="reserve-use"] [data-tile], [data-role="reserve-use"] .evm-reserve-tiles').first().innerText().catch(() => ''));
+    check(chg === 'aprobada', 'valor ganado: el subcontrato de la pantalla anclada figura con su solicitud CC-003 aprobada', chg);
+    check(/Ningún recurso no planificado la consume/.test(norm(await page.locator('[data-role="reserve-use"]').innerText())), 'valor ganado: ningún recurso no planificado consume la reserva para contingencias', used.slice(0, 200));
+    check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
   } finally { await browser.close(); }
   console.log(`  ${passes - before.passes}/${passes - before.passes + failures - before.failures} verificaciones`);
 }

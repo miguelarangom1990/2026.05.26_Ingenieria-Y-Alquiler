@@ -211,6 +211,51 @@ async function validateInPage(page) {
     ok(blDocs.length === 1 && lb0 && lb0.data.date === '2026-07-10' && lb0.data.includes.join() === 'scope,schedule,cost' && lb0.data.schedule.finish === '2027-01-29' && lb0.data.cost.bac === evm.bac && lb0.data.scope.wbs.length === wbs.nodes.length, 'LB0 del 10 de julio con alcance, cronograma y costos');
     ok(costs.statusUpdates.length === 5 && costs.statusUpdates.every((u) => u.date < cut) && evm.series.filter((p) => p.ev !== null).length > 10, 'cortes de avance mensuales para la serie del valor ganado');
 
+    /* ---------- catálogo de recursos (SPEC §10): tipos, asignaciones, formas de costeo, equipo Scrum y capacidad sugerida */
+    const resources = await P('/tools/resources');
+    ok(resources && resources.preset === 'ti' && resources.types.length === PM.RES.PRESETS.ti.types.length && resources.items.length >= 24, 'catálogo de recursos con los tipos del preset «Tecnología y sistemas»', resources && { preset: resources.preset, n: resources.items.length });
+    const cat = PM.res.catalog(resources, schedule);
+    const typeIds = new Set(cat.types.map((t) => t.id));
+    const RSTATUS = PM.RES.STATUS.map((x) => x.value);
+    ok(resources.items.every((it) => typeIds.has(it.typeId) && /^REC-\d{3}$/.test(it.code) && it.unit && it.subtype && PM.RES.ORIGINS.includes(it.origin) && RSTATUS.includes(it.status) && PM.isNum(it.unitCost) && it.notes) && new Set(resources.items.map((i) => i.code)).size === resources.items.length, 'recursos con tipo, subtipo, código único, unidad, costo unitario, origen y estado');
+    const asg = tasks.flatMap((t) => (t.resources || []).map((a) => ({ t, a, it: cat.resolve(a) })));
+    ok(asg.length > 60 && asg.every((x) => x.it && !x.it.virtual && x.a.resourceId === x.it.id && x.a.name === x.it.name && typeIds.has(x.it.typeId) && (cat.kindOf(x.it) === 'trabajo' ? x.a.units > 0 : x.a.qty > 0)), 'cada asignación resuelve a un recurso del catálogo con tipo (mismo nombre y resourceId), con unidades o cantidad', asg.filter((x) => !x.it || x.a.resourceId !== x.it.id).map((x) => x.t.id + ' ' + x.a.name));
+    ok(Object.entries(schedule.settings.resourceLimits).every(([n, v]) => { const it = cat.byKey.get(PM.res.key(n)); return it && it.availability === v; }), 'disponibilidad del catálogo = límites de recursos del cronograma');
+    const modes = tasks.filter((t) => (t.costMode || 'global') !== 'global');
+    const tc26 = PM.res.taskCost(tasks.find((t) => t.id === 't26'), cat);
+    ok(modes.map((t) => t.id + ':' + t.costMode).join() === 't26:mixto,t34:recursos' && modes.every((t) => PM.res.taskCost(t, cat).total === t.cost) && tc26.fixed === 8e6 && tc26.resourcesTotal === 96e6, 'formas de costeo: release 2 mixto (bolsa fija de COP 8,0 millones + equipo de COP 96,0 millones) y estabilización por recursos (COP 22,62 millones), con el mismo costo; las demás a precio global', modes.map((t) => [t.id, t.costMode, PM.res.taskCost(t, cat).total, t.cost]));
+    ok(['t25', 't27'].every((id) => { const t = tasks.find((x) => x.id === id); return PM.res.taskCost({ ...t, costMode: 'mixto', costFixed: id === 't27' ? 6e6 : 0 }, cat).total === t.cost; }), 'las tarifas del equipo cuadran también con los releases 1 y 3 (cuatro y tres iteraciones de COP 24,0 millones)');
+    ok(PM.sum(asg.filter((x) => x.t.id === 't12'), (x) => x.a.qty * x.it.unitCost) === tasks.find((t) => t.id === 't12').cost && PM.sum(asg.filter((x) => x.t.id === 't14' && cat.kindOf(x.it) === 'consumible'), (x) => x.a.qty * x.it.unitCost) === tasks.find((t) => t.id === 't14').cost, 'suscripción (210 y 105 usuarios-mes) y equipos de bodega del catálogo = presupuesto de t12 y t14');
+    const effR = PM.res.applyCosts(PM.agile.applyToSchedule(schedule, agile, items, { statusDate: cut }), resources);
+    const evmR = C.evm({ sched: C.computeSchedule(effR, meta.start), costBaseline: bls.cost, costs, statusDate: cut });
+    const EVM_EXPECTED = { bac: 601300000, pv: 355730917.5906963, ev: 345763200, ac: 352120000, spi: 0.9719796140908811, cpi: 0.9819470635010792, eac: 612354802.3618476 };
+    const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    ok(Object.entries(EVM_EXPECTED).every(([k, v]) => near(evm[k], v) && near(evmR[k], v)), 'valor ganado idéntico al esperado (BAC, PV, EV, AC, SPI, CPI y EAC), también con las formas de costeo aplicadas como en useProjectModel', Object.keys(EVM_EXPECTED).map((k) => [k, evm[k], evmR[k]]));
+    const teamR = resources.items.filter((i) => i.agileTeam);
+    ok(teamR.map((i) => i.name + ':' + i.dedication).join('|') === ['Consultor funcional ERP:100', 'Desarrollador ERP:100', 'Desarrollador de integraciones:50', 'Analista de pruebas:50', 'Analista de TI:100'].join('|') && teamR.every((i) => i.hoursPerDay === 8) && resources.items.filter((i) => !i.agileTeam && /Scrum Master|Dueño del producto/.test(i.name)).length === 2, 'equipo Scrum del catálogo: cinco personas, dos al 50 % (4 personas equivalentes); el Scrum Master y el dueño del producto no suman capacidad', teamR.map((i) => [i.name, i.dedication]));
+    const capOf = (sid) => PM.res.teamCapacity({ data: resources, schedule, sprint: sprints.find((x) => x.id === sid), cal, settings: st, velocity: vel });
+    const c5 = capOf('spr-05'), c6 = capOf('spr-06'), c7 = capOf('spr-07'), c8 = capOf('spr-08');
+    ok(c5.personDays === 37 && c6.personDays === 38 && c7.personDays === 40 && c7.normal === 40, 'días-persona de las iteraciones 5, 6 y 7: 37 (incapacidad), 38 (vacaciones del analista de TI) y 40 (el festivo del 12 de octubre no es día de la iteración), como en las planificaciones', [c5.personDays, c6.personDays, c7.personDays]);
+    ok(c8.personDays === 37.5 && c8.suggested === 27.5 && c7.suggested === 29.3 && c8.members.find((m) => m.name === 'Analista de pruebas').absentDays === 5, 'capacidad sugerida: 29,3 puntos en la iteración 7 y 27,5 en la 8 por las vacaciones del analista de pruebas (37,5 de 40 días-persona)', [c7.suggested, c8.suggested, c8.personDays]);
+    const unplR = resources.items.filter((i) => i.planned === false);
+    ok(unplR.map((i) => i.reason).sort().join() === 'rendimiento,todo-costo' && unplR.every((i) => !PM.isNum(i.reserveAmount) && !i.changeRef && !PM.RES.REASONS.find((r) => r.value === i.reason).baseline), 'no planificados: tabletas de prueba del implementador (por su cuenta, INC-001) y horas extra del ensayo de corte (acción correctiva); ninguno usa la reserva para contingencias ni cambia la línea base', unplR.map((i) => [i.name, i.reason]));
+    /* ---------- estructura de desglose de los riesgos: plan de gestión de los riesgos y subcategorías del registro */
+    {
+      const pgri = docOf('plan-gestion-riesgos');
+      const planRows = (pgri && pgri.fields.edrRiesgos) || [];
+      const n2 = new Set(planRows.map((r) => PM.res.key(r.nivel2)));
+      const rrows = docOf('registro-riesgos').fields.riesgos;
+      const rrevs = (await PM.store.list(PM.paths.revs(pid, 'registro-riesgos'))).map((r) => r.data);
+      ok(pgri && pgri.status === 'aprobado' && pgri.rev === '0' && pgri.titleBlock.fechaAprobacion === '2026-07-10', 'plan de gestión de los riesgos aprobado con la LB0 (10 de julio)', pgri && pgri.titleBlock);
+      ok(planRows.length === 8 && new Set(planRows.map((r) => r.nivel1)).size === 4 && planRows.every((r) => ['Técnico', 'De gestión', 'Comercial', 'Externo'].includes(r.nivel1) && r.ejemplos && ['Técnico', 'Externo', 'De la organización', 'Dirección de proyectos'].includes(r.categoriaRegistro)), 'estructura de desglose de los riesgos del ERP: 8 subcategorías en las 4 categorías');
+      ok(rrows.every((k) => n2.has(PM.res.key(k.subcategoria))) && rrevs.every((rv) => rv.fields.riesgos.every((k) => n2.has(PM.res.key(k.subcategoria)))), 'cada riesgo del registro (y de sus revisiones) con una subcategoría del plan', rrows.filter((k) => !n2.has(PM.res.key(k.subcategoria))).map((k) => k.id));
+      const rbr = PM.res.riskTree({ planRows, risks: rrows });
+      const leaves = []; const walk = (n, path) => { if (n.kind === 'leaf') leaves.push(path.join(' › ')); n.children.forEach((c) => walk(c, path.concat(n.label))); };
+      walk(rbr, []);
+      ok(leaves.length === rrows.length && leaves.every((p) => p.split(' › ').length === 3 && !/Sin subcategoría|Sin categoría/.test(p)), 'estructura de desglose de los riesgos completa (categoría → subcategoría → riesgo)', leaves);
+      ok(has(pgri.fields.financiamiento, F.moneyShort(costs.reserves.contingency)) && has(pgri.fields.financiamiento, F.moneyShort(costs.reserves.management)), 'plan de gestión de los riesgos: reservas para contingencias y de gestión del presupuesto');
+    }
+
     /* ---------- RACI con roles y eventos ágiles */
     const roleNames = raci.roles.map((r) => r.name);
     ok(PM.AGILE.ROLES.every((n) => roleNames.includes(n)) && roleNames.includes('Patrocinador') && roleNames.includes('Director de proyecto'), 'RACI con los roles ágiles, patrocinador y director', roleNames);
@@ -220,7 +265,7 @@ async function validateInPage(page) {
     ok(!raciBad.length, 'cada fila de la RACI con exactamente una A y al menos una R', raciBad);
 
     /* ---------- documentos: claves, estados y revisiones */
-    const EXPECT_DOCS = ['acta-constitucion', 'registro-interesados', 'registro-riesgos', 'plan-gestion-cambios', 'vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint--it6', 'planificacion-sprint--it7', ...[1, 2, 3, 4, 5, 6].flatMap((n) => ['acta-revision-sprint--it' + n, 'retrospectiva--it' + n]), 'registro-incidentes', 'registro-lecciones', 'registro-cambios', 'solicitud-cambio--cc001', 'informe-desempeno--corte-2026-10-09'];
+    const EXPECT_DOCS = ['acta-constitucion', 'registro-interesados', 'registro-riesgos', 'plan-gestion-riesgos', 'plan-gestion-cambios', 'vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint--it6', 'planificacion-sprint--it7', ...[1, 2, 3, 4, 5, 6].flatMap((n) => ['acta-revision-sprint--it' + n, 'retrospectiva--it' + n]), 'registro-incidentes', 'registro-lecciones', 'registro-cambios', 'solicitud-cambio--cc001', 'informe-desempeno--corte-2026-10-09'];
     ok(EXPECT_DOCS.every((id) => docOf(id)), 'documentos PMBOK y ágiles del ejemplo', EXPECT_DOCS.filter((id) => !docOf(id)));
     const keyBad = [];
     for (const d of docs) { const t = PM.templates[d.data.template]; const keys = t.sections.flatMap((s) => s.fields.map((x) => x.key)); const miss = keys.filter((k) => !(k in d.data.fields)); if (miss.length) keyBad.push(d.id + ': ' + miss.join(',')); }
@@ -491,6 +536,30 @@ section('Vistas con el ejemplo creado desde el selector');
     await page.waitForTimeout(300);
     const sd1 = norm(await page.evaluate(() => (document.querySelector('[data-role="sprint-docs"]') || {}).innerText || ''));
     check(/Acta de revisión de la iteración — Iteración 1 · Aprobado/.test(sd1) && /Retrospectiva de la iteración — Iteración 1 · Aprobado/.test(sd1) && /1 de 1 lección enviada/.test(sd1), 'iteración 1: acta de revisión y retrospectiva aprobadas y lección enviada al registro', sd1);
+
+    /* capacidad sugerida de la iteración 8 con el equipo Scrum del catálogo de recursos (clic y detalle con el teclado) */
+    await page.locator('[data-release-id="rel-2"]').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('tr[data-sprint-id="spr-08"] button.ags-link').first().click();
+    const capSel = '[data-role="planner"][data-sprint-id="spr-08"] [data-role="capacity-suggestion"]';
+    await page.waitForSelector(capSel, { timeout: 8000 });
+    const capTxt = norm(await page.locator(capSel).innerText()).replace(/\s+/g, ' ');
+    check(/Capacidad sugerida: 27,5 pts/.test(capTxt) && /5 miembros del equipo/.test(capTxt) && /37,5 de 40 días-persona/.test(capTxt) && /Ausencias: Analista de pruebas \(5 días hábiles\)/.test(capTxt) && /Capacidad registrada: 32 pts/.test(capTxt), 'iteración 8: capacidad sugerida de 27,5 pts por las vacaciones del analista de pruebas (37,5 de 40 días-persona)', capTxt.slice(0, 600));
+    await page.locator(capSel + ' [data-role="capacity-detail-toggle"]').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForSelector(capSel + ' [data-role="capacity-members"]', { timeout: 5000 });
+    const capRows = await page.$$eval(capSel + ' [data-role="capacity-members"] tbody tr', (trs) => trs.map((tr) => [tr.getAttribute('data-member'), ...[...tr.querySelectorAll('td')].map((td) => td.textContent.trim())]));
+    const apRow = capRows.find((r) => r[0] === 'rec-ap');
+    check(capRows.length === 5 && apRow && /^50\s%$/.test(apRow[2]) && apRow[3] === '2,5' && /^5\sdías hábiles$/.test(apRow[5]), 'detalle: cinco miembros; el analista de pruebas al 50 % con 2,5 días-persona', capRows);
+    if (shots) await page.screenshot({ path: shots + '/capacidad-iteracion-8.png', fullPage: false });
+    /* catálogo de recursos: el equipo Scrum filtrado por tipo */
+    await page.evaluate(() => PM.navigate('recursos', { tab: 'catalogo' }));
+    await page.waitForSelector('[data-rcat="1"] [data-tile="total"]', { timeout: 10000 });
+    check(norm(await page.locator('[data-tile="total"] .rcat-tile-value').innerText()) === '26' && norm(await page.locator('[data-tile="no-planificados"] .rcat-tile-value').innerText()) === '2', 'catálogo del ERP: 26 recursos y 2 no planificados');
+    await page.getByLabel('Filtrar por tipo').selectOption('consultoria');
+    await page.waitForTimeout(300);
+    const cons = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
+    check(cons.length === 9 && cons.includes('Consultor funcional ERP') && cons.includes('Analista de pruebas'), 'filtro «Consultoría y servicios»: implementador y asesores externos', cons);
 
     /* todas las vistas sin tarjetas de error */
     const views = await page.evaluate(() => PM.views.map((v) => v.id));

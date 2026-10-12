@@ -89,7 +89,28 @@ async function validateData(page) {
     ok(A.e.bac === X.bac && Math.round(A.e.pv) === X.pv && Math.round(A.e.ev) === X.ev && Math.round(A.e.ac) === X.ac, 'BAC, PV, EV y AC al corte iguales a los del informe de septiembre', A.e);
     ok(A.e.spi.toFixed(2) === '0.96' && A.e.cpi.toFixed(2) === '0.96' && Math.round(A.e.eac / 1e6) === 144703, 'SPI 0,96, CPI 0,96 y EAC de COP 144.703 M sin cambio', [A.e.spi, A.e.cpi, A.e.eac]);
     out.info.evm = A.e;
-    for (const id of ['schedule', 'quality']) ok(same(tool(data, id), tool(base, id)), 'herramienta ' + id + ' sin cambios');
+    /* la capa solo agrega al cronograma las asignaciones de su equipo en C02D (precio global y costo 0) y al catálogo de recursos su equipo */
+    const withoutTeam = (sc) => ({ ...sc, tasks: sc.tasks.map((t) => (t.id === F.taskId ? { ...t, resources: [] } : t)) });
+    ok(same(withoutTeam(tool(data, 'schedule')), tool(base, 'schedule')) && tool(base, 'schedule').tasks.find((t) => t.id === F.taskId).resources.length === 0, 'herramienta schedule sin cambios salvo las asignaciones del equipo de la capa en C02D');
+    ok(same(tool(data, 'quality'), tool(base, 'quality')), 'herramienta quality sin cambios');
+    const resA = tool(data, 'resources'), resB = tool(base, 'resources');
+    ok(resA && resB && same(resA.items.slice(0, resB.items.length), resB.items) && resA.items.length === resB.items.length + layer.team.length && same(resA.types, resB.types), 'catálogo de recursos: el de la obra más el equipo de la capa ágil (mismos códigos y tipos)', [resA && resA.items.length, resB && resB.items.length]);
+    {
+      /* equipo de la capa ágil: personas del catálogo que alimentan la capacidad sugerida (PM.res.teamCapacity) */
+      const relT = tool(data, 'schedule').tasks.find((t) => t.id === F.taskId);
+      const catA = PM.res.catalog(resA, tool(data, 'schedule'));
+      const team = resA.items.filter((i) => i.agileTeam);
+      ok(team.length === 5 && team.every((i) => i.typeId === 'comercial' && i.dedication === 85 && i.hoursPerDay === 8 && i.availability === 1) && resA.items.some((i) => !i.agileTeam && /Coordinador de mercadeo digital/.test(i.name)), 'equipo ágil: desarrollador web, diseñador, especialista en pauta, analista de CRM y el segundo desarrollador (dedicación 85 %, lunes a viernes); el facilitador no cuenta', team.map((i) => i.name));
+      ok(relT.resources.length === 5 && relT.resources.every((a) => { const it = catA.resolve(a); return it && !it.virtual && a.resourceId === it.id; }) && PM.res.taskCost(relT, catA).total === 0 && relT.cost === 0, 'el equipo asignado a C02D (precio global, costo 0) resuelve al catálogo');
+      const vel = PM.calc.velocity({ sprints: PM.agile.sortSprints(tool(data, 'agile').sprints), items: (data.collections.backlog || []).map((x) => ({ ...x.data, id: x.id })), settings: PM.agile.settings(tool(data, 'agile')) });
+      const calC = PM.cal.make(tool(data, 'schedule').settings, data.project.start);
+      const tc = (sid) => PM.res.teamCapacity({ data: resA, schedule: tool(data, 'schedule'), sprint: tool(data, 'agile').sprints.find((x) => x.id === sid), cal: calC, settings: PM.agile.settings(tool(data, 'agile')), velocity: vel });
+      const c8 = tc('spr-cd-08'), c9 = tc('spr-cd-09'), c10 = tc('spr-cd-10');
+      const m8 = (c) => c.members.filter((m) => !/Segundo/.test(m.name)).reduce((s2, m) => s2 + m.personDays, 0);
+      ok(Math.abs(m8(c8) - 65.45) < 1e-9 && c8.members.find((m) => /Diseñador/.test(m.name)).absentDays === 3, 'iteración 8: cuatro integrantes con 65,45 días-persona (17 de 20 días cada uno, menos 3 días de vacaciones del diseñador), como en su planificación', m8(c8));
+      ok(Math.abs(c9.personDays - 85) < 1e-9 && c9.members.length === 5, 'iteración 9: 85 días-persona con el segundo desarrollador (planificación de la iteración 9)', c9.personDays);
+      ok(Math.abs(c10.personDays - 83.3) < 1e-9 && c10.suggested === 18.3 && c10.members.find((m) => /Segundo/.test(m.name)).absentDays === 2, 'iteración 10: el segundo desarrollador sale el 31 de octubre; capacidad sugerida 18,3 puntos', [c10.personDays, c10.suggested]);
+    }
     ok(same(data.collections.baselines, base.collections.baselines), 'líneas base LB0 y LB1 sin cambios');
     ok(same(data.collections.flows, base.collections.flows), 'diagramas de flujo sin cambios');
     const cA = tool(data, 'costs'), cB = tool(base, 'costs');
@@ -448,6 +469,23 @@ for (const [label, opts] of [['escritorio (1360 px)', { width: 1360, height: 900
         check(g && g.rel === 'rel-canales-e2' && g.iters.length === 12 && g.iters.includes('spr-cd-09') && g.relIcon, 'Gantt: C02D con el distintivo del release y las marcas de sus 12 iteraciones', g);
         if (shots) await page.screenshot({ path: join(shots, 'agil-cronograma.png'), fullPage: false });
       }
+    }
+    /* capacidad sugerida de la iteración 10 con el equipo del catálogo (clic en la iteración y detalle con el teclado) */
+    if (opts.width >= 900) {
+      await gotoView(page, 'iteraciones');
+      await page.waitForTimeout(500);
+      await page.locator('tr[data-sprint-id="spr-cd-10"] button.ags-link').first().click();
+      const sel = '[data-role="planner"][data-sprint-id="spr-cd-10"] [data-role="capacity-suggestion"]';
+      await page.waitForSelector(sel, { timeout: 8000 });
+      const norm = (x) => String(x).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
+      const capTxt = norm(await page.locator(sel).innerText());
+      check(/Capacidad sugerida: 18,3 pts/.test(capTxt) && /5 miembros del equipo/.test(capTxt) && /83,3 de 85 días-persona/.test(capTxt) && /Fuera de su disponibilidad: Segundo desarrollador web de la agencia \(2 días hábiles\)/.test(capTxt) && /Dedicación parcial/.test(capTxt), 'iteración 10: capacidad sugerida de 18,3 pts con el equipo del catálogo (el segundo desarrollador sale el 31 de octubre)', capTxt.slice(0, 500));
+      await page.locator(sel + ' [data-role="capacity-detail-toggle"]').focus();
+      await page.keyboard.press('Enter');
+      await page.waitForSelector(sel + ' [data-role="capacity-members"]', { timeout: 5000 });
+      const members = await page.$$eval(sel + ' [data-role="capacity-members"] tbody tr', (trs) => trs.map((tr) => tr.getAttribute('data-member')));
+      check(members.length === 5 && members.includes('rec-ag-web2') && members.includes('rec-ag-crm') && !members.includes('rec-ag-coo'), 'detalle de la capacidad: los cinco miembros del equipo ágil (sin el facilitador)', members);
+      if (shots) await page.screenshot({ path: join(shots, 'agil-capacidad-it10.png'), fullPage: false });
     }
     /* valor ganado ágil del release frente al del proyecto */
     {

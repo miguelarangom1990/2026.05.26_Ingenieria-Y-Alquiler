@@ -57,7 +57,7 @@ try {
     const STATUS = ['aprobado', 'revision', 'borrador'];
     const REV = /^(\d+|[A-Z]|\d+[A-Z])$/;
     const FIXED = {
-      'registro-riesgos.riesgos': ['id', 'descripcion', 'causa', 'efecto', 'categoria', 'tipo', 'probabilidad', 'impacto', 'propietario', 'estrategia', 'respuesta', 'disparador', 'reserva', 'estado'],
+      'registro-riesgos.riesgos': ['id', 'descripcion', 'causa', 'efecto', 'categoria', 'subcategoria', 'tipo', 'probabilidad', 'impacto', 'propietario', 'estrategia', 'respuesta', 'disparador', 'reserva', 'estado'],
       'registro-interesados.interesados': ['nombre', 'cargo', 'organizacion', 'rol', 'contacto', 'requisitos', 'expectativas', 'poder', 'interes', 'influencia', 'clasificacion', 'actitud', 'nivelActual', 'nivelDeseado'],
       'mediciones-control-calidad.mediciones': ['fecha', 'entregable', 'metrica', 'resultado', 'conforme', 'causa', 'accion'],
     };
@@ -167,6 +167,10 @@ try {
     out.totals.rfi = [rfi.fields.presupuestoTotal, rfi.fields.lineaBaseCostos, rfi.fields.reservaGestion];
     const rr = src['registro-riesgos'];
     out.totals.riesgos = [rr.fields, ...rr.revs.map((r) => r.fields)].map((f) => ({ n: f.riesgos.length, reserva: f.riesgos.filter((r) => r.tipo === 'Amenaza').reduce((s, r) => s + (r.reserva || 0), 0), fit: f.riesgos.map((r) => colOf('registro-riesgos', 'riesgos', 'coherenciaEstrategia').calc(r, f.riesgos)).filter((x) => x !== 'Coherente').length }));
+    /* estructura de desglose de los riesgos: la subcategoría (nivel 2) de cada riesgo existe en el plan de gestión de los riesgos */
+    const pgri = src['plan-gestion-riesgos'];
+    const n2 = new Set((pgri.fields.edrRiesgos || []).map((r) => String(r.nivel2 || '').trim().toLowerCase()));
+    out.totals.subcategorias = { niveles: n2.size, sinSubcategoria: [rr.fields, ...rr.revs.map((r) => r.fields)].flatMap((f, i) => f.riesgos.filter((r) => !n2.has(String(r.subcategoria || '').trim().toLowerCase())).map((r) => i + ':' + r.id)) };
     const aq = src['analisis-cuantitativo'];
     out.totals.vme = [aq.fields, ...aq.revs.map((r) => r.fields)].map((f) => ({ amenazas: lastCalc('analisis-cuantitativo', 'riesgos', 'vmeAmenazas', f.riesgos), oportunidades: lastCalc('analisis-cuantitativo', 'riesgos', 'vmeOportunidades', f.riesgos), reserva: f.reservaRecomendada }));
     const ir = src['informe-riesgos'].fields;
@@ -239,6 +243,7 @@ try {
   check(T.asig.join(',') === 'Gerente de proyecto|2029-06-28,Estructurador financiero|2029-06-28,Gerente comercial|2029-03-15,Abogado del proyecto|2029-06-28,Contador del proyecto|2029-06-28', 'asignaciones al corte: roles del promotor hasta el fin pronosticado (G05/G06 el 28 de junio de 2029; gerente comercial con C13)', T.asig);
   check(T.arranque.some((x) => /416 viviendas \(104 VIS y 312 No VIS\)/.test(x)) && !T.arranque.some((x) => /400 a 500/.test(x)), 'reunión de arranque: objetivos con las 416 viviendas del acta de constitución', T.arranque);
   check(T.contingencia.join(' ; ') === '2,5 % ; 3 % / 2,75 %', 'estimación de costos: la columna «Contingencia (%)» muestra 2,5 % (LB1) y 3 % / 2,75 % (LB0)', T.contingencia);
+  check(T.subcategorias.niveles === 11 && !T.subcategorias.sinSubcategoria.length, 'cada riesgo del registro (y de sus revisiones LB0 y LB1) tiene una subcategoría de la estructura de desglose de los riesgos del plan', T.subcategorias);
   check(T.riesgos.every((x) => x.fit === 0), 'todas las estrategias son coherentes con el tipo de riesgo', T.riesgos);
   check(T.vme[0].amenazas === -2043 * M && Math.abs(T.vme[0].oportunidades - 641.2 * M) < 1 && T.vme[0].reserva === 2043 * M, 'análisis cuantitativo al corte: VME de amenazas abiertas −2.043 M, oportunidades +641,2 M (R-014: 40 % de COP 1.603 M), reserva recomendada 2.043 M', T.vme[0]);
   check(!T.scaleOff.length, 'el impacto (1–5) de cada riesgo del registro corresponde a la escala de costo del plan con el impacto del análisis cuantitativo (corte, LB0 y LB1)', T.scaleOff);

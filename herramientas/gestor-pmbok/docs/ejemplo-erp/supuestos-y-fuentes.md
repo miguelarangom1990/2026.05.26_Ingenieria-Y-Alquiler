@@ -167,7 +167,28 @@ Estas cifras no se escriben a mano: salen de `PM.calc` y `PM.agile` con los dato
 
 ---
 
-## 9. Limitaciones
+## 9. Catálogo de recursos (9.2, 9.3 y 9.6)
+
+La herramienta «resources» del ejemplo (`src/94-example-erp.js`, SPEC §10) tiene 26 recursos con los tipos del preset «Tecnología y sistemas» y un recurso por cada nombre de las asignaciones del cronograma (las asignaciones llevan `resourceId`). Las tarifas son supuestos coherentes con las secciones 4 a 7.
+
+| Recurso | Tipo | Costo unitario | Base |
+|---|---|---|---|
+| Consultor funcional ERP, desarrollador ERP, desarrollador de integraciones y analista de pruebas | Consultoría y servicios (implementador) | COP 660.000 por día | 8 h × COP 82.500; los dos primeros al 100 % y los otros dos al 50 % suman las 240 horas por iteración del precio fijo |
+| Analista de TI | Personas del proyecto | COP 420.000 por día | COP 4,2 M por iteración de 10 días hábiles |
+| Scrum Master / facilitador | Personas del proyecto | COP 360.000 por día | COP 1,8 M por iteración al 50 % |
+| Dueño del producto | Personas del proyecto | 0 | Su tiempo no se imputa al proyecto (sección 6) |
+| Director de proyecto (jefe de la PMO) | Personas del proyecto | COP 628.600 por día | COP 3,3 M al mes al 25 % |
+| Suscripción del ERP | Licencias y suscripciones | COP 320.000 y COP 96.000 por usuario-mes | 210 usuarios-mes completos y 105 limitados = COP 77,28 M (t12) |
+| Tabletas, lectores, impresoras y red inalámbrica | Equipos de cómputo e infraestructura | COP 2,8 M, 1,1 M, 1,6 M y 7,0 M | 4, 6, 2 y 1 = COP 28,0 M (t14) |
+
+- **Formas de costeo.** Todas las actividades conservan su precio global salvo dos cuyo costo calculado es exactamente el presupuestado: el release 2 (t26) de forma mixta, con la bolsa fija de COP 8,0 M del conector más el equipo (40 días × COP 2,4 M = COP 96,0 M), y la estabilización (t34) por recursos (13 días × COP 1,74 M = COP 22,62 M). El valor ganado de la sección 8 no cambia.
+- **Equipo Scrum y capacidad sugerida.** Las cinco personas del equipo de desarrollo están marcadas como equipo ágil con su dedicación (dos al 50 %) y 8 horas por día, con las ausencias de las planificaciones: incapacidad del desarrollador ERP del 15 al 17 de septiembre (iteración 5: 37 días-persona), vacaciones del analista de TI el 1 y el 2 de octubre (iteración 6: 38) y vacaciones del analista de pruebas del 26 al 30 de octubre (iteración 8: 37,5 de 40). La capacidad sugerida es la velocidad media (29,3 puntos) por esa proporción: 29,3 puntos en la iteración 7 y **27,5 puntos** en la 8. Los festivos del 12 de octubre y del 2 de noviembre no son días de esas iteraciones. En el histograma, los días de ausencia aparecen sin disponibilidad frente a la asignación del release.
+- **No planificados.** Las tabletas de prueba del implementador que el equipo usó mientras llegaban las importadas (INC-001), por cuenta del contratista, y las horas extra del ensayo de corte del release 1 (acción correctiva: su costo es una variación). Ninguno usa la reserva para contingencias, que no se ha usado, ni cambia la línea base.
+- **Estructura de desglose de los riesgos.** El plan de gestión de los riesgos (rev. 0, aprobado con la LB0) define ocho subcategorías en las cuatro categorías; cada riesgo del registro, y de sus revisiones, tiene la suya.
+
+---
+
+## 10. Limitaciones
 
 - Las cifras son supuestos de un ejemplo didáctico. Precios de suscripción, tarifas, equipos y plazos cambian por fabricante, implementador, número de usuarios, tasa de cambio y fecha; un proyecto real debe cotizarlos.
 - Las fuentes de la sección 2 son guías comerciales de proveedores; sus rangos son amplios y no distinguen el mercado colombiano (salvo Softland en plazos y facturación electrónica).

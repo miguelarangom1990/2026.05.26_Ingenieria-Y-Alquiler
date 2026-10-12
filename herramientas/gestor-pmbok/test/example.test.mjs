@@ -475,11 +475,11 @@ if (!args.includes('--quick')) {
     await page.waitForTimeout(300);
     const rows = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
     check(rows.length === 3 && rows.some((n) => /Diagonales de 2,57 m/.test(n)) && rows.some((n) => /Llave de impacto de reemplazo/.test(n)), 'filtro «No planificados»: diagonales del otrosí, jornada extendida y llave de reemplazo', rows);
-    await page.getByLabel('Buscar recursos').fill('Cuadrilla');
+    await page.getByLabel('Buscar recursos').fill('REC-008');
     await page.getByLabel('Filtrar por planificación').selectOption('');
     await page.waitForTimeout(300);
     const cua = await page.$$eval('[data-rcat-row]', (els) => els.map((e) => e.getAttribute('data-rcat-row')));
-    check(cua.length === 1 && cua[0] === 'Cuadrilla de montaje', 'búsqueda en el catálogo: «Cuadrilla de montaje»', cua);
+    check(cua.length === 1 && cua[0] === 'Cuadrilla de montaje', 'búsqueda por código en el catálogo: REC-008 «Cuadrilla de montaje»', cua);
     /* valor ganado: consumo de la reserva para contingencias por los recursos no planificados */
     await page.evaluate(() => PM.navigate('valor-ganado'));
     await page.waitForTimeout(400);
