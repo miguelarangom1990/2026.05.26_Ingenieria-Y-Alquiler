@@ -18,7 +18,7 @@
   const isNum = (v) => v !== null && v !== '' && v !== undefined && Number.isFinite(Number(v));
 
   /* ---------------------------------------------------------------- constantes */
-  const T = (id, name, kind, edr) => ({ id, name, kind, edr });
+  const T = (id, name, kind, edr, costCategory) => ({ id, name, kind, edr, ...(costCategory ? { costCategory } : {}) });
   const PRESETS = {
     general: { label: 'General', types: [
       T('humano', 'Humano (personal)', 'trabajo', 'Personal'), T('maquinaria', 'Maquinaria y equipo', 'trabajo', 'Equipos'),
@@ -29,7 +29,7 @@
     construccion: { label: 'Construcción y obra', types: [
       T('mano-obra', 'Mano de obra', 'trabajo', 'Personal'), T('profesional', 'Personal profesional y administrativo', 'trabajo', 'Personal'),
       T('maquinaria', 'Maquinaria y equipo', 'trabajo', 'Equipos'), T('herramienta', 'Herramienta menor', 'trabajo', 'Equipos'),
-      T('material', 'Materiales', 'consumible', 'Materiales'), T('subcontrato', 'Subcontratos', 'trabajo', 'Servicios'),
+      T('material', 'Materiales', 'consumible', 'Materiales'), T('subcontrato', 'Subcontratos', 'trabajo', 'Servicios', 'Subcontratos'),
       T('transporte', 'Transporte y acarreos', 'trabajo', 'Transporte'),
     ] },
     alquiler: { label: 'Alquiler y montaje de equipos', types: [
@@ -44,8 +44,29 @@
     ] },
   };
   const UNCLASSIFIED = { id: 'sin-clasificar', name: 'Sin clasificar', kind: 'trabajo', edr: 'Personal', virtual: true };
+  /* Plural de una unidad («hora» → «horas», «usuario-mes» → «usuarios-mes»); los símbolos (m, m², kg, t, h…) no cambian.
+     PM.RES.unitN(n, unidad): la unidad en singular para 1 y en plural para lo demás. */
+  const PLURAL = { unidad: 'unidades', persona: 'personas', cuadrilla: 'cuadrillas', equipo: 'equipos', hora: 'horas', 'día': 'días', mes: 'meses', 'galón': 'galones', licencia: 'licencias', kit: 'kits', paquete: 'paquetes', global: 'global', viaje: 'viajes', bulto: 'bultos', rollo: 'rollos', juego: 'juegos', servicio: 'servicios', semana: 'semanas', usuario: 'usuarios', 'camión': 'camiones' };
+  const pluralWord = (w) => {
+    const lw = w.toLowerCase();
+    if (PLURAL[lw]) return PLURAL[lw];
+    if (w.length < 3 || /[^a-záéíóúüñ]/i.test(w)) return w;
+    if (/[aeiouáéó]$/i.test(w)) return w + 's';
+    if (/ón$/i.test(w)) return w.slice(0, -2) + 'ones';
+    if (/[nrld]$/i.test(w)) return w + 'es';
+    return w;
+  };
+  const plural = (unit) => {
+    const u = String(unit ?? '').trim();
+    if (!u) return u;
+    const m = /^([^\s-]+)([\s-].*)?$/.exec(u);
+    return m ? pluralWord(m[1]) + (m[2] || '') : u;
+  };
+  const unitN = (n, unit) => (Math.abs(Number(n) - 1) < 1e-9 ? String(unit ?? '') : plural(unit));
   PM.RES = {
     PRESETS,
+    plural,
+    unitN,
     UNCLASSIFIED,
     KINDS: [
       { value: 'trabajo', label: 'Trabajo (unidades por día)', hint: 'Personas, cuadrillas, máquinas, equipos o servicios: se asignan en unidades por día hábil y entran al histograma.' },
@@ -129,6 +150,10 @@
     return { types, items, byId, byKey, resolve, kindOf: (item) => res.kindOf(types, item), typeOf: (item) => res.typeOf(types, item && item.typeId) };
   };
 
+  /* categoría de costo (PM.RES.COST_CATEGORIES) de un tipo de recurso: la suya (costCategory) o la de su categoría EDR */
+  const EDR_COST = { Personal: 'Mano de obra', Equipos: 'Equipos', Materiales: 'Materiales', Transporte: 'Transporte', Servicios: 'Servicios' };
+  res.costCategoryOf = (type) => (type && PM.RES.COST_CATEGORIES.includes(type.costCategory) ? type.costCategory : (type && EDR_COST[type.edr]) || 'Otros');
+
   /* ---------------------------------------------------------------- costos de las actividades */
   const durOf = (t) => (t && !t.milestone ? Math.max(0, num(t.duration, 0)) : 0);
   /* cantidad y costo de una asignación: trabajo → unidades/día × días × costo por unidad-día; consumible → cantidad × costo */
@@ -170,9 +195,10 @@
     const own = (task && task.costCategory) || null;
     if (c.mode === 'global' || c.mode === 'unitario' || !c.lines.length) return [{ category: own || 'Sin categoría', value: total }];
     const out = new Map();
-    const typeCat = (l) => (l.item ? cat.typeOf(l.item).name : UNCLASSIFIED.name);
+    /* cada línea va a la categoría de costo de su tipo de recurso; la parte fija, a la de la actividad (u «Otros») */
+    const typeCat = (l) => res.costCategoryOf(l.item ? cat.typeOf(l.item) : UNCLASSIFIED);
     for (const l of c.lines) if (l.cost) out.set(typeCat(l), (out.get(typeCat(l)) || 0) + l.cost);
-    if (c.fixed) out.set(own || 'Costo fijo', (out.get(own || 'Costo fijo') || 0) + c.fixed);
+    if (c.fixed) out.set(own || 'Otros', (out.get(own || 'Otros') || 0) + c.fixed);
     const sum = [...out.values()].reduce((a, b) => a + b, 0);
     /* si el costo dado (p. ej. de la línea base) difiere del calculado, se reparte en la misma proporción */
     const f = sum > 0 ? total / sum : 0;
@@ -237,7 +263,8 @@
     /* referencia de la velocidad: las mismas iteraciones cerradas del promedio (≤ 3 últimas), con el equipo de entonces
        (también quienes ya fueron liberados, dentro de su rango de disponibilidad) */
     const closed = arr(velocity && velocity.rows).filter((r) => isObj(r) && r.status === 'cerrado').slice(-3);
-    const refTeam = cat.items.filter(isTeam);
+    /* sin «Disponible desde», un miembro no planificado empieza en su fecha de alta: no cuenta en iteraciones anteriores */
+    const refTeam = cat.items.filter(isTeam).map((m) => (!D.valid(m.availableFrom) && m.planned === false && D.valid(m.addedDate) ? { ...m, availableFrom: m.addedDate } : m));
     const refRows = closed.every((r) => D.valid(r.start) && D.valid(r.end) && r.start <= r.end)
       ? closed.map((r) => ({ id: r.id, name: r.name || '', personDays: refTeam.reduce((s, m) => s + memberDays(m, workdaysOf(cal, r.start, r.end).days).personDays, 0) }))
       : [];
@@ -249,6 +276,28 @@
     const avg = velocity && isNum(velocity.avg3) ? Number(velocity.avg3) : null;
     out.suggested = out.unit === 'horas' ? Math.round(out.hours * 10) / 10 : avg !== null && out.ratio !== null ? Math.round(avg * out.ratio * 10) / 10 : null;
     return out;
+  };
+
+  /* Uso de la reserva para contingencias (SPEC §10.3). costs.reserves.contingency es el total del plan y no se descuenta al
+     usarla: el consumo se registra en cada recurso no planificado por riesgo (reserveAmount). Lo consumido pasa a las
+     cuentas de control: las actividades por recursos o mixtas ya suman el costo de sus asignaciones (assigned); lo que no
+     está en ninguna (unassigned = Σ max(0, reserveAmount − asignado)) se muestra aparte. Disponible = total − consumido.
+     → {total, consumed, available, assigned, unassigned, items:[{item, amount, assigned, unassigned}]} */
+  res.reserveUse = function ({ data, schedule, contingency } = {}) {
+    const cat = res.catalog(data, schedule);
+    const risk = cat.items.filter((it) => !it.virtual && it.planned === false && it.reason === 'riesgo');
+    const inCost = new Map();
+    if (risk.length) {
+      const ids = new Set(risk.map((it) => it.id));
+      for (const t of arr(schedule && schedule.tasks)) {
+        if (!isObj(t) || (t.costMode !== 'recursos' && t.costMode !== 'mixto')) continue;
+        for (const a of arr(t.resources)) { if (!isObj(a)) continue; const l = res.assignment(cat, t, a); if (l.item && ids.has(l.item.id)) inCost.set(l.item.id, (inCost.get(l.item.id) || 0) + l.cost); }
+      }
+    }
+    const items = risk.map((it) => { const amount = isNum(it.reserveAmount) ? Math.max(0, Number(it.reserveAmount)) : 0; const assigned = inCost.get(it.id) || 0; return { item: it, amount, assigned, unassigned: Math.max(0, amount - assigned) }; });
+    const total = Math.max(0, num(contingency, 0));
+    const consumed = items.reduce((a, x) => a + x.amount, 0);
+    return { total, consumed, available: total - consumed, assigned: items.reduce((a, x) => a + Math.min(x.amount, x.assigned), 0), unassigned: items.reduce((a, x) => a + x.unassigned, 0), items };
   };
 
   /* ---------------------------------------------------------------- estructuras de desglose (árboles) */
@@ -282,7 +331,7 @@
       const kind = cat.kindOf(it);
       parent.children.push(node('r:' + it.id, it.name, {
         kind: 'leaf', code: it.code || '', metric: 'money', value: u.cost, qty: u.qty, unit: it.unit || '', resKind: kind, tasks: u.tasks,
-        sub: (kind === 'consumible' ? PM.fmt.num(u.qty, 1) + ' ' + (it.unit || 'u.') : PM.fmt.num(u.qty, 1) + ' días-recurso') + (u.tasks ? ' · ' + u.tasks + (u.tasks === 1 ? ' actividad' : ' actividades') : ' · sin asignar'),
+        sub: (kind === 'consumible' ? PM.fmt.num(u.qty, 1) + ' ' + (it.unit ? PM.RES.unitN(u.qty, it.unit) : 'u.') : PM.fmt.num(u.qty, 1) + (Math.abs(u.qty - 1) < 1e-9 ? ' día-recurso' : ' días-recurso')) + (u.tasks ? ' · ' + u.tasks + (u.tasks === 1 ? ' actividad' : ' actividades') : ' · sin asignar'),
         badge: it.planned === false ? 'No planificado' : it.virtual ? 'Sin clasificar' : null, tone: it.planned === false ? 'warn' : null, planned: it.planned !== false,
       }));
     }
@@ -304,12 +353,18 @@
       ? baseline.cost.tasks.filter(isObj).map((b) => ({ id: b.id, name: b.name || (live.get(b.id) || {}).name || b.id, cost: num(b.cost, 0), wbsId: blWbs.has(b.id) ? blWbs.get(b.id) : (live.get(b.id) || {}).wbsId || null, task: live.get(b.id) || { id: b.id } }))
       : [...live.values()].map((t) => ({ id: t.id, name: t.name || t.id, cost: num(t.cost, 0), wbsId: t.wbsId || null, task: t }));
     const rv = useBl ? { contingency: num(baseline.cost.contingency, 0), management: num(baseline.cost.management, 0) } : { contingency: num(reserves && reserves.contingency, 0), management: num(reserves && reserves.management, 0) };
+    /* plan vigente: la reserva para contingencias que se suma es la disponible (total − consumido por riesgos, §10.3); lo
+       consumido que no está en ninguna actividad calculada se muestra como cuenta aparte, así el total no se duplica ni se pierde */
+    const ru = useBl ? null : res.reserveUse({ data, schedule: { tasks: [...live.values()] }, contingency: rv.contingency });
+    const contValue = ru && ru.consumed > 0 ? Math.max(0, ru.available) : rv.contingency;
+    const extra = ru ? ru.unassigned : 0;
     const bac = rows.reduce((s, r) => s + r.cost, 0);
-    const root = node('cbs', 'Presupuesto del proyecto', { metric: 'money', kind: 'root', value: bac + rv.contingency + rv.management });
+    const root = node('cbs', 'Presupuesto del proyecto', { metric: 'money', kind: 'root', value: bac + extra + contValue + rv.management });
     const mgmt = node('cbs:gestion', 'Reserva de gestión', { metric: 'money', kind: 'reserve', value: rv.management, sub: 'Incógnitas desconocidas; fuera de la línea base' });
-    const base = node('cbs:lb', 'Línea base de costos', { metric: 'money', kind: 'group', value: bac + rv.contingency, sub: useBl ? (baseline.label || 'Línea base') : 'Plan actual' });
-    const cont = node('cbs:cont', 'Reserva para contingencias', { metric: 'money', kind: 'reserve', value: rv.contingency, sub: 'Riesgos identificados' });
+    const base = node('cbs:lb', 'Línea base de costos', { metric: 'money', kind: 'group', value: bac + extra + contValue, sub: useBl ? (baseline.label || 'Línea base') : 'Plan actual' });
+    const cont = node('cbs:cont', 'Reserva para contingencias', { metric: 'money', kind: 'reserve', value: contValue, sub: ru && ru.consumed > 0 ? 'Disponible para riesgos identificados (ya se usó parte)' : 'Riesgos identificados', reserveTotal: rv.contingency, reserveConsumed: ru ? ru.consumed : 0 });
     root.children = [mgmt, base]; base.children = [cont];
+    if (extra > 0) base.children.push(node('cbs:riesgos', 'Respuestas a riesgos sin actividad', { metric: 'money', kind: 'reserve', value: extra, sub: 'Consumo de la reserva en recursos no asignados a actividades por recursos', badge: 'Reserva usada' }));
     const actNode = (r) => node('a:' + r.id, r.name, { metric: 'money', kind: 'leaf', value: r.cost, code: '', sub: (r.task && r.task.costMode && r.task.costMode !== 'global') ? (PM.RES.COST_MODES.find((m) => m.value === r.task.costMode) || {}).label : null });
     if (by === 'categoria') {
       const cats = new Map();
@@ -318,7 +373,7 @@
         c.value += s.value;
         if (showActivities) c.children.push(node('a:' + r.id + ':' + res.key(s.category), r.name, { metric: 'money', kind: 'leaf', value: s.value }));
       }
-      base.children.push(...[...cats.values()].sort((a, b) => b.value - a.value));
+      base.children.push(...[...cats.values()].filter((c) => showActivities ? c.children.length || c.value : Math.abs(c.value) > 1e-9).sort((a, b) => b.value - a.value));
       return finish(root);
     }
     const t = tree || PM.calc.wbsTree([]);
@@ -384,11 +439,20 @@
       const lvl = PM.calc.riskLevel(score);
       const desc = String(k.descripcion || '').trim();
       parent.children.push(node('k:' + (k.id || PM.uid('k')), (k.id ? k.id + ' · ' : '') + (desc.length > 90 ? desc.slice(0, 88) + '…' : desc || 'Sin descripción'), {
-        metric: 'score', kind: 'leaf', value: score, code: k.id || '', level: lvl.label, tone: lvl.tone,
+        metric: 'score', kind: 'leaf', value: score, code: k.id || '', level: lvl.label, tone: k.tipo === 'Oportunidad' ? (score ? 'good' : null) : lvl.tone, opportunity: k.tipo === 'Oportunidad',
         sub: (k.tipo || 'Amenaza') + ' · ' + (score ? 'P×I ' + score + ' (' + lvl.label + ')' : 'Sin evaluar') + (k.estado ? ' · ' + k.estado : ''), badge: k.tipo === 'Oportunidad' ? 'Oportunidad' : null,
       }));
     }
-    const count = (n) => { if (n.kind === 'leaf') return 1; n.value = n.children.reduce((s, c) => s + count(c), 0); n.max = n.children.reduce((m, c) => Math.max(m, c.kind === 'leaf' ? c.value : c.max || 0), 0); if (n.max) { const lv = PM.calc.riskLevel(n.max); n.tone = lv.tone; n.level = lv.label; } return n.value; };
+    /* el nivel máximo y el tono de cada grupo salen solo de las amenazas; las oportunidades se cuentan aparte */
+    const count = (n) => {
+      if (n.kind === 'leaf') return 1;
+      n.value = n.children.reduce((s, c) => s + count(c), 0);
+      n.max = n.children.reduce((m, c) => Math.max(m, c.kind === 'leaf' ? (c.opportunity ? 0 : c.value) : c.max || 0), 0);
+      n.opportunities = n.children.reduce((a, c) => a + (c.kind === 'leaf' ? (c.opportunity ? 1 : 0) : c.opportunities || 0), 0);
+      n.threats = n.value - n.opportunities;
+      if (n.max) { const lv = PM.calc.riskLevel(n.max); n.tone = lv.tone; n.level = lv.label; }
+      return n.value;
+    };
     count(root);
     root.children = root.children.filter((c) => c.value > 0 || rows.length);
     return root;

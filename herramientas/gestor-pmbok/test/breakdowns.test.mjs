@@ -100,7 +100,9 @@ async function seed(page, pid, { plan = true } = {}) {
     const project = { id: pid, ...(await PM.store.get(PM.paths.project(pid))) };
     await PM.store.set(PM.paths.tool(pid, 'wbs'), { nodes: WBS });
     await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [] }, tasks: TASKS });
-    await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [], statusUpdates: [], reserves: { contingency: 4000000, management: 2000000 } });
+    /* reserva para contingencias de 24 M: la grúa no planificada (respuesta al riesgo R-002) consumió 20 M y está asignada a
+       t4 (mixto); en el plan vigente quedan 4 M disponibles (SPEC §10.3: lo consumido pasa a las cuentas de control) */
+    await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [], statusUpdates: [], reserves: { contingency: 24000000, management: 2000000 } });
     await PM.store.set(PM.paths.tool(pid, 'resources'), RESOURCES);
     await PM.store.set(PM.paths.baseline(pid, 'lb0'), BASELINE);
     const doc = (tid, fields) => { const b = PM.newDocBody(PM.templates[tid], project, { template: tid }); b.fields = { ...b.fields, ...fields }; return b; };
@@ -180,7 +182,8 @@ await step('Costos: nivel de las cuentas de control, actividades, categoría de 
   await page.locator('[data-brk="costos"]').getByRole('button', { name: 'Categoría de costo' }).click(); await page.waitForTimeout(400);
   n = await readTree(page, CBS);
   const cats = Object.fromEntries(n.filter((x) => x.parent === 'cbs:lb' && x.uid !== 'cbs:cont').map((x) => [x.uid, x.value]));
-  const want = { 'c:izaje y transporte': 20000000, 'c:personal y cuadrillas': 14000000, 'c:sin categoría': 8500000, 'c:equipo de alquiler (andamios, formaletas)': 5000000, 'c:costo fijo': 4000000, 'c:indirectos': 3000000, 'c:insumos y repuestos': 2000000 };
+  /* categorías de costo (PM.RES.COST_CATEGORIES): cada tipo de recurso por su categoría EDR; la parte fija sin categoría, «Otros» */
+  const want = { 'c:transporte': 20000000, 'c:mano de obra': 14000000, 'c:sin categoría': 8500000, 'c:equipos': 5000000, 'c:otros': 4000000, 'c:indirectos': 3000000, 'c:materiales': 2000000 };
   assert(Object.entries(want).every(([k, v]) => near(cats[k], v)), 'categorías de costo', cats);
   assert(await depth.isDisabled(), 'el nivel no aplica al agrupar por categoría');
   assert(!sumErrors(n).length && near(byUid(n, 'cbs').value, 62500000), 'sumas por categoría', sumErrors(n));
@@ -573,7 +576,10 @@ await step('Proyecto de ejemplo: presupuesto = BAC + reservas y riesgos ubicados
       const pid = PM.getState().projectId;
       const costs = (await PM.store.get(PM.paths.tool(pid, 'costs'))) || {}; const res = costs.reserves || {};
       const project = await PM.store.get(PM.paths.project(pid));
-      return { reserves: PM.num(res.contingency) + PM.num(res.management), budget: PM.num(project.budget) };
+      const resources = await PM.store.get(PM.paths.tool(pid, 'resources')); const schedule = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+      /* plan vigente: reserva para contingencias disponible (total − consumido por recursos de respuesta a riesgos) */
+      const ru = PM.res.reserveUse({ data: resources, schedule: PM.res.applyCosts(schedule, resources), contingency: PM.num(res.contingency) });
+      return { reserves: (ru.consumed > 0 ? Math.max(0, ru.available) : PM.num(res.contingency)) + PM.num(res.management), budget: PM.num(project.budget) };
     });
     const n = await readTree(v.page, CBS);
     const acc = n.filter((x) => x.parent === 'cbs:lb' && x.uid !== 'cbs:cont').reduce((s, x) => s + x.value, 0);

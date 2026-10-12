@@ -628,20 +628,30 @@ Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto
   resourcesTotal, lines, unpriced, unitario, manual}`; `applyCosts(schedule, data)`: lo aplica a las actividades no «global»
   (`cost` = calculado, `costManual`, `costComputed: true`). `useProjectModel` lo aplica en `effSchedule`, así entra al CPM, la curva S,
   el valor ganado sin línea base y las nuevas líneas base. **La línea base guardada no cambia**: muestra la diferencia.
-- `costSplit(task, cat, cost?)` → `[{category, value}]` (por tipo de recurso; precio global por `costCategory`).
+- `costSplit(task, cat, cost?)` → `[{category, value}]` en `PM.RES.COST_CATEGORIES`: cada línea por `costCategoryOf(tipo)` (el
+  `costCategory` del tipo o su categoría EDR: Personal → Mano de obra, Equipos, Materiales, Transporte, Servicios; si no,
+  Otros); la parte fija y el precio global por el `costCategory` de la actividad (fija sin categoría → Otros; global → Sin categoría).
+- `PM.RES.plural(unidad)` / `PM.RES.unitN(n, unidad)`: unidades en plural («hora» → «horas», «usuario-mes» → «usuarios-mes»;
+  los símbolos no cambian). Usarlas en 36, 40 y 42 al escribir cantidades.
+- `reserveUse({data, schedule, contingency})`: ver §10.3.
 - `usage(cat, tasks)` → `Map(id → {tasks:[{task, units, qty, cost}], count, qty, cost})` (uso de cada recurso en el cronograma).
 - `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members[{…, normal, absentDays,
   inRangeDays}], personDays, normal, hours, ratio, suggested, unit, reference:{kind:'velocidad'|'habitual', personDays, sprints}}`
   (miembros: `agileTeam`, de trabajo y no liberados; sugerida en horas, o en puntos = velocidad media × `ratio`). `ratio` =
   días-persona de la iteración / referencia: «velocidad» = promedio de días-persona de las ≤ 3 últimas iteraciones cerradas de
-  `velocity.rows` (las del promedio `avg3`, con el equipo de entonces, también los liberados, dentro de su rango); si alguna no
+  `velocity.rows` (las del promedio `avg3`, con el equipo de entonces, también los liberados, dentro de su rango; un no
+  planificado sin `availableFrom` empieza en su `addedDate`); si alguna no
   tiene fechas, «habitual» = `normal` (`sprintLength` × unidades × dedicación de cada miembro disponible algún día de la
   iteración; quien está fuera de su rango toda la iteración no cuenta). `absentDays`: ausencias dentro del rango.
 - Árboles para diagramas (nodo `{id, label, code?, sub?, value, metric:'money'|'count'|'score', pct, tone?, badge?, kind:'root'|'group'|'reserve'|'leaf', children}`):
   `rbsTree({data, schedule, sched})` (recursos: tipo → subtipo → recurso), `cbsTree({tree, sched, schedule, data, baseline, reserves,
   source:'plan'|'baseline', controlDepth, showActivities, by:'edt'|'categoria'})` (costos, gráfico 7-8 del PMBOK),
   `riskTree({planRows, risks})` (riesgos: `plan-gestion-riesgos.edrRiesgos` (nivel1, nivel2, categoriaRegistro) → riesgos de
-  `registro-riesgos.riesgos`, ubicados por `subcategoria` (columna opcional nueva) o por su `categoria`).
+  `registro-riesgos.riesgos`, ubicados por `subcategoria` (columna opcional nueva) o por su `categoria`; las hojas de oportunidad
+  llevan `opportunity: true` y tono `good`; `max`, `tone` y `level` de cada grupo salen solo de las amenazas; los grupos traen
+  `threats` y `opportunities`). En `cbsTree` por categoría se omiten las categorías en 0 (salvo con actividades); en el plan
+  vigente la reserva para contingencias es la disponible (nodo con `reserveTotal`, `reserveConsumed`) y, si hay consumo sin
+  actividad, un nodo `cbs:riesgos` «Respuestas a riesgos sin actividad».
 - `PM.changeControl.register({pid, project, description, justification, scope, days, cost, affected, requester, type, date, quiet})` →
   `{code, docId}`: crea `solicitud-cambio--<uid>` (decisión «Registrada») y agrega la fila CC-00x a `registro-cambios`.
 
@@ -654,10 +664,14 @@ línea base; cambio de alcance, diseño o método, o imprevisto pagado con la re
 `PM.changeControl.register` y guardar `changeRef`. La vista muestra planificados frente a no planificados.
 
 Reserva para contingencias: `costs.reserves.contingency` es el total de la reserva del plan (dentro de la línea base) y **no se
-descuenta** al usarla; el consumo se registra en cada recurso no planificado por riesgo (`reserveAmount`) y las vistas calculan
-lo disponible = reserva − Σ `reserveAmount` (50 «Reservas», 80 alerta, 42 aviso al registrar). Costo de los no planificados (42
-tarjeta «No planificados» y 80 alerta): el de sus asignaciones en el cronograma (costo unitario del catálogo); sin asignaciones,
-su `reserveAmount`.
+descuenta** al usarla; el consumo se registra en cada recurso no planificado por riesgo (`reserveAmount`). Una sola regla,
+`PM.res.reserveUse({data, schedule, contingency})` → `{total, consumed, available, assigned, unassigned, items}`: disponible =
+total − Σ `reserveAmount`. Lo consumido pasa a las cuentas de control (gráfico 7-8): las actividades «recursos» o «mixto» ya
+suman el costo de sus asignaciones; lo que no está en ninguna (`unassigned` = Σ max(0, `reserveAmount` − asignado)) es una cuenta
+aparte. En el **plan vigente** (36 EDC «Plan actual», 50 presupuesto y «Reservas», 80) la línea base = actividades + `unassigned`
++ reserva **disponible**: el total no se duplica cuando el recurso se asigna, ni se pierde cuando no. Una línea base guardada
+conserva su reserva tal como se aprobó. Costo de los no planificados (42 tarjeta «No planificados» y 80 alerta): el de sus
+asignaciones en el cronograma (costo unitario del catálogo); sin asignaciones, su `reserveAmount` (rotularlo así).
 
 ### 10.4 Vistas e integraciones
 

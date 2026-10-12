@@ -84,6 +84,10 @@ const results = await page.evaluate(() => {
   const released = { items: [...team.items, { id: 'p6', name: 'Liberada', typeId: 'humano', agileTeam: true, dedication: 100, status: 'liberado', availableTo: '2026-07-31' }] };
   const capR = R.teamCapacity({ data: released, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: { avg3: 30, rows: [{ id: 'a3', status: 'cerrado', start: '2026-07-20', end: '2026-07-31' }] } });
   eq('capacidad: quien fue liberado cuenta en la referencia, no en la iteración', [capR.members.length, capR.personDays, capR.reference.personDays, capR.suggested], [2, 14, 25, 16.8]);
+  // un no planificado sin «Disponible desde» empieza en su fecha de alta: no cuenta en las iteraciones cerradas anteriores
+  const joined = { items: [...team.items, { id: 'p7', name: 'Refuerzo', typeId: 'humano', agileTeam: true, dedication: 100, planned: false, reason: 'rendimiento', addedDate: '2026-08-01' }] };
+  const capJ = R.teamCapacity({ data: joined, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10, estimationUnit: 'puntos' }, velocity: { avg3: 30, rows: [{ id: 'a3', status: 'cerrado', start: '2026-07-20', end: '2026-07-31' }] } });
+  eq('capacidad: el refuerzo sube la sugerida (no cuenta antes de su alta)', [capJ.personDays, capJ.reference.personDays, capJ.suggested], [24, 15, 48]);
   eq('capacidad: iteración cerrada sin fechas → referencia habitual', R.teamCapacity({ data: team, schedule: { tasks: [] }, sprint: { start: '2026-08-03', end: '2026-08-14' }, cal, settings: { sprintLength: 10 }, velocity: { avg3: 30, rows: [{ id: 'x', status: 'cerrado', start: null, end: null }] } }).reference.kind, 'habitual');
   // Estructura de desglose de recursos
   const sched = C.computeSchedule(R.applyCosts(schedule, data), '2026-08-03');
@@ -112,7 +116,31 @@ const results = await page.evaluate(() => {
   const cbsB = R.cbsTree({ tree, sched: s2, schedule: sch2, baseline: bl, reserves: { contingency: 90 }, source: 'baseline' });
   eq('EDC desde la línea base', [cbsB.value, cbsB.children[1].sub, cbsB.children[1].children.map((n) => n.value)], [535, 'LB0', [50, 80, 400]]);
   const cbsC = R.cbsTree({ tree, sched, schedule, data, reserves: {}, by: 'categoria' });
-  eq('EDC por categoría de costo', cbsC.children[1].children.filter((n) => n.kind === 'group').map((n) => [n.label, n.value]), [['Mano de obra', 10000], ['Materiales', 6000], ['Sin categoría', 1450], ['Maquinaria y equipo', 1200], ['Costo fijo', 100]]);
+  eq('EDC por categoría de costo', cbsC.children[1].children.filter((n) => n.kind === 'group').map((n) => [n.label, n.value]), [['Mano de obra', 10000], ['Materiales', 6000], ['Sin categoría', 1450], ['Equipos', 1200], ['Otros', 100]]);
+  eq('EDC por categoría: solo categorías de costo, sin grupos en 0', cbsC.children[1].children.filter((n) => n.kind === 'group').every((n) => [...PM.RES.COST_CATEGORIES, 'Sin categoría'].includes(n.label) && n.value > 0), true);
+  eq('categoría de costo de un tipo', [R.costCategoryOf({ edr: 'Personal' }), R.costCategoryOf({ edr: 'Servicios', costCategory: 'Subcontratos' }), R.costCategoryOf({ edr: 'Equipos', costCategory: 'Inventada' }), R.costCategoryOf(null), R.costCategoryOf(R.types({ preset: 'construccion' }).find((t) => t.id === 'subcontrato'))], ['Mano de obra', 'Subcontratos', 'Equipos', 'Otros', 'Subcontratos']);
+  // Plural de las unidades
+  eq('unidades en plural', [PM.RES.unitN(1, 'hora'), PM.RES.unitN(0, 'hora'), PM.RES.unitN(4, 'unidad'), PM.RES.unitN(2, 'galón'), PM.RES.unitN(3, 'm³'), PM.RES.unitN(2, 'usuario-mes'), PM.RES.unitN(5, 'kit'), PM.RES.unitN(2, 'bolsa de cemento'), PM.RES.unitN(2, 'contenedor'), PM.RES.unitN(2, 'kg'), PM.RES.unitN(2, '')], ['hora', 'horas', 'unidades', 'galones', 'm³', 'usuarios-mes', 'kits', 'bolsas de cemento', 'contenedores', 'kg', '']);
+  eq('EDR de recursos: consumible en plural', rbs.children[2].children[0].sub, '12 m³ · 1 actividad');
+  // Reserva para contingencias en el plan vigente (§10.3): disponible = total − consumido; lo no asignado, cuenta aparte
+  const dataR = { preset: 'construccion', items: [
+    { id: 'q1', name: 'Grúa adicional', typeId: 'maquinaria', unitCost: 100, planned: false, reason: 'riesgo', reserveAmount: 30 },
+    { id: 'q2', name: 'Bombeo', typeId: 'subcontrato', unitCost: 10, planned: false, reason: 'riesgo', reserveAmount: 20 },
+    { id: 'q3', name: 'Cambio', typeId: 'material', unitCost: 1, planned: false, reason: 'cambio-alcance' },
+  ] };
+  const sch3 = { settings: { workweek: 5, holidaysCO: false }, tasks: [
+    { id: 't1', name: 'Dirección', duration: 10, cost: 100, wbsId: 'w1', deps: [] },
+    { id: 't2', name: 'Montaje', duration: 2, cost: 0, costMode: 'recursos', wbsId: 'w21', deps: [], resources: [{ resourceId: 'q1', name: 'Grúa adicional', units: 1 }] },
+    { id: 't3', name: 'Global', duration: 2, cost: 40, wbsId: 'w22', deps: [], resources: [{ resourceId: 'q2', name: 'Bombeo', units: 1 }] },
+  ] };
+  const ru = R.reserveUse({ data: dataR, schedule: R.applyCosts(sch3, dataR), contingency: 90 });
+  eq('uso de la reserva: total, consumido, disponible, asignado y sin actividad', [ru.total, ru.consumed, ru.available, ru.assigned, ru.unassigned, ru.items.map((x) => [x.item.id, x.amount, x.assigned, x.unassigned])], [90, 50, 40, 30, 20, [['q1', 30, 200, 0], ['q2', 20, 0, 20]]]);
+  const s3 = C.computeSchedule(R.applyCosts(sch3, dataR), '2026-08-03');
+  const cbsR = R.cbsTree({ tree, sched: s3, schedule: sch3, data: dataR, reserves: { contingency: 90, management: 10 } });
+  const lbR = cbsR.children[1];
+  eq('EDC del plan: reserva disponible y respuestas sin actividad', [cbsR.value, lbR.value, lbR.children.filter((n) => n.kind === 'reserve').map((n) => [n.id, n.value]), lbR.children[0].reserveTotal, lbR.children[0].reserveConsumed], [10 + 100 + 200 + 40 + 20 + 40, 400, [['cbs:cont', 40], ['cbs:riesgos', 20]], 90, 50]);
+  eq('EDC de una línea base: la reserva aprobada sin cambios', R.cbsTree({ tree, sched: s3, schedule: sch3, data: dataR, baseline: bl, reserves: { contingency: 90 }, source: 'baseline' }).children[1].children[0].value, 50);
+  eq('EDC sin consumo: la reserva completa', R.cbsTree({ tree, sched: s2, schedule: sch2, data: null, reserves: { contingency: 90 } }).children[1].children.filter((n) => n.kind === 'reserve').map((n) => n.value), [90]);
   // Estructura de desglose de los riesgos
   const planRows = [{ nivel1: 'Técnico', nivel2: 'Procesos técnicos y tecnología', categoriaRegistro: 'Técnico' }, { nivel1: 'Externo', nivel2: 'Clima y medio ambiente', categoriaRegistro: 'Externo' }, { nivel1: 'Externo', nivel2: 'Legislación y regulaciones', categoriaRegistro: 'Externo' }];
   const risks = [
@@ -129,6 +157,10 @@ const results = await page.evaluate(() => {
   eq('EDR de riesgos: prefiere el nivel 1 con el mismo nombre', R.riskTree({ planRows: [{ nivel1: 'Comercial', nivel2: 'Proveedores', categoriaRegistro: 'Externo' }, { nivel1: 'Externo', nivel2: 'Clima', categoriaRegistro: 'Externo' }], risks: [{ id: 'X', categoria: 'Externo', probabilidad: 1, impacto: 1 }] }).children.map((n) => [n.label, n.value]), [['Comercial', 0], ['Externo', 1]]);
   eq('EDR de riesgos sin plan: por categoría del registro', R.riskTree({ planRows: [], risks }).children.map((n) => n.label), ['Externo', 'Técnico', 'De la organización']);
   eq('EDR de riesgos: oportunidad marcada', rt.children[2].children[0].children[0].badge, 'Oportunidad');
+  // las oportunidades no dan el nivel ni el tono de alerta del grupo
+  const rtO = R.riskTree({ planRows, risks: [{ id: 'O-1', descripcion: 'Precio', categoria: 'Externo', subcategoria: 'Clima y medio ambiente', probabilidad: 5, impacto: 5, tipo: 'Oportunidad' }, { id: 'A-1', descripcion: 'Lluvia', categoria: 'Externo', subcategoria: 'Clima y medio ambiente', probabilidad: 1, impacto: 2, tipo: 'Amenaza' }] });
+  const gO = rtO.children.find((n) => n.label === 'Externo');
+  eq('EDR de riesgos: oportunidades aparte', [gO.value, gO.threats, gO.opportunities, gO.max, gO.level, gO.children[0].children.map((c) => [c.code, c.tone, c.opportunity])], [2, 1, 1, 2, PM.calc.riskLevel(2).label, [['O-1', 'good', true], ['A-1', PM.calc.riskLevel(2).tone, false]]]);
   // Datos mal formados
   let bad = null;
   try {
