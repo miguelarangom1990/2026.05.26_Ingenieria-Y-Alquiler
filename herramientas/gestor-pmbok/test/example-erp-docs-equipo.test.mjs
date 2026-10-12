@@ -7,10 +7,12 @@
 //      aplicación (elementos, compromiso, capacidad y velocidad de cada iteración con PM.calc y PM.agile; días-persona con
 //      PM.res.teamCapacity; fechas de la LB0 y del cronograma; criterios de la EDT y del backlog; niveles del registro de
 //      interesados a la misma fecha; resultados del release 1); ninguna fecha pasa la fecha de corte ni la del documento, y las
-//      versiones aprobadas no citan hechos posteriores a su fecha.
-//   2) Interacción: crea el ejemplo desde el selector con el teclado, abre «Documentos» con el riel, revisa la lista maestra
-//      (código, estado, revisión y enfoque), filtra por enfoque con el teclado, abre los documentos de prueba con Tab y Enter
-//      y una planificación con el teclado.
+//      versiones aprobadas no citan hechos posteriores a su fecha (fechas con año o sin él, códigos del backlog y, en los
+//      criterios de las planificaciones, verbos en pasado).
+//   2) Interacción: en el portafolio vacío llega con Tab a «Crear proyecto de ejemplo» y a la tarjeta del ERP y los activa
+//      con Enter; abre «Documentos» con el riel, revisa la lista maestra (código, estado, revisión y enfoque), filtra por
+//      enfoque con el teclado, abre los documentos de prueba con Tab y Enter y una planificación con el teclado; en
+//      «Releases e iteraciones», la iteración 1 abre su planificación (PIT-01) sin crear otra.
 //   3) Sin --quick: los nueve documentos en el editor en tema oscuro, a 400 px (claro y oscuro) y a 1920 px, sin desborde de
 //      página ni tarjetas de error.
 import { execFileSync } from 'node:child_process';
@@ -64,6 +66,11 @@ async function validateInPage(page) {
     const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
     /* fechas largas con año citadas en un texto («10 de septiembre de 2026») */
     const longDates = (txt) => [...plain(txt).matchAll(/\b(\d{1,2}) de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre) de (20\d\d)\b/g)].map((m) => m[3] + '-' + String(MONTHS.indexOf(m[2]) + 1).padStart(2, '0') + '-' + m[1].padStart(2, '0'));
+    /* fechas sin año («2 de octubre»): de mayo a diciembre son de 2026 y de enero a abril, de 2027 (el proyecto va del 4 de mayo de 2026 al 29 de enero de 2027) */
+    const shortDates = (txt) => [...plain(txt).matchAll(/\b(\d{1,2}) de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b(?! de 20\d\d)/g)].map((m) => { const mo = MONTHS.indexOf(m[2]) + 1; return (mo >= 5 ? '2026' : '2027') + '-' + String(mo).padStart(2, '0') + '-' + m[1].padStart(2, '0'); });
+    /* verbos en pretérito («entregó», «validó», «fueron validadas»): los criterios de aceptación de una planificación no los
+       usan. Tras «que lo/la/los/las» el pretérito describe el caso genérico («la devolución que los originó»), no un hecho. */
+    const preterite = (txt) => [...plain(txt).matchAll(/(?:^|[^\p{L}])(\p{L}+ó|fue|fueron)(?=[^\p{L}]|$)/gu)].filter((m) => !/\bque (?:lo|la|los|las) $/.test(plain(txt).slice(0, m.index + m[0].length - m[1].length))).map((m) => m[1]);
 
     /* ---------- construcción e importación */
     const exm = PM.getExample('erp');
@@ -121,6 +128,9 @@ async function validateInPage(page) {
     PLANS.forEach((id, i) => { SPEC[id] = { status: 'aprobado', rev: '0', date: s(i + 1).start, revs: [], abbr: 'PIT-0' + (i + 1) }; });
     /* fechas planificadas que un documento aprobado puede citar aunque sean posteriores (no son hechos) */
     const planned = new Set([...LB.schedule.tasks.flatMap((t) => [t.start, t.finish]), ...sprints.flatMap((x) => [x.start, x.end]), ...agile.releases.flatMap((r) => [r.start, r.end]), meta.end]);
+    /* también son fechas planificadas los días hábiles de la capacitación del release 2 de la LB0 (el plan de involucramiento
+       cita los que quedan fuera del cierre mensual de noviembre) */
+    for (let d = lbT('t23').start; d <= lbT('t23').finish; d = D.add(d, 1)) if (cal.isWork(d)) planned.add(d);
 
     /* ---------- existencia, código, estado, revisiones, claves y fechas */
     const V = {};
@@ -129,7 +139,7 @@ async function validateInPage(page) {
       if (!ok(d, 'existe el documento ' + id)) continue;
       const tid = d.template, sp = SPEC[id], tb = d.titleBlock || {}, upd = String(d.updatedAt).slice(0, 10);
       const revs = await revsOf(id);
-      V[id] = { tid, cur: { date: upd, status: d.status, fields: d.fields }, revs: revs.map((r) => ({ rev: r.rev, status: r.status, date: String(r.date).slice(0, 10), fields: r.fields, titleBlock: r.titleBlock })) };
+      V[id] = { tid, cur: { date: upd, status: d.status, fields: d.fields }, revs: revs.map((r) => ({ rev: r.rev, status: r.status, date: String(r.date).slice(0, 10), fields: r.fields, titleBlock: r.titleBlock, note: r.note || '' })) };
       ok(tb.codigo === meta.code + '-' + (sp.abbr || PM.templates[tid].abbr), id + ': código ' + meta.code + '-' + (sp.abbr || PM.templates[tid].abbr), tb.codigo);
       ok(d.status === sp.status && d.rev === sp.rev && upd === sp.date, id + ': estado ' + sp.status + ', revisión ' + sp.rev + ' del ' + sp.date, [d.status, d.rev, upd]);
       ok(cal.isWork(upd) && upd <= cut && (d.status === 'aprobado' ? tb.fechaAprobacion === upd && tb.aprobo : !tb.fechaAprobacion) && tb.elaboro && tb.reviso && String(d.createdAt).slice(0, 10) <= upd, id + ': cajetín, creación y fecha de aprobación coherentes (día hábil, hasta el corte)', tb);
@@ -142,8 +152,8 @@ async function validateInPage(page) {
       ok(!isoBad.length, id + ': las fechas de los campos no pasan la fecha del documento (salvo fechas planificadas)', isoBad);
       const late = versions.map((v) => [v.date, lateCodes(v.fields, v.date)]).filter(([, l]) => l.length);
       ok(!late.length, id + ': ninguna versión cita hechos del backlog, cambios o incidentes posteriores a su fecha', late);
-      const lateDates = versions.map((v) => [v.date, longDates(text(v.fields)).filter((x) => x > v.date && !planned.has(x) && !(x === task('t16').actualFinish && v.date >= lbT('t16').finish))]).filter(([, l]) => l.length);
-      ok(!lateDates.length, id + ': las fechas citadas en el texto no pasan la fecha de cada versión (salvo fechas planificadas)', lateDates);
+      const lateDates = versions.map((v) => [v.date, [...longDates(text(v.fields)), ...shortDates(text(v.fields))].filter((x) => x > v.date && !planned.has(x) && !cal.holidayName(x) && !(x === task('t16').actualFinish && v.date >= lbT('t16').finish))]).filter(([, l]) => l.length);
+      ok(!lateDates.length, id + ': las fechas citadas en el texto, con año o sin él, no pasan la fecha de cada versión (salvo fechas planificadas y festivos)', lateDates);
       ok(!unknownCodes(versions.map((v) => v.fields)).length, id + ': todos los códigos citados existen en el backlog, el registro de incidentes o el de cambios', unknownCodes(versions.map((v) => v.fields)));
       ok(!/\bundefined\b|\bNaN\b|\[object/.test(text(versions.map((v) => v.fields))), id + ': sin textos «undefined», «NaN» ni objetos sin formato');
     }
@@ -151,6 +161,14 @@ async function validateInPage(page) {
     const revF = (id, r) => V[id].revs.find((x) => x.rev === r).fields;
 
     /* ---------- planificación de las iteraciones 1 a 5 */
+    /* criterios que el backlog precisó después de planificar: lo que no puede aparecer (drop) y lo que se conserva (keep) */
+    const CRIT_AT_PLAN = {
+      'IN-001': { drop: ['serial para la maquinaria', 'cantidad por referencia para andamio'], keep: ['Comparación de las dos formas de manejo', 'aceptada por el dueño del producto'] },
+      'HU-002': { drop: ['fueron validadas'], keep: ['cada referencia pertenece a una sola familia', 'gerente comercial', 'cinco familias'] },
+      'HU-029': { drop: ['validó'], keep: ['IVA de 19 %', 'retención en la fuente de 4 %', 'cinco casos tributarios'] },
+      'TA-010': { drop: ['entregó', '2 de octubre', 'archivo de septiembre'], keep: ['archivo de recaudos del banco', '100 % de los pagos identificados por NIT y referencia'] },
+    };
+    ok(Object.keys(CRIT_AT_PLAN).every((c) => PLANS.some((pid) => V[pid].cur.fields.elementos.some((r) => r.codigo === c))) && Object.entries(CRIT_AT_PLAN).every(([c, ch]) => ch.drop.some((t) => has(item(c).acceptance, t))), 'los cuatro elementos con criterios precisados después están en alguna planificación y su texto vigente en el backlog trae esos hechos');
     const planRelease = PM.templates['plan-release'].example;
     const known = (a) => PM.exampleDocs.erpEquipo.knownAtPlanning(a);
     const resKnown = { ...resources, items: resources.items.map((x) => ({ ...x, absences: (x.absences || []).filter(known) })) };
@@ -167,13 +185,18 @@ async function validateInPage(page) {
       const unf = (sp.unfinished || []).map((u) => items.find((x) => x.id === u.id)).filter((x) => x && !own.includes(x));
       const want = [...own, ...unf].sort((a, b) => a.rank - b.rank);
       ok(JSON.stringify(f.elementos.map((r) => r.codigo)) === JSON.stringify(want.map((x) => x.code)) && sum(f.elementos, (r) => r.estimacion) === sp.committed, id + ': elementos comprometidos al iniciar (los de la iteración y sus no terminados, en el orden del backlog) suman el compromiso', [f.elementos.map((r) => r.codigo), want.map((x) => x.code)]);
-      ok(f.elementos.every((r) => { const x = item(r.codigo); return x.title === r.titulo && x.estimate === r.estimacion && x.assignee === r.responsable && TYPE_LABEL[x.type] === r.tipo && x.acceptance === r.criterios && optsOf('planificacion-sprint', 'elementos', 'tipo').includes(r.tipo); }), id + ': título, tipo, estimación, responsable y criterios de cada elemento iguales al backlog');
+      ok(f.elementos.every((r) => { const x = item(r.codigo); return x.title === r.titulo && x.estimate === r.estimacion && x.assignee === r.responsable && TYPE_LABEL[x.type] === r.tipo && optsOf('planificacion-sprint', 'elementos', 'tipo').includes(r.tipo); }), id + ': título, tipo, estimación y responsable de cada elemento iguales al backlog');
+      /* criterios: los del backlog, salvo los que se precisaron después de planificar, que van como estaban ese día */
+      const critBad = f.elementos.filter((r) => { const x = item(r.codigo), ch = CRIT_AT_PLAN[r.codigo]; if (!ch || sp.start >= (x.doneDate || cut)) return r.criterios !== x.acceptance; return r.criterios.split('\n').length !== x.acceptance.split('\n').length || ch.drop.some((t) => has(r.criterios, t)) || !ch.keep.every((t) => has(r.criterios, t)); });
+      ok(!critBad.length, id + ': criterios de cada elemento iguales al backlog, salvo los precisados después de la planificación (IN-001, HU-002, HU-029 y TA-010), que van sin esos hechos', critBad.map((r) => [r.codigo, r.criterios]));
+      const past = f.elementos.flatMap((r) => preterite(r.criterios).map((w) => r.codigo + ': ' + w));
+      ok(!past.length, id + ': los criterios de aceptación no citan hechos en pasado (posteriores a la planificación)', past);
       ok(f.elementos.every((r) => item(r.codigo).createdAt <= sp.start), id + ': ningún elemento se creó después de la planificación');
       const cap = PM.res.teamCapacity({ data: resKnown, schedule, sprint: sp, cal, settings: st, velocity: vel });
       const hol = []; for (let d = sp.start; d <= sp.end; d = D.add(d, 1)) if (cal.holidayName(d)) hol.push(d);
       ok(has(f.notasCapacidad, Fm.num(cap.personDays) + ' días-persona') && cap.personDays === cap.normal && has(f.notasCapacidad, team.length === 5 ? 'Cinco personas' : String(team.length)) && hol.every((h) => has(f.notasCapacidad, dlShort(h))) && has(f.notasCapacidad, closed.length ? n1(ref) + ' puntos' : String(ref) + ' puntos'), id + ': cálculo de la capacidad con los días-persona del catálogo (' + cap.personDays + '), los festivos de la iteración y la velocidad de referencia', f.notasCapacidad);
       ok(f.participantes.length >= 3 && has(f.participantes[0], 'Dueño del producto') && f.participantes.some((p) => /Scrum Master/.test(p)) && f.participantes.some((p) => /Desarrolladores \(cinco personas\)/.test(p)), id + ': participantes: dueño del producto, Scrum Master y desarrolladores');
-      ok(sp.docs.planificacion === undefined || sp.docs.planificacion === id, id + ': si la iteración tiene planificación vinculada, es esta', sp.docs);
+      ok(sp.docs && sp.docs.planificacion === id, id + ': la iteración la tiene vinculada como su planificación (SPRINT_DOCS de 94), así «Releases e iteraciones» la abre y no ofrece crear otra', sp.docs);
       ok(cal.isWork(sp.start) && V[id].cur.date === sp.start, id + ': aprobada el primer día de la iteración (día hábil)');
     }
     {
@@ -183,6 +206,9 @@ async function validateInPage(page) {
       ok(f1.velocidadReferencia === 30 && has(f1.notasCapacidad, 'plan de releases') && f1.compromiso < f1.capacidad, 'iteración 1: sin iteraciones cerradas usa la velocidad supuesta del plan de releases (30) y compromete menos que la capacidad');
       ok(has(f1.riesgos, (/de (\d+) referencias/.exec(item('TA-002').acceptance) || [])[1] + ' referencias') && has(f1.riesgos, range(lbT('t21').start, lbT('t21').finish)) && has(f1.riesgos, 'EDT ' + tree.codes.get('w41')), 'iteración 1: depuración (EDT), carga de prueba de TA-002 y formación de usuarios clave de la LB0');
       ok(s3.committed - s3.capacity === 1 && has(f3.notasCapacidad, 'un punto más que la capacidad') && f3.elementos.some((r) => r.codigo === 'HU-006') && item('HU-006').priority === 'Debería tener', 'iteración 3: compromiso 34 frente a capacidad 33, con HU-006 («Debería tener») como la primera que sale');
+      const epic8 = items.find((x) => x.type === 'epica' && x.createdAt === cc1Req);
+      const bas3 = items.filter((x) => x.type === 'historia' && x.createdAt === cc1Req && x.releaseId === 'rel-1').sort((a, b) => a.rank - b.rank).map((x) => x.code);
+      ok(has(f3.riesgos, 'sus historias (épica ' + epic8.code + ': ' + bas3.slice(0, -1).join(', ') + ' y ' + bas3[bas3.length - 1] + ')'), 'iteración 3: la épica ' + epic8.code + ' se nombra como épica, no como historia', f3.riesgos);
       ok(!/CC-001/.test(text(f3)) && has(f3.riesgos, dl(cc1Req)) && cc1Req < s3.start && rel('rel-1').baseline.date > s3.start && has(f3.riesgos, dl(task('t16').actualFinish)) && has(f3.riesgos, ['', 'un', 'dos', 'tres', 'cuatro'][cal.countWork(lbT('t16').finish, task('t16').actualFinish) - 1] + ' días hábiles después'), 'iteración 3 (12 de agosto): la solicitud de las básculas sigue en análisis (sin citar el CC-001, aprobado el 13) y la depuración termina tres días hábiles después de la LB0');
       const bas = items.filter((x) => x.type === 'historia' && x.createdAt === cc1Req && x.releaseId === 'rel-1');
       ok(bas.every((x) => f4.elementos.some((r) => r.codigo === x.code)) && has(f4.notasCapacidad, sum(bas, (x) => x.estimate) + ' puntos') && has(f4.riesgos, 'HU-006 y HU-014 (' + (item('HU-006').estimate + item('HU-014').estimate) + ' puntos') && has(f4.riesgos, dl(lbT('t29').start)) && has(f4.riesgos, range(lbT('t17').start, lbT('t17').finish)) && has(f4.riesgos, range(lbT('t22').start, lbT('t22').finish)), 'iteración 4: historias de las básculas (CC-001), elementos diferibles, conteo físico y salida a producción de la LB0');
@@ -198,6 +224,9 @@ async function validateInPage(page) {
     {
       const id = 'acta-constitucion-equipo', f = V[id].cur.fields, f0 = revF(id, '0');
       const cat = (key) => resources.items.find((x) => x.id === 'rec-' + key);
+      const raci = await P('/tools/raci');
+      const planRaci = raci && raci.rows.find((r) => r.activity === 'Planificación de la iteración');
+      const dodPolicies = dod.fields.politicasFlujo || [];
       const orgOf = (r) => (r.origin === 'Interno' ? 'Ingeniería y Alquiler S.A.S.' : r.supplier + ' (contratista)');
       const want = [['Dueño del producto (Gerente administrativo y financiero)', cat('po')], [cat('sm').name, cat('sm')], ...team.map((x) => [x.name, x]), [cat('lim').name, cat('lim')]];
       for (const [v, name] of [[f, 'rev. 1'], [f0, 'rev. 0']]) {
@@ -207,10 +236,16 @@ async function validateInPage(page) {
         ok(has(v.pautasReuniones, T.diaria + ' minutos') && has(v.pautasReuniones, 'máximo ' + T.planificacion + ' horas') && has(v.pautasReuniones, '(' + T.revision + ' horas)') && has(v.pautasReuniones, n1(T.retrospectiva) + ' horas') && T.planificacion === 8 * st.sprintLength / 20 && T.revision === 4 * st.sprintLength / 20 && T.retrospectiva === 3 * st.sprintLength / 20, 'acta del equipo (' + name + '): duración de los eventos proporcional a la Guía de Scrum para iteraciones de ' + st.sprintLength + ' días hábiles');
         ok(/R-005/.test(text(v.acuerdos)) && docOf('registro-riesgos').fields.riesgos.some((r) => r.id === 'R-005') && /definición de listo y de terminado/.test(text(v.acuerdos)) && !/\d+ en «En curso»/.test(text(v)), 'acta del equipo (' + name + '): respuesta a R-005 y remisión a la definición de terminado sin repetir los límites WIP');
         ok(has(v.vigencia, dl(LB.date)) && has(v.vigencia, dl(meta.end)), 'acta del equipo (' + name + '): vigencia de la LB0 al cierre del proyecto');
+        /* toma de decisiones según la RACI del proyecto (planificación: desarrolladores RA, dueño del producto C) y la Guía de Scrum 2020 */
+        ok(planRaci && /A/.test(planRaci.cells['rol-dt'] || '') && !/A/.test(planRaci.cells['rol-po'] || '') && has(v.tomaDecisiones, 'los desarrolladores seleccionan con él los elementos de la iteración') && !/dueño del producto decide[^.]*alcance de cada iteración/.test(v.tomaDecisiones), 'acta del equipo (' + name + '): los desarrolladores seleccionan los elementos de la iteración y el dueño del producto ordena el backlog y acepta, como en la RACI', v.tomaDecisiones);
+        ok(!/según lo que establece ese contrato/.test(v.resolucionConflictos) && has(v.resolucionConflictos, 'acuerdo de este equipo'), 'acta del equipo (' + name + '): la regla de dos días hábiles es un acuerdo del equipo, no una cláusula del contrato de implementación', v.resolucionConflictos);
+        const repeated = v.acuerdos.filter((a) => !/esta acta no los repite/.test(a) && dodPolicies.some((pol) => has(a, pol.split(/[:;]/)[0])));
+        ok(!repeated.length, 'acta del equipo (' + name + '): ningún acuerdo repite una política del tablero de la definición de terminado', repeated);
       }
       const cites = [...text(f.acuerdos).matchAll(/retrospectiva de la iteración (\d+)/g)].map((m) => Number(m[1]));
       ok([1, 2, 3].every((n) => cites.includes(n)) && cites.every((n) => { const r = docOf('retrospectiva--it' + n); return r && r.fields.fecha <= V[id].cur.date; }) && !/retrospectiva/.test(text(f0.acuerdos)), 'acta del equipo: la rev. 1 recoge los acuerdos de las retrospectivas 1 a 3 (todas anteriores o del mismo día); la rev. 0 no cita retrospectivas', cites);
       ok(f.acuerdos.length === f0.acuerdos.length + 4, 'acta del equipo: la rev. 1 agrega cuatro acuerdos a la rev. 0');
+      ok(f.acuerdos.some((a) => /retrospectiva de la iteración 3/.test(a) && /reunión diaria/.test(a) && /definición de terminado rev\. 1/.test(a)) && dod.rev === '1' && String(dod.titleBlock.fechaAprobacion) <= V[id].cur.date, 'acta del equipo: el acuerdo de la retrospectiva 3 es de conducta (pruebas de usuario coordinadas en la reunión diaria) y remite a la definición de terminado rev. 1, aprobada antes o el mismo día');
     }
 
     /* ---------- plan de involucramiento de los interesados */
@@ -231,6 +266,17 @@ async function validateInPage(page) {
       }
       ok(f0.involucramiento.find((r) => r.interesado === 'Jefe de almacén').nivelActual === 'Reticente' && f.involucramiento.find((r) => r.interesado === 'Jefe de almacén').nivelActual === 'Neutral' && /Pasó a neutral/.test(f.involucramiento.find((r) => r.interesado === 'Jefe de almacén').estrategia) && !/Pasó a neutral/.test(text(f0)), 'plan de involucramiento: almacén y bodega pasan de reticentes a neutrales en la rev. 1, después de la salida del release 1');
       const t23 = lbT('t23');
+      /* cierre mensual: cinco primeros días hábiles del mes; facturación, cartera y contabilidad no se capacitan en él (plan de gestión de las comunicaciones) */
+      let c0 = D.startOfMonth(t23.finish); while (!cal.isWork(c0)) c0 = D.add(c0, 1);
+      const novClose = [0, 1, 2, 3, 4].map((k) => cal.addWork(c0, k));
+      const t23Days = []; for (let d = t23.start; d <= t23.finish; d = D.add(d, 1)) if (cal.isWork(d)) t23Days.push(d);
+      const finDays = t23Days.filter((d) => !novClose.includes(d));
+      const finTxt = finDays.map((d, i) => 'el ' + (i < finDays.length - 1 && finDays[i + 1].slice(0, 7) === d.slice(0, 7) ? String(+d.slice(8)) : dlShort(d))).join(', ').replace(/, (el [^,]+)$/, ' y $1');
+      const facRow = f.involucramiento.find((r) => r.interesado === 'Jefe de facturación y cartera');
+      ok(t23Days.some((d) => novClose.includes(d)) && finDays.length >= 1 && finDays.every((d) => d < novClose[0]) && has(facRow.estrategia, finTxt + ', los días de la ventana') && has(facRow.estrategia, range(novClose[0], novClose[4])) && has(f.requisitosFase, finTxt + ', los días de la ventana') && has(f.requisitosFase, 'cierre mensual de noviembre (' + range(novClose[0], novClose[4]) + ')'), 'plan de involucramiento (rev. 1): facturación, cartera y contabilidad se capacitan ' + finTxt + ', fuera del cierre mensual de noviembre (' + range(novClose[0], novClose[4]) + '), como exige el plan de gestión de las comunicaciones', [facRow.estrategia, f.requisitosFase]);
+      ok(!has(facRow.estrategia, '(' + range(t23.start, t23.finish) + ').') && !has(f.requisitosFase, 'capacitación (' + range(t23.start, t23.finish) + ')'), 'plan de involucramiento (rev. 1): la ventana completa de la LB0 ya no se presenta como fechas de capacitación de facturación, cartera y contabilidad');
+      const pgc = docOf('plan-gestion-comunicaciones');
+      if (pgc) ok(/capacitaciones de facturación, cartera y contabilidad/.test(pgc.fields.restricciones || ''), 'el plan de gestión de las comunicaciones trae la restricción de capacitación en el cierre mensual que cita el plan de involucramiento');
       ok(has(f.requisitosFase, range(t23.start, t23.finish)) && has(f.requisitosFase, dl(lbT('t31').start)) && has(f.impactoCambio, dl(golive1)) && has(f0.requisitosFase, dl(lbT('t29').start)) && has(f0.requisitosFase, range(lbT('t21').start, lbT('t21').finish)) && has(f0.requisitosFase, range(lbT('t22').start, lbT('t22').finish)), 'plan de involucramiento: fechas de la capacitación del release 2, de las salidas y de la formación de usuarios clave de la LB0', [f.requisitosFase, f0.requisitosFase]);
       ok(/plan de gestión de las comunicaciones/.test(f.informacionDistribuir) && /registro de interesados/.test(f.actualizacion), 'plan de involucramiento: remite a la matriz del plan de gestión de las comunicaciones y se actualiza con el registro de interesados');
     }
@@ -265,6 +311,8 @@ async function validateInPage(page) {
       ok(n && has(f.pruebas.find((r) => /anexo técnico/.test(r.documento)).evidencia, 'las ' + n + ' reglas'), 'documentos de prueba: las ' + n + ' reglas de rechazo de IN-004 (criterios de ME-009)');
       const i4 = inc.find((r) => r.id === 'INC-004'), i3 = inc.find((r) => r.id === 'INC-003');
       ok(has(f.pruebas.find((r) => /carril de urgencia/.test(r.documento)).evidencia, dl(i4.fecha)) && item('DF-009').doneDate === i4.fecha && has(row('Conciliación de los saldos').evidencia, i3.id) && item('TA-011').blocked, 'documentos de prueba: DF-009 verificado en producción (INC-004) y conciliación de cartera pendiente (INC-003, TA-011 bloqueada)');
+      const note1 = V[id].revs.find((r) => r.rev === '1').note;
+      ok(/^Retrospectiva de la iteración 3 \(prueba con datos migrados y columna «Pruebas de usuario»\) y prueba de la integración con las básculas del CC-001\.$/.test(note1), 'documentos de prueba: la nota de la rev. 1 atribuye las básculas al CC-001, no a la retrospectiva de la iteración 3', note1);
       ok(!/Al corte|Pendiente|firmada el/.test(text(f0.pruebas) + text(f1.pruebas)) && /CC-001/.test(text(f1)) && !/CC-001/.test(text(f0)), 'documentos de prueba: las revisiones 0 y 1 no tienen resultados; la integración con las básculas entra en la rev. 1 (CC-001 aprobado antes)');
       ok(/interno/.test(f.aprobacionCliente) && /revisoría fiscal/.test(f.aprobacionCliente) && /dueño del producto/.test(f.aprobacionCliente) && has(f.archivo, meta.code), 'documentos de prueba: validación por los roles del proyecto interno (sin cliente ni interventoría) y archivo del proyecto');
     }
@@ -291,15 +339,18 @@ section('Interacción: selector de ejemplos, lista de documentos, filtro de enfo
   const app = await openApp({ file, width: 1360, height: 900 });
   const { page, errors } = app;
   try {
+    /* portafolio vacío: Tab hasta «Crear proyecto de ejemplo» y Enter; en el selector, Tab hasta la tarjeta del ERP y Enter */
     const n = await page.evaluate(() => PM.examples.length);
-    await page.evaluate(() => { PM.createExampleProject(); });
-    if (n > 1) {
-      await page.waitForSelector('.example-card', { timeout: 8000 });
-      const card = page.locator('.example-card[aria-label*="ERP"]');
-      check(await card.count() === 1, 'el selector ofrece el ejemplo del ERP');
-      await card.focus();
-      await page.keyboard.press('Enter');
-    }
+    check(n > 1 && (await page.evaluate(() => PM.getState().view)) === 'portafolio', 'la aplicación abre en el portafolio con varios ejemplos disponibles', n);
+    const focusByTab = async (test, arg, max = 60) => { for (let k = 0; k < max; k++) { await page.keyboard.press('Tab'); if (await page.evaluate(test, arg)) return true; } return false; };
+    const onCreate = await focusByTab(() => { const a = document.activeElement; return !!a && a.tagName === 'BUTTON' && a.textContent.trim() === 'Crear proyecto de ejemplo'; });
+    check(onCreate, 'con Tab el foco llega al botón «Crear proyecto de ejemplo» del portafolio');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.example-card', { timeout: 8000 });
+    check(await page.locator('.example-card[aria-label*="ERP"]').count() === 1, 'el selector ofrece el ejemplo del ERP');
+    const onCard = await focusByTab(() => { const a = document.activeElement; return !!a && a.classList.contains('example-card') && /ERP/.test(a.getAttribute('aria-label') || ''); }, null, 20);
+    check(onCard, 'con Tab el foco llega a la tarjeta del ejemplo del ERP en el selector');
+    await page.keyboard.press('Enter');
     await page.waitForFunction(() => PM.getState().projectId && PM.getState().view === 'tablero', null, { timeout: 25000 });
     await page.waitForTimeout(700);
     const code = await page.evaluate(async () => (await PM.store.get(PM.paths.project(PM.getState().projectId))).code);
@@ -318,6 +369,7 @@ section('Interacción: selector de ejemplos, lista de documentos, filtro de enfo
     if (shots) await page.screenshot({ path: shots + '/documentos.png', fullPage: false });
     /* filtro «Enfoque de la metodología» con el teclado (lista nativa) */
     const apSel = page.getByLabel('Filtrar por enfoque de la metodología');
+    check(await apSel.count() === 1, 'existe el filtro «Enfoque de la metodología» en la lista maestra');
     if (await apSel.count()) {
       await apSel.focus();
       for (let k = 0; k < 6 && (await apSel.inputValue()) !== 'adaptativo'; k++) await page.keyboard.press('ArrowDown');
@@ -366,8 +418,30 @@ section('Interacción: selector de ejemplos, lista de documentos, filtro de enfo
     await page.waitForSelector('.page[data-doc-id="planificacion-sprint--it3"] [data-section]', { timeout: 10000 });
     const p3 = await editorText(page, 'planificacion-sprint--it3');
     check(/PRY-2026-021-PIT-03/.test(p3) && /HU-006/.test(p3) && /HU-012/.test(p3) && /un punto más que la capacidad/.test(p3) && /Aprobado/.test(p3), 'la planificación de la iteración 3 abre con Enter (código, elementos y compromiso por encima de la capacidad)');
-    check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
     if (shots) await page.screenshot({ path: shots + '/planificacion-it3.png', fullPage: true });
+    /* «Releases e iteraciones»: la iteración 1 abre su planificación (PIT-01) y no ofrece crear otra */
+    const countPlans = () => page.evaluate(async () => (await PM.store.list(PM.paths.docs(PM.getState().projectId))).filter((d) => d.id.startsWith('planificacion-sprint')).length);
+    const plansBefore = await countPlans();
+    await page.locator('button.nav-item', { hasText: 'Releases e iteraciones' }).first().click();
+    await page.waitForFunction(() => PM.getState().view === 'iteraciones', null, { timeout: 8000 });
+    await page.locator('[data-release-id="rel-1"]').first().click();
+    await page.waitForSelector('tr[data-sprint-id="spr-01"] button.ags-link', { timeout: 8000 });
+    await page.locator('tr[data-sprint-id="spr-01"] button.ags-link').first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-role="sprint-docs"] [data-doc-kind="planificacion"]', { timeout: 8000 });
+    const card = page.locator('[data-role="sprint-docs"] [data-doc-kind="planificacion"]');
+    const cardTxt = norm(await card.innerText());
+    const linked = /Planificación de la iteración — Iteración 1 · Aprobado/.test(cardTxt) && !/Crear y abrir/.test(cardTxt);
+    check(linked, 'iteración 1: la tarjeta «Planificación de la iteración» muestra PIT-01 aprobada con «Abrir», no «Crear y abrir» (requiere la planificación en SPRINT_DOCS de 94)', cardTxt);
+    if (linked) {
+      await card.locator('button', { hasText: 'Abrir' }).focus();
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.page[data-doc-id="planificacion-sprint--it1"] [data-section]', { timeout: 10000 });
+      const p1 = await editorText(page, 'planificacion-sprint--it1');
+      check(/PRY-2026-021-PIT-01/.test(p1) && /IN-001/.test(p1), 'Enter en «Abrir» abre la planificación de la iteración 1 (PIT-01)');
+    }
+    check(await countPlans() === plansBefore, 'abrir la planificación desde la iteración no crea otra planificación', [plansBefore, await countPlans()]);
+    check(!(await errorCards(page)).length && !errors.length, 'sin tarjetas de error ni errores de consola', errors);
   } finally { await app.browser.close(); }
 }
 

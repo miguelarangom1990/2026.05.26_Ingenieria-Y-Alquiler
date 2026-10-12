@@ -23,7 +23,11 @@
    se revisa con el registro de interesados después de la salida del release 1.
    Los documentos de prueba son un registro vivo: revisión en curso al corte.
    Una planificación se aprueba el primer día de su iteración y no cita hechos
-   posteriores (una incapacidad médica no se conoce al planificar).
+   posteriores (una incapacidad médica no se conoce al planificar; los criterios
+   de aceptación van como estaban ese día, sin lo que se precisó después).
+   El plan de involucramiento respeta la restricción del plan de gestión de las
+   comunicaciones: facturación, cartera y contabilidad no se capacitan en el
+   cierre mensual (cinco primeros días hábiles del mes).
    Se usan roles, no nombres de personas.
    ========================================================================== */
 (function () {
@@ -117,8 +121,8 @@
         'Calidad sin atajos en la facturación: nada que afecte una factura, un saldo o un impuesto se da por terminado sin probarlo con datos reales.',
       ],
       pautasComunicacion: 'El tablero Kanban del gestor es la fuente del estado del trabajo: cada persona actualiza sus elementos el mismo día y marca los bloqueos con su causa. Los impedimentos se dicen en la reunión diaria y el Scrum Master los escala en menos de un día hábil. Las dudas de negocio van al dueño del producto o al usuario clave que él designe; lo que se acuerda con un área queda en el elemento del backlog. El grupo de mensajería del equipo es solo para coordinación operativa: las decisiones quedan en el tablero, en un acta o por correo. Con las áreas y los proveedores se sigue el plan de gestión de las comunicaciones.',
-      tomaDecisiones: 'El dueño del producto decide el orden del backlog, el alcance de cada iteración dentro del release y la aceptación de cada elemento. El equipo decide cómo hacer el trabajo, estima en puntos de historia (planning poker) y fija su compromiso en la planificación. Las decisiones técnicas se toman por consenso; si no lo hay en un día hábil, decide el ' + lcFirst(R.lim) + ' con el ' + lcFirst(ROLE.ti) + ' cuando se afectan la arquitectura, la seguridad o las integraciones. Los cambios de alcance, fecha o presupuesto de un release siguen el plan de gestión de cambios. Nadie del equipo acepta pedidos directos de las áreas: entran al backlog por el dueño del producto.',
-      resolucionConflictos: 'Primero lo conversan las partes el mismo día, con esta acta como referencia. Si no se resuelve, el Scrum Master facilita una conversación al día hábil siguiente y, si toca la forma de trabajar, lo lleva a la retrospectiva. Si persiste o afecta las condiciones del contrato de implementación (personas, horas o alcance), deciden el ' + lcFirst(R.dir.replace(/ \(.*\)$/, '')) + ' y el ' + lcFirst(R.lim) + ' en máximo dos días hábiles, según lo que establece ese contrato. Los desacuerdos con las áreas usuarias los maneja el dueño del producto.',
+      tomaDecisiones: 'El dueño del producto ordena el backlog, propone el objetivo de la iteración y acepta o rechaza cada elemento; los desarrolladores seleccionan con él los elementos de la iteración y fijan su compromiso en la planificación. Los desarrolladores deciden cómo hacer el trabajo y estiman en puntos de historia (planning poker). Las decisiones técnicas se toman por consenso; si no lo hay en un día hábil, decide el ' + lcFirst(R.lim) + ' con el ' + lcFirst(ROLE.ti) + ' cuando se afectan la arquitectura, la seguridad o las integraciones. Los cambios de alcance, fecha o presupuesto de un release siguen el plan de gestión de cambios. Nadie del equipo acepta pedidos directos de las áreas: entran al backlog por el dueño del producto.',
+      resolucionConflictos: 'Primero lo conversan las partes el mismo día, con esta acta como referencia. Si no se resuelve, el Scrum Master facilita una conversación al día hábil siguiente y, si toca la forma de trabajar, lo lleva a la retrospectiva. Si persiste o afecta las condiciones del contrato de implementación (personas, horas o alcance), deciden el ' + lcFirst(R.dir.replace(/ \(.*\)$/, '')) + ' y el ' + lcFirst(R.lim) + ' en máximo dos días hábiles; es un acuerdo de este equipo y las controversias contractuales siguen lo que prevé el contrato de implementación. Los desacuerdos con las áreas usuarias los maneja el dueño del producto.',
       pautasReuniones: 'Planificación el primer día de cada iteración (máximo ' + TIMEBOX.planificacion + ' horas); reunión diaria de ' + TIMEBOX.diaria + ' minutos a las 8:15 a. m. frente al tablero, por videoconferencia los días de trabajo remoto; refinamiento semanal con el dueño del producto y los usuarios clave; revisión el último día de la iteración (' + TIMEBOX.revision + ' horas), con datos reales, y retrospectiva después de la revisión (' + n1(TIMEBOX.retrospectiva) + ' horas). Se empieza a tiempo y con el tablero actualizado; los temas largos se tratan después de la reunión diaria solo con quienes los necesitan. La reunión diaria es de los desarrolladores: cuando el Scrum Master está en el comité quincenal, la hacen sin él.',
       acuerdos: [
         'Cada historia documenta su parametrización y el ' + lcFirst(R.at) + ' participa en todas las historias, para que el conocimiento del ERP quede en la empresa (respuesta al riesgo R-005).',
@@ -127,7 +131,7 @@
           'No empezar una historia que no se alcance a probar antes del cierre de la iteración; el Scrum Master lo revisa en la reunión diaria (retrospectiva de la ' + lcFirst(retros[0].name) + ').',
           'Hacer la revisión de pares el mismo día en que una historia pasa a «En revisión» (retrospectiva de la ' + lcFirst(retros[1].name) + ').',
           'Probar con los datos maestros depurados de la bodega principal, no con datos inventados (retrospectiva de la ' + lcFirst(retros[1].name) + ').',
-          'Las historias y mejoras pasan por «Pruebas de usuario»: el usuario clave del área las aprueba con datos reales antes de terminarlas (retrospectiva de la ' + lcFirst(retros[2].name) + ').',
+          'Coordinar cada mañana, en la reunión diaria, las pruebas de usuario del día con el usuario clave del área, para que ningún elemento espere su aprobación al cierre de la iteración (retrospectiva de la ' + lcFirst(retros[2].name) + '; la columna «Pruebas de usuario» y su política están en la definición de terminado rev. 1).',
         ] : []),
         'El trabajo remoto se hace en los días acordados con el Scrum Master; esos días cada persona está conectada en el horario del equipo.',
         'Nadie entra a los patios ni a las zonas de cargue de las bodegas sin la inducción de seguridad y salud en el trabajo y sin acompañante; allí se usan casco, botas y chaleco.',
@@ -143,6 +147,19 @@
     const regAt = { 0: regRev('1').interesados, 1: reg.fields.interesados };
     const capR2 = lbT('t23'), go2 = lbT(golive('rel-2')), go3 = lbT(golive('rel-3'));
     const paperPct = pctIn(r003.disparador);
+    /* el plan de gestión de las comunicaciones (desde su rev. 0) no permite capacitar a facturación, cartera y contabilidad en
+       el cierre mensual (cinco primeros días hábiles del mes): de la ventana de la LB0 solo quedan los días anteriores al cierre */
+    const firstWorkOn = (iso) => { let d = iso; while (!cal.isWork(d)) d = D.add(d, 1); return d; };
+    const closingDays = (iso) => { const d0 = firstWorkOn(D.startOfMonth(iso)); return [0, 1, 2, 3, 4].map((k) => cal.addWork(d0, k)); };
+    const capR2Days = []; for (let d = capR2.start; d <= capR2.finish; d = D.add(d, 1)) if (cal.isWork(d)) capR2Days.push(d);
+    const capR2Close = closingDays(capR2.finish);
+    const capR2Fin = capR2Days.filter((d) => !capR2Close.includes(d));
+    /* días sueltos: «el 29 y el 30 de octubre» */
+    const daysTxt = (list) => andList(list.map((d, i) => 'el ' + (i < list.length - 1 && list[i + 1].slice(0, 7) === d.slice(0, 7) ? String(+d.slice(8)) : dlShort(d))));
+    const closeTxt = 'cierre mensual de ' + dl(capR2Close[0]).replace(/^\d+ de /, '').replace(/ de 20\d\d$/, '') + ' (' + range(capR2Close[0], capR2Close[capR2Close.length - 1]) + ')';
+    const finTraining = capR2Fin.length
+      ? daysTxt(capR2Fin) + ', los días de la ventana de capacitación de la LB0 (' + range(capR2.start, capR2.finish) + ') que quedan fuera del ' + closeTxt
+      : 'fuera del ' + closeTxt;
     const STRAT = {
       'Gerencia General': (s) => ({ estrategia: 'Revisión de la iteración al cierre de cada release, consulta del tablero y las métricas ágiles e informe quincenal con las decisiones requeridas. Respalda ante las áreas cada salida a producción y la fecha de retiro de los formatos en papel.', responsable: R.dir, frecuencia: 'Quincenal' }),
       'Gerente administrativo y financiero': () => ({ estrategia: 'Mantener: ordena el backlog, preside el refinamiento y acepta cada incremento en la revisión. El Scrum Master protege sus dos horas diarias para el proyecto.', responsable: R.sm, frecuencia: 'Semanal' }),
@@ -150,7 +167,7 @@
       'Coordinador logístico': (s) => ({ estrategia: 'Revisiones de cada iteración del ' + relShort('rel-1').toLowerCase() + ' y pruebas de usuario de despachos y devoluciones; vocero del release ante bodega y comercial.' + (s >= 1 ? ' Después de la salida, lleva al refinamiento las mejoras de logística y prueba las del ' + relShort('rel-2').toLowerCase() + ' que tocan la remisión.' : ''), responsable: 'Dueño del producto', frecuencia: 'Quincenal' }),
       'Jefe de almacén': (s) => ({ estrategia: (s >= 1 ? 'Pasó a neutral con la salida del ' + relShort('rel-1').toLowerCase() + '. ' : '') + 'Capacitación por grupos en la bodega, acompañamiento en sitio dos semanas después de cada salida y retiro de los formatos en papel con fecha anunciada; participa en la depuración de datos y en el conteo físico, y tiene un espacio para el proyecto en la reunión semanal de bodega.', responsable: 'Dueño del producto', frecuencia: 'Semanal' }),
       'Personal de bodega y conductores': (s) => ({ estrategia: (s >= 1 ? 'Pasó a neutral con la salida del ' + relShort('rel-1').toLowerCase() + '. ' : '') + 'Capacitación por grupos en la bodega antes de cada salida, avisos en las carteleras, acompañamiento en sitio dos semanas después y retiro de los formatos en papel con fecha anunciada. Se mide cada semana el porcentaje de remisiones y devoluciones en papel (disparador del riesgo R-003: más de ' + paperPct + ').', responsable: 'Dueño del producto', frecuencia: 'Por hito' }),
-      'Jefe de facturación y cartera': (s) => ({ estrategia: 'Revisiones de cada iteración del ' + relShort('rel-2').toLowerCase() + ', pruebas de usuario de facturación y cartera y vocero del release ante su área; capacitación de su equipo antes de la salida' + (s >= 1 ? ' (' + range(capR2.start, capR2.finish) + ')' : '') + '.', responsable: 'Dueño del producto', frecuencia: 'Quincenal' }),
+      'Jefe de facturación y cartera': (s) => ({ estrategia: 'Revisiones de cada iteración del ' + relShort('rel-2').toLowerCase() + ', pruebas de usuario de facturación y cartera y vocero del release ante su área; capacitación de su equipo antes de la salida' + (s >= 1 ? ': ' + finTraining + ', según el plan de gestión de las comunicaciones' : ' y fuera del cierre mensual') + '.', responsable: 'Dueño del producto', frecuencia: 'Quincenal' }),
       'Jefe de mantenimiento': (s) => ({ estrategia: 'Refinamiento de las historias del ' + relShort('rel-3').toLowerCase() + ' y validación de la plantilla de hojas de vida antes de su migración; invitado a las revisiones de las iteraciones del release.' + (s >= 1 ? ' Sus pedidos después de la salida del ' + relShort('rel-1').toLowerCase() + ' entran al backlog del release 3.' : ''), responsable: 'Dueño del producto', frecuencia: 'Por hito' }),
       'Gerente comercial': () => ({ estrategia: 'Invitado al comité quincenal; valida las listas de precios y la consulta de disponibilidad con datos reales en las revisiones; los pedidos de su área entran al backlog por el refinamiento con el dueño del producto.', responsable: R.dir, frecuencia: 'Quincenal' }),
       'Jefe de TI': () => ({ estrategia: 'Asesor técnico del comité de control de cambios y responsable de cada salida a producción y de la transferencia al soporte; aprueba los perfiles de producción.', responsable: R.dir, frecuencia: 'Quincenal' }),
@@ -171,7 +188,7 @@
       impactoCambio: 'El ERP cambia la forma de trabajar de casi todas las áreas: en bodega, las remisiones, actas y devoluciones se registran en tableta, con conteo por estado y etiquetas de código de barras; en logística, la remisión sale del pedido y la disponibilidad se consulta en línea, sin doble digitación; en facturación, la prefactura sale de las actas y la factura electrónica se emite el mismo día del corte; en cartera, los recaudos se aplican el mismo día y se bloquean los despachos a clientes en mora; en mantenimiento, cada equipo tiene hoja de vida e inspección antes del despacho; contabilidad aprueba reglas tributarias y saldos migrados, y la gerencia decide con un tablero diario. Los formatos en papel se retiran con fecha anunciada después de cada salida.' + (stage >= 1 ? ' Con el ' + relShort('rel-1').toLowerCase() + ' en producción desde el ' + dl(golive1) + ', el cambio ya llegó a bodega y logística; ahora llega a facturación, cartera y contabilidad.' : ''),
       interrelaciones: 'El personal de bodega sigue lo que hacen el jefe de almacén y el coordinador logístico: si ellos usan el ERP, la bodega lo usa. El contador y el revisor fiscal aprueban juntos las conciliaciones antes de cada salida. El proveedor tecnológico y la DIAN condicionan el ' + relShort('rel-2').toLowerCase() + ': un rechazo en habilitación afecta a facturación, cartera y contabilidad. El gerente comercial y el jefe de facturación y cartera comparten las listas de precios y la liquidación del alquiler. El implementador y el analista de TI comparten el conocimiento de la parametrización (riesgo R-005). El jefe de mantenimiento recibe las piezas «para reparación» que registra la bodega en cada devolución.',
       requisitosFase: stage >= 1
-        ? 'Fase actual: ' + relDesc('rel-2') + ', iteraciones ' + relIts('rel-2') + ', y preparación del ' + relShort('rel-3').toLowerCase() + '. Facturación, cartera y contabilidad necesitan saber qué cambia en la factura y en el recaudo, el estado de las pruebas de habilitación ante la DIAN y las fechas de su capacitación (' + range(capR2.start, capR2.finish) + '), antes de la salida del ' + dl(go2.start) + '. Bodega y logística necesitan el canal de soporte de producción del release 1 y el acompañamiento en sitio; mantenimiento, el calendario de refinamiento de su release.'
+        ? 'Fase actual: ' + relDesc('rel-2') + ', iteraciones ' + relIts('rel-2') + ', y preparación del ' + relShort('rel-3').toLowerCase() + '. Facturación, cartera y contabilidad necesitan saber qué cambia en la factura y en el recaudo, el estado de las pruebas de habilitación ante la DIAN y las fechas de su capacitación antes de la salida del ' + dl(go2.start) + ': ' + finTraining + ', en el que el plan de gestión de las comunicaciones no permite capacitarlos. Bodega y logística necesitan el canal de soporte de producción del release 1 y el acompañamiento en sitio; mantenimiento, el calendario de refinamiento de su release.'
         : 'Fase actual: ' + relDesc('rel-1') + ', iteraciones ' + relIts('rel-1') + ', con la depuración de los datos maestros, la formación de los usuarios clave (' + range(lbT('t21').start, lbT('t21').finish) + ') y la capacitación de los usuarios finales (' + range(lbT('t22').start, lbT('t22').finish) + ') antes de la salida del ' + dl(lbT(golive('rel-1')).start) + '. Bodega, almacén y logística necesitan saber qué cambia en su trabajo diario, cuándo los capacitan y cuándo se retiran los formatos en papel.',
       informacionDistribuir: 'Según la matriz del plan de gestión de las comunicaciones: informe quincenal de desempeño (Gerencia General, dueño del producto y comité de control de cambios), actas de revisión de cada iteración (usuarios clave), tablero Kanban y métricas ágiles (consulta abierta), carteleras y capacitación por grupos (bodega), conciliaciones firmadas (revisoría fiscal) y comunicado de cada salida a producción (todas las áreas).',
       actualizacion: 'Se actualiza al cerrar cada release, junto con el registro de interesados, y cuando un interesado cambia de actitud o aparece uno nuevo; las brechas que no se cierran en un mes se revisan en el comité quincenal. Aprueba la Gerencia General a propuesta del director de proyecto.' + (stage >= 1 ? ' Próxima revisión: al cerrar el ' + relShort('rel-2').toLowerCase() + ', antes de su salida del ' + dl(go2.start) + '.' : ''),
@@ -179,7 +196,7 @@
 
     /* ============================================================ 8.2 · DOCUMENTOS DE PRUEBA Y EVALUACIÓN
        Rev. 0 con la LB0 y la definición de terminado; rev. 1 con la retrospectiva de la iteración 3 (prueba con datos migrados
-       y columna «Pruebas de usuario»); rev. 2A al corte con los resultados del release 1 y del release 2 en curso. */
+       y columna «Pruebas de usuario») y la prueba de las básculas del CC-001; rev. 2A al corte con los resultados del release 1 y del release 2 en curso. */
     const it4 = PM.calc.sprintsOfRelease(sprints, 'rel-1').slice(-1)[0];
     const it6 = sprints.filter((s) => s.status === 'cerrado').slice(-1)[0];
     const uatDefects = items.filter((i) => i.type === 'defecto' && /prueba de aceptación del release 1/i.test(i.description || '')).map((i) => i.code).sort();
@@ -283,7 +300,19 @@
       const unf = (s.unfinished || []).map((u) => items.find((i) => i.id === u.id)).filter((i) => i && !own.includes(i));
       return [...own, ...unf].sort((a, b) => a.rank - b.rank);
     };
-    const asElement = (i) => ({ codigo: i.code, titulo: i.title, tipo: TYPE_LABEL[i.type] || i.type, estimacion: i.estimate, responsable: i.assignee, criterios: i.acceptance });
+    /* criterios al planificar: el backlog guarda los criterios vigentes y algunos se completaron después con el resultado del
+       trabajo (la decisión de IN-001, las validaciones de HU-002 y HU-029 y el formato que entregó el banco para TA-010). Antes
+       de que el elemento se termine (o del corte, si sigue abierto) la planificación los cita como estaban: cada regla cambia
+       una frase del texto vigente, y si el texto cambia en 94 la prueba lo detecta (verbos en pasado y fechas posteriores). */
+    const CRIT_AT_PLAN = [
+      { code: 'IN-001', from: /(aceptada por el dueño del producto)\s*:[^\n]*/, to: '$1 sobre el manejo de cada familia.' },
+      { code: 'HU-002', from: /Las cinco familias y sus unidades fueron validadas por el gerente comercial\./, to: 'El gerente comercial valida las cinco familias y sus unidades.' },
+      { code: 'HU-029', from: /Contabilidad validó /, to: 'Contabilidad valida ' },
+      { code: 'TA-010', from: / en el formato que entregó el banco el \d{1,2} de [a-z]+\./, to: ' en el formato que entregue el banco.' },
+      { code: 'TA-010', from: /Prueba con el archivo de [a-z]+:/, to: 'Prueba con un archivo de recaudos del banco:' },
+    ];
+    const criteriaAt = (i, date) => CRIT_AT_PLAN.filter((r) => r.code === i.code && date < (i.doneDate || STATUS_DATE)).reduce((t, r) => t.replace(r.from, r.to), String(i.acceptance || ''));
+    const asElement = (date) => (i) => ({ codigo: i.code, titulo: i.title, tipo: TYPE_LABEL[i.type] || i.type, estimacion: i.estimate, responsable: i.assignee, criterios: criteriaAt(i, date) });
     const sumEst = (list) => list.reduce((s, i) => s + (Number(i.estimate) || 0), 0);
     const resKnown = { ...resources, items: (resources.items || []).map((x) => ({ ...x, absences: (x.absences || []).filter(knownAtPlanning) })) };
     const planFacts = (s) => {
@@ -333,7 +362,7 @@
       },
       [s3.id]: {
         notas: capText(s3, p3) + ' ' + velText(p3) + ' La ' + lcFirst(s2.name) + ' terminó ' + s2.completed + ' puntos con ' + nm(P[s2.id].personDays) + ' días-persona y desde esta iteración las historias se prueban con los datos maestros depurados: el equipo fija la capacidad en ' + s3.capacity + ' puntos y compromete ' + s3.committed + ', ' + (s3.committed - s3.capacity === 1 ? 'un punto' : word(s3.committed - s3.capacity) + ' puntos') + ' más que la capacidad, porque ' + elList(['HU-006']) + ' es «' + item('HU-006').priority + '» y es la primera que sale si no se alcanza.',
-        riesgos: 'La solicitud de cambio de las básculas, radicada el ' + dl(F.cc1Request) + ', la decide el comité de control de cambios: sus historias (' + epic8.code + ', ' + andList(basculas) + ') no entran a esta iteración y, si se aprueban, se planifican en la ' + lcFirst(s4.name) + '. La depuración de los datos maestros termina el ' + dl(t16.actualFinish) + ', ' + word(delay16) + ' días hábiles después de lo previsto (R-001): hasta ese día las historias de devoluciones y contratos se prueban con los lotes ya depurados (acción 2 de la retrospectiva de la ' + lcFirst(s2.name) + '). TA-005 prueba la carga de saldos de la bodega de Funza con su conteo físico. Desde esta iteración, la revisión de pares se hace el mismo día en que una historia pasa a «En revisión» (acción 1 de la retrospectiva de la ' + lcFirst(s2.name) + ').',
+        riesgos: 'La solicitud de cambio de las básculas, radicada el ' + dl(F.cc1Request) + ', la decide el comité de control de cambios: sus historias (épica ' + epic8.code + ': ' + andList(basculas) + ') no entran a esta iteración y, si se aprueban, se planifican en la ' + lcFirst(s4.name) + '. La depuración de los datos maestros termina el ' + dl(t16.actualFinish) + ', ' + word(delay16) + ' días hábiles después de lo previsto (R-001): hasta ese día las historias de devoluciones y contratos se prueban con los lotes ya depurados (acción 2 de la retrospectiva de la ' + lcFirst(s2.name) + '). TA-005 prueba la carga de saldos de la bodega de Funza con su conteo físico. Desde esta iteración, la revisión de pares se hace el mismo día en que una historia pasa a «En revisión» (acción 1 de la retrospectiva de la ' + lcFirst(s2.name) + ').',
         part: PART(['Coordinador logístico (invitado)', 'Gerente comercial (invitado)']),
       },
       [s4.id]: {
@@ -352,7 +381,7 @@
       return {
         iteracion: s.name, release: relName(s.releaseId), fechaInicio: s.start, fechaFin: s.end, objetivo: s.goal,
         capacidad: s.capacity, velocidadReferencia: p.ref, compromiso: s.committed, notasCapacidad: x.notas,
-        elementos: rows('el', p.els.map(asElement)), riesgos: x.riesgos, participantes: x.part,
+        elementos: rows('el', p.els.map(asElement(s.start))), riesgos: x.riesgos, participantes: x.part,
       };
     };
 
@@ -379,7 +408,7 @@
         status: 'revision', rev: '2A', date: STATUS_DATE, created: LB0, titleBlock: { elaboro: R.ap, reviso: R.sm, aprobo: '' }, fields: testDoc(2),
         revs: [
           { rev: '0', status: 'aprobado', date: LB0, note: 'Emisión inicial con la definición de terminado (rev. 0).', fields: testDoc(0) },
-          { rev: '1', status: 'aprobado', date: DOD_REV1, note: 'Retrospectiva de la iteración 3: prueba con datos migrados, columna «Pruebas de usuario» e integración con las básculas.', fields: testDoc(1) },
+          { rev: '1', status: 'aprobado', date: DOD_REV1, note: 'Retrospectiva de la ' + lcFirst(it(3).name) + ' (prueba con datos migrados y columna «Pruebas de usuario») y prueba de la integración con las básculas del CC-001.', fields: testDoc(1) },
         ],
       },
       'planificacion-sprint': {

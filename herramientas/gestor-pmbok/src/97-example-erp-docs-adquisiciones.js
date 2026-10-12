@@ -20,8 +20,13 @@
      aceptados y rechazados en las revisiones y AgileEVM de los releases.
    Supuestos propios (SUP, abajo; docs/ejemplo-erp/supuestos-y-fuentes.md):
    costos de «hacer», tarifa de referencia de la estimación independiente,
-   puntajes de la evaluación de ofertas, números de contrato y calificaciones
-   de los proveedores.
+   referencia de mercado de la suscripción antes de las propuestas, grupos de
+   capacitación por release, puntajes de la evaluación de ofertas, números de
+   contrato y calificaciones de los proveedores.
+   Las órdenes de servicio por horas del implementador no suman al valor fijo
+   del contrato (iteraciones y bolsas): el seguimiento las lleva en su propia
+   fila. Los contratos terminados se liquidan con la evaluación final de los
+   proveedores (revisión 0 del seguimiento), ya pagados.
    Los documentos aprobados (y sus revisiones) no citan hechos posteriores a
    su fecha. Se usan roles, no nombres de personas.
    ========================================================================== */
@@ -50,6 +55,7 @@
   const M = 1e6;
   const mm = (x) => Math.round(x * M);
   const lc = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   const WORDS = ['cero', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
   const nw = (n) => (Number.isInteger(n) && n >= 0 && n <= 10 ? WORDS[n] : n0(n));
   const andList = (list) => (list.length < 2 ? list.join('') : list.slice(0, -1).join(', ') + ' y ' + list[list.length - 1]);
@@ -67,6 +73,11 @@
     trm: 4000,
     /* estimación independiente del consultor de selección (25 de mayo): tarifa de referencia por hora del implementador */
     tarifaReferencia: 85000,
+    /* referencia de mercado de la suscripción antes de las propuestas (la misma del caso de negocio inicial: cerca de
+       COP 11 M al mes por 45 usuarios); el precio por usuario se conoce con la oferta adjudicada */
+    suscripcionReferencia: mm(11),
+    /* capacitación de usuarios finales: grupos por rol en cada release (la factura FE-5133 del release 1 los confirma) */
+    gruposCapacitacion: 6,
     /* condiciones de pago: días calendario después de la factura y retención en garantía de las iteraciones */
     pagoDias: 30, retencion: 0.05,
     /* números de contrato (consecutivos de la empresa) */
@@ -95,7 +106,7 @@
     ],
     /* calificaciones de desempeño (1 a 5; null = no aplica) en el seguimiento al cierre del release 1 (0) y al corte (1) */
     calif: {
-      sel: [[5, 5, 5], [5, 5, 5]], jur: [[5, 5, null], [5, 5, null]], sub: [[5, 5, null], [5, 5, null]], impl: [[5, 4, 5], [4, 4, 5]],
+      sel: [[5, 5, 5], [5, 5, 5]], jur: [[5, 5, null], [5, 5, null]], sub: [[5, 5, null], [5, 5, null]], impl: [[5, 4, 5], [4, 4, 5]], os: [[5, 4, 5], [5, 4, 5]],
       cgc: [[5, 4, 5], [5, 4, 5]], eq: [[3, 4, 5], [3, 4, 5]], red: [[5, 5, 5], [5, 5, 5]], fe: [[5, 4, null], [5, 2, null]],
     },
   };
@@ -202,8 +213,6 @@
     const paidAt = (a, at) => D.add(a.date, SUP.pagoDias) <= at;
     const pagado = (list, at) => Math.round(sum(list.filter((a) => paidAt(a, at)), (a) => a.amount * (1 - retained(a, at))));
     const retenido = (list, at) => Math.round(sum(list, (a) => a.amount * retained(a, at)));
-    const eqFinal = total(actualsOf('eq', CUT)), redFinal = total(actualsOf('red', CUT));
-    const selFinal = total(actualsOf('sel', CUT));
     const otrosAt = (at) => costs.actuals.filter((a) => a.category === 'Otros' && a.date <= at);
     /* días hábiles de retraso de la entrega de los equipos (fin real frente a la LB0) */
     const eqLate = cal.countWork(D.add(T.eqFin, 1), task('t14').actualFinish);
@@ -241,13 +250,17 @@
     const digitacionHacer = Math.round(H.digitacion * 2 * item('alm').unitCost * H.diasMes * H.meses);
     const redHacer = H.redMateriales + H.redDiasTI * item('jti').unitCost;
     const subTres = Math.round(subMonthly * H.meses);
+    const subTres0 = SUP.suscripcionReferencia * H.meses;
     const hocFields = (stage) => {
       const implCompra = stage >= 1 ? implValue : implEst0;
       return {
         analisis: rows('hoc', [
-          { item: 'Plataforma del ERP (software e infraestructura)', opcionHacer: 'ERP instalado en servidores propios: licencias perpetuas de ' + n0(subUsers) + ' usuarios, servidores con respaldo, soporte anual del fabricante y administración por TI durante tres años.', costoHacer: H.plataforma,
-            opcionComprar: 'ERP de mercado medio en la nube por suscripción: ' + n0(subFull) + ' usuarios completos y ' + n0(subLim) + ' limitados a precios de lista (' + money(subMonthly) + ' al mes) durante 36 meses; ' + n0(subMonths) + ' meses dentro del proyecto (' + ms(subValue) + ').', costoComprar: subTres,
-            factores: 'Sin servidores propios, como espera el jefe de TI; actualizaciones y respaldo incluidos. El desarrollo a la medida se descartó en el caso de negocio (alternativa de desarrollo propio).', decision: 'Comprar' },
+          { item: 'Plataforma del ERP (software e infraestructura)', opcionHacer: 'ERP instalado en servidores propios: licencias perpetuas de ' + n0(subUsers) + ' usuarios, servidores con respaldo, soporte anual del fabricante y administración por TI durante tres años. Solo la plataforma: sin los desarrollos a la medida.', costoHacer: H.plataforma,
+            opcionComprar: stage >= 1
+              ? 'ERP de mercado medio en la nube por suscripción: ' + n0(subFull) + ' usuarios completos y ' + n0(subLim) + ' limitados a los precios del contrato ' + SUP.num.sub + ' (' + money(subMonthly) + ' al mes) durante 36 meses; ' + n0(subMonths) + ' meses dentro del proyecto (' + ms(subValue) + ').'
+              : 'ERP de mercado medio en la nube por suscripción: ' + n0(subUsers) + ' usuarios (' + n0(subFull) + ' completos y ' + n0(subLim) + ' limitados) por cerca de ' + ms(SUP.suscripcionReferencia) + ' al mes durante 36 meses (referencia de mercado del caso de negocio; el precio por usuario se confirma con las propuestas).',
+            costoComprar: stage >= 1 ? subTres : subTres0,
+            factores: 'Sin servidores propios, como espera el jefe de TI; actualizaciones y respaldo incluidos. La alternativa D del caso de negocio (ERP con servidores propios y desarrollos a la medida) ya se había descartado; esta fila compara solo la plataforma.', decision: 'Comprar' },
           { item: 'Implementación (parametrización, desarrollos e integraciones de los tres releases)', opcionHacer: 'Equipo propio de ' + n0(implHours) + ' horas por iteración (' + n1(implTeamEq) + ' personas equivalentes al costo del analista de TI): ' + implHacerIter + ' iteraciones por la curva de aprendizaje del ERP, más selección y formación certificada (' + ms(H.reclutamiento) + ').', costoHacer: implHacer,
             opcionComprar: stage >= 1
               ? 'Socio implementador por iteraciones de precio fijo (contrato ' + SUP.num.impl + '): ' + nSprints + ' iteraciones de ' + n0(implHours) + ' horas a ' + ms(implFee) + ' y bolsas con tope de ' + ms(bolsa2) + ' (conector) y ' + ms(bolsa3) + ' (tablero gerencial), con el analista de TI de la empresa en el equipo.'
@@ -267,7 +280,7 @@
             opcionComprar: 'Comprar ' + n0(eqQty.tab) + ' tabletas robustas, ' + n0(eqQty.lec) + ' lectores de código de barras y ' + n0(eqQty.imp) + ' impresoras de etiquetas a precios de referencia en dólares (tasa de planificación de ' + money(SUP.trm) + ').', costoComprar: eqPlanned,
             factores: 'Las actas firmadas en obra y el trabajo sin conexión son requisitos del release 1. El alquiler operativo a 36 meses costaba más que la compra y no cubría los daños en patio.', decision: 'Comprar' },
           { item: 'Red inalámbrica de las bodegas', opcionHacer: 'El jefe de TI la diseña e instala con puntos de acceso comprados por la empresa (' + H.redDiasTI + ' jornadas).', costoHacer: redHacer,
-            opcionComprar: 'Integrador de redes llave en mano, con estudio de sitio y cobertura garantizada en patios y estanterías.', costoComprar: redPlanned,
+            opcionComprar: 'Integrador de redes llave en mano, con estudio de sitio y cobertura garantizada en patios y estanterías; los puntos de acceso son importados.', costoComprar: redPlanned,
             factores: 'El jefe de TI no tiene disponibilidad en julio y la instalación en altura exige personal certificado.', decision: 'Comprar' },
         ]),
         criterios: 'Tiempo hasta facturar con la DIAN, costo total a tres años, riesgo técnico y dependencia de personas clave. Las decisiones se revisan al planificar cada release, cuando la necesidad se conoce mejor.',
@@ -283,10 +296,10 @@
         { adquisicion: 'Suscripción del ERP en la nube', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Precio fijo cerrado (FFP)', metodoSeleccion: 'Basado en calidad y costo', justificacion: 'Precio fijo por usuario-mes. Se evalúa junto con el implementador (propuesta conjunta) porque la funcionalidad depende de los dos.' },
         { adquisicion: 'Implementación por iteraciones de ' + n0(implHours) + ' horas', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Precio fijo cerrado (FFP)', metodoSeleccion: 'Basado en calidad y costo', justificacion: 'Precio fijo por iteración (capacidad del equipo), pagado al cierre contra el acta de revisión. Reordenar o cambiar el backlog no modifica el contrato; un cambio de fecha o de presupuesto de un release pasa por el control de cambios.' },
         { adquisicion: 'Bolsas de horas del implementador (conector y tablero gerencial)', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Tiempo y materiales (T&M)', metodoSeleccion: 'Fuente única', justificacion: 'El esfuerzo no se conoce hasta investigar la API del proveedor tecnológico y definir los indicadores; tarifa del contrato con tope por bolsa.' },
-        { adquisicion: 'Servicios del implementador por horas (ambientes, formación, capacitación, apoyo a la migración, salidas y estabilización)', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Tiempo y materiales (T&M)', metodoSeleccion: 'Fuente única', justificacion: 'Órdenes de servicio a la tarifa del contrato, cada una dentro del presupuesto de su actividad y del límite de gasto del director.' },
+        { adquisicion: 'Servicios del implementador por horas (ambientes, taller de planificación de releases, formación, capacitación, apoyo a la migración, salidas y estabilización)', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Tiempo y materiales (T&M)', metodoSeleccion: 'Fuente única', justificacion: 'Órdenes de servicio a la tarifa del contrato, cada una con su alcance y su valor, dentro del presupuesto de su actividad y del límite de gasto del director; no suman al valor fijo del contrato.' },
         { adquisicion: 'Proveedor tecnológico de facturación electrónica', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Precio fijo cerrado (FFP)', metodoSeleccion: 'Basado en calidad y costo', justificacion: 'Paquete anual de documentos a precio fijo; debe tener conector probado con el ERP elegido y habilitar antes del release 2.' },
         { adquisicion: 'Equipos de bodega importados', metodoEntrega: 'Suministro directo (orden de compra)', tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)', metodoSeleccion: 'Menor costo', justificacion: 'Especificación cerrada y tres cotizaciones; precio en dólares con ajuste a la tasa de cambio de la factura.' },
-        { adquisicion: 'Red inalámbrica de las bodegas', metodoEntrega: 'Llave en mano', tipoContrato: 'Precio fijo cerrado (FFP)', metodoSeleccion: 'Basado en calidad y costo', justificacion: 'El integrador responde por la cobertura con su estudio de sitio; dos cotizaciones.' },
+        { adquisicion: 'Red inalámbrica de las bodegas', metodoEntrega: 'Llave en mano', tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)', metodoSeleccion: 'Basado en calidad y costo', justificacion: 'El integrador responde por la cobertura con su estudio de sitio. La instalación va a precio fijo en pesos; los puntos de acceso importados, en dólares con ajuste a la tasa de cambio de la factura. Dos cotizaciones.' },
         { adquisicion: 'Consultor de selección del ERP', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Tiempo y materiales (T&M)', metodoSeleccion: 'Calificaciones únicamente', justificacion: 'Independiente de los fabricantes; tarifa por jornada con tope de jornadas.' },
         { adquisicion: 'Asesoría jurídica y consultoría de gestión del cambio', metodoEntrega: 'Servicio sin subcontratación', tipoContrato: 'Precio fijo cerrado (FFP)', metodoSeleccion: 'Calificaciones únicamente', justificacion: 'Alcances cortos y definidos (revisión de los contratos; plan de gestión del cambio y red de usuarios clave).' },
       ]),
@@ -339,8 +352,8 @@
         { metrica: 'Facturas de los proveedores sin errores', meta: '≥ 98 %', frecuencia: 'Mensual' },
       ]),
       jurisdiccion: 'Leyes de la República de Colombia; controversias por arreglo directo y, si no hay acuerdo en 30 días, conciliación en el centro de arbitraje y conciliación de la Cámara de Comercio de Bogotá.',
-      moneda: 'Pesos colombianos (COP), precios antes de IVA, pago a ' + SUP.pagoDias + ' días contra factura electrónica. Implementador: cada iteración al cierre, contra el acta de revisión firmada por el dueño del producto, con retención en garantía del ' + pc(SUP.retencion) + ' hasta la aceptación del release; bolsas y horas por consumo mensual con el reporte aprobado. Suscripción: mes vencido. Equipos importados: cotizados en dólares con ajuste a la tasa de cambio de la factura (tasa de planificación de ' + money(SUP.trm) + ' por dólar).',
-      garantias: 'Contratos de más de ' + limTxt + ' y trabajos en sitio: póliza de cumplimiento del 10 % (vigencia del contrato y 4 meses más). Implementador, además: calidad del servicio (10 %, vigencia y un año más), pago de salarios y prestaciones sociales (5 %, vigencia y tres años más) y retención del ' + pc(SUP.retencion) + ' de cada iteración hasta aceptar su release. Equipos: póliza de calidad del 10 % por un año, además de la garantía del fabricante. Red: calidad y responsabilidad civil extracontractual por el trabajo en alturas. Servicios en la nube (suscripción y proveedor tecnológico): acuerdo de nivel de servicio con créditos por indisponibilidad, sin pólizas.',
+      moneda: 'Pesos colombianos (COP), precios antes de IVA, pago a ' + SUP.pagoDias + ' días contra factura electrónica. Implementador: cada iteración al cierre, contra el acta de revisión firmada por el dueño del producto, con retención en garantía del ' + pc(SUP.retencion) + ' hasta la aceptación del release; las bolsas, por consumo al cierre de cada iteración, y los servicios por horas, al terminar cada actividad, con su orden de servicio. Suscripción: mes vencido. Equipos importados y puntos de acceso de la red: cotizados en dólares con ajuste a la tasa de cambio de la fecha de la factura (tasa de planificación de ' + money(SUP.trm) + ' por dólar).',
+      garantias: 'Contratos de más de ' + limTxt + ' y trabajos en sitio: póliza de cumplimiento del 10 % (vigencia del contrato y 4 meses más). Excepción: las órdenes de compra de bienes que se pagan después del recibo a satisfacción solo exigen la póliza de calidad. Implementador, además: calidad del servicio (10 %, vigencia y un año más), pago de salarios y prestaciones sociales (5 %, vigencia y tres años más) y retención del ' + pc(SUP.retencion) + ' de cada iteración hasta aceptar su release; cada orden de servicio por horas amplía sus pólizas en la misma proporción. Equipos: póliza de calidad del 10 % por un año, además de la garantía del fabricante. Red: calidad y responsabilidad civil extracontractual por el trabajo en alturas. Servicios en la nube (suscripción y proveedor tecnológico): acuerdo de nivel de servicio con créditos por indisponibilidad, sin pólizas.',
       estimacionesIndependientes: 'El consultor de selección estima el costo total a tres años de cada propuesta con los precios de lista de la suscripción y una tarifa de referencia de ' + money(SUP.tarifaReferencia) + ' por hora para las ' + n0(implHours) + ' horas de cada iteración (' + ms(implEst0) + ' por ' + nSprints + ' iteraciones). El jefe de TI estima los equipos de bodega con precios de referencia en dólares a la tasa de planificación (' + ms(eqPlanned) + ').' +
         (stage >= 1 ? ' La tarifa negociada (' + money(rate) + ' por hora) quedó ' + pc((SUP.tarifaReferencia - rate) / SUP.tarifaReferencia, 1) + ' por debajo de la referencia.' : ''),
       supuestosRestricciones: 'Supuestos: hay al menos tres oferentes con implementador local y experiencia en alquiler o distribución; el proveedor tecnológico se elige compatible con el ERP seleccionado; tasa de planificación de ' + money(SUP.trm) + ' por dólar. Restricciones: contratos firmados antes de la línea base; la factura electrónica exige un proveedor tecnológico autorizado por la DIAN; ninguna salida a producción durante el cierre mensual; contratos de servicios en pesos colombianos.',
@@ -382,12 +395,12 @@
       adquisicion: 'ERP en la nube con su socio implementador (propuesta conjunta de suscripción e implementación)',
       metodoSeleccion: 'Basado en calidad y costo',
       requisitosHabilitantes: cp(habilitantes),
-      proveedorA: stage >= 1 ? 'Oferente A: ERP de mercado medio con implementador nacional (entregas por fases)' : 'Por definir: finalista 1 de los cinco invitados',
+      proveedorA: stage >= 1 ? 'Oferente A: ERP de mercado medio con implementador nacional (plan de trabajo por fases trimestrales)' : 'Por definir: finalista 1 de los cinco invitados',
       proveedorB: stage >= 1 ? 'Oferente B: ERP de mercado medio en la nube con socio implementador local' : 'Por definir: finalista 2 de los cinco invitados',
       proveedorC: stage >= 1 ? 'Oferente C: ERP de gama de entrada con implementador regional' : 'Por definir: finalista 3 de los cinco invitados',
       criterios: rows('cs', SUP.criterios.map((c) => ({ criterio: c.criterio, descripcion: c.descripcion, peso: c.peso, puntajeA: stage >= 1 ? scoreOf(c, 'A') : null, puntajeB: stage >= 1 ? scoreOf(c, 'B') : null, puntajeC: stage >= 1 ? scoreOf(c, 'C') : null }))),
       resultado: stage >= 1
-        ? 'Los tres finalistas de los cinco invitados cumplieron los requisitos habilitantes; los otros dos no tenían experiencia en alquiler o un conector con un proveedor tecnológico autorizado. Puntaje total: oferente A ' + n1(totals.A) + ', oferente B ' + n1(totals.B) + ' y oferente C ' + n1(totals.C) + '. Costo total a tres años: B ' + ms(tco.B) + ', A ' + ms(tco.A) + ' y C ' + ms(tco.C) + '. Las demostraciones con los mismos guiones mostraron diferencias que las presentaciones comerciales ocultaban: el oferente C no liquidó el alquiler por días calendario desde las actas sin hojas de cálculo auxiliares y el oferente A propuso entregas por fases de tres meses, sin iteraciones. Se recomienda adjudicar al oferente ' + winner + ' y negociar el contrato de implementación por iteraciones de precio fijo de ' + n0(implHours) + ' horas, con bolsas de horas con tope para las integraciones y la definición de terminado como condición de entrega.'
+        ? 'Los tres finalistas de los cinco invitados cumplieron los requisitos habilitantes; los otros dos no tenían experiencia en alquiler o un conector con un proveedor tecnológico autorizado. Puntaje total: oferente A ' + n1(totals.A) + ', oferente B ' + n1(totals.B) + ' y oferente C ' + n1(totals.C) + '. Costo total a tres años: B ' + ms(tco.B) + ', A ' + ms(tco.A) + ' y C ' + ms(tco.C) + '. Las demostraciones con los mismos guiones mostraron diferencias que las presentaciones comerciales ocultaban: el oferente C no liquidó el alquiler por días calendario desde las actas sin hojas de cálculo auxiliares, y el oferente A, aunque aceptó el contrato por iteraciones, presentó un plan de trabajo por fases de tres meses, con una sola revisión de los usuarios al final de cada fase. Se recomienda adjudicar al oferente ' + winner + ' y negociar el contrato de implementación por iteraciones de precio fijo de ' + n0(implHours) + ' horas, con bolsas de horas con tope para las integraciones y la definición de terminado como condición de entrega.'
         : 'Evaluación pendiente: demostraciones guiadas del ' + dlShort(T.demoIni) + ' al ' + dl(T.eval) + ', con los mismos guiones de negocio para los finalistas. Los criterios y los pesos se publican con la solicitud de propuestas y no cambian después de abrir las ofertas.',
       seleccionado: stage >= 1 ? 'Oferente ' + winner + ': ' + lc(supplier('suc')) + ' y ' + lc(supplier('cf')) + ' (propuesta conjunta)' : 'Por definir',
     });
@@ -396,19 +409,20 @@
     const relFin = (id) => rel(id).end;
     const sowImpl = (stage) => ({
       adquisicion: 'Implementación del ERP en la nube por iteraciones de precio fijo: equipo de desarrollo del socio implementador para los tres releases, bolsas de horas y servicios por horas',
-      paqueteEdt: wcode('w31') + ' (ambientes), ' + wcode('w4') + ' (migración), ' + wcode('w52') + ' y ' + wcode('w53') + ' (formación y capacitación), ' + wcode('w6') + ' a ' + wcode('w8') + ' (releases) y ' + wcode('w9') + ' (salidas en vivo y estabilización)',
+      paqueteEdt: wcode('w31') + ' (ambientes), ' + wcode(task('t03').wbsId) + ' (taller de planificación de releases), ' + wcode('w4') + ' (migración), ' + wcode('w52') + ' y ' + wcode('w53') + ' (formación y capacitación), ' + wcode('w6') + ' a ' + wcode('w8') + ' (releases) y ' + wcode('w9') + ' (salidas en vivo y estabilización)',
       tipoContrato: 'Precio fijo cerrado (FFP)',
       antecedentes: 'El descubrimiento de mayo de 2026 definió los requisitos de alto nivel de inventario y alquiler, facturación electrónica y cartera, y mantenimiento y tablero gerencial. El análisis de hacer o comprar decidió contratar la implementación con un socio que trabaje por iteraciones, con el analista de TI de la empresa en el equipo.' +
         (stage >= 1 ? ' Anexo técnico del contrato ' + SUP.num.impl + ', firmado el ' + dl(T.sign) + ' con el socio implementador del oferente ' + winner + ', seleccionado por el comité el ' + dl(T.eval) + ' con ' + n1(totals[winner]) + ' puntos de 100.' : ' Este enunciado acompaña la solicitud de propuestas del ' + dl(T.rfp) + ' y se evalúa con los criterios de selección publicados.'),
       descripcionTrabajo: 'El implementador aporta un equipo de ' + n0(implHours) + ' horas por iteración de ' + st.sprintLength + ' días hábiles: consultor funcional ERP y desarrollador ERP con dedicación completa, y desarrollador de integraciones y analista de pruebas al 50 %, que trabaja con el analista de TI de la empresa como un solo equipo Scrum durante ' + nSprints + ' iteraciones en tres releases. El equipo participa en la planificación, la reunión diaria, la revisión y la retrospectiva de cada iteración; el dueño del producto ordena el backlog y puede cambiar su contenido sin modificar el contrato mientras no cambien la fecha ni el presupuesto del release. ' +
         (stage >= 1 ? 'Incluye bolsas de horas con tope para el conector con el proveedor tecnológico (' + ms(bolsa2) + ') y el modelo de datos del tablero gerencial (' + ms(bolsa3) + ')' : 'Incluye bolsas de horas con tope, que se fijan en la negociación, para el conector con el proveedor tecnológico y el modelo de datos del tablero gerencial') +
-        ', y servicios por horas a la tarifa del contrato: ambientes y perfiles, formación de usuarios clave, capacitación de usuarios finales por release, apoyo a la migración de datos, tres salidas a producción y la estabilización.',
+        ', y servicios por horas a la tarifa del contrato, con una orden de servicio por actividad que fija su alcance y su valor: ambientes y perfiles, taller de planificación de releases y estimación del backlog, formación de usuarios clave, capacitación de usuarios finales por release, apoyo a la migración de datos, tres salidas a producción y la estabilización. Las órdenes de servicio no suman al valor fijo del contrato (iteraciones y bolsas).',
       entregables: rows('en', [
         ...['rel-1', 'rel-2', 'rel-3'].map((id) => ({ entregable: 'Iteraciones del ' + rel(id).name.replace(/^Release (\d):/, 'release $1:'), especificacion: 'Incrementos que cumplen la definición de terminado y se aceptan en la revisión de cada iteración; prueba de aceptación del release firmada por los usuarios clave.', cantidad: rel(id).plannedSprints, unidad: 'iteración', fecha: relFin(id) })),
         { entregable: 'Bolsa de horas: conector con el proveedor tecnológico', especificacion: stage >= 1 ? 'Tope de ' + ms(bolsa2) + ' a ' + money(rate) + ' por hora; consumo aprobado por el dueño del producto en cada planificación.' : 'Tope fijado en la negociación; consumo aprobado por el dueño del producto en cada planificación.', cantidad: 1, unidad: 'bolsa', fecha: relFin('rel-2') },
         { entregable: 'Bolsa de horas: modelo de datos del tablero gerencial', especificacion: stage >= 1 ? 'Tope de ' + ms(bolsa3) + ' a ' + money(rate) + ' por hora.' : 'Tope fijado en la negociación.', cantidad: 1, unidad: 'bolsa', fecha: relFin('rel-3') },
-        { entregable: 'Formación de usuarios clave en el ERP estándar', especificacion: 'Usuarios clave de las cinco áreas, con evaluación aprobada antes de la iteración 2.', cantidad: hFormacion, unidad: 'horas', fecha: lbT('t21').finish },
-        { entregable: 'Capacitación de usuarios finales por release', especificacion: n0(hCapacitacion) + ' horas por release, con guías rápidas por rol, antes de cada salida a producción.', cantidad: 3 * hCapacitacion, unidad: 'horas', fecha: lbT('t24').finish },
+        { entregable: 'Taller de planificación de releases y estimación del backlog', especificacion: 'Con el dueño del producto y el equipo, para la línea base: releases, velocidad supuesta y estimación del backlog inicial.', cantidad: 1, unidad: 'taller', fecha: lbT('t03').finish },
+        { entregable: 'Formación de usuarios clave en el ERP estándar', especificacion: 'Usuarios clave de las cinco áreas, con evaluación aprobada antes de la iteración 2. La orden de servicio incluye los materiales del curso (manuales por área y casos con datos de la empresa).', cantidad: hFormacion, unidad: 'horas', fecha: lbT('t21').finish },
+        { entregable: 'Capacitación de usuarios finales por release', especificacion: cap(nw(SUP.gruposCapacitacion)) + ' grupos por rol en cada release, con guías rápidas por rol, antes de cada salida a producción; la orden de servicio de cada release fija las horas por grupo.', cantidad: 3 * SUP.gruposCapacitacion, unidad: 'grupo', fecha: lbT('t24').finish },
         { entregable: 'Salidas a producción (corte, carga de saldos y acompañamiento)', especificacion: 'Plan de corte con reversión probada; ninguna salida durante el cierre mensual.', cantidad: 3, unidad: 'salida', fecha: lbT('t32').start },
         { entregable: 'Estabilización (hypercare) y transferencia al soporte de TI', especificacion: 'Consultor funcional y desarrollador ERP durante ' + task('t34').duration + ' días hábiles; acta de transferencia firmada por el jefe de TI.', cantidad: hEstabilizacion, unidad: 'horas', fecha: lbT('t34').finish },
       ]),
@@ -426,12 +440,12 @@
       periodoFin: T.implFin,
       horario: 'Lunes a viernes de 8:00 a. m. a 5:00 p. m., con la reunión diaria a las 8:15 a. m.; las salidas a producción se hacen fuera del horario de despachos, según el plan de corte.',
       formaPago: stage >= 1
-        ? 'Cada iteración se paga a precio fijo (' + ms(implFee) + ') al cierre, contra el acta de revisión firmada por el dueño del producto, a ' + SUP.pagoDias + ' días de la factura electrónica, con retención en garantía del ' + pc(SUP.retencion) + ' que se devuelve al aceptar el release. Las bolsas y los servicios por horas se facturan por consumo mensual con el reporte aprobado por el director, a ' + money(rate) + ' por hora (líder del implementador: ' + money(rateLider) + ').'
-        : 'Precio fijo por iteración que cotiza el oferente para las ' + n0(implHours) + ' horas; pago al cierre de cada iteración contra el acta de revisión firmada por el dueño del producto, a ' + SUP.pagoDias + ' días de la factura electrónica, con retención en garantía del ' + pc(SUP.retencion) + ' hasta la aceptación del release. Bolsas y servicios por horas a la tarifa ofertada, por consumo mensual aprobado.',
+        ? 'Cada iteración se paga a precio fijo (' + ms(implFee) + ') al cierre, contra el acta de revisión firmada por el dueño del producto, a ' + SUP.pagoDias + ' días de la factura electrónica, con retención en garantía del ' + pc(SUP.retencion) + ' que se devuelve al aceptar el release. Las bolsas se facturan por consumo al cierre de cada iteración, con las horas aprobadas por el dueño del producto, y los servicios por horas, al terminar cada actividad, contra su orden de servicio y el recibo del director, a ' + money(rate) + ' por hora (líder del implementador: ' + money(rateLider) + '); los materiales de la formación, según su orden de servicio.'
+        : 'Precio fijo por iteración que cotiza el oferente para las ' + n0(implHours) + ' horas; pago al cierre de cada iteración contra el acta de revisión firmada por el dueño del producto, a ' + SUP.pagoDias + ' días de la factura electrónica, con retención en garantía del ' + pc(SUP.retencion) + ' hasta la aceptación del release. Bolsas y servicios por horas a la tarifa ofertada: las bolsas, por consumo al cierre de cada iteración, y los servicios por horas, al terminar cada actividad, contra su orden de servicio.',
       polizas: [
-        'Cumplimiento: 10 % del valor del contrato, vigencia del contrato y 4 meses más.',
-        'Calidad del servicio: 10 % del valor del contrato, vigencia del contrato y un año más.',
-        'Pago de salarios, prestaciones sociales e indemnizaciones: 5 % del valor del contrato, vigencia del contrato y tres años más.',
+        'Cumplimiento: 10 % del valor del contrato y de cada orden de servicio, vigencia del contrato y 4 meses más.',
+        'Calidad del servicio: 10 % del valor del contrato y de cada orden de servicio, vigencia del contrato y un año más.',
+        'Pago de salarios, prestaciones sociales e indemnizaciones: 5 % del valor del contrato y de cada orden de servicio, vigencia del contrato y tres años más.',
       ],
       supervision: ROLE.dir + '; el dueño del producto acepta los incrementos',
       documentosRequeridos: [
@@ -460,7 +474,7 @@
         'Usuarios adicionales: se cotizan a los precios de lista vigentes.',
         'Soporte de primer nivel a los usuarios finales: lo presta TI con el implementador.',
       ],
-      especificaciones: 'ERP de mercado medio en la nube con inventario por bodega y por serial, contratos de alquiler, facturación electrónica mediante proveedor tecnológico, cartera, mantenimiento y reportes; acceso por navegador y aplicación para tabletas con trabajo sin conexión; perfiles por rol y registro de auditoría.',
+      especificaciones: 'ERP de mercado medio en la nube con inventario por bodega y por serial, contratos de alquiler, facturación electrónica mediante proveedor tecnológico, cartera, mantenimiento y reportes; acceso por navegador y aplicación para tabletas con trabajo sin conexión; perfiles por rol y registro de auditoría. Al terminar la suscripción, el fabricante devuelve los datos en formato abierto.',
       calidad: 'Disponibilidad mensual de 99,5 % o más en producción, con créditos de servicio si no se cumple; respaldo diario con retención de 30 días y prueba de restauración trimestral; aviso de mantenimientos con cinco días hábiles de anticipación.',
       sst: 'Sin trabajo en sitio. Seguridad de la información: datos cifrados, centro de datos con certificación de seguridad y cumplimiento de la Ley 1581 de 2012 de protección de datos personales.',
       lugar: 'Servicio en la nube del fabricante; acceso desde la sede administrativa, las dos bodegas y las obras.',
@@ -470,7 +484,7 @@
       formaPago: stage >= 1
         ? 'Mensual, mes vencido, a ' + SUP.pagoDias + ' días de la factura electrónica: ' + money(subMonthly) + ' al mes (' + n0(subFull) + ' usuarios completos a ' + money(item('suc').unitCost) + ' y ' + n0(subLim) + ' limitados a ' + money(item('sul').unitCost) + ').'
         : 'Mensual, mes vencido, a ' + SUP.pagoDias + ' días de la factura electrónica, a los precios por usuario de la propuesta.',
-      polizas: ['No se exigen pólizas: el acuerdo de nivel de servicio prevé créditos por indisponibilidad.', 'Devolución de los datos en formato abierto al terminar la suscripción.'],
+      polizas: ['No se exigen pólizas: el acuerdo de nivel de servicio prevé créditos por indisponibilidad.'],
       supervision: ROLE.ti,
       documentosRequeridos: [
         'Certificado de existencia y representación legal del fabricante o de su distribuidor autorizado en Colombia.',
@@ -515,7 +529,7 @@
       adquisicion: 'Suministro de ' + n0(eqQty.tab) + ' tabletas robustas, ' + n0(eqQty.lec) + ' lectores de código de barras y ' + n0(eqQty.imp) + ' impresoras de etiquetas, e instalación de la red inalámbrica de las bodegas principal y de Funza',
       paqueteEdt: wcode('w32') + ' ' + wname('w32'),
       tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)',
-      antecedentes: 'Las actas de entrega y devolución se firmarán en tableta en la obra y los equipos serializados se identifican con código de barras (release 1). El análisis de hacer o comprar decidió comprar los equipos y contratar la red llave en mano. Lote 1: equipos importados, cotizados en dólares y ajustados a la tasa de cambio de la factura; lote 2: red inalámbrica a precio fijo.',
+      antecedentes: 'Las actas de entrega y devolución se firmarán en tableta en la obra y los equipos serializados se identifican con código de barras (release 1). El análisis de hacer o comprar decidió comprar los equipos y contratar la red llave en mano. Lote 1: equipos importados, cotizados en dólares y ajustados a la tasa de cambio de la factura; lote 2: red inalámbrica llave en mano, con la instalación a precio fijo en pesos y los puntos de acceso importados cotizados en dólares, con el mismo ajuste.',
       descripcionTrabajo: 'Lote 1 (distribuidor): suministro, configuración básica y entrega en la bodega principal de las tabletas con funda y lápiz, los lectores inalámbricos y las impresoras de etiquetas (una por bodega), con garantía de un año. Lote 2 (integrador de redes): estudio de sitio, suministro e instalación de los puntos de acceso, cableado y configuración para cubrir patios y estanterías de las dos bodegas, con pruebas de lectura y de sincronización con el ERP.',
       entregables: rows('en', [
         { entregable: 'Tabletas robustas con funda y lápiz', especificacion: 'Resistentes a caídas y polvo, batería para un turno completo.', cantidad: eqQty.tab, unidad: 'unidad', fecha: T.eqFin },
@@ -535,9 +549,9 @@
       periodoInicio: T.eqIni,
       periodoFin: T.eqFin,
       horario: 'Instalación de lunes a viernes de 7:00 a. m. a 4:00 p. m., sin interrumpir los despachos de la mañana.',
-      formaPago: 'Lote 1: precio en dólares convertido a pesos con la tasa de cambio de la fecha de la factura; pago a ' + SUP.pagoDias + ' días contra entrega a satisfacción. Lote 2: precio fijo llave en mano, pago a ' + SUP.pagoDias + ' días contra el acta de recibo con el mapa de cobertura.',
+      formaPago: 'Lote 1: precio en dólares convertido a pesos con la tasa de cambio de la fecha de la factura; pago a ' + SUP.pagoDias + ' días contra entrega a satisfacción. Lote 2: llave en mano, con la instalación a precio fijo en pesos y los puntos de acceso en dólares convertidos con la tasa de cambio de la fecha de la factura; pago a ' + SUP.pagoDias + ' días contra el acta de recibo con el mapa de cobertura.',
       polizas: [
-        'Lote 1: calidad y correcto funcionamiento de los equipos, 10 % del valor, un año.',
+        'Lote 1: calidad y correcto funcionamiento de los equipos, 10 % del valor, un año. Sin póliza de cumplimiento: los equipos se pagan después del recibo a satisfacción (excepción del plan de gestión de las adquisiciones).',
         'Lote 2: cumplimiento y calidad, 10 % del valor cada una, y responsabilidad civil extracontractual por el trabajo en alturas.',
       ],
       supervision: ROLE.ti,
@@ -554,40 +568,54 @@
     const subAt = (at) => actualsOf('sub', at);
     const implAt = (at) => actualsOf('impl', at);
     const hourlyAt = (at) => implAt(at).filter((a) => !isIter(a) && !isBolsa(a));
+    /* los contratos terminados se liquidan con la evaluación final del proveedor (revisión 0 del seguimiento, C0), cuando ya
+       están pagados; antes quedan «Terminado» */
+    const LIQ = C0;
+    const payTxt = (list, at) => (pagado(list, at) >= total(list) ? ' y pagado' : ', con el pago a ' + SUP.pagoDias + ' días en curso');
+    const finTxt = (key, at, stage, what) => {
+      const list = actualsOf(key, at);
+      return stage >= 2
+        ? ' Liquidado el ' + dl(LIQ) + ' con la evaluación final del proveedor' + (what ? ' (' + what + ')' : '') + '.'
+        : ' Terminado' + (what ? ' (' + what + ')' : '') + payTxt(list, at) + '; se liquida con la evaluación final del proveedor.';
+    };
     const contrato = (stage) => {
       const at = regDate(stage);
+      const selAt = actualsOf('sel', at);
       const list = [
         { numero: SUP.num.sel, proveedor: supplier('csel'), objeto: 'Descubrimiento de procesos, solicitud de propuestas, guiones de demostración y evaluación de ofertas del ERP.', paqueteEdt: wcode('w2'), tipoContrato: 'Tiempo y materiales (T&M)', valor: selValue, fechaInicio: T.selAdj, fechaFin: T.selFin, supervisor: ROLE.dir, polizaCumplimiento: 'Aprobada', polizaCalidad: 'No aplica', polizaRce: 'No aplica',
-          estado: stage === 0 ? 'Terminado' : 'Liquidado',
-          observaciones: 'Tope de ' + n0(selDays) + ' jornadas a ' + money(selRate) + '. ' + (stage === 0 ? 'Facturado: ' + ms(total(actualsOf('sel', at))) + ' (' + docsOf(actualsOf('sel', at)) + '); en liquidación.' : 'Liquidado por ' + money(total(actualsOf('sel', at))) + ' (' + n1(total(actualsOf('sel', at)) / selRate) + ' jornadas) con las facturas ' + docsOf(actualsOf('sel', at)) + '; el saldo del tope se liberó.') },
+          estado: stage >= 2 ? 'Liquidado' : 'Terminado',
+          observaciones: 'Tope de ' + n0(selDays) + ' jornadas a ' + money(selRate) + '. Facturado: ' + money(total(selAt)) + ' (' + n1(total(selAt) / selRate) + ' jornadas; ' + docsOf(selAt) + ').' + finTxt('sel', at, stage, '') + (stage >= 2 ? ' El saldo del tope se liberó.' : '') },
         { numero: SUP.num.jur, proveedor: supplier('jur'), objeto: 'Revisión jurídica de los contratos de suscripción e implementación y de sus pólizas.', paqueteEdt: wcode('w23'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: jurValue, fechaInicio: T.jurIni, fechaFin: T.jurFin, supervisor: ROLE.dir, polizaCumplimiento: 'No aplica', polizaCalidad: 'No aplica', polizaRce: 'No aplica',
-          estado: stage === 0 ? 'Terminado' : 'Liquidado',
-          observaciones: n0(jurDays) + ' jornadas a precio fijo. ' + (stage === 0 ? 'Contratos revisados y firmados el ' + dl(T.sign) + '.' : 'Liquidado con la factura ' + docsOf(actualsOf('jur', at)) + '.') },
+          estado: stage >= 2 ? 'Liquidado' : 'Terminado',
+          observaciones: n0(jurDays) + ' jornadas a precio fijo; contratos revisados antes de la firma del ' + dl(T.sign) + '.' + finTxt('jur', at, stage, 'factura ' + docsOf(actualsOf('jur', at))) },
         { numero: SUP.num.sub, proveedor: supplier('suc'), objeto: 'Suscripción del ERP en la nube: ' + n0(subFull) + ' usuarios completos y ' + n0(subLim) + ' limitados, ambientes de pruebas y producción y respaldo diario.', paqueteEdt: wcode('w31'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: subValue, fechaInicio: T.subIni, fechaFin: T.subFin, supervisor: ROLE.ti, polizaCumplimiento: 'No aplica', polizaCalidad: 'No aplica', polizaRce: 'No aplica',
           estado: stage === 0 ? 'Firmado' : 'En ejecución',
           observaciones: money(subMonthly) + ' al mes, mes vencido, durante ' + n0(subMonths) + ' meses; acuerdo de nivel de servicio con créditos por indisponibilidad en lugar de pólizas.' + (stage >= 1 ? ' Facturas al ' + dl(at) + ': ' + docsOf(subAt(at)) + ' (' + ms(total(subAt(at))) + ').' : '') + ' Desde febrero de 2027 pasa al presupuesto de operación de TI.' },
-        { numero: SUP.num.impl, proveedor: supplier('cf'), objeto: 'Implementación del ERP por iteraciones de precio fijo de ' + n0(implHours) + ' horas (' + nSprints + ' iteraciones en tres releases), bolsas de horas con tope y servicios por horas.', paqueteEdt: wcode('w31') + '–' + wcode('w9'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: implValue, fechaInicio: T.implIni, fechaFin: T.implFin, supervisor: ROLE.dir, polizaCumplimiento: 'Aprobada', polizaCalidad: 'Aprobada', polizaRce: 'No aplica',
+        { numero: SUP.num.impl, proveedor: supplier('cf'), objeto: 'Implementación del ERP por iteraciones de precio fijo de ' + n0(implHours) + ' horas (' + nSprints + ' iteraciones en tres releases), bolsas de horas con tope y servicios por horas con órdenes de servicio.', paqueteEdt: wcode('w31') + '–' + wcode('w9'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: implValue, fechaInicio: T.implIni, fechaFin: T.implFin, supervisor: ROLE.dir, polizaCumplimiento: 'Aprobada', polizaCalidad: 'Aprobada', polizaRce: 'No aplica',
           estado: stage === 0 ? 'Firmado' : 'En ejecución',
-          observaciones: 'Valor: ' + nSprints + ' iteraciones a ' + ms(implFee) + ' (' + ms(fixedPart) + ') y bolsas con tope de ' + ms(bolsa2) + ' (conector) y ' + ms(bolsa3) + ' (tablero gerencial). Las órdenes de servicio por horas (' + money(rate) + ' por hora; líder ' + money(rateLider) + ') se pagan aparte, con cargo al presupuesto de cada actividad. Póliza de salarios aprobada; retención del ' + pc(SUP.retencion) + ' de cada iteración hasta la aceptación de su release.' +
-            (stage >= 1 ? ' Al ' + dl(at) + ': ' + closedBy(at).length + ' iteraciones facturadas y ' + hourlyAt(at).length + ' órdenes por horas (' + ms(total(hourlyAt(at))) + '). El CC-001 (básculas) no modificó el contrato: el alcance del release 1 cambió dentro de la capacidad contratada.' : '') +
-            (stage >= 2 ? ' Bolsa del conector: ' + ms(total(implAt(at).filter(isBolsa))) + ' consumidos de ' + ms(bolsa2) + '.' : '') },
+          observaciones: 'Valor fijo: ' + nSprints + ' iteraciones a ' + ms(implFee) + ' (' + ms(fixedPart) + ') y bolsas con tope de ' + ms(bolsa2) + ' (conector) y ' + ms(bolsa3) + ' (tablero gerencial). Los servicios por horas se contratan con órdenes de servicio a ' + money(rate) + ' por hora (líder ' + money(rateLider) + '), cada una con su alcance y su valor y con cargo al presupuesto de su actividad: no suman al valor fijo y el implementador amplía las pólizas de cumplimiento, calidad y salarios con el valor de cada orden. Póliza de salarios aprobada; retención del ' + pc(SUP.retencion) + ' de cada iteración hasta la aceptación de su release.' +
+            (stage >= 1 ? ' Al ' + dl(at) + ': ' + closedBy(at).length + ' iteraciones facturadas y ' + hourlyAt(at).length + ' órdenes de servicio por horas (' + ms(total(hourlyAt(at))) + ', con las pólizas ampliadas). El CC-001 (básculas) no modificó el contrato: el alcance del release 1 cambió dentro de la capacidad contratada.' : '') +
+            (stage >= 2 ? ' Bolsa del conector: ' + ms(total(implAt(at).filter(isBolsa))) + ' consumidos de ' + ms(bolsa2) + '. Las órdenes de servicio tienen su propia fila en el seguimiento de contratos.' : '') },
         { numero: SUP.num.cgc, proveedor: supplier('cgc'), objeto: 'Plan de gestión del cambio, red de usuarios clave y plan de comunicaciones de la adopción.', paqueteEdt: wcode('w51'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: cgcValue, fechaInicio: T.cgcIni, fechaFin: T.cgcFin, supervisor: ROLE.dir, polizaCumplimiento: 'No aplica', polizaCalidad: 'No aplica', polizaRce: 'No aplica',
-          estado: stage === 0 ? 'Firmado' : 'Liquidado',
-          observaciones: n0(cgcDays) + ' jornadas a precio fijo.' + (stage >= 1 ? ' Liquidado con la factura ' + docsOf(actualsOf('cgc', at)) + '.' : '') },
+          estado: stage === 0 ? 'Firmado' : stage === 1 ? 'Terminado' : 'Liquidado',
+          observaciones: n0(cgcDays) + ' jornadas a precio fijo.' + (stage >= 1 ? finTxt('cgc', at, stage, 'factura ' + docsOf(actualsOf('cgc', at))) : '') },
       ];
       /* la orden de compra de los equipos y la de la red se emitieron el día de inicio de su actividad (después de la rev. 0) */
-      if (stage >= 1) list.push(
-        { numero: SUP.num.eq, proveedor: supplier('tab'), objeto: 'Suministro de ' + n0(eqQty.tab) + ' tabletas robustas, ' + n0(eqQty.lec) + ' lectores de código de barras y ' + n0(eqQty.imp) + ' impresoras de etiquetas (lote 1).', paqueteEdt: wcode('w32'), tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)', valor: total(actualsOf('eq', at)), fechaInicio: T.eqIni, fechaFin: T.eqFin, supervisor: ROLE.ti, polizaCumplimiento: 'No aplica', polizaCalidad: 'Aprobada', polizaRce: 'No aplica', estado: 'Liquidado',
-          observaciones: 'Orden emitida el ' + dl(T.eqIni) + ' por USD ' + n0(eqUsd) + ' (' + money(eqPlanned) + ' a la tasa de planificación); pago contra entrega. Facturada por ' + money(total(actualsOf('eq', at))) + ' (' + docsOf(actualsOf('eq', at)) + ') con la tasa de cambio de la nacionalización. Las tabletas llegaron ' + nw(eqLate) + ' días hábiles tarde (INC-001); la prueba de campo de la iteración 2 (IN-002) confirmó los modelos dentro del plazo de cambio de 30 días.' },
-        { numero: SUP.num.red, proveedor: supplier('red'), objeto: 'Red inalámbrica de las bodegas principal y de Funza, llave en mano (lote 2).', paqueteEdt: wcode('w32'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: total(actualsOf('red', at)), fechaInicio: T.eqIni, fechaFin: T.eqFin, supervisor: ROLE.ti, polizaCumplimiento: 'Aprobada', polizaCalidad: 'Aprobada', polizaRce: 'Aprobada', estado: 'Liquidado',
-          observaciones: 'Orden emitida el ' + dl(T.eqIni) + ': llave en mano por ' + money(redPlanned) + ' más una adición de ' + money(total(actualsOf('red', at)) - redPlanned) + ' por un punto de acceso adicional en el patio de Funza que pidió el estudio de sitio, aprobada por el director. Liquidado con la factura ' + docsOf(actualsOf('red', at)) + '.' },
-      );
+      if (stage >= 1) {
+        const eqAt = actualsOf('eq', at), redAt = actualsOf('red', at);
+        list.push(
+          { numero: SUP.num.eq, proveedor: supplier('tab'), objeto: 'Suministro de ' + n0(eqQty.tab) + ' tabletas robustas, ' + n0(eqQty.lec) + ' lectores de código de barras y ' + n0(eqQty.imp) + ' impresoras de etiquetas (lote 1).', paqueteEdt: wcode('w32'), tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)', valor: total(eqAt), fechaInicio: T.eqIni, fechaFin: T.eqFin, supervisor: ROLE.ti, polizaCumplimiento: 'No aplica', polizaCalidad: 'Aprobada', polizaRce: 'No aplica', estado: stage >= 2 ? 'Liquidado' : 'Terminado',
+            observaciones: 'Orden emitida el ' + dl(T.eqIni) + ' por USD ' + n0(eqUsd) + ' (' + money(eqPlanned) + ' a la tasa de planificación); pago a ' + SUP.pagoDias + ' días contra entrega a satisfacción, por eso no lleva póliza de cumplimiento (excepción del plan de gestión de las adquisiciones). Facturada por ' + money(total(eqAt)) + ' (' + docsOf(eqAt) + ') con la tasa de cambio de la fecha de la factura. Las tabletas llegaron ' + nw(eqLate) + ' días hábiles tarde (INC-001); la prueba de campo de la iteración 2 (IN-002) confirmó los modelos dentro del plazo de cambio de 30 días.' + finTxt('eq', at, stage, '') },
+          { numero: SUP.num.red, proveedor: supplier('red'), objeto: 'Red inalámbrica de las bodegas principal y de Funza, llave en mano (lote 2).', paqueteEdt: wcode('w32'), tipoContrato: 'Precio fijo con ajuste económico de precio (FP-EPA)', valor: total(redAt), fechaInicio: T.eqIni, fechaFin: T.eqFin, supervisor: ROLE.ti, polizaCumplimiento: 'Aprobada', polizaCalidad: 'Aprobada', polizaRce: 'Aprobada', estado: stage >= 2 ? 'Liquidado' : 'Terminado',
+            observaciones: 'Orden emitida el ' + dl(T.eqIni) + ' por ' + money(redPlanned) + ' a la tasa de planificación: instalación a precio fijo en pesos y puntos de acceso importados en dólares. Facturada por ' + money(total(redAt)) + ' (' + docsOf(redAt) + ') con la tasa de cambio de la fecha de la factura: ajuste de ' + money(total(redAt) - redPlanned) + ' en los puntos de acceso. Cobertura recibida con el mapa firmado por el jefe de TI.' + finTxt('red', at, stage, '') },
+        );
+      }
       if (stage >= 1) list.push({ numero: SUP.num.fe, proveedor: supplier('fe'), objeto: 'Habilitación como facturador electrónico, certificado de firma y paquete anual de ' + n0(feDocs) + ' documentos.', paqueteEdt: wcode('w33'), tipoContrato: 'Precio fijo cerrado (FFP)', valor: feValue, fechaInicio: T.feIni, fechaFin: T.feServicioFin, supervisor: ROLE.ti, polizaCumplimiento: 'No aplica', polizaCalidad: 'No aplica', polizaRce: 'No aplica',
         estado: stage === 1 ? 'Firmado' : 'En ejecución',
         observaciones: stage === 1 ? 'Credenciales y certificado a más tardar el ' + dl(T.feLimite) + ', antes del release 2. Acuerdo de nivel de servicio con aviso de caídas.' : 'Credenciales y certificado entregados el ' + dl(task('t15').actualFinish) + ', antes del plazo del ' + dl(T.feLimite) + ' (factura ' + docsOf(actualsOf('fe', at)) + '). Reclamación en curso por la caída del ambiente de habilitación sin aviso (INC-002). El paquete anual cubre hasta ' + monthName(T.feServicioFin) + '; desde febrero de 2027 lo administra TI.' });
       return rows('ct', list);
     };
-    const clausulas = (stage) => 'Implementador: pago de cada iteración contra el acta de revisión firmada por el dueño del producto, con retención del ' + pc(SUP.retencion) + ' hasta la aceptación del release; las historias rechazadas se rehacen dentro de la capacidad de las iteraciones siguientes, sin costo adicional; reemplazo de cualquier integrante del equipo con un perfil equivalente en cinco días hábiles y una semana de empalme a su cargo' + (stage >= 2 ? ' (respuesta al riesgo R-005)' : '') + '; los equipos de prueba de su equipo corren por su cuenta' + (stage >= 1 ? ' (así cubrió la iteración 2 con sus tabletas de prueba mientras llegaban las importadas, INC-001)' : '') + '; terminación anticipada al cierre de cualquier iteración con aviso de una iteración; propiedad de la empresa sobre la parametrización y la documentación. Fabricante y proveedor tecnológico: créditos de servicio por indisponibilidad y aviso de mantenimientos y caídas. Equipos: cambio de modelo sin costo dentro de los 30 días siguientes a la entrega. Todos: confidencialidad y tratamiento de datos personales (Ley 1581 de 2012) e indemnidad frente a reclamaciones laborales de su personal.';
+    const clausulas = (stage) => 'Implementador: pago de cada iteración contra el acta de revisión firmada por el dueño del producto, con retención del ' + pc(SUP.retencion) + ' hasta la aceptación del release; las historias rechazadas se rehacen dentro de la capacidad de las iteraciones siguientes, sin costo adicional; reemplazo de cualquier integrante del equipo con un perfil equivalente en cinco días hábiles y una semana de empalme a su cargo' + (stage >= 2 ? ' (respuesta al riesgo R-005)' : '') + '; los equipos de prueba de su equipo corren por su cuenta' + (stage >= 1 ? ' (así cubrió la iteración 2 con sus tabletas de prueba mientras llegaban las importadas, INC-001)' : '') + '; terminación anticipada al cierre de cualquier iteración con aviso de una iteración; propiedad de la empresa sobre la parametrización y la documentación. Fabricante y proveedor tecnológico: créditos de servicio por indisponibilidad y aviso de mantenimientos y caídas; el fabricante devuelve los datos en formato abierto al terminar la suscripción. Equipos: cambio de modelo sin costo dentro de los 30 días siguientes a la entrega. Todos: confidencialidad y tratamiento de datos personales (Ley 1581 de 2012) e indemnidad frente a reclamaciones laborales de su personal.';
     const documentacion = (at) => 'Contratos, otrosíes, pólizas, actas de inicio y de liquidación en la carpeta de adquisiciones del proyecto (repositorio de la PMO); facturas en contabilidad; actas de revisión de cada iteración, soporte de los pagos al implementador, en el gestor.' + (otrosAt(at).length ? ' Las compras menores (' + otrosAt(at).map((a) => a.description.charAt(0).toLowerCase() + a.description.slice(1) + ', ' + a.document).join('; ') + ') se pagan con aprobación del director dentro de su límite y no se registran como contrato.' : '');
     const regFields = (stage) => ({
       contratos: contrato(stage),
@@ -597,52 +625,68 @@
 
     /* ================================================================ 12.3 · SEGUIMIENTO DE CONTRATOS Y DESEMPEÑO
        stage 0: cierre del release 1 (C0); 1: corte */
+    /* actividades con servicios por horas del implementador (enunciado del trabajo): taller de planificación de releases,
+       ambientes, apoyo a la migración (1.4), formación y capacitación (1.5.2 y 1.5.3), salidas a producción y estabilización (1.9) */
+    const inPkg = (t, w) => { const c = wcode(t.wbsId), r = wcode(w); return !!c && !!r && (c === r || c.startsWith(r + '.')); };
+    const osTasks = schedule.tasks.filter((t) => !t.milestone && !t.loe && !t.releaseId && (t.id === 't03' || t.id === 't13' || ['w4', 'w52', 'w53', 'w9'].some((w) => inPkg(t, w))));
     const ctlFields = (stage) => {
       const at = stage === 0 ? C0 : CUT;
       const cal5 = (key) => SUP.calif[key][stage];
-      const lastDate = (list) => list.reduce((m, a) => (a.date > m ? a.date : m), '');
-      const row = (key, label, avance, obs, done) => {
-        const list = actualsOf(key, at);
-        const [plazo, calidad, sst] = cal5(key);
-        return { contrato: label, fechaCorte: done ? lastDate(list) : at, avance, valorEjecutado: total(list), valorPagado: pagado(list, at), retencion: retenido(list, at), plazo, calidad, sst, observaciones: obs };
+      /* fila del seguimiento: valores a su fecha de corte (la de la revisión o, en los liquidados, la de la liquidación) */
+      const row = (califKey, label, avance, obs, list, asOf) => {
+        const [plazo, calidad, sst] = cal5(califKey);
+        return { contrato: label, fechaCorte: asOf, avance, valorEjecutado: total(list), valorPagado: pagado(list, asOf), retencion: retenido(list, asOf), plazo, calidad, sst, observaciones: obs };
       };
       const vel = velBy(at);
       const rs = reviewStats(at);
       const closed = closedBy(at).length;
       const subN = subAt(at).length;
+      const fixedList = implAt(at).filter((a) => isIter(a) || isBolsa(a));
       const bolsaUsed = total(implAt(at).filter(isBolsa));
       const hourly = hourlyAt(at);
       const below = F.velocity.rows.filter((r) => r.status === 'cerrado' && r.end <= at && r.completed < vMeta).map((r) => r.name.replace('Iteración ', ''));
       const acR1at = acR1(at);
       /* causa de las iteraciones por debajo de la meta (actas de revisión y retrospectivas de 95) */
       const WHY_LOW = { 1: 'de arranque', 6: 'por la integración con la DIAN' };
-      const implObs = 'Iteraciones facturadas: ' + closed + ' de ' + nSprints + ', a ' + ms(implFee) + ' cada una (avance por iteraciones cerradas). Velocidades: ' + andList(vel.map(String)) + ' puntos frente a ' + vSup + ' de la velocidad supuesta (meta: ' + vMeta + ' o más)' + (below.length ? '; por debajo, la' + (below.length > 1 ? 's iteraciones ' : ' iteración ') + andList(below.map((n) => n + (WHY_LOW[n] ? ' (' + WHY_LOW[n] + ')' : ''))) : '') + '. Elementos aceptados en las revisiones: ' + rs.acc + ' de ' + rs.pres + ' presentados (' + pc(rs.acc / rs.pres, 1) + ')' + (rs.rej ? '; rechazado: ' + andList(rs.rejCodes) + ', que se rehace sin costo adicional' : '') + '. ' +
-        'Release 1 aceptado con ' + r1Prog.done + ' de ' + r1Prog.total + ' puntos (CPI del release ' + ix(R1.budget / acR1at) + ')' + (stage >= 1 ? '; release 2 con CPI de ' + ix(r2Evm.cpi) + ' y retención del ' + pc(SUP.retencion) + ' de sus iteraciones hasta su aceptación' : '; se devolvió la retención de sus iteraciones') + '. ' +
-        (bolsaUsed ? 'Bolsa del conector: ' + ms(bolsaUsed) + ' de ' + ms(bolsa2) + ' (' + pc(bolsaUsed / bolsa2) + '). ' : '') +
-        'Órdenes de servicio por horas: ' + hourly.length + ', por ' + ms(total(hourly)) + '.' +
+      const implObs = 'Iteraciones facturadas: ' + closed + ' de ' + nSprints + ', a ' + ms(implFee) + ' cada una (avance por iteraciones cerradas); ejecutado con la bolsa, ' + pc(total(fixedList) / implValue, 1) + ' del valor fijo del contrato (' + ms(implValue) + '). Velocidades: ' + andList(vel.map(String)) + ' puntos frente a ' + vSup + ' de la velocidad supuesta (meta: ' + vMeta + ' o más)' + (below.length ? '; por debajo, la' + (below.length > 1 ? 's iteraciones ' : ' iteración ') + andList(below.map((n) => n + (WHY_LOW[n] ? ' (' + WHY_LOW[n] + ')' : ''))) : '') + '. Elementos aceptados en las revisiones: ' + rs.acc + ' de ' + rs.pres + ' presentados (' + pc(rs.acc / rs.pres, 1) + ')' + (rs.rej ? '; rechazado: ' + andList(rs.rejCodes) + ', que se rehace sin costo adicional' : '') + '. ' +
+        'Release 1 aceptado con ' + r1Prog.done + ' de ' + r1Prog.total + ' puntos (CPI del release ' + ix(R1.budget / acR1at) + ')' + (stage >= 1 ? '; release 2 con CPI de ' + ix(r2Evm.cpi) + ' y retención del ' + pc(SUP.retencion) + ' de sus iteraciones hasta su aceptación' : '; se devolvió la retención de sus iteraciones') + '.' +
+        (bolsaUsed ? ' Bolsa del conector: ' + ms(bolsaUsed) + ' de ' + ms(bolsa2) + ' (' + pc(bolsaUsed / bolsa2) + ').' : '') +
         (stage >= 1 ? ' Si se aprueba mover la fecha del release 2 con una iteración adicional, esta requiere un otrosí de ' + ms(implFee) + '.' : '');
+      /* órdenes de servicio por horas: avance por actividades terminadas y conciliación de la formación y la capacitación con
+         el enunciado del trabajo y las asignaciones del cronograma */
+      const osDone = osTasks.filter((t) => t.actualFinish && t.actualFinish <= at).length;
+      const fForm = hourly.find((a) => a.taskId === 't21'), fCap = hourly.find((a) => a.taskId === 't22');
+      const formHoras = hFormacion * rate;
+      const osObs = 'Órdenes de servicio por horas, fuera del valor fijo del contrato: ' + hourly.length + ', por ' + ms(total(hourly)) + ' (' + docsOf(hourly) + '), cada una con su alcance y su valor aprobados por el director y las pólizas ampliadas. Avance: actividades con servicios por horas terminadas (' + osDone + ' de ' + osTasks.length + ').' +
+        (fForm ? ' La formación de usuarios clave (' + fForm.document + ') incluyó las ' + n0(hFormacion) + ' horas (' + ms(formHoras) + ') y los materiales del curso (' + ms(fForm.amount - formHoras) + ') de su orden de servicio.' : '') +
+        (fCap ? ' La capacitación del release 1 (' + fCap.document + ', ' + nw(SUP.gruposCapacitacion) + ' grupos) se facturó por ' + ms(fCap.amount) + ': ' + n1(fCap.amount / rate) + ' horas a la tarifa del contrato frente a las ' + n0(hCapacitacion) + ' de la asignación del cronograma; el director pidió fijar las horas por grupo de los releases 2 y 3 en sus órdenes de servicio antes de empezar.' : '');
       const feList = actualsOf('fe', at);
       const feElapsed = Math.max(0, Math.min(1, D.diff(T.feIni, at) / D.diff(T.feIni, T.feServicioFin)));
+      /* liquidados: con la evaluación final del proveedor de la rev. 0 (LIQ); sus valores, a esa fecha */
+      const liqTxt = stage === 0 ? ' Pagado y liquidado con esta evaluación final.' : ' Liquidado el ' + dl(LIQ) + ' con la evaluación final.';
+      const done = (key, label, obs) => row(key, label, 100, obs, actualsOf(key, LIQ), LIQ);
+      const eqL = total(actualsOf('eq', LIQ)), redL = total(actualsOf('red', LIQ)), selL = total(actualsOf('sel', LIQ));
       const seguimiento = [
-        row('impl', SUP.num.impl + ' Implementación (' + lc(supplier('cf')) + ')', round1((closed / nSprints) * 100), implObs, false),
-        row('sub', SUP.num.sub + ' Suscripción del ERP (' + lc(supplier('suc')) + ')', round1((subN / subMonths) * 100), 'Meses facturados: ' + subN + ' de ' + subMonths + ' (' + docsOf(subAt(at)) + '), mes vencido; el avance es el de los meses facturados. Disponibilidad dentro del acuerdo de nivel de servicio; SST no aplica (servicio en la nube).', false),
-        row('fe', SUP.num.fe + ' Proveedor tecnológico de facturación electrónica', round1(feElapsed * 100), 'Paquete anual facturado (' + docsOf(feList) + ')' + (pagado(feList, at) >= total(feList) ? ' y pagado' : ', por pagar a ' + SUP.pagoDias + ' días') + '; el avance es el tiempo transcurrido del servicio anual. Entregó credenciales y certificado el ' + dl(task('t15').actualFinish) + ', antes del plazo del ' + dl(T.feLimite) + '.' + (stage >= 1 && inc('INC-002') ? ' El ambiente de habilitación se cayó el ' + dlShort(inc('INC-002').fecha) + ' y el ' + dlShort(D.add(inc('INC-002').fecha, 1)) + ' sin aviso (INC-002): calidad calificada en ' + SUP.calif.fe[1][1] + ' y reclamación en curso.' : '') + ' SST no aplica (servicio en la nube).', false),
-        row('eq', SUP.num.eq + ' Equipos de bodega (' + lc(supplier('tab')) + ')', 100, 'Liquidado por ' + money(eqFinal) + ' frente a ' + money(eqPlanned) + ' de la orden: ajuste por tasa de cambio previsto en el contrato (FP-EPA). Entrega ' + nw(eqLate) + ' días hábiles tarde (INC-001), sin efecto en la iteración 2.', true),
-        row('red', SUP.num.red + ' Red inalámbrica (' + lc(supplier('red')) + ')', 100, 'Liquidado por ' + money(redFinal) + ' con la adición del punto de acceso del patio de Funza; cobertura verificada en las dos bodegas.', true),
-        row('sel', SUP.num.sel + ' Consultor de selección', 100, 'Liquidado por ' + money(selFinal) + ' de un tope de ' + money(selValue) + '; evaluación entregada el ' + dl(T.eval) + '.', true),
-        row('jur', SUP.num.jur + ' Asesoría jurídica', 100, 'Liquidado; contratos revisados antes de la firma del ' + dl(T.sign) + '. SST no aplica.', true),
-        row('cgc', SUP.num.cgc + ' Consultoría de gestión del cambio', 100, 'Liquidado; plan de gestión del cambio y red de usuarios clave entregados el ' + dl(T.cgcFin) + '.', true),
+        row('impl', SUP.num.impl + ' Implementación: iteraciones y bolsas (' + lc(supplier('cf')) + ')', round1((closed / nSprints) * 100), implObs, fixedList, at),
+        row('os', SUP.num.impl + ' Implementación: órdenes de servicio por horas', round1((osDone / osTasks.length) * 100), osObs, hourly, at),
+        row('sub', SUP.num.sub + ' Suscripción del ERP (' + lc(supplier('suc')) + ')', round1((subN / subMonths) * 100), 'Meses facturados: ' + subN + ' de ' + subMonths + ' (' + docsOf(subAt(at)) + '), mes vencido; el avance es el de los meses facturados. Disponibilidad dentro del acuerdo de nivel de servicio; SST no aplica (servicio en la nube).', subAt(at), at),
+        row('fe', SUP.num.fe + ' Proveedor tecnológico de facturación electrónica', round1(feElapsed * 100), 'Paquete anual facturado (' + docsOf(feList) + ')' + (pagado(feList, at) >= total(feList) ? ' y pagado' : ', por pagar a ' + SUP.pagoDias + ' días') + '; el avance es el tiempo transcurrido del servicio anual. Entregó credenciales y certificado el ' + dl(task('t15').actualFinish) + ', antes del plazo del ' + dl(T.feLimite) + '.' + (stage >= 1 && inc('INC-002') ? ' El ambiente de habilitación se cayó el ' + dlShort(inc('INC-002').fecha) + ' y el ' + dlShort(D.add(inc('INC-002').fecha, 1)) + ' sin aviso (INC-002): calidad calificada en ' + SUP.calif.fe[1][1] + ' y reclamación en curso.' : '') + ' SST no aplica (servicio en la nube).', feList, at),
+        done('eq', SUP.num.eq + ' Equipos de bodega (' + lc(supplier('tab')) + ')', 'Valor final de ' + money(eqL) + ' frente a ' + money(eqPlanned) + ' de la orden: ajuste por la tasa de cambio de la fecha de la factura, previsto en el contrato (FP-EPA). Entrega ' + nw(eqLate) + ' días hábiles tarde (INC-001), sin efecto en la iteración 2.' + liqTxt),
+        done('red', SUP.num.red + ' Red inalámbrica (' + lc(supplier('red')) + ')', 'Valor final de ' + money(redL) + ' frente a ' + money(redPlanned) + ' de la orden: ajuste por la tasa de cambio de los puntos de acceso importados (FP-EPA). Cobertura verificada en las dos bodegas.' + liqTxt),
+        done('sel', SUP.num.sel + ' Consultor de selección', 'Ejecutado ' + money(selL) + ' de un tope de ' + money(selValue) + '; evaluación de ofertas entregada el ' + dl(T.eval) + '.' + liqTxt),
+        done('jur', SUP.num.jur + ' Asesoría jurídica', 'Contratos revisados antes de la firma del ' + dl(T.sign) + '. SST no aplica.' + liqTxt),
+        done('cgc', SUP.num.cgc + ' Consultoría de gestión del cambio', 'Plan de gestión del cambio y red de usuarios clave entregados el ' + dl(T.cgcFin) + '.' + liqTxt),
       ];
       const inc1 = inc('INC-001'), inc2 = inc('INC-002');
       const reclamaciones = [
         { contrato: SUP.num.eq, descripcion: 'Las tabletas robustas llegaron ' + nw(eqLate) + ' días hábiles tarde por una demora en la importación (INC-001).', fecha: inc1 ? inc1.fecha : T.eqFin, estado: 'Resuelta', solucion: 'Cerrada sin penalidad: el retraso no afectó la iteración 2 porque el implementador prestó sus tabletas de prueba sin costo; instaladas el ' + dl(task('t14').actualFinish) + '.' },
       ];
       if (stage >= 1 && inc2) reclamaciones.unshift({ contrato: SUP.num.fe, descripcion: 'El ambiente de habilitación estuvo caído el ' + dlShort(inc2.fecha) + ' y el ' + dlShort(D.add(inc2.fecha, 1)) + ' sin el aviso que exige el enunciado del trabajo (INC-002); el equipo perdió dos días de pruebas del conector. Ya había fallado sin aviso en la iteración 5 (medio día perdido, retrospectiva de la iteración 5).', fecha: inc2.fecha, estado: 'En negociación', solucion: 'El proveedor restableció el servicio el ' + dlShort(D.add(inc2.fecha, 1)) + '. Se le pidió aviso automático de caídas y un crédito de servicio por los dos días.' + (pasoAviso ? ' Próximo paso: acordar el aviso automático a más tardar el ' + dl(pasoAviso.fecha) + ' (próximos pasos del informe de desempeño).' : '') });
-      const liquidados = seguimiento.filter((r) => r.avance === 100).map((r) => r.contrato.split(' ')[0]);
+      const liquidados = seguimiento.filter((r) => r.avance === 100 && r.fechaCorte === LIQ).map((r) => r.contrato.split(' ')[0]);
       return {
         seguimiento: rows('sg', seguimiento),
         reclamaciones: rows('rc', reclamaciones),
-        cierre: 'Para liquidar cada contrato: acta de recibo a satisfacción del supervisor, paz y salvo de seguridad social y parafiscales del proveedor, pólizas vigentes para el periodo posterior, conciliación de las facturas con el registro de costos reales y evaluación final del proveedor. Liquidados: ' + andList(liquidados) + '. Pendientes: el contrato del implementador, al terminar la estabilización (' + dl(T.implFin) + '), con la devolución de la retención y el acta de transferencia al soporte de TI; la suscripción, que pasa al presupuesto de operación de TI en febrero de 2027, y el proveedor tecnológico, cuyo paquete anual sigue hasta ' + monthName(T.feServicioFin) + '.',
+        cierre: 'Para liquidar cada contrato: acta de recibo a satisfacción del supervisor, pago de todas sus facturas, paz y salvo de seguridad social y parafiscales del proveedor, pólizas vigentes para el periodo posterior, conciliación de las facturas con el registro de costos reales y evaluación final del proveedor. ' + (stage === 0 ? 'Liquidados con esta evaluación: ' : 'Liquidados el ' + dl(LIQ) + ', con la evaluación final: ') + andList(liquidados) + '. Pendientes: el contrato del implementador, al terminar la estabilización (' + dl(T.implFin) + '), con la devolución de la retención y el acta de transferencia al soporte de TI; la suscripción, que pasa al presupuesto de operación de TI en febrero de 2027, y el proveedor tecnológico, cuyo paquete anual sigue hasta ' + monthName(T.feServicioFin) + '.',
       };
     };
 
@@ -690,16 +734,16 @@
         ],
       },
       'registro-adquisiciones': {
-        status: 'revision', rev: '2A', date: CUT, created: T.sign, titleBlock: { elaboro: ROLE.dir, reviso: ROLE.jur, aprobo: '' }, fields: reg2,
+        status: 'revision', rev: '2A', date: CUT, created: T.sign, titleBlock: { elaboro: ROLE.dir, reviso: ROLE.con, aprobo: ROLE.pat }, fields: reg2,
         revs: [
           { rev: '0', status: 'aprobado', date: T.sign, note: 'Emisión con los contratos firmados.', fields: regFields(0) },
-          { rev: '1', status: 'aprobado', date: REG1, note: 'Contrato del proveedor tecnológico; equipos, red y consultorías liquidados.', fields: regFields(1) },
+          { rev: '1', status: 'aprobado', date: REG1, note: 'Contrato del proveedor tecnológico y órdenes de equipos y red; los contratos de selección, asesoría jurídica, gestión del cambio, equipos y red, terminados y por liquidar con la evaluación final de los proveedores.', fields: regFields(1) },
         ],
       },
       'control-adquisiciones': {
-        status: 'revision', rev: '1A', date: CUT, created: C0, titleBlock: { elaboro: ROLE.dir, reviso: ROLE.pof, aprobo: '' }, fields: ctl1,
+        status: 'revision', rev: '1A', date: CUT, created: C0, titleBlock: { elaboro: ROLE.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: ctl1,
         revs: [
-          { rev: '0', status: 'aprobado', date: C0, note: 'Evaluación de los proveedores al cierre del release 1.', fields: ctlFields(0) },
+          { rev: '0', status: 'aprobado', date: C0, note: 'Evaluación de los proveedores al cierre del release 1 y liquidación de los contratos terminados.', fields: ctlFields(0) },
         ],
       },
     };

@@ -208,6 +208,9 @@ async function validateInPage(page) {
       const incoherent = [f, f0].flatMap((v) => v.analisis.filter((r) => { const d = diff(r); return r.decision === 'Hacer' ? !(d < 0) : !(d > 0); }).map((r) => r.item));
       ok(!incoherent.length, 'hacer o comprar: cada decisión coincide con la diferencia calculada por la plantilla (hacer cuando cuesta menos; comprar o mixto cuando la opción externa cuesta menos)', incoherent);
       ok(has(f.conclusion, ms(implValue)) && has(f.conclusion, ms(implValue - nSprints * implHours * SUP.tarifaReferencia)) && !has(text(f0), ms(implValue)), 'hacer o comprar: la conclusión de la rev. 1 compara lo contratado con la estimación del 25 de mayo');
+      /* regresión: la rev. 0 (25 de mayo, antes de la solicitud de propuestas) no conoce el precio por usuario adjudicado */
+      ok(row(f0, /^Plataforma/).costoComprar === 36 * SUP.suscripcionReferencia && has(row(f0, /^Plataforma/).opcionComprar, ms(SUP.suscripcionReferencia)) && !has(text(f0), money(subMonthly)) && !has(text(f0), money(item('suc').unitCost)) && !/CT-2026/.test(text(f0)) && has(row(f, /^Plataforma/).opcionComprar, money(subMonthly)) && has(row(f, /^Plataforma/).opcionComprar, SUP.num.sub), 'hacer o comprar rev. 0: suscripción con la referencia de mercado del caso de negocio; el precio por usuario solo desde la rev. 1 (contrato)', row(f0, /^Plataforma/));
+      ok([f, f0].every((v) => /alternativa D del caso de negocio \(ERP con servidores propios y desarrollos a la medida\)/.test(row(v, /^Plataforma/).factores) && /solo la plataforma/.test(row(v, /^Plataforma/).factores) && !/desarrollo propio/.test(row(v, /^Plataforma/).factores)), 'hacer o comprar: cita la alternativa D del caso de negocio por su nombre y aclara que la fila costea solo la plataforma');
     }
 
     /* ---------- enunciados del trabajo */
@@ -216,11 +219,28 @@ async function validateInPage(page) {
       const ent = (v, re) => v.entregables.find((r) => re.test(r.entregable));
       const hoursOf = (tid) => { const t = task(tid); return sum((t.resources || []).filter((a) => { const it = cat.resolve(a); return it && it.supplier === 'Socio implementador'; }), (a) => PM.res.assignment(cat, t, a).qty * 8); };
       ok(['rel-1', 'rel-2', 'rel-3'].every((id) => { const r = ent(impl, new RegExp('release ' + id.slice(-1) + ':')); return r && r.cantidad === rel(id).plannedSprints && r.fecha === rel(id).end; }), 'SOW implementación: iteraciones por release y fechas de fin de los releases');
-      ok(ent(impl, /^Formación/).cantidad === hoursOf('t21') && hoursOf('t21') === 40 && ent(impl, /^Capacitación/).cantidad === 3 * hoursOf('t22') && ent(impl, /^Estabilización/).cantidad === hoursOf('t34') && hoursOf('t34') === 208 && ent(impl, /^Estabilización/).fecha === lbT('t34').finish, 'SOW implementación: horas de formación (40), capacitación y estabilización (208) desde las asignaciones del cronograma');
+      ok(ent(impl, /^Formación/).cantidad === hoursOf('t21') && hoursOf('t21') === 40 && ent(impl, /^Estabilización/).cantidad === hoursOf('t34') && hoursOf('t34') === 208 && ent(impl, /^Estabilización/).fecha === lbT('t34').finish, 'SOW implementación: horas de formación (40) y estabilización (208) desde las asignaciones del cronograma');
+      /* regresión: la capacitación se contrata por grupos (la orden de cada release fija las horas) y la formación incluye sus materiales,
+         como facturan FE-5133 («seis grupos») y FE-5110 («40 horas y materiales») */
+      const WORDS = ['cero', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
+      const fCap = costs.actuals.find((a) => a.taskId === 't22' && /^Implementador/.test(a.description));
+      const fForm = costs.actuals.find((a) => a.taskId === 't21' && /^Implementador/.test(a.description));
+      const capE = ent(impl, /^Capacitación/), formE = ent(impl, /^Formación/);
+      ok(capE.cantidad === 3 * SUP.gruposCapacitacion && capE.unidad === 'grupo' && new RegExp(WORDS[SUP.gruposCapacitacion] + ' grupos', 'i').test(capE.especificacion) && /fija las horas por grupo/.test(capE.especificacion) && fCap && new RegExp(WORDS[SUP.gruposCapacitacion] + ' grupos').test(fCap.description) && /materiales del curso/.test(formE.especificacion) && fForm && new RegExp('\\(' + hoursOf('t21') + ' horas\\) y materiales').test(fForm.description), 'SOW implementación: capacitación por grupos (' + SUP.gruposCapacitacion + ' por release) y formación con sus materiales, coherentes con las facturas FE-5133 y FE-5110', [capE, formE]);
+      /* regresión: facturación de bolsas y servicios por horas como en los costos reales (al cierre de la iteración o de la actividad),
+         y todos los paquetes de la EDT facturados por horas en el SOW (el taller de planificación de releases incluido) */
+      const plan1 = cur('plan-gestion-adquisiciones'), plan0 = rev('plan-gestion-adquisiciones', '0');
+      ok([impl.formaPago, impl0.formaPago, plan1.moneda, plan0.moneda].every((x) => !/consumo mensual/.test(x) && /al cierre de cada iteración/.test(x) && /al terminar cada actividad/.test(x)), 'SOW implementación y plan: bolsas al cierre de cada iteración y servicios por horas al terminar cada actividad (sin «consumo mensual»)');
+      const hourlyAll = costs.actuals.filter((a) => /^Implementador/.test(a.description) && !/precio fijo por iteración|horas adicionales del conector/.test(a.description));
+      const wc = (id) => tree.codes.get(id);
+      const pk = impl.paqueteEdt;
+      const uncovered = hourlyAll.filter((a) => { const code = wc(task(a.taskId).wbsId); return !pk.split(/[^\d.]+/).filter(Boolean).some((c) => code === c || code.startsWith(c + '.')); }).map((a) => a.document + ' ' + wc(task(a.taskId).wbsId));
+      ok(!uncovered.length && /taller de planificación de releases/.test(impl.descripcionTrabajo) && ent(impl, /^Taller de planificación/) && ent(impl, /^Taller de planificación/).fecha === lbT('t03').finish, 'SOW implementación: cada servicio por horas facturado está en sus paquetes de la EDT y en su descripción (taller de planificación de releases)', uncovered);
       ok(has(impl.formaPago, ms(implFee)) && has(impl.formaPago, money(rate)) && has(impl.formaPago, money(rateLider)) && has(impl.descripcionTrabajo, ms(bolsa2)) && has(impl.descripcionTrabajo, ms(bolsa3)) && impl.periodoInicio === lbT('t13').start && impl.periodoFin === meta.end, 'SOW implementación (anexo del contrato): precio por iteración, tarifas, bolsas y vigencia');
       ok(!has(text(impl0), ms(implFee)) && !has(text(impl0), money(rate)) && !/CT-2026/.test(text(impl0)) && /solicitud de propuestas/.test(impl0.antecedentes), 'SOW implementación rev. 0: emitido con la solicitud de propuestas, sin precios negociados');
       ok(/definición de terminado/.test(impl.calidad) && /rechazada/.test(impl.calidad) && impl.exclusiones.some((x) => /Nómina/.test(x)) && impl.exclusiones.some((x) => /estabilización/.test(x)), 'SOW implementación: definición de terminado como condición de entrega, historias rechazadas sin costo y exclusiones de la visión');
-      const sub = cur('enunciado-trabajo-adquisicion--sow-suscripcion');
+      const sub = cur('enunciado-trabajo-adquisicion--sow-suscripcion'), sub0 = rev('enunciado-trabajo-adquisicion--sow-suscripcion', '0');
+      ok([sub, sub0].every((v) => v.polizas.length === 1 && /^No se exigen pólizas/.test(v.polizas[0]) && /formato abierto/.test(v.especificaciones)) && /formato abierto/.test(cur('registro-adquisiciones').clausulas), 'SOW suscripción: «Pólizas exigidas» solo trae pólizas; la devolución de los datos va en las especificaciones y en las cláusulas');
       ok(ent(sub, /completos/).cantidad === resQty('suc') / subMonths && ent(sub, /limitados/).cantidad === resQty('sul') / subMonths && has(sub.formaPago, money(subMonthly)) && has(sub.formaPago, money(item('suc').unitCost)) && sub.periodoInicio === lbT('t12').start, 'SOW suscripción: 30 usuarios completos y 15 limitados, valor mensual del catálogo');
       const fe = cur('enunciado-trabajo-adquisicion--sow-facturacion');
       ok(ent(fe, /^Paquete/).cantidad === 6000 && /6\.000 documentos/.test(item('fe').name) && has(fe.formaPago, ms(item('fe').unitCost)) && fe.periodoInicio === lbT('t15').start && ent(fe, /^Credenciales/).fecha === cal.addWork(rel('rel-2').start, -1) && task('t15').actualFinish <= ent(fe, /^Credenciales/).fecha, 'SOW facturación electrónica: paquete anual del catálogo y credenciales antes del release 2 (entregadas a tiempo)');
@@ -241,6 +261,9 @@ async function validateInPage(page) {
       const tot = Object.fromEntries(['A', 'B', 'C'].map((k) => [k, sum(f.criterios, (r) => col('criterios-seleccion-proveedores', 'criterios', 'ponderado' + k).calc(r, f.criterios))]));
       const win = ['A', 'B', 'C'].sort((a, b) => tot[b] - tot[a])[0];
       ok(['A', 'B', 'C'].every((k) => has(f.resultado, 'oferente ' + k + ' ' + n1(tot[k]))) && has(f.resultado, ms(tco.B)) && win === 'B' && /^Oferente B/.test(f.seleccionado), 'criterios: totales ponderados de la plantilla en el resultado; gana el oferente B', tot);
+      /* regresión: un requisito habilitante (cumple o no cumple) no puede contradecir la descripción de un finalista hábil */
+      const habIter = f.requisitosHabilitantes.some((x) => /contrato por iteraciones/.test(x));
+      ok(habIter && /cumplieron los requisitos habilitantes/.test(f.resultado) && /aceptó el contrato por iteraciones/.test(f.resultado) && !/sin iteraciones/.test(text(f)) && !/entregas por fases\)/.test(f.proveedorA), 'criterios: el oferente A aceptó el contrato por iteraciones (requisito habilitante) y solo pierde puntos en el criterio ponderado', [f.proveedorA, f.resultado]);
       const lecc = docOf('registro-lecciones').fields.lecciones.find((l) => l.area === 'Adquisiciones');
       ok(lecc && lecc.fecha === evalD && /presentaciones comerciales ocultaban/.test(lecc.situacion) && /presentaciones comerciales ocultaban/.test(f.resultado), 'criterios: coherente con la lección aprendida de las demostraciones (registro de lecciones)');
     }
@@ -260,8 +283,31 @@ async function validateInPage(page) {
       const want = { sel: item('csel').unitCost * resQty('csel'), jur: resCost('jur'), sub: subValue, impl: implValue, cgc: resCost('cgc'), eq: tot(actualsOf('eq', cut)), red: tot(actualsOf('red', cut)), fe: resCost('fe') };
       const badVal = Object.entries(want).filter(([k, v]) => !ct(f, k) || ct(f, k).valor !== v);
       ok(!badVal.length, 'registro: valores de los contratos desde el catálogo, el cronograma y los releases (equipos y red: valor final facturado)', badVal.map(([k, v]) => [k, v, ct(f, k) && ct(f, k).valor]));
-      ok(want.sel === 25.74e6 && want.jur === tot(actualsOf('jur', cut)) && want.cgc === tot(actualsOf('cgc', cut)) && want.fe === tot(actualsOf('fe', cut)) && has(ct(f, 'eq').observaciones, money(resCost('tab') + resCost('lec') + resCost('imp'))) && has(ct(f, 'red').observaciones, money(resCost('red'))) && JSON.stringify(ct(f1, 'eq')) === JSON.stringify(ct(f, 'eq')), 'registro: precio fijo igual a lo facturado (jurídica, gestión del cambio, proveedor tecnológico); equipos y red con su valor de la orden (catálogo) y el final facturado');
-      ok(has(ct(f, 'eq').observaciones, 'USD ' + plain(Fm.num((resCost('tab') + resCost('lec') + resCost('imp')) / SUP.trm, 0))) && has(ct(f, 'red').observaciones, money(tot(actualsOf('red', cut)) - resCost('red'))) && has(ct(f, 'sel').observaciones, money(tot(actualsOf('sel', cut)))), 'registro: ajuste por tasa de cambio de los equipos, adición de la red y liquidación del consultor desde los costos reales');
+      ok(want.sel === 25.74e6 && want.jur === tot(actualsOf('jur', cut)) && want.cgc === tot(actualsOf('cgc', cut)) && want.fe === tot(actualsOf('fe', cut)) && has(ct(f, 'eq').observaciones, money(resCost('tab') + resCost('lec') + resCost('imp'))) && has(ct(f, 'red').observaciones, money(resCost('red'))) && ['valor', 'fechaInicio', 'fechaFin', 'tipoContrato', 'polizaCumplimiento', 'polizaCalidad'].every((x) => ct(f1, 'eq')[x] === ct(f, 'eq')[x]), 'registro: precio fijo igual a lo facturado (jurídica, gestión del cambio, proveedor tecnológico); equipos y red con su valor de la orden (catálogo) y el final facturado');
+      ok(has(ct(f, 'eq').observaciones, 'USD ' + plain(Fm.num((resCost('tab') + resCost('lec') + resCost('imp')) / SUP.trm, 0))) && has(ct(f, 'red').observaciones, money(tot(actualsOf('red', cut)) - resCost('red'))) && has(ct(f, 'sel').observaciones, money(tot(actualsOf('sel', cut)))), 'registro: ajuste por tasa de cambio de los equipos y de la red y liquidación del consultor desde los costos reales');
+      /* regresión: la diferencia de la red es ajuste por tasa de cambio (como el informe de desempeño de 95 explica el CV de t14), no una adición */
+      const inf = docOf('informe-desempeno--corte-2026-10-09').fields.analisisVariacion;
+      const strat = cur('estrategia-adquisiciones').estrategias.find((r) => /^Red/.test(r.adquisicion));
+      const ctlRed = cur('control-adquisiciones').seguimiento.find((r) => r.contrato.startsWith(NUM.red + ' '));
+      ok(/equipos de bodega por la tasa de cambio/.test(inf) && /FP-EPA/.test(ct(f, 'red').tipoContrato) && /FP-EPA/.test(strat.tipoContrato) && /tasa de cambio/.test(ct(f, 'red').observaciones) && /tasa de cambio/.test(ctlRed.observaciones) && ![ct(f, 'red').observaciones, ctlRed.observaciones].some((x) => /adición|adicional/.test(x)) && /puntos de acceso/.test(cur('enunciado-trabajo-adquisicion--sow-equipos').formaPago), 'registro y seguimiento: el mayor valor de la red es el ajuste por tasa de cambio de los puntos de acceso (FP-EPA), coherente con el informe de desempeño', [ct(f, 'red').observaciones, ctlRed.observaciones]);
+      /* regresión: condiciones de la orden de compra iguales a las del SOW de equipos */
+      const sowEq = cur('enunciado-trabajo-adquisicion--sow-equipos');
+      ok(/pago a 30 días contra entrega a satisfacción/.test(ct(f, 'eq').observaciones) && /tasa de cambio de la fecha de la factura/.test(ct(f, 'eq').observaciones) && !/nacionalización|pago contra entrega/.test(ct(f, 'eq').observaciones) && /pago a 30 días contra entrega a satisfacción/.test(sowEq.formaPago) && /tasa de cambio de la fecha de la factura/.test(sowEq.formaPago), 'registro: la orden de compra repite las condiciones de pago y de tasa de cambio del SOW de equipos', ct(f, 'eq').observaciones);
+      /* regresión: pólizas de cumplimiento según el plan (más del límite de gasto o trabajo en sitio), con sus excepciones explícitas */
+      const plan = cur('plan-gestion-adquisiciones');
+      const noBond = f.contratos.filter((r) => r.valor > limite && r.polizaCumplimiento !== 'Aprobada').filter((r) => !(r.numero === NUM.sub || r.numero === NUM.fe) && !(/^OC-/.test(r.numero) && /Excepción: las órdenes de compra de bienes que se pagan después del recibo a satisfacción/.test(plan.garantias) && /contra entrega a satisfacción/.test(r.observaciones)));
+      ok(!noBond.length && /Sin póliza de cumplimiento/.test(sowEq.polizas[0]) && /Servicios en la nube \(suscripción y proveedor tecnológico\)/.test(plan.garantias), 'registro: todo contrato de más de ' + ms(limite) + ' tiene póliza de cumplimiento o una excepción del plan (nube; bienes pagados después del recibo)', noBond.map((r) => r.numero));
+      /* regresión: valor del contrato del implementador = valor fijo (iteraciones y bolsas); las órdenes de servicio, aparte y con pólizas ampliadas */
+      const sowI = cur('enunciado-trabajo-adquisicion--sow-implementacion');
+      ok(/no suman al valor fijo/.test(ct(f, 'impl').observaciones) && /amplía las pólizas/.test(ct(f, 'impl').observaciones) && sowI.polizas.every((x) => /cada orden de servicio/.test(x)) && /no suman al valor fijo/.test(sowI.descripcionTrabajo) && /amplía sus pólizas/.test(plan.garantias), 'registro: el valor del implementador es el fijo (iteraciones y bolsas); cada orden de servicio por horas amplía las pólizas');
+      /* regresión: liquidados solo después de su pago y de la evaluación final del proveedor (rev. 0 del seguimiento) */
+      const DONE = ['sel', 'jur', 'cgc', 'eq', 'red'];
+      const c0doc = V['control-adquisiciones'].revs.find((r) => r.rev === '0').date;
+      const lastPay = (k) => D.add(actualsOf(k, cut).reduce((m, a) => (a.date > m ? a.date : m), ''), SUP.pagoDias);
+      ok(c0doc === c0 && DONE.every((k) => ct(f1, k).estado === 'Terminado' && ct(f, k).estado === 'Liquidado' && lastPay(k) <= c0 && has(ct(f, k).observaciones, PM.fmt.date(c0, 'long'))) && ![f0, f1].some((v) => v.contratos.some((r) => r.estado === 'Liquidado')) && DONE.some((k) => lastPay(k) > reg1), 'registro: los contratos terminados se liquidan con la evaluación final del ' + c0 + ' (después de su pago); en la rev. 1 siguen «Terminado»', DONE.map((k) => [k, ct(f1, k).estado, ct(f, k).estado, lastPay(k)]));
+      /* regresión: cajetines de las revisiones aprobadas con quien aprobó, y revisor vigente (no un recurso liberado) */
+      const released = new Set(cat.items.filter((it) => it.status === 'liberado').map((it) => it.name));
+      ok(['registro-adquisiciones', 'control-adquisiciones'].every((id) => V[id].revs.every((r) => r.status !== 'aprobado' || (r.titleBlock.aprobo && r.titleBlock.fechaAprobacion === r.date)) && !released.has(docOf(id).titleBlock.reviso) && docOf(id).titleBlock.reviso !== 'Asesor jurídico'), 'registro y seguimiento: las revisiones aprobadas tienen «Aprobó» y el revisor es un rol vigente', ['registro-adquisiciones', 'control-adquisiciones'].map((id) => [docOf(id).titleBlock, V[id].revs.map((r) => r.titleBlock.aprobo)]));
       const implAt = actualsOf('impl', cut);
       const hourly = implAt.filter((a) => !/precio fijo por iteración|horas adicionales del conector/.test(a.description));
       ok(has(ct(f, 'impl').observaciones, ms(tot(hourly))) && has(ct(f, 'impl').observaciones, ms(tot(implAt.filter((a) => /horas adicionales del conector/.test(a.description))))) && has(ct(f, 'sub').observaciones, ms(tot(actualsOf('sub', cut)))), 'registro: órdenes por horas, bolsa del conector y facturas de la suscripción al corte');
@@ -280,25 +326,51 @@ async function validateInPage(page) {
       const paid = (list, at) => Math.round(sum(list.filter((a) => D.add(a.date, payDays) <= at), (a) => a.amount * (1 - retOf(a, at))));
       const held = (list, at) => Math.round(sum(list, (a) => a.amount * retOf(a, at)));
       const closedBy = (at) => sprints.filter((s) => s.status === 'cerrado' && s.end <= at).length;
+      /* las filas del implementador: iteraciones y bolsas (comparables con el valor fijo del contrato) y órdenes de servicio por horas */
+      const isFixed = (a) => /precio fijo por iteración|horas adicionales del conector/.test(a.description);
+      const isOS = (r) => /órdenes de servicio por horas/.test(r.contrato);
+      const listOf = (k, r) => (k !== 'impl' ? actualsOf(k, r.fechaCorte) : actualsOf('impl', r.fechaCorte).filter((a) => (isOS(r) ? !isFixed(a) : isFixed(a))));
+      /* actividades con servicios por horas del SOW: taller de planificación de releases (t03), ambientes (t13), migración (1.4),
+         formación y capacitación (1.5.2 y 1.5.3), salidas y estabilización (1.9) */
+      const inPkg = (t, w) => { const c = tree.codes.get(t.wbsId), r0 = tree.codes.get(w); return c === r0 || c.startsWith(r0 + '.'); };
+      const osTasks = schedule.tasks.filter((t) => !t.milestone && !t.loe && !t.releaseId && (t.id === 't03' || t.id === 't13' || ['w4', 'w52', 'w53', 'w9'].some((w) => inPkg(t, w))));
       for (const [v, at, name] of [[f, cut, 'corte'], [f0, c0, 'rev. 0']]) {
         const bad = [];
         for (const k of Object.keys(MATCH)) {
-          const r = v.seguimiento.find((x) => x.contrato.startsWith(NUM[k] + ' '));
-          const list = actualsOf(k, at);
-          if (!r) { bad.push(k + ': sin fila'); continue; }
-          if (r.valorEjecutado !== tot(list)) bad.push(k + ': ejecutado ' + r.valorEjecutado + ' ≠ ' + tot(list));
-          if (r.valorPagado !== paid(list, at)) bad.push(k + ': pagado ' + r.valorPagado + ' ≠ ' + paid(list, at));
-          if (r.retencion !== held(list, at)) bad.push(k + ': retención ' + r.retencion + ' ≠ ' + held(list, at));
-          if (r.fechaCorte > at || !D.valid(r.fechaCorte)) bad.push(k + ': fecha de corte ' + r.fechaCorte);
-          if ([r.plazo, r.calidad, r.sst].some((x) => x !== null && !(Number.isInteger(x) && x >= 1 && x <= 5)) || r.plazo === null || r.calidad === null) bad.push(k + ': calificación');
+          const rs = v.seguimiento.filter((x) => x.contrato.startsWith(NUM[k] + ' '));
+          if (!rs.length || (k === 'impl' && rs.length !== 2)) { bad.push(k + ': filas ' + rs.length); continue; }
+          if (sum(rs, (r) => r.valorEjecutado) !== tot(actualsOf(k, rs[0].fechaCorte))) bad.push(k + ': las filas no suman lo facturado');
+          for (const r of rs) {
+            const list = listOf(k, r);
+            /* fecha de corte: la de la revisión; en los liquidados, la de la liquidación (evaluación final de la rev. 0) */
+            const wantCut = r.avance === 100 ? c0 : at;
+            if (r.fechaCorte !== wantCut) bad.push(k + ': fecha de corte ' + r.fechaCorte + ' ≠ ' + wantCut);
+            if (r.valorEjecutado !== tot(list)) bad.push(k + ': ejecutado ' + r.valorEjecutado + ' ≠ ' + tot(list));
+            if (r.valorPagado !== paid(list, r.fechaCorte)) bad.push(k + ': pagado ' + r.valorPagado + ' ≠ ' + paid(list, r.fechaCorte));
+            if (r.retencion !== held(list, r.fechaCorte)) bad.push(k + ': retención ' + r.retencion + ' ≠ ' + held(list, r.fechaCorte));
+            if (r.avance === 100 && r.valorPagado !== r.valorEjecutado) bad.push(k + ': liquidado sin pagar todo a su fecha de corte');
+            if ([r.plazo, r.calidad, r.sst].some((x) => x !== null && !(Number.isInteger(x) && x >= 1 && x <= 5)) || r.plazo === null || r.calidad === null) bad.push(k + ': calificación');
+          }
         }
-        const implRow = v.seguimiento.find((x) => x.contrato.startsWith(NUM.impl));
+        const implRow = v.seguimiento.find((x) => x.contrato.startsWith(NUM.impl) && !isOS(x));
+        const osRow = v.seguimiento.find((x) => x.contrato.startsWith(NUM.impl) && isOS(x));
         const subRow = v.seguimiento.find((x) => x.contrato.startsWith(NUM.sub));
+        ok(implRow && osRow && subRow, 'seguimiento (' + name + '): filas del implementador (iteraciones y bolsas; órdenes de servicio) y de la suscripción', bad);
+        if (!implRow || !osRow || !subRow) continue;
         if (implRow.avance !== round1(closedBy(at) / nSprints * 100)) bad.push('avance del implementador ' + implRow.avance);
+        if (!has(implRow.observaciones, plain(Fm.pct(implRow.valorEjecutado / implValue, 1)) + ' del valor fijo del contrato (' + ms(implValue) + ')')) bad.push('implementador: ejecutado frente al valor fijo');
+        const osDone = osTasks.filter((t) => t.actualFinish && t.actualFinish <= at).length;
+        if (osRow.avance !== round1(osDone / osTasks.length * 100) || !has(osRow.observaciones, '(' + osDone + ' de ' + osTasks.length + ')')) bad.push('avance de las órdenes de servicio ' + osRow.avance);
         if (subRow.avance !== round1(actualsOf('sub', at).length / subMonths * 100)) bad.push('avance de la suscripción ' + subRow.avance);
-        ok(!bad.length, 'seguimiento (' + name + '): ejecutado, pagado a ' + payDays + ' días y retención del ' + ret * 100 + ' % desde los costos reales; avance y calificaciones', bad);
+        ok(!bad.length, 'seguimiento (' + name + '): ejecutado, pagado a ' + payDays + ' días y retención del ' + ret * 100 + ' % desde los costos reales a la fecha de corte de cada fila; avance y calificaciones', bad);
+        /* regresión: conciliación de la formación y de la capacitación con el SOW y con las asignaciones del cronograma */
+        const fForm = actualsOf('impl', at).find((a) => a.taskId === 't21'), fCap = actualsOf('impl', at).find((a) => a.taskId === 't22');
+        const hForm = 40, hCap = sum((task('t22').resources || []).filter((a) => { const it = cat.resolve(a); return it && it.supplier === 'Socio implementador'; }), (a) => PM.res.assignment(cat, task('t22'), a).qty * 8);
+        ok(fForm && fCap && has(osRow.observaciones, fForm.document + ') incluyó las ' + hForm + ' horas (' + ms(hForm * rate) + ') y los materiales del curso (' + ms(fForm.amount - hForm * rate) + ')') && has(osRow.observaciones, fCap.document + ', seis grupos) se facturó por ' + ms(fCap.amount) + ': ' + n1(fCap.amount / rate) + ' horas') && has(osRow.observaciones, 'frente a las ' + hCap + ' de la asignación del cronograma'), 'seguimiento (' + name + '): las órdenes de la formación y de la capacitación se concilian con el SOW y el cronograma (materiales y mayor consumo)', osRow.observaciones);
       }
       const implRow = f.seguimiento.find((x) => x.contrato.startsWith(NUM.impl));
+      const liqTxt = new RegExp('Liquidados el ' + plain(PM.fmt.date(c0, 'long')) + ', con la evaluación final: ');
+      ok(liqTxt.test(plain(f.cierre)) && /Liquidados con esta evaluación: /.test(f0.cierre) && /pago de todas sus facturas/.test(f.cierre), 'seguimiento: el cierre fecha la liquidación de los contratos terminados con la evaluación final de la rev. 0');
       ok(implRow.retencion === Math.round(ret * tot(actualsOf('impl', cut).filter((a) => a.releaseId === 'rel-2' && /precio fijo por iteración/.test(a.description)))) && implRow.retencion > 0 && f0.seguimiento.find((x) => x.contrato.startsWith(NUM.impl)).retencion === 0, 'seguimiento: retención de las iteraciones del release 2 (el release 1 ya aceptado la liberó)');
       const vel = C.velocity({ sprints, items, settings: st });
       const closedVel = vel.rows.filter((r) => r.status === 'cerrado').map((r) => r.completed);
