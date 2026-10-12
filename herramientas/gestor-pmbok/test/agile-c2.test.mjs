@@ -355,6 +355,103 @@ await section('A3. valor ganado ágil: AC sin duplicar, release sin BAC y activi
   } finally { await browser.close(); }
 });
 
+/* =============================================================== A4. revisión integral: costos sin release en la actividad de un release */
+await section('A4. costos reales: registros sin release en la actividad de un release con registros imputados', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* r1 está vinculado a t2 (task.releaseId) y tiene un registro imputado (a1); a3 es de t2 y no tiene release: la regla del
+       núcleo no lo cuenta en el AC de r1. Documentos largos como los del ejemplo del ERP (NOM-2026-05). */
+    const costs = { ...COSTS, actuals: COSTS.actuals.map((a) => ({ ...a, document: a.id === 'a2' ? 'NOM-2026-05' : a.document })) };
+    const pid = await seed(page, { code: 'PRY-AG-RV5' }, { costs });
+    await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'reales' }));
+    await page.waitForSelector('[data-role="actuals"] table');
+    eq('aviso por fila: solo el registro sin release de la actividad del release', await page.$$eval('[data-role="unimputed-flag"]', (fs) => fs.map((f) => f.closest('tr').dataset.actual)), ['a3']);
+    check('el aviso por fila explica el motivo (title)', /ya tiene registros imputados/.test(await page.getAttribute('tr[data-actual="a3"] [data-role="unimputed-flag"]', 'title')), null);
+    const warn = nb(await page.textContent('[data-role="release-unimputed"]'));
+    check('aviso: registro de la actividad que representa «Release 1 · Inventario» fuera de su AC', /^1 registro sin release \(\$ 10\.000\.000\) es de la actividad que representa «Release 1 · Inventario», pero no cuenta en su costo real \(AC\)/.test(warn), warn);
+    const hint = nb(await page.textContent('[data-role="release-hint"]'));
+    check('la explicación de la columna dice que, con registros imputados, solo cuentan esos', /solo si ese release no tiene registros imputados/.test(hint) && /suma únicamente los imputados/.test(hint), hint);
+    /* 1360 px con la columna Release: la tabla cabe y el documento no se recorta */
+    const fit = await page.evaluate(() => { const w = document.querySelector('[data-role="actuals"] .table-wrap'); const doc = document.querySelector('tr[data-actual="a2"] [data-field="document"]'); return { over: w.scrollWidth - w.clientWidth, doc: doc.scrollWidth - doc.clientWidth, th: Math.round([...w.querySelectorAll('thead th')].find((t) => t.textContent.trim() === 'Documento').getBoundingClientRect().width) }; });
+    check('1360 px: la tabla de costos reales cabe y «NOM-2026-05» se ve completo', fit.over <= 1 && fit.doc <= 1 && fit.th >= 118, fit);
+    check('el selector de release se trunca con «…» y su title dice el release', await page.$eval('tr[data-actual="a1"] select[data-field="releaseId"]', (s) => getComputedStyle(s).textOverflow === 'ellipsis' && s.title === 'Release 1 · Inventario'), null);
+    /* valor ganado ágil: la nota avisa y el AC de r1 sigue siendo 30 M */
+    await page.getByRole('tab', { name: /Valor ganado ágil/ }).click();
+    await page.waitForSelector('[data-role="agile-evm-table"]');
+    const note = nb(await page.textContent('[data-note="sin-imputar"]'));
+    check('valor ganado ágil: nota de registros que no entran al AC del release', /1 registro sin release/.test(note) && /Release 1 · Inventario/.test(note) && /Imputa el registro a su release en Costos reales/.test(note), note);
+    const costNote = nb(await page.textContent('[data-note="costos"]'));
+    check('nota de costos: si el release tiene registros imputados, solo cuentan esos', /si tiene alguno, solo cuentan los imputados/.test(costNote) && !/si un registro no tiene release, los de su actividad/.test(costNote), costNote);
+    const acR1 = async () => nb(await page.$eval('tr[data-release="r1"] td[data-col="ac"] > div', (d) => d.textContent));
+    const M = (v) => page.evaluate((v) => PM.fmt.moneyShort(v, 'COP'), v);
+    eq('AC de r1 sin el registro de su actividad', await acR1(), nb(await M(30000000)));
+    /* «Imputarlo a su release» */
+    await page.locator('[data-note="sin-imputar"]').getByRole('button', { name: 'Ir a costos reales' }).click();
+    await page.waitForSelector('[data-role="release-unimputed"]');
+    await page.locator('[data-role="release-unimputed"]').getByRole('button', { name: 'Imputarlo a su release' }).click();
+    await page.waitForTimeout(900);
+    let saved = await tool(page, pid, 'costs');
+    eq('el registro queda imputado a r1', saved.actuals.find((a) => a.id === 'a3').releaseId, 'r1');
+    check('sin avisos después de imputarlo', (await page.$$('[data-role="release-unimputed"]')).length === 0 && (await page.$$('[data-role="unimputed-flag"]')).length === 0, null);
+    await page.getByRole('tab', { name: /Valor ganado ágil/ }).click(); await page.waitForSelector('[data-role="agile-evm-table"]');
+    eq('AC de r1 con el registro imputado (40 M)', await acR1(), nb(await M(40000000)));
+    check('sin la nota de registros sin imputar', (await page.$$('[data-note="sin-imputar"]')).length === 0, null);
+    /* elegir la actividad de un release con registros imputados propone el release */
+    await page.getByRole('tab', { name: /Costos reales/ }).click(); await page.waitForSelector('[data-role="actuals"] table');
+    const addRow = async () => {
+      const before = (await tool(page, pid, 'costs')).actuals.map((a) => a.id);
+      await page.getByRole('button', { name: 'Agregar costo real' }).first().click(); await page.waitForTimeout(900);
+      return (await tool(page, pid, 'costs')).actuals.find((a) => !before.includes(a.id)).id;
+    };
+    const pick = async (id, taskId) => { await page.click(`tr[data-actual="${id}"] [data-role="task-btn"]`); await page.selectOption(`tr[data-actual="${id}"] select[data-field="taskId"]`, taskId); await page.locator(`tr[data-actual="${id}"] select[data-field="taskId"]`).blur(); await page.waitForTimeout(900); };
+    const n1 = await addRow();
+    await pick(n1, 't2');
+    saved = await tool(page, pid, 'costs');
+    const r1row = saved.actuals.find((a) => a.id === n1);
+    check('actividad de un release con registros imputados: se propone ese release', r1row.taskId === 't2' && r1row.wbsId === 'w21' && r1row.releaseId === 'r1', r1row);
+    check('aviso de la imputación propuesta', /Registro imputado a «Release 1 · Inventario»/.test(await lastToast(page)), await lastToast(page));
+    eq('el selector muestra el release propuesto', await page.$eval(`tr[data-actual="${n1}"] select[data-field="releaseId"]`, (s) => s.value), 'r1');
+    const n2 = await addRow();
+    await pick(n2, 't3');
+    check('actividad sin release: el registro queda sin release', !(await tool(page, pid, 'costs')).actuals.find((a) => a.id === n2).releaseId, null);
+    /* un release sin registros imputados cuenta los de su actividad: no se marca (marcarlo dejaría fuera los demás) */
+    await page.evaluate(async (pid) => { const c = await PM.store.get(PM.paths.tool(pid, 'costs')); await PM.store.set(PM.paths.tool(pid, 'costs'), { ...c, actuals: c.actuals.map((a) => (a.releaseId === 'r1' ? { ...a, releaseId: null } : a)) }); }, pid);
+    await page.waitForTimeout(600);
+    const n3 = await addRow();
+    await pick(n3, 't2');
+    check('release sin registros imputados: no se propone (el registro ya cuenta por su actividad)', !(await tool(page, pid, 'costs')).actuals.find((a) => a.id === n3).releaseId, null);
+    check('sin avisos cuando el release no tiene registros imputados', (await page.$$('[data-role="unimputed-flag"]')).length === 0, null);
+    /* solo lectura: el aviso por fila también aparece */
+    await page.evaluate(async (pid) => { const c = await PM.store.get(PM.paths.tool(pid, 'costs')); await PM.store.set(PM.paths.tool(pid, 'costs'), { ...c, actuals: c.actuals.map((a) => (a.id === 'a1' ? { ...a, releaseId: 'r1' } : a)) }); }, pid);
+    await page.waitForTimeout(600);
+    await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(250);
+    check('lectura: avisos por fila sin botón para imputar', (await page.$$('[data-role="unimputed-flag"]')).length >= 1 && await page.locator('[data-role="release-unimputed"]').getByRole('button').count() === 0, null);
+    await page.evaluate(() => PM.setState({ canWrite: true }));
+    eq('sin tarjetas de error', await errorCards(page), []);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
+await section('A5. valor ganado ágil: tono y nota del índice con el valor mostrado', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* r1: 4 iteraciones planeadas, 2 transcurridas (PPC 50 %), 61 de 125 pts (APC 48,8 %) → SPI 0,976, que se muestra «0,98» */
+    const agile = { ...AGILE, releases: [{ ...AGILE.releases[0], budget: 100000000, baseline: null }], sprints: AGILE.sprints.slice(0, 2) };
+    const items = [
+      item('i1', 'HU-001', 'Catálogo de equipos', 61, { sprintId: 's1', status: 'terminado', doneDate: '2026-08-12' }),
+      item('i2', 'HU-002', 'Devoluciones', 64, {}),
+    ];
+    await seed(page, { code: 'PRY-AG-RV6' }, { agile, items });
+    await page.evaluate(() => PM.navigate('valor-ganado', { tab: 'agil' }));
+    await page.waitForSelector('[data-role="agile-tiles"]');
+    const raw = await page.evaluate(() => 0.488 / 0.5);
+    check('SPI agregado de 0,976 (dato de la prueba)', Math.abs(raw - 0.976) < 1e-9, raw);
+    eq('SPI 0,976: se muestra «0,98», en verde y «Al día»', [nb(await page.textContent('[data-metric="agile-spi"] .evm-metric-value')), await page.getAttribute('[data-metric="agile-spi"]', 'data-tone'), nb(await page.textContent('[data-metric="agile-spi"] .evm-metric-note'))], ['0,98', 'good', 'Al día con el plan de iteraciones.']);
+    check('la tabla usa el mismo tono (chip verde)', await page.$eval('tr[data-release="r1"] td[data-col="spi"] .chip', (c) => c.classList.contains('chip-good') && c.textContent.trim() === '0,98'), null);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
 /* =============================================================== B. RACI: roles y eventos ágiles */
 const raciData = (page, pid) => tool(page, pid, 'raci');
 const raciCellMap = (raci) => {
@@ -482,6 +579,14 @@ await section('C. tablero', async () => {
     check('SPI ágil con texto, no solo color', /Atrasado|Al día|Adelantado/.test(nb(await page.textContent(card + ' [data-index="spi-agil"] .stat-sub'))), null);
     const fc = await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); const list = await PM.store.list(PM.paths.backlog(pid)); const items = list.map((d) => ({ ...d.data, id: d.id })); const sch = await PM.store.get(PM.paths.tool(pid, 'schedule')); const cal = PM.calc.computeSchedule(sch, '2026-08-03').cal; return PM.calc.releaseForecast({ release: a.releases[0], sprints: a.sprints, items, settings: PM.agile.settings(a), cal, statusDate: '2026-09-08' }).finish; }, pid);
     check('pronóstico de terminación (PM.calc.releaseForecast)', (await page.getAttribute(card + ' [data-agile-forecast]', 'data-agile-forecast')) === fc && /después del fin del release/.test(nb(await page.textContent(card + ' [data-agile-forecast]'))), [fc, nb(await page.textContent(card + ' [data-agile-forecast]'))]);
+    /* revisión integral: releaseForecast cuenta desde el día siguiente a la última iteración cerrada, así que las 5 iteraciones
+       incluyen la iteración 3 en curso (no son «5 iteraciones más») */
+    check('pronóstico: la cuenta incluye la iteración en curso', /\(la iteración actual y 4 más\)/.test(nb(await page.textContent(card + ' [data-agile-forecast]'))) && !/iteraciones más/.test(nb(await page.textContent(card + ' [data-agile-forecast]'))), nb(await page.textContent(card + ' [data-agile-forecast]')));
+    /* compromiso 23 pts frente a la velocidad media 6,5 pts: el mismo margen del 15 % del planificador, con la diferencia */
+    eq('compromiso por encima del margen del 15 %', [await page.getAttribute(card + ' [data-agile-commit-check]', 'data-agile-commit-check'), nb(await page.textContent(card + ' [data-agile-commit-check]'))], ['over', 'El compromiso supera en 254 % la velocidad media (más del 15 %): riesgo de no terminarlo.']);
+    check('compromiso excedido con icono (no solo texto en color)', (await page.$$(card + ' [data-agile-commit-check] svg.icon')).length === 1, null);
+    /* burndown mínimo: alcance actual (23) junto a compromiso, terminado (3) y restante (20) */
+    eq('burndown: compromiso, alcance actual, terminado y restante', nb(await page.textContent(card + ' [data-agile="sprint"] .dashboard-agile-kv')), 'Compromiso 23 pts Alcance actual 23 pts Terminado 3 pts Restante 20 pts');
     const wip = nb(await page.textContent(card + ' [data-agile-alert="wip"]'));
     check('alerta de WIP superado con texto', /Límite WIP superado en «En curso»: 4 elementos para un límite de 3/.test(wip), wip);
     const bl = nb(await page.textContent(card + ' [data-agile-alert="blocked"]'));
@@ -556,9 +661,13 @@ await section('C2. tablero: adaptativo, Kanban, vacío y predictivo', async () =
     await seed(page, { lifecycle: 'Adaptativo (ágil)', code: 'PRY-AD-005' }, { blank: true });
     await page.waitForSelector('[data-card="route"]');
     const ids = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
-    eq('ruta adaptativa', ids, ['acta', 'interesados', 'riesgos', 'plan-cambios', 'vision', 'backlog', 'terminado', 'releases', 'linea-base-release', 'primera-iteracion', 'revision-retro']);
-    eq('fases de la ruta adaptativa', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución por iteraciones']);
-    check('resumen de la ruta adaptativa', /preparar el backlog y los releases/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
+    /* revisión integral: el cierre (4.7) aplica a cualquier ciclo de vida; la ruta adaptativa termina en el acta de cierre */
+    eq('ruta adaptativa (con informe de desempeño, entregables aceptados, informe final y acta de cierre)', ids, ['acta', 'interesados', 'riesgos', 'plan-cambios', 'vision', 'backlog', 'terminado', 'releases', 'linea-base-release', 'primera-iteracion', 'revision-retro', 'informe', 'entregables', 'informe-final', 'acta-cierre']);
+    eq('fases de la ruta adaptativa', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución por iteraciones y cierre']);
+    check('resumen de la ruta adaptativa', /preparar el backlog y los releases, iterar, aceptar los entregables y cerrar/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
+    await page.click('.dashboard-step[data-step="acta-cierre"]'); await page.waitForTimeout(250);
+    check('el paso «Acta de cierre» abre el documento (o la lista si la página no incluye 20)', ['documento', 'documentos'].includes((await state(page)).view), await state(page));
+    await gotoView(page, 'tablero'); await page.waitForSelector('[data-card="route"]');
     check('tarjeta ágil vacía con acciones', (await page.$$('[data-card="agile"] [data-agile-empty]')).length === 1 && await page.locator('[data-card="agile"]').getByRole('button', { name: 'Crear el backlog' }).count() === 1, null);
     await page.evaluate(() => PM.setState({ canWrite: false })); await page.waitForTimeout(200);
     check('lectura: la tarjeta vacía ofrece ver, no crear', await page.locator('[data-card="agile"]').getByRole('button', { name: 'Ver el backlog' }).count() === 1 && await page.locator('[data-card="agile"]').getByRole('button', { name: 'Crear el backlog' }).count() === 0, null);
@@ -667,11 +776,11 @@ await section('C4. tablero: Kanban (flujo continuo) en la tarjeta y en la ruta; 
     const steps = async () => page.$$eval('.dashboard-step', (els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-step'), e.getAttribute('data-state')])));
     let st = await steps();
     const ids = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
-    eq('ruta adaptativa en Kanban: columnas y WIP y revisión del flujo en lugar de las iteraciones', ids.slice(-2), ['flujo-kanban', 'revision-flujo']);
+    eq('ruta adaptativa en Kanban: columnas y WIP y revisión del flujo en lugar de las iteraciones, luego el cierre', ids.slice(-6), ['flujo-kanban', 'revision-flujo', 'informe', 'entregables', 'informe-final', 'acta-cierre']);
     check('ruta Kanban: sin pasos de iteraciones', !ids.includes('primera-iteracion') && !ids.includes('revision-retro'), ids);
     eq('columnas de fábrica: paso parcial', [st['flujo-kanban'], nb(await page.textContent('.dashboard-step[data-step="flujo-kanban"] .chip'))], ['partial', 'Columnas por defecto (sin revisar)']);
     eq('sin revisiones del flujo: pendiente', st['revision-flujo'], 'pending');
-    eq('fase de ejecución en flujo continuo', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución en flujo continuo']);
+    eq('fase de ejecución en flujo continuo', await page.$$eval('[data-card="route"] [data-phase] .label-caps', (els) => els.map((e) => e.textContent.trim())), ['Inicio y preparación del producto', 'Ejecución en flujo continuo y cierre']);
     check('resumen de la ruta en flujo continuo', /gestionar el flujo/.test(nb(await page.textContent('[data-route-summary]'))) && !/iterar/.test(nb(await page.textContent('[data-route-summary]'))), nb(await page.textContent('[data-route-summary]')));
     /* el equipo guarda sus columnas con límite WIP y registra una retrospectiva antigua y luego una reciente */
     await page.evaluate(async () => {
@@ -704,6 +813,37 @@ await section('C4. tablero: Kanban (flujo continuo) en la tarjeta y en la ruta; 
     const hyb = await page.$$eval('.dashboard-step', (els) => els.map((e) => e.getAttribute('data-step')));
     eq('ruta híbrida en Kanban', hyb.slice(hyb.indexOf('lineabase'), hyb.indexOf('informe')), ['lineabase', 'linea-base-release', 'flujo-kanban', 'avance', 'revision-flujo']);
     eq('sin tarjetas de error', await errorCards(page), []);
+    eq('sin errores de consola', errors, []);
+  } finally { await browser.close(); }
+});
+
+await section('C5. tablero: compromiso frente a la velocidad, pronóstico con la iteración actual y alertas con títulos largos', async () => {
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    /* una iteración cerrada (7 pts) y una en curso con 8 pts comprometidos (+14,3 %, dentro del margen del 15 %) */
+    const agile = { ...AGILE, releases: [{ ...AGILE.releases[0], baseline: null }],
+      sprints: [
+        { id: 's1', name: 'Iteración 1', releaseId: 'r1', start: '2026-08-17', end: '2026-08-28', status: 'cerrado', committed: 8, completed: 7, docs: {} },
+        { id: 's2', name: 'Iteración 2', releaseId: 'r1', start: '2026-08-31', end: '2026-09-11', status: 'en-curso', committed: 8, docs: {} },
+      ] };
+    const items = [
+      item('i1', 'HU-001', 'Catálogo de equipos', 7, { sprintId: 's1', status: 'terminado', doneDate: '2026-08-27' }),
+      item('i2', 'HU-002', 'Preparar la plantilla y las validaciones de la factura electrónica', 3, { sprintId: 's2', status: 'en-curso', blocked: true }),
+      item('i3', 'HU-003', 'Inspección de retorno', 5, { sprintId: 's2', status: 'por-hacer' }),
+    ];
+    const pid = await seed(page, { code: 'PRY-AG-RV7' }, { agile, items });
+    const card = '[data-card="agile"]';
+    await page.waitForSelector(card + ' [data-agile-commit-check]');
+    eq('compromiso dentro del margen: dice cuánto supera la velocidad media', [await page.getAttribute(card + ' [data-agile-commit-check]', 'data-agile-commit-check'), nb(await page.textContent(card + ' [data-agile-commit-check]'))], ['within', 'El compromiso supera en 14,3 % la velocidad media; dentro del margen del 15 %.']);
+    check('sin icono de alerta dentro del margen', (await page.$$(card + ' [data-agile-commit-check] svg.icon')).length === 0, null);
+    /* 8 pts restantes a 7 pts por iteración: 2 iteraciones contando la actual */
+    check('pronóstico: «la iteración actual y 1 más»', /\(la iteración actual y 1 más\)/.test(nb(await page.textContent(card + ' [data-agile-forecast]'))), nb(await page.textContent(card + ' [data-agile-forecast]')));
+    const bl = nb(await page.textContent(card + ' [data-agile-alert="blocked"]'));
+    eq('alerta de bloqueados: título cortado en palabra completa y sin «….»', bl, '1 elemento bloqueado en la iteración actual: HU-002 Preparar la plantilla y las…');
+    /* compromiso por debajo de la velocidad media */
+    await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, sprints: a.sprints.map((s) => (s.id === 's2' ? { ...s, committed: 5 } : s)) }); }, pid);
+    await page.waitForFunction(() => { const e = document.querySelector('[data-card="agile"] [data-agile-commit-check]'); return e && e.dataset.agileCommitCheck === 'under'; }, null, { timeout: 5000 });
+    eq('compromiso por debajo de la velocidad media', nb(await page.textContent(card + ' [data-agile-commit-check]')), 'El compromiso está 29 % por debajo de la velocidad media.');
     eq('sin errores de consola', errors, []);
   } finally { await browser.close(); }
 });

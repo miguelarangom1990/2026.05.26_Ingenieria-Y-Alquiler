@@ -83,9 +83,11 @@
 .evm-cat-v span { color: var(--fg-3); margin-left: 6px; }
 @media (max-width: 560px) { .evm-cat { grid-template-columns: minmax(0, 1fr) auto; } .evm-cat .evm-bar-track { grid-column: 1 / -1; grid-row: 2; } }
 .evm-actuals td { vertical-align: middle; }
+.evm-actuals select.cell-input { text-overflow: ellipsis; }
 .evm-flag { display: block; font-size: 0.6875rem; padding: 0 6px; line-height: 1.3; white-space: nowrap; }
 .evm-flag.is-warn { color: var(--warn); }
 .evm-flag.is-info { color: var(--fg-3); }
+.evm-flag.is-wrap { white-space: normal; padding-top: 2px; }
 .evm-ledger td { vertical-align: middle; }
 .evm-op { width: 30px; text-align: center; font-family: var(--font-mono); font-weight: 600; color: var(--fg-3); }
 .evm-ledger tr.is-total td { font-weight: 650; background: var(--surface-2); }
@@ -128,13 +130,18 @@
 .evm-colhit { cursor: default; }
 .evm-hint { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--fg-2); }
 .evm-hint > .icon { color: var(--fg-3); }
-.evm-cell-btn { display: flex; align-items: center; text-align: left; cursor: pointer; padding-right: 18px; max-width: 220px; }
+.evm-cell-btn { display: flex; align-items: center; text-align: left; cursor: pointer; padding-right: 18px; }
+/* columna «Actividad» de costos reales: el nombre no fija el ancho mínimo de la columna (se trunca con «…» y el title lo
+   muestra completo); con más ancho (1920 px) la celda crece y muestra más texto */
+.evm-task-cell { min-width: 150px; width: 20%; }
+.evm-task-cell .evm-cell-btn > span { flex: 1 1 auto; width: 0; }
 .evm-cell-btn, .evm-cell-btn:hover { background-image: linear-gradient(45deg, transparent 50%, var(--fg-3) 50%), linear-gradient(135deg, var(--fg-3) 50%, transparent 50%); background-position: calc(100% - 10px) 52%, calc(100% - 6px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
 .evm-capacity { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--warn-wash); color: var(--fg); font-size: var(--fs-sm); line-height: 1.5; }
 .evm-capacity > .icon { margin-top: 2px; color: var(--warn); }
 .evm-capacity[data-tone="crit"] { background: var(--crit-wash); }
 .evm-capacity[data-tone="crit"] > .icon { color: var(--crit); }
-.evm-rel-select { min-width: 128px; max-width: 190px; }
+.evm-rel-select { min-width: 112px; max-width: 190px; text-overflow: ellipsis; }
+.evm-hint.is-warn > .icon { color: var(--warn); }
 .evm-hint.is-long { align-items: flex-start; }
 .evm-hint.is-long > .icon { margin-top: 2px; flex: none; }
 .evm-hint.is-long > span { flex: 1 1 280px; min-width: 0; max-width: 90ch; line-height: 1.45; }
@@ -182,7 +189,10 @@
   const zeroish = (v, cur) => Math.abs(v) < ((PM.CURRENCIES[cur] || PM.CURRENCIES.COP).decimals ? 0.005 : 0.5);
   const signedMoney = (v, cur) => (!isNum(v) ? '—' : zeroish(v, cur) ? money(0, cur) : (v > 0 ? '+' : '') + money(v, cur));
   const signedShort = (v, cur) => (!isNum(v) ? '—' : zeroish(v, cur) ? short(0, cur) : (v > 0 ? '+' : '') + short(v, cur));
-  const idxTone = (v) => PM.calc.indexTone(v);
+  /* Índice redondeado como se muestra (fmt.idx, 2 decimales; toFixed redondea igual que Intl): el tono y las frases se
+     calculan con el valor visible, así un SPI de 0,976 se muestra «0,98» y va en verde, como dice la leyenda (≥ 0,98). */
+  const idx2 = (v) => (isNum(v) ? Number(v.toFixed(2)) : v);
+  const idxTone = (v) => PM.calc.indexTone(idx2(v));
   const worstTone = (...tones) => (tones.includes('crit') ? 'crit' : tones.includes('warn') ? 'warn' : tones.includes('good') ? 'good' : null);
   const cmpDate = (a, b) => { const va = D.valid(a), vb = D.valid(b); if (va && vb) return a < b ? -1 : a > b ? 1 : 0; return va ? -1 : vb ? 1 : 0; };
   const monthsBetween = (a, b) => { const out = []; if (!D.valid(a) || !D.valid(b) || b < a) return out; let m = D.startOfMonth(a); let g = 0; while (m <= b && g++ < 600) { out.push(m); m = D.addMonths(m, 1); } return out; };
@@ -634,7 +644,8 @@
     const m = (v) => nb(short(v, currency));
     const sg = (v) => nb(signedShort(v, currency));
     const at = fmt.date(evm.statusDate, 'long');
-    const { spi, cpi } = evm;
+    /* con el valor mostrado (2 decimales): la frase coincide con el número y su tono */
+    const spi = idx2(evm.spi), cpi = idx2(evm.cpi);
     const sw = spi === null ? null : spi > 1.02 ? 'adelantado' : spi >= 0.98 ? 'al día con el cronograma' : 'atrasado';
     const cw = cpi === null ? null : cpi > 1.02 ? 'por debajo del presupuesto' : cpi >= 0.98 ? 'dentro del presupuesto' : 'por encima del presupuesto';
     if (sw && cw) out.push({ id: 'estado', tone: worstTone(idxTone(spi), idxTone(cpi)), text: 'Al ' + at + ' el proyecto está ' + sw + ' (SPI ' + fmt.idx(spi) + ') y ' + cw + ' (CPI ' + fmt.idx(cpi) + ').' });
@@ -803,14 +814,45 @@
   const ACTUAL_KEYS = ['date', 'taskId', 'releaseId', 'category', 'description', 'document', 'amount'];
   /* Release imputado a un costo real (AgileEVM): texto de la celda y lista desplegable (pocos releases por proyecto). */
   const releaseText = (id, ctx) => { const r = id ? ctx.releaseById.get(id) : null; return r ? releaseName(r) : id ? 'Release eliminado' : 'Sin release'; };
-  function ReleaseCell({ a, ctx, canWrite, label, onPick }) {
+  /* Registros sin release de la actividad que representa un release (PM.agile.linksOf) que ya tiene registros imputados:
+     la regla del núcleo (PM.agile.releaseCosts) solo le cuenta los imputados, así que estos no entran a su AC aunque sean
+     de su actividad. cut: solo los registros hasta esa fecha, como el AC al corte (null = todos). → [{a, r}] */
+  function unimputedOfReleases(actuals, links, cut) {
+    const list = (actuals || EMPTY_ARR).filter((a) => !!a && typeof a === 'object' && !(cut && D.valid(a.date) && a.date > cut));
+    const marked = new Set(list.filter((a) => a.releaseId).map((a) => a.releaseId));
+    const out = [];
+    if (!marked.size || !links || !links.size) return out;
+    for (const a of list) {
+      if (a.releaseId || !a.taskId) continue;
+      const r = links.get(a.taskId);
+      if (!r || !marked.has(r.id)) continue;
+      /* como el núcleo: un registro anterior al inicio del release no es de ese release */
+      if (D.valid(r.start) && D.valid(a.date) && a.date < r.start) continue;
+      out.push({ a, r });
+    }
+    return out;
+  }
+  /* «2 registros sin release ($ 20 M) de la actividad que representa «R2» no cuentan en su costo real (AC): …» */
+  function unimputedText(list, currency, tail) {
+    const n = list.length;
+    const amount = list.reduce((t, x) => t + num(x.a.amount), 0);
+    const rels = [...new Map(list.map((x) => [x.r.id, x.r])).values()];
+    const names = rels.map((r) => '«' + releaseName(r) + '»').join(', ');
+    return (n === 1 ? '1 registro sin release (' : n + ' registros sin release (') + money(amount, currency) + ') '
+      + (n === 1 ? 'es de la actividad que representa ' : rels.length === 1 ? 'son de la actividad que representa ' : 'son de las actividades que representan ') + names
+      + ', pero no ' + (n === 1 ? 'cuenta' : 'cuentan') + ' en ' + (rels.length === 1 ? 'su costo real (AC): ese release ya tiene' : 'el costo real (AC) de su release: esos releases ya tienen')
+      + ' registros imputados y solo suma' + (rels.length === 1 ? '' : 'n') + ' esos. ' + (tail || 'Elige el release en la columna «Release» para que su CPI sea exacto.');
+  }
+  const unimputedTitle = (r) => 'El registro es de la actividad que representa «' + releaseName(r) + '», pero no tiene release y ese release ya tiene registros imputados: su costo real (AC) solo suma los imputados. Elige el release en esta columna.';
+  function ReleaseCell({ a, ctx, canWrite, label, onPick, unimputed }) {
     const r = a.releaseId ? ctx.releaseById.get(a.releaseId) : null;
-    if (!canWrite) return html`<td class="evm-rel-cell" data-field="releaseId">${r ? releaseName(r) : a.releaseId ? html`<span class="faint">Release eliminado</span>` : html`<span class="faint">—</span>`}</td>`;
+    const flag = unimputed ? html`<span class="evm-flag is-warn is-wrap" data-role="unimputed-flag" title=${unimputedTitle(unimputed)}>No cuenta en el AC del release</span>` : null;
+    if (!canWrite) return html`<td class="evm-rel-cell" data-field="releaseId">${r ? releaseName(r) : a.releaseId ? html`<span class="faint">Release eliminado</span>` : html`<span class="faint">—</span>`}${flag}</td>`;
     return html`<td class="evm-rel-cell"><select class="cell-input evm-rel-select" data-field="releaseId" aria-label=${label} title=${releaseText(a.releaseId, ctx)} value=${a.releaseId || ''} onChange=${(e) => onPick(e.currentTarget.value || null)}>
       <option value="">Sin release</option>
       ${a.releaseId && !r ? html`<option value=${a.releaseId}>Release eliminado</option>` : null}
       ${ctx.releaseOptions.map((o) => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}
-    </select></td>`;
+    </select>${flag}</td>`;
   }
   /* Celda de actividad: muestra la actividad elegida y solo crea la lista desplegable al editarla
      (cientos de opciones repetidas en cada fila harían lenta la tabla). */
@@ -838,11 +880,11 @@
   class ActualRow extends PM.lib.Component {
     shouldComponentUpdate(n) {
       const p = this.props;
-      if (n.canWrite !== p.canWrite || n.statusDate !== p.statusDate || n.ctx !== p.ctx) return true;
+      if (n.canWrite !== p.canWrite || n.statusDate !== p.statusDate || n.ctx !== p.ctx || n.unimputed !== p.unimputed) return true;
       return ACTUAL_KEYS.some((k) => n.a[k] !== p.a[k]);
     }
     render() {
-      const { a, ctx, canWrite, statusDate } = this.props;
+      const { a, ctx, canWrite, statusDate, unimputed } = this.props;
       const { currency, tree, taskById, catOptions, api } = ctx;
       const t = taskById.get(a.taskId);
       const flag = !D.valid(a.date) ? html`<span class="evm-flag is-warn">Sin fecha: no cuenta en el AC</span>` : a.date > statusDate ? html`<span class="evm-flag is-info">Posterior al corte</span>` : null;
@@ -850,7 +892,7 @@
         return html`<tr data-actual=${a.id}>
           <td class="mono nowrap">${D.valid(a.date) ? fmt.date(a.date) : '—'}${flag}</td>
           <td style="min-width:180px">${t ? taskLabel(t, tree) : a.taskId ? html`<span class="faint">Actividad eliminada del cronograma</span>` : html`<span class="faint">Sin actividad</span>`}</td>
-          ${ctx.releaseOn ? html`<${ReleaseCell} a=${a} ctx=${ctx} canWrite=${false} />` : null}
+          ${ctx.releaseOn ? html`<${ReleaseCell} a=${a} ctx=${ctx} canWrite=${false} unimputed=${unimputed} />` : null}
           <td>${a.category || html`<span class="faint">—</span>`}</td>
           <td style="min-width:200px">${a.description || html`<span class="faint">—</span>`}</td>
           <td class="mono">${a.document || html`<span class="faint">—</span>`}</td>
@@ -861,14 +903,14 @@
       const up = (patch) => api.current.update(a.id, patch);
       return html`<tr data-actual=${a.id}>
         <td style="min-width:132px"><input type="date" class="cell-input" data-field="date" aria-label=${L('Fecha')} value=${a.date || ''} onFocus=${() => api.current.freeze()} onBlur=${() => api.current.unfreeze()} onInput=${(e) => up({ date: e.currentTarget.value || null })} />${flag}</td>
-        <td style="min-width:160px;max-width:220px"><${TaskPicker} value=${a.taskId} ctx=${ctx} label=${L('Actividad')} onPick=${(id) => { const tk = id ? taskById.get(id) : null; up({ taskId: id, wbsId: tk ? tk.wbsId || null : null }); }} /></td>
-        ${ctx.releaseOn ? html`<${ReleaseCell} a=${a} ctx=${ctx} canWrite label=${L('Release')} onPick=${(id) => up({ releaseId: id })} />` : null}
-        <td style="min-width:128px"><select class="cell-input" data-field="category" aria-label=${L('Categoría')} value=${a.category || ''} onChange=${(e) => up({ category: e.currentTarget.value })}>
+        <td class="evm-task-cell"><${TaskPicker} value=${a.taskId} ctx=${ctx} label=${L('Actividad')} onPick=${(id) => api.current.pickTask(this.props.a, id)} /></td>
+        ${ctx.releaseOn ? html`<${ReleaseCell} a=${a} ctx=${ctx} canWrite label=${L('Release')} unimputed=${unimputed} onPick=${(id) => up({ releaseId: id })} />` : null}
+        <td style="min-width:120px"><select class="cell-input" data-field="category" aria-label=${L('Categoría')} title=${a.category || 'Sin categoría'} value=${a.category || ''} onChange=${(e) => up({ category: e.currentTarget.value })}>
           <option value="">Sin categoría</option>
           ${catOptions.map((c) => html`<option key=${c} value=${c}>${c}</option>`)}
         </select></td>
-        <td style="min-width:160px"><${DraftInput} class="cell-input" data-field="description" aria-label=${L('Descripción')} placeholder="Qué se pagó" title=${a.description || undefined} value=${a.description || ''} onCommit=${(v) => up({ description: v })} /></td>
-        <td style="min-width:100px"><${DraftInput} class="cell-input mono" data-field="document" aria-label=${L('Documento soporte')} placeholder="Factura, OC…" value=${a.document || ''} onCommit=${(v) => up({ document: v })} /></td>
+        <td style="min-width:150px"><${DraftInput} class="cell-input" data-field="description" aria-label=${L('Descripción')} placeholder="Qué se pagó" title=${a.description || undefined} value=${a.description || ''} onCommit=${(v) => up({ description: v })} /></td>
+        <td style="min-width:120px"><${DraftInput} class="cell-input mono" data-field="document" aria-label=${L('Documento soporte')} placeholder="Factura, OC…" value=${a.document || ''} onCommit=${(v) => up({ document: v })} /></td>
         <td style="min-width:120px"><${DeferredNumber} class="cell-input" data-field="amount" aria-label=${L('Valor')} money currency=${currency} value=${a.amount} placeholder="0" onCommit=${(v) => up({ amount: v })} /></td>
         <td class="ctl"><${ui.IconButton} size="sm" icon="trash" label=${L('Eliminar')} onClick=${() => api.current.remove(this.props.a)} /></td>
       </tr>`;
@@ -888,6 +930,11 @@
     const releaseOptions = useMemo(() => releases.map((r) => ({ value: r.id, label: releaseName(r) })), [releases]);
     const anyRelease = useMemo(() => actuals.some((a) => a && a.releaseId), [actuals]);
     const releaseOn = !!model.agileOn || anyRelease;
+    /* actividad que representa cada release (regla del núcleo, PM.agile.linksOf) y registros sin release de esas
+       actividades que no cuentan en el AC de su release porque este ya tiene registros imputados */
+    const links = useMemo(() => (releaseOn && PM.agile && releases.length ? PM.agile.linksOf(sched.tasks, model.agile) : new Map()), [releaseOn, releases, sched, model.agile]);
+    const unimputed = useMemo(() => (releaseOn ? unimputedOfReleases(actuals, links, null) : EMPTY_ARR), [releaseOn, actuals, links]);
+    const unimputedOf = useMemo(() => new Map(unimputed.map((x) => [x.a.id, x.r])), [unimputed]);
     const [frozen, setFrozen] = useState(null);
     const [focusId, setFocusId] = useState(null);
     const [limit, setLimit] = useState(ACTUALS_PAGE);
@@ -915,6 +962,25 @@
        Si el registro de costos no cabe en el documento, no se aplica nada (devuelve false). */
     const write = (next, edit) => saveCostsChecked((v) => { latest.current = v; saveCosts(v); }, { ...latest.current, actuals: next }, latest.current, edit);
     const update = (id, patch) => write((latest.current.actuals || []).map((a) => (a.id === id ? { ...a, ...patch } : a)), true);
+    /* Elegir la actividad: si representa un release que ya tiene registros imputados y el registro no tiene release, se le
+       propone ese release (sin él, la regla del núcleo no lo contaría en el AC del release). Si el release aún no tiene
+       registros imputados no se marca: cuenta por su actividad, y marcarlo dejaría fuera los demás registros de ella. */
+    const pickTask = (a, id) => {
+      const tk = id ? taskById.get(id) : null;
+      const patch = { taskId: id, wbsId: tk ? tk.wbsId || null : null };
+      const r = id && releaseOn ? links.get(id) : null;
+      const cur = latest.current.actuals || [];
+      const own = cur.find((x) => x && x.id === a.id) || a;
+      const auto = r && !own.releaseId && cur.some((x) => x && x.id !== a.id && x.releaseId === r.id) ? r : null;
+      if (auto) patch.releaseId = auto.id;
+      if (update(a.id, patch) && auto) PM.toast('Registro imputado a «' + releaseName(auto) + '», el release que representa esa actividad: ese release ya tiene costos imputados y su AC solo suma esos. Cámbialo en la columna «Release» si no corresponde.');
+    };
+    /* imputa a su release los registros sin release de las actividades de releases con registros imputados */
+    const imputeAll = () => {
+      const ids = new Map(unimputed.map((x) => [x.a.id, x.r.id]));
+      if (!ids.size) return;
+      if (write((latest.current.actuals || []).map((a) => (a && ids.has(a.id) && !a.releaseId ? { ...a, releaseId: ids.get(a.id) } : a)))) PM.toast(ids.size === 1 ? 'Registro imputado a su release.' : ids.size + ' registros imputados a su release.');
+    };
     const add = () => {
       const id = PM.uid('ac');
       const lastCat = sorted.length ? sorted[sorted.length - 1].category || '' : '';
@@ -976,7 +1042,7 @@
     const shownTotal = PM.sum(shown, (a) => a.amount);
     const filtered = !!(fMonth || fCat || relV || ql);
     const api = useRef(null);
-    api.current = { update, remove, freeze, unfreeze };
+    api.current = { update, remove, freeze, unfreeze, pickTask };
     const ctx = useMemo(() => ({ currency, tree, taskById, taskOptions, catOptions, api, releaseOn, releaseById, releaseOptions }), [currency, tree, taskById, taskOptions, catOptions, releaseOn, releaseById, releaseOptions]);
     const hiddenCount = Math.max(0, shown.length - limit);
     const visible = hiddenCount ? shown.slice(hiddenCount) : shown;
@@ -1016,11 +1082,13 @@
                 <${ui.Button} size="sm" icon="chevron-up" onClick=${() => setLimit((l) => l + ACTUALS_PAGE)}>Mostrar ${Math.min(ACTUALS_PAGE, hiddenCount)} anteriores</${ui.Button}>
                 <${ui.Button} size="sm" variant="ghost" onClick=${() => setLimit(Infinity)}>Mostrar todos</${ui.Button}>
               </div></td></tr>` : null}
-              ${visible.map((a) => html`<${ActualRow} key=${a.id} a=${a} ctx=${ctx} canWrite=${canWrite} statusDate=${statusDate} />`)}
+              ${visible.map((a) => html`<${ActualRow} key=${a.id} a=${a} ctx=${ctx} canWrite=${canWrite} statusDate=${statusDate} unimputed=${unimputedOf.get(a.id) || null} />`)}
             </tbody>
             <tfoot><tr><td colspan=${releaseOn ? 6 : 5} style="font-weight:650;background:var(--surface-2)">${filtered ? 'Total del filtro (' + shown.length + ' de ' + actuals.length + ')' : 'Total registrado (' + actuals.length + ')'}</td><td class="num" data-role="actuals-total" style="font-weight:650;background:var(--surface-2)">${money(shownTotal, currency)}</td>${canWrite ? html`<td style="background:var(--surface-2)"></td>` : null}</tr></tfoot>
           </table></div>`}
-          ${releaseOn && actuals.length ? html`<div class="evm-hint is-long" data-role="release-hint"><${ui.Icon} name="info" size=${14} /><span>Release: imputa el costo a un release para su valor ganado ágil (AgileEVM). Sin release, el costo cuenta en el release cuya actividad vinculada o entregable de la EDT coincide con el del registro.${orphanRel ? ' ' + plural(orphanRel, 'registro tiene', 'registros tienen') + ' un release que ya no existe: no cuenta' + (orphanRel === 1 ? '' : 'n') + ' en ningún release.' : ''}</span>
+          ${unimputed.length ? html`<div class="evm-hint is-long is-warn" data-role="release-unimputed" role="status"><${ui.Icon} name="alert" size=${14} /><span>${unimputedText(unimputed, currency)}</span>
+            ${canWrite ? html`<${ui.Button} size="sm" icon="release" onClick=${imputeAll}>${unimputed.length === 1 ? 'Imputarlo a su release' : 'Imputarlos a su release'}</${ui.Button}>` : null}</div>` : null}
+          ${releaseOn && actuals.length ? html`<div class="evm-hint is-long" data-role="release-hint"><${ui.Icon} name="info" size=${14} /><span>Release: imputa el costo a un release para su valor ganado ágil (AgileEVM). Un registro sin release cuenta en el release cuya actividad vinculada o entregable de la EDT coincide con el suyo solo si ese release no tiene registros imputados: cuando tiene alguno, su costo real (AC) suma únicamente los imputados.${orphanRel ? ' ' + plural(orphanRel, 'registro tiene', 'registros tienen') + ' un release que ya no existe: no cuenta' + (orphanRel === 1 ? '' : 'n') + ' en ningún release.' : ''}</span>
             ${model.agileOn && PM.agile ? html`<${ui.Button} size="sm" variant="ghost" iconRight="arrow-right" onClick=${() => go('valor-ganado', { tab: 'agil' })}>Ver valor ganado ágil</${ui.Button}>` : null}</div>` : null}
         </div>
       </${SectionCard}>
@@ -1521,13 +1589,17 @@
     const planById = new Map(planOf(evm, sched, baselines).map((p) => [p.id, p]));
     const cal = sched.cal;
     const rels = releasesOf(agile);
-    const rc = PM.agile.releaseCosts(rels, costs, tree, statusDate);
+    /* con las actividades del cronograma: la actividad de cada release sale de PM.agile.linksOf (incluye task.releaseId) */
+    const rc = PM.agile.releaseCosts(rels, costs, tree, statusDate, sched.tasks);
     const costOf = (id) => rc.byRelease.get(id) || { ac: 0, shared: 0 };
     /* actividad vinculada a cada release, con la misma regla del núcleo que aplica el avance del backlog (PM.agile.linksOf:
        una actividad por release; release.taskId primero, luego task.releaseId) */
     const taskOfRel = new Map();
     const byId = new Map(sched.tasks.map((t) => [t.id, t]));
-    for (const [tid, r] of PM.agile.linksOf(sched.tasks, agile)) if (byId.has(tid)) taskOfRel.set(r.id, byId.get(tid));
+    const links = PM.agile.linksOf(sched.tasks, agile);
+    for (const [tid, r] of links) if (byId.has(tid)) taskOfRel.set(r.id, byId.get(tid));
+    /* registros sin release de la actividad de un release con registros imputados: no entran a su AC (regla del núcleo) */
+    const unimputed = unimputedOfReleases(costs && costs.actuals, links, statusDate);
     const rows = rels.map((r) => {
       const ac = costOf(r.id).ac;
       const e = PM.calc.agileEvm({ release: r, sprints, items, settings, actualCost: ac, statusDate });
@@ -1549,13 +1621,13 @@
     const tot = rows.reduce((t, x) => ({ bac: t.bac + x.e.bac, pv: t.pv + x.e.pv, ev: t.ev + x.e.ev }), { bac: 0, pv: 0, ev: 0 });
     tot.ac = rc.total;
     /* AC de los releases con presupuesto, cada registro una vez (la regla de cada release no depende de los demás) */
-    tot.acIdx = bacRels.length === rels.length ? rc.total : bacRels.length ? PM.agile.releaseCosts(bacRels, costs, tree, statusDate).total : 0;
+    tot.acIdx = bacRels.length === rels.length ? rc.total : bacRels.length ? PM.agile.releaseCosts(bacRels, costs, tree, statusDate, sched.tasks).total : 0;
     tot.sumRows = rows.reduce((t, x) => t + x.e.ac, 0);
     tot.sv = tot.ev - tot.pv; tot.cv = tot.ev - tot.acIdx;
     tot.spi = tot.pv > 0 ? tot.ev / tot.pv : null; tot.cpi = tot.acIdx > 0 ? tot.ev / tot.acIdx : null;
     tot.eac = tot.cpi ? tot.bac / tot.cpi : null; tot.vac = tot.eac !== null ? tot.bac - tot.eac : null;
     const sharedRels = rels.filter((r) => costOf(r.id).shared > 0);
-    return { rows, tot, shared: { count: rc.shared.length, amount: rc.shared.reduce((t, h) => t + h.amount, 0), releases: sharedRels }, unit: PM.agile.unitShort(settings) };
+    return { rows, tot, shared: { count: rc.shared.length, amount: rc.shared.reduce((t, h) => t + h.amount, 0), releases: sharedRels }, unimputed, unit: PM.agile.unitShort(settings) };
   }
   const AGILE_COLS = [
     { key: 'name', label: 'Release' },
@@ -1576,7 +1648,7 @@
     const { currency, statusDate } = model;
     const [full, setFull] = useState(() => !!PM.prefs.get('evm.fullValues', false));
     const data = useMemo(() => agileEvmData(model), [model.agile, model.agileItems, model.costs, model.tree, model.statusDate, model.sched, model.evm, model.baselines]);
-    const { rows, tot, shared, unit } = data;
+    const { rows, tot, shared, unimputed, unit } = data;
     if (!rows.length) {
       return html`<${ui.Empty} icon="release" title="Aún no hay releases" actions=${html`<${ui.Button} variant="primary" icon="release" onClick=${() => go('iteraciones')}>Ir a releases e iteraciones</${ui.Button}>`}>
         El valor ganado ágil (AgileEVM) se mide por release: crea los releases con su presupuesto (BAC) y sus iteraciones planeadas, y asigna los elementos del backlog a cada release.
@@ -1619,9 +1691,11 @@
     if (linkedNoProg.length) notes.push({ id: 'sin-estimar', icon: 'alert', tone: 'warn', text: relList(linkedNoProg) + (linkedNoProg.length === 1 ? ' está vinculado' : ' están vinculados') + ' a una actividad, pero sus elementos aún no tienen estimación: la actividad conserva el avance registrado en el cronograma hasta que el backlog tenga alcance estimado.' });
     if (unlinked.length) notes.push({ id: 'sin-vinculo', icon: 'info', tone: null, text: relList(unlinked) + (unlinked.length === 1 ? ' no está vinculado' : ' no están vinculados') + ' a una actividad del cronograma: su avance no entra a la curva S del proyecto. Vincúlalo en «Releases e iteraciones» (actividad del cronograma que lo representa).' });
     notes.push({ id: 'metodos', icon: 'info', tone: null, text: 'Diferencia entre los métodos: el AgileEVM mide el avance planeado por iteraciones transcurridas (PPC = transcurridas / planeadas) y el real por estimación terminada sobre el alcance actual (APC), con el presupuesto del release como BAC. El valor ganado del proyecto reparte el presupuesto de la actividad vinculada según sus fechas en el cronograma (o en la línea base de costos) y le aplica el mismo % completado. Por eso el SPI puede diferir: cuando el plan de iteraciones no coincide con las fechas de la actividad o el BAC del release no es igual al costo de la actividad.' });
-    notes.push({ id: 'costos', icon: 'money', tone: null, text: 'El costo real (AC) de cada release suma, hasta la fecha de corte, los costos reales con ese release y, si un registro no tiene release, los de su actividad vinculada o de su entregable de la EDT. El total cuenta cada registro una sola vez. En el valor ganado del proyecto el AC es el total de los costos reales. No sumes el AgileEVM a los indicadores del proyecto: el trabajo de los releases vinculados ya está incluido.' });
+    notes.push({ id: 'costos', icon: 'money', tone: null, text: 'El costo real (AC) de cada release suma, hasta la fecha de corte, los costos reales imputados a ese release. Si el release no tiene ningún registro imputado, suma los registros sin release de su actividad vinculada o de su entregable de la EDT (desde el inicio del release); si tiene alguno, solo cuentan los imputados. El total cuenta cada registro una sola vez. En el valor ganado del proyecto el AC es el total de los costos reales. No sumes el AgileEVM a los indicadores del proyecto: el trabajo de los releases vinculados ya está incluido.' });
     if (shared.count) notes.push({ id: 'compartido', icon: 'alert', tone: 'warn', action: { label: 'Ir a costos reales', tab: 'reales' },
       text: (shared.count === 1 ? '1 registro de costos sin release (' : shared.count + ' registros de costos sin release (') + money(shared.amount, currency) + ') ' + (shared.count === 1 ? 'coincide' : 'coinciden') + ' con varios releases que comparten el entregable de la EDT o la actividad: ' + shared.releases.map((r) => '«' + releaseName(r) + '»').join(', ') + '. Cuenta' + (shared.count === 1 ? '' : 'n') + ' en el AC de cada uno de esos releases, pero una sola vez en el total. Imputa cada registro a su release con el selector «Release» de Costos reales para que el CPI de cada release sea exacto.' });
+    if (unimputed.length) notes.push({ id: 'sin-imputar', icon: 'alert', tone: 'warn', action: { label: 'Ir a costos reales', tab: 'reales' },
+      text: unimputedText(unimputed, currency, 'Imputa ' + (unimputed.length === 1 ? 'el registro' : 'los registros') + ' a su release en Costos reales para que su CPI sea exacto.') });
     if (noBac.length) notes.push({ id: 'sin-bac', icon: 'alert', tone: 'warn', text: relList(noBac) + (noBac.length === 1 ? ' no tiene presupuesto (BAC)' : ' no tienen presupuesto (BAC)') + ': su PV y su EV quedan en cero, no hay EAC y sus índices (SPI y CPI) no se calculan' + (tot.acIdx < tot.ac ? '; su costo real no entra al CPI total' : '') + '. Defínelo en «Releases e iteraciones».' });
     const icon = (n) => n.icon;
     return html`<div class="evm-tabpanel" data-role="agile-evm">
@@ -1630,8 +1704,8 @@
         <${Metric} id="agile-pv" abbr="PV" label="Valor planificado" display=${S(tot.pv)} full=${F(tot.pv)} formula="Σ BAC × PPC" />
         <${Metric} id="agile-ev" abbr="EV" label="Valor ganado" display=${S(tot.ev)} full=${F(tot.ev)} formula="Σ BAC × APC" />
         <${Metric} id="agile-ac" abbr="AC" label="Costo real" display=${S(tot.ac)} full=${F(tot.ac)} note=${tot.ac > 0 ? (shared.count ? 'Costos imputados a los releases, sin duplicar los compartidos' : 'Costos imputados a los releases') : 'Sin costos imputados a los releases'} />
-        <${Metric} id="agile-spi" abbr="SPI" label="Desempeño del cronograma" display=${isNum(tot.spi) ? fmt.idx(tot.spi) : '—'} empty=${!isNum(tot.spi)} tone=${idxTone(tot.spi)} formula="SPI = Σ EV / Σ PV" note=${isNum(tot.spi) ? (tot.spi > 1.02 ? 'Adelantado frente al plan de iteraciones.' : tot.spi >= 0.98 ? 'Al día con el plan de iteraciones.' : 'Atrasado frente al plan de iteraciones.') : tot.bac > 0 ? 'Aún no transcurre ninguna iteración planeada.' : 'Sin presupuesto (BAC) en los releases.'} />
-        <${Metric} id="agile-cpi" abbr="CPI" label="Desempeño del costo" display=${isNum(tot.cpi) ? fmt.idx(tot.cpi) : '—'} empty=${!isNum(tot.cpi)} tone=${idxTone(tot.cpi)} formula="CPI = Σ EV / Σ AC" note=${(isNum(tot.cpi) ? (tot.cpi > 1.02 ? 'Por debajo del presupuesto.' : tot.cpi >= 0.98 ? 'Dentro del presupuesto.' : 'Por encima del presupuesto.') : tot.bac > 0 ? 'Sin costos reales imputados a los releases.' : 'Sin presupuesto (BAC) en los releases.') + (isNum(tot.cpi) && tot.acIdx < tot.ac ? ' Con el AC de los releases con presupuesto (' + short(tot.acIdx, currency) + ').' : '')} />
+        <${Metric} id="agile-spi" abbr="SPI" label="Desempeño del cronograma" display=${isNum(tot.spi) ? fmt.idx(tot.spi) : '—'} empty=${!isNum(tot.spi)} tone=${idxTone(tot.spi)} formula="SPI = Σ EV / Σ PV" note=${isNum(tot.spi) ? (idx2(tot.spi) > 1.02 ? 'Adelantado frente al plan de iteraciones.' : idx2(tot.spi) >= 0.98 ? 'Al día con el plan de iteraciones.' : 'Atrasado frente al plan de iteraciones.') : tot.bac > 0 ? 'Aún no transcurre ninguna iteración planeada.' : 'Sin presupuesto (BAC) en los releases.'} />
+        <${Metric} id="agile-cpi" abbr="CPI" label="Desempeño del costo" display=${isNum(tot.cpi) ? fmt.idx(tot.cpi) : '—'} empty=${!isNum(tot.cpi)} tone=${idxTone(tot.cpi)} formula="CPI = Σ EV / Σ AC" note=${(isNum(tot.cpi) ? (idx2(tot.cpi) > 1.02 ? 'Por debajo del presupuesto.' : idx2(tot.cpi) >= 0.98 ? 'Dentro del presupuesto.' : 'Por encima del presupuesto.') : tot.bac > 0 ? 'Sin costos reales imputados a los releases.' : 'Sin presupuesto (BAC) en los releases.') + (isNum(tot.cpi) && tot.acIdx < tot.ac ? ' Con el AC de los releases con presupuesto (' + short(tot.acIdx, currency) + ').' : '')} />
       </div></section>
 
       <${SectionCard} title="Valor ganado ágil por release" subtitle=${'AgileEVM al ' + fmt.date(statusDate, 'long') + ' · avance planeado por iteraciones (PPC) y real por estimación terminada (APC)'} pad=${false} attrs=${{ 'data-role': 'agile-evm-card' }} actions=${html`<${ui.Button} size="sm" icon="download" onClick=${exportCsv}>Exportar CSV</${ui.Button}>`}>

@@ -187,6 +187,21 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
   const ZERO_STATS = Object.freeze({ count: 0, pts: 0, done: 0, doneCount: 0, open: 0 });
   /* Información ágil de la EDT: enfoque efectivo por nodo, distintivos, releases por entregable y backlog por rama.
      Se calcula una sola vez por cambio de EDT, releases o backlog (no por fila). */
+  /* Actividad que representará un release nuevo del entregable (release.taskId): la única actividad que no es hito del
+     paquete y lo que lo compone (roll = rollupWbs del elemento), si está libre según PM.agile.linksOf y no tiene guardado
+     otro release existente (task.releaseId). Así el avance del release llega al cronograma y a la curva S desde el inicio. */
+  function freeTaskOf(schedule, roll, agileData) {
+    const A = AGILE();
+    if (!A || !A.linksOf || !roll || !Array.isArray(roll.tasks)) return null;
+    const work = roll.tasks.filter((t) => t && t.id && !t.milestone);
+    if (work.length !== 1) return null;
+    const stored = arrOf(schedule && schedule.tasks).filter(isObj);
+    const t = stored.find((x) => x.id === work[0].id);
+    if (!t || A.linksOf(stored, agileData).has(t.id)) return null;
+    if (t.releaseId && arrOf(agileData && agileData.releases).some((r) => isObj(r) && r.id === t.releaseId)) return null;
+    return t;
+  }
+
   function agileInfo(tree, project, agileData, items) {
     const A = AGILE();
     const mode = A ? A.mode(project) : 'predictivo';
@@ -1222,6 +1237,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
     const live = useRef({});
     live.current = { wbs: { ...wbs, nodes }, schedule, costs, raci, raciExists: raciMeta.exists, tree, visible, collapsed, editingId, canWrite, wide, tab, pid, saveWbs: model.saveWbs, saveSchedule: model.saveSchedule, saveCosts: model.saveCosts, saveRaci, scope: scopeTpl,
       agile: agileData, saveAgile: model.saveAgile, items: agileItems, ag, project, rollup, est, agileLoading: !!(model.agileMeta && model.agileMeta.loading),
+      /* el modelo carga el backlog solo con la capa ágil activa (ciclo adaptativo o híbrido, o con releases) */
+      agileOn: !!model.agileOn,
       /* datos que guardan referencias a la EDT (cronograma, costos, releases, backlog, RACI) aún cargando: eliminar no podría limpiarlas */
       refsLoading: !!model.loading || !!raciMeta.loading };
 
@@ -1250,17 +1267,36 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
         /* capa ágil: releases y elementos del backlog que apuntaban a los elementos eliminados quedan sin entregable */
         const rels = arrOf(cur.agile && cur.agile.releases);
         if (rels.some((r) => isObj(r) && r.wbsId && gone.has(r.wbsId))) { const next = { ...cur.agile, releases: rels.map((r) => (isObj(r) && r.wbsId && gone.has(r.wbsId) ? { ...r, wbsId: null } : r)) }; cur.agile = next; cur.saveAgile(next); }
-        const its = cur.ag.itemsByWbs(gone);
-        if (its.length && cur.pid && PM.paths.backlogItem) {
-          for (const it of its) PM.store.update(PM.paths.backlogItem(cur.pid, it.id), { wbsId: null }).catch(() => { /* el núcleo informa el error de escritura */ });
-          PM.touchProject(cur.pid);
-        }
+        if (cur.agileOn) { clearItems(cur.pid, cur.ag.itemsByWbs(gone)); return; }
+        /* sin capa ágil activa el modelo no carga el backlog, pero puede tener elementos (p. ej. de cuando el proyecto
+           era híbrido): se leen del almacenamiento para no dejar referencias a elementos eliminados */
+        const pid = cur.pid;
+        backlogOf(cur).then((list) => clearItems(pid, itemsIn(list, gone))).catch(() => PM.toast('No se pudieron quitar del backlog los vínculos con los elementos eliminados de la EDT.', { tone: 'crit' }));
       };
-      /* referencias ágiles a un conjunto de elementos (para avisar antes de eliminar o reemplazar) */
-      const agileRefs = (gone) => { const cur = L(); return { rels: arrOf(cur.agile && cur.agile.releases).filter((r) => isObj(r) && r.wbsId && gone.has(r.wbsId)), items: cur.ag.itemsByWbs(gone) }; };
+      /* elementos del backlog que apuntan a un conjunto de elementos de la EDT */
+      const itemsIn = (list, gone) => arrOf(list).filter((it) => isObj(it) && it.id && it.wbsId && gone.has(it.wbsId));
+      const clearItems = (pid, its) => {
+        if (!its.length || !pid || !PM.paths.backlogItem) return;
+        for (const it of its) PM.store.update(PM.paths.backlogItem(pid, it.id), { wbsId: null }).catch(() => { /* el núcleo informa el error de escritura */ });
+        PM.touchProject(pid);
+      };
+      /* backlog del proyecto: el del modelo con la capa ágil activa; si no, se lee del almacenamiento (el modelo no lo carga) */
+      const backlogOf = async (cur) => {
+        if (cur.agileOn || !cur.pid || !PM.paths.backlog) return arrOf(cur.items);
+        const docs = await PM.store.list(PM.paths.backlog(cur.pid));
+        return arrOf(docs).filter((d) => d && d.id && isObj(d.data)).map((d) => ({ ...d.data, id: d.id }));
+      };
+      /* referencias ágiles a un conjunto de elementos (para avisar antes de eliminar o reemplazar); null si no se pudo
+         leer el backlog (se avisa y no se sigue: no se podrían limpiar sus vínculos) */
+      const agileRefs = async (gone) => {
+        const cur = L();
+        let list;
+        try { list = await backlogOf(cur); } catch (e) { PM.toast('No se pudo leer el backlog del proyecto para revisar sus vínculos con la EDT. Intenta de nuevo en un momento.', { tone: 'crit' }); return null; }
+        return { rels: arrOf(cur.agile && cur.agile.releases).filter((r) => isObj(r) && r.wbsId && gone.has(r.wbsId)), items: itemsIn(list, gone), hidden: !cur.agileOn };
+      };
       const agileNotes = (refs) => html`
         ${refs.rels.length ? html`<p class="small muted" data-wbs-confirm-rels>${refs.rels.length === 1 ? 'El release «' + (txt(refs.rels[0].name) || 'sin nombre') + '» quedará' : refs.rels.length + ' releases (' + refs.rels.slice(0, 3).map((r) => '«' + (txt(r.name) || 'sin nombre') + '»').join(', ') + (refs.rels.length > 3 ? '…' : '') + ') quedarán'} sin entregable de la EDT. Los releases no se eliminan.</p>` : null}
-        ${refs.items.length ? html`<p class="small muted" data-wbs-confirm-items>${plural(refs.items.length, 'elemento del backlog quedará', 'elementos del backlog quedarán')} sin entregable de la EDT (${refs.items.slice(0, 4).map((it) => it.code || 'sin código').join(', ')}${refs.items.length > 4 ? '…' : ''}). No se eliminan: reasígnalos desde el backlog.</p>` : null}`;
+        ${refs.items.length ? html`<p class="small muted" data-wbs-confirm-items>${plural(refs.items.length, 'elemento del backlog quedará', 'elementos del backlog quedarán')} sin entregable de la EDT (${refs.items.slice(0, 4).map((it) => it.code || 'sin código').join(', ')}${refs.items.length > 4 ? '…' : ''}). ${refs.hidden ? 'No se eliminan: el backlog se conserva aunque el ciclo de vida del proyecto sea predictivo.' : 'No se eliminan: reasígnalos desde el backlog.'}</p>` : null}`;
       const wbsIndex = (tree) => new Map(tree.flat.map((f, i) => [f.node.id, i]));
       /* no se elimina mientras cargan los datos vinculados: la confirmación no avisaría de ellos ni se limpiarían sus vínculos */
       const refsBusy = () => { if (!L().refsLoading) return false; PM.toast('Aún se están cargando el cronograma, los costos o los datos ágiles del proyecto. Intenta de nuevo en un momento.'); return true; };
@@ -1342,6 +1378,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           if (cur.ag.relsOf(id).length || cur.ag.itemsByWbs(new Set([id])).length) return false;
           const vis = cur.visible; const i = vis.findIndex((f) => f.node.id === id); const prev = vis[i - 1] || vis[i + 1];
           commitNodes(renumber(cur.wbs.nodes.filter((x) => x.id !== id)));
+          /* sin vínculos visibles; limpia los que el modelo no carga (backlog de un proyecto predictivo, costos, RACI) */
+          clearRefs(new Set([id]));
           if (prev) A.edit(prev.node.id); else { setSelectedId(null); setEditing(null); }
           return true;
         },
@@ -1364,7 +1402,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const gone = new Set([id, ...desc]);
           const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((t) => t.wbsId && gone.has(t.wbsId)).length;
           const code = tree.codes.get(id);
-          const refs = agileRefs(gone);
+          const refs = await agileRefs(gone);
+          if (!refs) return;
           const ok = await PM.confirm({
             title: 'Eliminar elemento de la EDT',
             body: html`<div class="stack-sm">
@@ -1397,7 +1436,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           PM.navigate('iteraciones', { release: rid });
         },
         /* «Crear release» desde un entregable adaptativo: presupuesto = costo del paquete (actividades vinculadas o costo
-           estimado consolidado); fechas = las de sus actividades o, sin ellas, las del proyecto. force: crea otro aunque ya haya. */
+           estimado consolidado); fechas = las de sus actividades o, sin ellas, las del proyecto; actividad vinculada = la única
+           del paquete que no es hito, si está libre (freeTaskOf). force: crea otro aunque ya haya. */
         createRelease(id, force) {
           const cur = L(); if (!cur.canWrite) return;
           const tree = cur.tree; const n = tree.byId.get(id); if (!n) return;
@@ -1412,11 +1452,12 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
           const budget = roll && roll.count && num(roll.cost) > 0 ? num(roll.cost) : estV;
           const base = txt(n.name) || 'Entregable ' + code;
           const name = existing.length ? base + ' · release ' + (existing.length + 1) : base;
-          const rel = { id: PM.uid('rel'), name, goal: '', start, end, status: 'planeado', budget, plannedSprints: 0, wbsId: id, taskId: null, baseline: null, notes: '' };
           const data = cur.agile || {};
+          const task = freeTaskOf(cur.schedule, roll, data);
+          const rel = { id: PM.uid('rel'), name, goal: '', start, end, status: 'planeado', budget, plannedSprints: 0, wbsId: id, taskId: task ? task.id : null, baseline: null, notes: '' };
           const next = { ...data, releases: [...arrOf(data.releases), rel] };
           cur.agile = next; cur.saveAgile(next);
-          PM.toast('Release «' + name + '» creado para ' + code + '. Define su objetivo y planifica las iteraciones.');
+          PM.toast('Release «' + name + '» creado para ' + code + (task ? ' y vinculado a la actividad «' + (txt(task.name) || 'Sin nombre') + '» del cronograma: su avance se calculará desde el backlog del release' : '') + '. Define su objetivo y planifica las iteraciones.', task ? { timeout: 7000 } : undefined);
           if (PM.getView('iteraciones')) PM.navigate('iteraciones', { release: rel.id });
         },
         createTask(id) {
@@ -1461,7 +1502,8 @@ body.wbs-dragging .wbs-name-view.is-editable:hover { border-color: transparent; 
             if (refsBusy()) return;
             const ids = new Set(old.map((n) => n.id));
             const nTasks = ((cur.schedule && cur.schedule.tasks) || []).filter((x) => x.wbsId && ids.has(x.wbsId)).length;
-            const refs = agileRefs(ids);
+            const refs = await agileRefs(ids);
+            if (!refs) return;
             const ok = await PM.confirm({
               title: 'Reemplazar la EDT',
               body: html`<div class="stack-sm"><p>La EDT actual (${plural(old.length, 'elemento', 'elementos')}) se reemplazará por ${t.fromScope ? html`los <strong>${plural(t.items.length, 'entregable', 'entregables')} del enunciado del alcance</strong>` : html`la plantilla <strong>${t.name}</strong>`}.</p>

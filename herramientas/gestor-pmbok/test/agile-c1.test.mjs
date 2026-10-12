@@ -141,7 +141,11 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await page.getByRole('menuitem', { name: 'Crear release' }).click(); await page.waitForTimeout(900);
     const ag = await tool(page, pid, 'agile');
     const nr = ag.releases.find((r) => r.wbsId === 'w22');
-    check('release creado con el contrato del SPEC', nr && /^rel/.test(nr.id) && nr.name === 'Módulo de facturación' && nr.goal === '' && nr.status === 'planeado' && nr.plannedSprints === 0 && nr.taskId === null && nr.baseline === null && nr.notes === '', nr);
+    check('release creado con el contrato del SPEC', nr && /^rel/.test(nr.id) && nr.name === 'Módulo de facturación' && nr.goal === '' && nr.status === 'planeado' && nr.plannedSprints === 0 && nr.baseline === null && nr.notes === '', nr);
+    /* la única actividad del paquete (t4) está libre: el release queda vinculado y su avance llega al cronograma */
+    eq('release vinculado a la única actividad libre del paquete', nr && nr.taskId, 't4');
+    const tA = nb(await page.textContent('.toasts').catch(() => ''));
+    check('el aviso dice que quedó vinculado a la actividad', /creado para 1\.2\.2 y vinculado a la actividad «Desarrollo de la facturación» del cronograma/.test(tA), tA);
     eq('presupuesto = costo de las actividades del paquete', nr && nr.budget, 70000000);
     const rollT4 = await page.evaluate(async (pid) => { const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); const p = await PM.store.get(PM.paths.project(pid)); const r = PM.calc.computeSchedule(s, p.start).byId.get('t4'); return [r.startDate, r.finishDate]; }, pid);
     check('fechas del release = las de sus actividades', nr && nr.start === rollT4[0] && nr.end === rollT4[1], { rel: nr && [nr.start, nr.end], rollT4 });
@@ -164,6 +168,7 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     await page.click('aside.wbs-panel [data-wbs-create-release]'); await page.waitForTimeout(900);
     const ag2 = await tool(page, pid, 'agile');
     check('segundo release del entregable', ag2.releases.filter((r) => r.wbsId === 'w22').length === 2 && ag2.releases.some((r) => r.name === 'Módulo de facturación · release 2'), ag2.releases.map((r) => r.name));
+    eq('el segundo release no toma la actividad que ya representa el primero', (ag2.releases.find((r) => r.name === 'Módulo de facturación · release 2') || {}).taskId, null);
     await gotoView(page, 'edt'); await page.waitForSelector('tr[data-wbs-row]');
 
     /* --- diagrama: distintivo con texto y en el nombre accesible --- */
@@ -617,6 +622,157 @@ const stubDownloads = (page) => page.evaluate(() => { window.__dl = []; PM.downl
     check('F: sin tarjetas de error', !cards.length, cards);
     check('F: sin errores de consola', !errors.length, errors);
   } catch (e) { fails++; console.error('EXCEPCIÓN F', e); }
+  finally { await browser.close(); }
+}
+
+/* =============================================================== G. Regresiones de la revisión integral: vínculos y referencias */
+{
+  const { browser, page, errors } = await openApp({ file, width: 1360, height: 900 });
+  try {
+    const toasts = async () => nb(await page.textContent('.toasts').catch(() => ''));
+    const clearToasts = () => page.evaluate(() => document.querySelectorAll('.toasts > *').forEach((t) => t.remove()));
+    /* «Cancelar» de la confirmación (el último modal abierto; el editor de la actividad queda debajo) */
+    const cancelTop = () => page.locator('.modal-foot').last().getByRole('button', { name: 'Cancelar', exact: true }).click();
+
+    /* --- 1. «Crear release» vincula la única actividad libre del paquete (los hitos no cuentan) --- */
+    const pid = await seed(page);
+    await page.evaluate(async (pid) => {
+      const s = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), { ...s, tasks: [...s.tasks, { id: 'tm', name: 'Facturación aprobada', wbsId: 'w22', duration: 0, milestone: true, start: null, deps: [{ id: 't4', type: 'FS', lag: 0 }], progress: 0, cost: 0, resources: [] }] });
+    }, pid);
+    await gotoView(page, 'edt'); await page.waitForSelector('tr[data-code="1.2.2"]');
+    const created = async () => (await tool(page, pid, 'agile')).releases.slice(2);
+    await openRowMenu(page, '1.2.2');
+    await page.getByRole('menuitem', { name: 'Crear release' }).click(); await page.waitForTimeout(900);
+    let rels = await created();
+    check('paquete con una actividad y un hito: el release toma la actividad', rels.length === 1 && rels[0].wbsId === 'w22' && rels[0].taskId === 't4', rels);
+    check('aviso del vínculo con la actividad', /vinculado a la actividad «Desarrollo de la facturación» del cronograma: su avance se calculará desde el backlog del release/.test(await toasts()), await toasts());
+    await clearToasts();
+    await gotoView(page, 'edt'); await page.waitForSelector('tr[data-code="1.2"]');
+    await openRowMenu(page, '1.2');
+    await page.getByRole('menuitem', { name: 'Crear release' }).click(); await page.waitForTimeout(900);
+    rels = await created();
+    check('entregable con varias actividades: release sin actividad vinculada', rels.length === 2 && rels[1].wbsId === 'w2' && rels[1].taskId === null, rels);
+    check('sin aviso de vínculo cuando no se vincula', /Release «Plataforma digital de alquiler» creado para 1\.2\. Define su objetivo/.test(await toasts()), await toasts());
+    await clearToasts();
+    await gotoView(page, 'edt'); await page.waitForSelector('tr[data-code="1.2.1"]');
+    await page.click('tr[data-code="1.2.1"] .wbs-code-btn'); await page.waitForSelector('aside.wbs-panel [data-wbs-create-release]');
+    await page.click('aside.wbs-panel [data-wbs-create-release]'); await page.waitForTimeout(900);
+    rels = await created();
+    check('actividad que ya representa otro release (task.releaseId): no se vincula', rels.length === 3 && rels[2].wbsId === 'w21' && rels[2].taskId === null, rels);
+    const links = await page.evaluate(async (pid) => { const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); const a = await PM.store.get(PM.paths.tool(pid, 'agile')); return [...PM.agile.linksOf(s.tasks, a).entries()].map(([t, r]) => t + ':' + r.id); }, pid);
+    check('cada actividad representa un solo release (linksOf)', links.length === 2 && links.includes('t2:r1') && links.some((x) => x.startsWith('t4:rel')), links);
+    await clearToasts();
+
+    /* --- 2. proyecto predictivo con backlog (sin releases): eliminar de la EDT avisa y limpia los elementos --- */
+    const pid2 = await page.evaluate(async () => {
+      const pid = await PM.projectOps.create({ name: 'Proyecto predictivo con backlog', code: 'PRY-AG-009', start: '2026-08-03', end: '2026-12-18', lifecycle: 'Predictivo' });
+      await PM.store.set(PM.paths.tool(pid, 'wbs'), { nodes: [{ id: 'q1', parentId: null, name: 'Obra', order: 1 }, { id: 'q2', parentId: null, name: 'Digital', order: 2 }, { id: 'q3', parentId: null, name: '', order: 3 }] });
+      const it = (code, wbsId) => ({ code, type: 'historia', title: 'Elemento ' + code, estimate: 3, priority: 'Debe tener', rank: 1000, status: 'backlog', wbsId, releaseId: null, sprintId: null, epicId: null, history: [{ date: '2026-08-01', status: 'backlog' }], createdAt: '2026-08-01' });
+      await PM.store.set(PM.paths.backlogItem(pid, 'b1'), it('HU-001', 'q2'));
+      await PM.store.set(PM.paths.backlogItem(pid, 'b2'), it('HU-002', 'q3'));
+      await PM.store.set(PM.paths.backlogItem(pid, 'b3'), it('HU-003', 'q1'));
+      PM.selectProject(pid, 'edt');
+      return pid;
+    });
+    await page.waitForTimeout(400); await page.waitForSelector('tr[data-code="1.2"]');
+    await page.click('tr[data-code="1.2"] .wbs-code-btn'); await page.waitForTimeout(150);
+    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForSelector('.modal [data-wbs-confirm-items]', { timeout: 5000 });
+    const ct = nb(await page.textContent('.modal [data-wbs-confirm-items]'));
+    check('predictivo: la confirmación avisa del elemento del backlog', /^1 elemento del backlog quedará sin entregable de la EDT \(HU-001\)\. No se eliminan: el backlog se conserva aunque el ciclo de vida del proyecto sea predictivo\.$/.test(ct), ct);
+    await cancelTop(); await page.waitForTimeout(300);
+    eq('predictivo: cancelar no cambia el backlog', (await backlogItem(page, pid2, 'b1')).wbsId, 'q2');
+    await page.getByRole('button', { name: 'Eliminar elemento' }).click(); await page.waitForSelector('.modal [data-wbs-confirm-items]', { timeout: 5000 });
+    await page.click('.modal-foot >> text=Eliminar elemento'); await page.waitForTimeout(900);
+    const b1 = await backlogItem(page, pid2, 'b1'), b3 = await backlogItem(page, pid2, 'b3');
+    check('predictivo: el elemento del backlog queda sin entregable (con su historial)', b1.wbsId === null && b1.history.length === 1 && b1.code === 'HU-001', b1);
+    eq('predictivo: los demás elementos del backlog no cambian', b3.wbsId, 'q1');
+    eq('predictivo: la EDT queda sin 1.2', (await tool(page, pid2, 'wbs')).nodes.map((n) => n.id), ['q1', 'q3']);
+    /* Retroceso sobre un elemento vacío: tampoco deja referencias del backlog (que el modelo no carga) */
+    await page.click('tr[data-wbs-row="q3"] [data-wbs-name]'); await page.waitForSelector('tr[data-wbs-row="q3"] [data-wbs-input]');
+    await page.keyboard.press('Backspace'); await page.waitForTimeout(1000);
+    const b2 = await backlogItem(page, pid2, 'b2');
+    check('predictivo: Retroceso elimina el elemento vacío y limpia el backlog', !(await tool(page, pid2, 'wbs')).nodes.some((n) => n.id === 'q3') && b2.wbsId === null, b2);
+    await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+    await clearToasts();
+
+    /* --- 3. eliminar una actividad con costos reales: avisa y conserva el costo real de los releases --- */
+    await page.evaluate(async (pid) => {
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile'));
+      await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, releases: a.releases.filter((r) => r.id === 'r1' || r.id === 'r2').map((r) => (r.id === 'r2' ? { ...r, taskId: 't4', wbsId: 'w22' } : r)) });
+      const s = await PM.store.get(PM.paths.tool(pid, 'schedule'));
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), { ...s, tasks: s.tasks.filter((t) => t.id !== 'tm') });
+      await PM.store.set(PM.paths.tool(pid, 'costs'), { actuals: [
+        { id: 'c1', date: '2026-09-01', amount: 6000000, taskId: 't2', wbsId: 'w21', category: 'Mano de obra', description: 'Desarrollo inventario', document: '' },
+        { id: 'c2', date: '2026-10-01', amount: 5000000, taskId: 't4', wbsId: null, category: 'Servicios', description: 'Proveedor de facturación', document: '' },
+        { id: 'c3', date: '2026-10-01', amount: 2000000, taskId: null, wbsId: 'w22', category: 'Licencias', description: 'Licencia', document: '' },
+        { id: 'c4', date: '2026-09-01', amount: 1000000, taskId: 't3', wbsId: 'w31', category: 'Equipos', description: 'Grúa', document: '' },
+      ], statusUpdates: [], reserves: { contingency: 0, management: 0 } });
+      PM.prefs.set('sched.tab', 'gantt'); PM.prefs.set('sched.group', false);
+      PM.selectProject(pid, 'cronograma');
+    }, pid);
+    await page.waitForTimeout(400); await page.waitForSelector('.sched-row[data-id="t4"]');
+    const acOf = () => page.evaluate(async (pid) => {
+      const a = await PM.store.get(PM.paths.tool(pid, 'agile')); const c = await PM.store.get(PM.paths.tool(pid, 'costs'));
+      const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); const w = await PM.store.get(PM.paths.tool(pid, 'wbs'));
+      const tree = PM.calc.wbsTree(w.nodes);
+      return { r1: PM.agile.releaseActualCost(a.releases.find((r) => r.id === 'r1'), c, tree, null, s.tasks, a.releases), r2: PM.agile.releaseActualCost(a.releases.find((r) => r.id === 'r2'), c, tree, null, s.tasks, a.releases), total: c.actuals.reduce((x, y) => x + y.amount, 0) };
+    }, pid);
+    const ac0 = await acOf();
+    eq('costo real antes: r1 por su actividad y entregable, r2 por su actividad y su entregable', ac0, { r1: 6000000, r2: 7000000, total: 14000000 });
+    const delTask = async (id) => {
+      await page.dblclick(`.sched-grid .sched-row[data-id="${id}"] [data-col="num"]`); await page.waitForSelector('.modal #te-rel');
+      await page.click('.modal-foot button:has-text("Eliminar")'); await page.waitForSelector('[data-confirm-costs]', { timeout: 5000 });
+      return nb(await page.textContent('[data-confirm-costs]'));
+    };
+    /* t4 representa r2 (release.taskId) y su registro no tiene entregable: sin la actividad, r2 lo perdería */
+    let cc = await delTask('t4');
+    check('confirmación: cuántos registros usan la actividad, su monto y que pasan al release', /^1 registro de costos reales usa esta actividad \(\$\s?5\.000\.000\)\. Se imputarán al release «Release 2 · Facturación», junto con otro registro que hoy le cuenta por su entregable de la EDT, para conservar su costo real en el valor ganado ágil \(AgileEVM\)\. Siguen en el costo real del proyecto\.$/.test(cc), cc);
+    await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(1000);
+    let costs = await tool(page, pid, 'costs');
+    const byId = (id) => costs.actuals.find((x) => x.id === id);
+    check('el registro de la actividad pasa al release y queda sin actividad', byId('c2').taskId === null && byId('c2').releaseId === 'r2' && byId('c2').amount === 5000000, byId('c2'));
+    check('el registro del entregable del release también se marca (si no, dejaría de contar)', byId('c3').releaseId === 'r2' && byId('c3').wbsId === 'w22', byId('c3'));
+    check('los registros de otras actividades no cambian', byId('c1').taskId === 't2' && !byId('c1').releaseId && byId('c4').taskId === 't3', [byId('c1'), byId('c4')]);
+    check('aviso: el registro quedó imputado al release', /Actividad eliminada\. Su registro de costos reales quedó imputado al release «Release 2 · Facturación»\./.test(await toasts()), await toasts());
+    eq('r2 conserva su costo real (AgileEVM) y el proyecto también', await acOf(), { r1: 6000000, r2: 7000000, total: 14000000 });
+    eq('r2 queda sin actividad vinculada', (await tool(page, pid, 'agile')).releases.find((r) => r.id === 'r2').taskId, null);
+    await clearToasts();
+    /* t2 representa r1 (task.releaseId), pero su registro tiene el entregable de r1: sigue contando sin marcarlo */
+    cc = await delTask('t2');
+    check('confirmación: el registro sigue por su entregable', /^1 registro de costos reales usa esta actividad \(\$\s?6\.000\.000\)\. Se conservan en el costo real del proyecto, sin actividad y con su entregable de la EDT, si lo tienen\.$/.test(cc), cc);
+    check('la confirmación también avisa del release', /representa el release «Release 1 · Inventario»/.test(nb(await page.textContent('[data-confirm-release]'))), null);
+    await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(1000);
+    costs = await tool(page, pid, 'costs');
+    check('sin release que perder: solo se quita la actividad (conserva el entregable)', byId('c1').taskId === null && byId('c1').wbsId === 'w21' && !byId('c1').releaseId, byId('c1'));
+    eq('r1 conserva su costo real', await acOf(), { r1: 6000000, r2: 7000000, total: 14000000 });
+    check('aviso: el registro quedó sin actividad', /Actividad eliminada\. 1 registro de costos reales quedó sin actividad\./.test(await toasts()), await toasts());
+    await clearToasts();
+    /* t3 no representa ningún release */
+    cc = await delTask('t3');
+    check('actividad sin release: la confirmación avisa del costo', /^1 registro de costos reales usa esta actividad \(\$\s?1\.000\.000\)\. Se conservan en el costo real del proyecto/.test(cc), cc);
+    await cancelTop(); await page.waitForTimeout(300);
+    costs = await tool(page, pid, 'costs');
+    check('cancelar no cambia los costos', byId('c4').taskId === 't3', byId('c4'));
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+    await page.click('.sched-grid .sched-row[data-id="t3"] [data-col="num"]'); await page.waitForTimeout(100);
+    await page.locator('.sched-tools').getByRole('button', { name: 'Eliminar', exact: true }).click();
+    await page.waitForSelector('[data-confirm-costs]');
+    await page.getByRole('button', { name: 'Eliminar actividad' }).click(); await page.waitForTimeout(1000);
+    costs = await tool(page, pid, 'costs');
+    check('Gantt: el registro de la actividad queda sin actividad y con su entregable', byId('c4').taskId === null && byId('c4').wbsId === 'w31' && !byId('c4').releaseId, byId('c4'));
+    eq('el costo real total del proyecto no cambia', (await acOf()).total, 14000000);
+    /* sin registros de costos: la confirmación no habla de costos */
+    await page.dblclick('.sched-grid .sched-row[data-id="t5"] [data-col="num"]'); await page.waitForSelector('.modal #te-rel');
+    await page.click('.modal-foot button:has-text("Eliminar")'); await page.waitForSelector('.modal-foot >> text=Eliminar actividad');
+    check('actividad sin costos: sin aviso de costos', (await page.$$('[data-confirm-costs]')).length === 0, null);
+    await cancelTop(); await page.waitForTimeout(200);
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+
+    const cards = await errorCards(page);
+    check('G: sin tarjetas de error', !cards.length, cards);
+    check('G: sin errores de consola', !errors.length, errors);
+  } catch (e) { fails++; console.error('EXCEPCIÓN G', e); }
   finally { await browser.close(); }
 }
 

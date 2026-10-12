@@ -157,6 +157,8 @@
 .dashboard-alert[data-tone="good"] > .icon { color: var(--good); }
 .dashboard-agile-kv { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: baseline; font-size: var(--fs-xs); color: var(--fg-2); }
 .dashboard-agile-kv strong { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--fg); }
+.dashboard-commit-over { color: var(--fg); }
+.dashboard-commit-over > .icon { color: var(--warn); vertical-align: -2px; }
 .dashboard-mode-chip { margin-left: 2px; }
 `;
   if (!document.getElementById('css-dashboard')) {
@@ -220,6 +222,17 @@
   const toneVar = (t) => (t === 'good' ? 'var(--good)' : t === 'warn' ? 'var(--warn)' : t === 'crit' ? 'var(--crit)' : 'var(--accent)');
   const toneStyle = (t) => (t === 'good' || t === 'warn' || t === 'crit' ? 'color:' + toneVar(t) : '');
   const trunc = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
+  /* corta en palabra completa (si la hay en la segunda mitad) y cierra con «…» sin signos sueltos al final */
+  const truncWords = (s, n) => {
+    s = String(s || '').trim();
+    if (s.length <= n) return s;
+    let cut = s.slice(0, n - 1);
+    const sp = cut.lastIndexOf(' ');
+    if (sp > n / 2) cut = cut.slice(0, sp);
+    return cut.replace(/[\s,;:.\-–—(]+$/, '') + '…';
+  };
+  /* cierra una frase con punto, salvo que ya termine en «…», punto, signo de cierre de interrogación o exclamación */
+  const endSentence = (s) => (/[….!?]$/.test(s) ? s : s + '.');
   const riskScoreOf = (r) => PM.calc.riskScore(r.probabilidad, r.impacto) || num(r.puntuacion);
   const hasContent = (r) => !!(r && (String(r.descripcion || '').trim() || String(r.id || '').trim()));
   const VarText = ({ v }) => html`<span class=${!isNum(v) || v === 0 ? 'faint' : v > 0 ? 'dashboard-late' : 'dashboard-early'}>${signedNum(v)}</span>`;
@@ -769,7 +782,8 @@
     let rel = null;
     if (active) {
       const prog = C.releaseProgress({ release: active, items, settings });
-      const ac = A.releaseActualCost(active, model.costs, model.tree, statusDate);
+      /* con las actividades del cronograma y todos los releases: la actividad del release sale de PM.agile.linksOf (§9.3) */
+      const ac = A.releaseActualCost(active, model.costs, model.tree, statusDate, model.sched.tasks, releases);
       const ev = C.agileEvm({ release: active, sprints, items, settings, actualCost: ac, statusDate });
       const fc = C.releaseForecast({ release: active, sprints, items, settings, cal, statusDate });
       /* flujo continuo (Kanban): sin iteraciones no hay velocidad; el pronóstico usa el rendimiento de las últimas 4 semanas
@@ -829,6 +843,19 @@
     </div>`;
   }
 
+  /* PM.calc.releaseForecast cuenta las iteraciones desde el día siguiente a la última iteración cerrada del release: si hay
+     una en curso, la cuenta la incluye («la iteración actual y 2 más», no «3 iteraciones más») */
+  const sprintsLeftText = (n, withCurrent) => (!n ? '' : withCurrent ? (n === 1 ? ' (con la iteración actual)' : ' (la iteración actual y ' + (n - 1) + ' más)') : ' (' + n + (n === 1 ? ' iteración más)' : ' iteraciones más)'));
+  const COMMIT_MARGIN = 0.15;
+  function commitVsVelocity(committed, avg) {
+    const p = (committed - avg) / avg;
+    /* con un decimal cerca del margen, para que «16 %» no se lea «15 %» */
+    const pct = fmt.pct(Math.abs(p), Math.abs(Math.abs(p) * 100 - COMMIT_MARGIN * 100) < 1 ? 1 : 0);
+    if (p > COMMIT_MARGIN + 1e-9) return { state: 'over', over: true, text: 'El compromiso supera en ' + pct + ' la velocidad media (más del ' + fmt.pct(COMMIT_MARGIN) + '): riesgo de no terminarlo.' };
+    if (Math.abs(committed - avg) < 0.05) return { state: 'equal', text: 'El compromiso es igual a la velocidad media.' };
+    if (p > 0) return { state: 'within', text: 'El compromiso supera en ' + pct + ' la velocidad media; dentro del margen del ' + fmt.pct(COMMIT_MARGIN) + '.' };
+    return { state: 'under', text: 'El compromiso está ' + pct + ' por debajo de la velocidad media.' };
+  }
   const idxWord = (v, hi, mid, lo) => (!isNum(v) ? null : v > IDX_HIGH ? hi : v >= IDX_LOW ? mid : lo);
   function AgileCard({ model, project }) {
     const canWrite = PM.useCanWrite();
@@ -861,7 +888,7 @@
           : html`<div class="dashboard-agile-big" data-agile-left=${s.left}>${s.left === null ? '—' : fmt.num(s.left)} <small>${s.left === 1 ? 'día hábil restante' : 'días hábiles restantes'}</small></div>
             <div class="xsmall faint">${D.valid(current.start) ? fmt.date(current.start, 'dm') + ' – ' : ''}${D.valid(current.end) ? fmt.date(current.end, 'dm') : 'sin fecha de fin'}${s.sprintDays ? ' · ' + s.sprintDays + ' días hábiles' : ''}</div>`}
         ${burndown && burndown.days.length > 1 ? html`<${MiniBurndown} bd=${burndown} unit=${unit} name=${current.name} />` : null}
-        <div class="dashboard-agile-kv">${burndown ? html`<span>Terminado <strong data-agile-done>${fpts(burndown.done, unit)}</strong></span><span>Restante <strong>${fpts(burndown.remaining, unit)}</strong></span><span>Compromiso <strong>${fpts(num(burndown.committed), unit)}</strong></span>` : null}</div>
+        <div class="dashboard-agile-kv">${burndown ? html`<span>Compromiso <strong>${fpts(num(burndown.committed), unit)}</strong></span><span title="Estimación de los elementos que hoy están en la iteración, incluido lo agregado después de iniciarla">Alcance actual <strong data-agile-scope>${fpts(burndown.total, unit)}</strong></span><span>Terminado <strong data-agile-done>${fpts(burndown.done, unit)}</strong></span><span>Restante <strong>${fpts(burndown.remaining, unit)}</strong></span>` : null}</div>
       </div>`;
     } else if (kanban) {
       const inProgress = settings.columns.filter((c) => c.category === 'en-curso');
@@ -880,6 +907,9 @@
     }
 
     /* 2. velocidad (Scrum) o rendimiento (Kanban: flujo continuo, sin iteraciones) */
+    /* compromiso de la iteración en curso frente a la velocidad media: el mismo margen del 15 % que usa el planificador de
+       iteraciones (COMMIT_MARGIN) y la diferencia en porcentaje, para que «dentro» no se lea como «igual o menor» */
+    const commitCheck = current && burndown && isNum(vel.avg3) && vel.avg3 > 0 ? commitVsVelocity(num(burndown.committed), vel.avg3) : null;
     const velBasis = vel.closed === 1 ? 'Terminado en la única iteración cerrada.'
       : vel.closed ? (vel.closed > 3 ? 'Promedio de las últimas 3 iteraciones cerradas' : 'Promedio de las ' + vel.closed + ' iteraciones cerradas') + ' (mín. ' + fpts(vel.min3, unit) + ', máx. ' + fpts(vel.max3, unit) + ').'
       : 'Aparece al cerrar la primera iteración (terminado al cierre).';
@@ -891,7 +921,7 @@
       <h4 class="label-caps">Velocidad media</h4>
       <div class="dashboard-agile-big" data-agile-velocity=${isNum(vel.avg3) ? vel.avg3 : ''}>${isNum(vel.avg3) ? fmt.num(vel.avg3, 1) : '—'} <small>${isNum(vel.avg3) ? unit + ' por iteración' : ''}</small></div>
       <div class="xsmall faint" data-agile-velbasis>${velBasis}</div>
-      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${isNum(vel.avg3) ? html`<span data-agile-commit-check>${num(burndown.committed) > vel.avg3 * 1.2 ? 'El compromiso supera la velocidad media en más de un 20 %: riesgo de no terminarlo.' : 'El compromiso está dentro de la velocidad media.'}</span>` : null}</div>` : null}
+      ${current && burndown ? html`<div class="dashboard-agile-kv"><span>Compromiso actual <strong>${fpts(num(burndown.committed), unit)}</strong></span>${commitCheck ? html`<span data-agile-commit-check=${commitCheck.state} class=${commitCheck.over ? 'dashboard-commit-over' : undefined}>${commitCheck.over ? html`<${ui.Icon} name="alert" size=${14} /> ` : null}${commitCheck.text}</span>` : null}</div>` : null}
     </div>`;
 
     /* 3. release activo: avance, SPI y CPI ágiles, pronóstico */
@@ -908,7 +938,7 @@
       const fv = finish && D.valid(r.end) ? wdDiff(cal, r.end, finish) : null;
       const vsEnd = fv === null ? '.' : fv === 0 ? ', en la fecha del release.' : ', ' + fmt.num(Math.abs(fv)) + ' ' + wdUnit(fv) + (fv > 0 ? ' después' : ' antes') + ' del fin del release (' + fmt.date(r.end) + ').';
       const fcText = prog.total > 0 && !prog.remaining ? 'Alcance terminado' + (D.valid(prog.lastDone) ? ' el ' + fmt.date(prog.lastDone) : '') + '.'
-        : fc.finish ? 'Terminación probable: ' + fmt.date(fc.finish) + (fc.sprintsNeeded ? ' (' + fc.sprintsNeeded + (fc.sprintsNeeded === 1 ? ' iteración más' : ' iteraciones más') + ')' : '') + vsEnd
+        : fc.finish ? 'Terminación probable: ' + fmt.date(fc.finish) + sprintsLeftText(fc.sprintsNeeded, !!(current && current.releaseId === r.id)) + vsEnd
         : flowFc && flowFc.finish ? 'Terminación probable por rendimiento: ' + fmt.date(flowFc.finish) + ' (' + fpts(Math.round(flowFc.perWeek * 10) / 10, unit) + ' por semana en las últimas 4 semanas)' + vsEnd
         : flowFc ? 'Sin elementos estimados terminados en las últimas 4 semanas: el pronóstico por rendimiento aparece cuando el flujo entregue trabajo.'
         : prog.total > 0 ? 'Sin velocidad todavía: el pronóstico aparece al cerrar la primera iteración.' : 'Sin alcance estimado en el release.';
@@ -931,16 +961,16 @@
     /* 4. alertas */
     /* WIP y bloqueados sobre todo el tablero (como el tablero Kanban); los bloqueados del backlog del producto aparte */
     const alerts = [];
-    const list = (arr) => arr.slice(0, 3).map((it) => (it.code || '') + (it.title ? ' ' + trunc(it.title, 40) : '')).join('; ') + (arr.length > 3 ? ' y ' + (arr.length - 3) + ' más' : '');
+    const list = (arr) => endSentence(arr.slice(0, 3).map((it) => (it.code || '') + (it.title ? ' ' + truncWords(it.title, 40) : '')).join('; ') + (arr.length > 3 ? ' y ' + (arr.length - 3) + ' más' : ''));
     for (const w of wipOver) alerts.push(html`<li key=${'wip-' + w.id} class="dashboard-alert" data-tone="crit" data-agile-alert="wip"><${ui.Icon} name="alert" size=${15} /><span>Límite WIP superado en «${w.name}»: ${w.n} elementos para un límite de ${w.wip}.</span></li>`);
     if (boardBlocked.length) {
       const nB = boardBlocked.length, k = s.blockedSprint;
       const where = current && k === nB ? ' en la iteración actual' : ' en el tablero' + (current && k ? ' (' + k + ' de la iteración actual)' : '');
-      alerts.push(html`<li key="blocked" class="dashboard-alert" data-tone="crit" data-agile-alert="blocked"><${ui.Icon} name="lock" size=${15} /><span>${nB === 1 ? '1 elemento bloqueado' : nB + ' elementos bloqueados'}${where}: ${list(boardBlocked)}.</span></li>`);
+      alerts.push(html`<li key="blocked" class="dashboard-alert" data-tone="crit" data-agile-alert="blocked"><${ui.Icon} name="lock" size=${15} /><span>${nB === 1 ? '1 elemento bloqueado' : nB + ' elementos bloqueados'}${where}: ${list(boardBlocked)}</span></li>`);
     }
     if (backlogBlocked.length) {
       const nK = backlogBlocked.length;
-      alerts.push(html`<li key="blocked-backlog" class="dashboard-alert" data-tone="warn" data-agile-alert="blocked-backlog"><${ui.Icon} name="lock" size=${15} /><span>${nK === 1 ? '1 elemento del backlog del producto está bloqueado' : nK + ' elementos del backlog del producto están bloqueados'} (aún sin planificar): ${list(backlogBlocked)}.</span></li>`);
+      alerts.push(html`<li key="blocked-backlog" class="dashboard-alert" data-tone="warn" data-agile-alert="blocked-backlog"><${ui.Icon} name="lock" size=${15} /><span>${nK === 1 ? '1 elemento del backlog del producto está bloqueado' : nK + ' elementos del backlog del producto están bloqueados'} (aún sin planificar): ${list(backlogBlocked)}</span></li>`);
     }
     const onBoard = wipOver.length > 0 || boardBlocked.length > 0;
     const alertSec = html`<div class="dashboard-agile-sec" data-agile="alerts">
@@ -1086,7 +1116,9 @@
         const planCambios = docs.get('plan-gestion-cambios');
         route = [byId.acta, byId.interesados, byId.riesgos,
           { phase: 'plan', id: 'plan-cambios', label: 'Plan de gestión de cambios', desc: '4.2 · Control de cambios en dos niveles: el backlog se ajusta libremente; el alcance, la fecha o el presupuesto del release, con solicitud de cambio.', done: isApproved(planCambios), partial: !!planCambios, stateLabel: docStateLabel(planCambios, 'Aprobado'), action: () => openDoc('plan-gestion-cambios') },
-          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, startStep, reviewStep];
+          ag.vision, ag.backlog, ag.terminado, ag.releases, ag.lbRelease, startStep, reviewStep,
+          /* seguimiento y cierre: 4.5, 5.5 y 4.7 aplican a cualquier ciclo de vida */
+          byId.informe, byId.entregables, byId['informe-final'], byId['acta-cierre']];
       }
     }
     return route.map((s) => ({ ...s, state: s.done ? 'done' : s.partial ? 'partial' : 'pending' }));
@@ -1172,9 +1204,9 @@
     const ad = mode === 'adaptativo', hy = mode === 'hibrido';
     /* flow: Kanban (flujo continuo, sin iteraciones) */
     const work = flow ? 'gestionar el flujo' : 'iterar';
-    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución a ' + (flow ? 'la revisión periódica del flujo.' : 'la revisión y retrospectiva de las iteraciones.') : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
-      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? (flow ? 'sigue gestionar el flujo con revisiones periódicas.' : 'sigue iterar con revisión y retrospectiva.') : hy ? 'sigue ' + work + ', monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
-      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, ' + (flow ? 'y gestionar el flujo.' : 'e iterar.') : hy ? 'iniciar, planificar (en cascada y ' + (flow ? 'ágil' : 'por iteraciones') + '), establecer las líneas base, ' + work + ', controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
+    const summary = complete ? (ad ? 'Completaste los ' + route.length + ' pasos de la ruta sugerida para el enfoque adaptativo, del acta de constitución al acta de cierre.' : 'Completaste los ' + route.length + ' pasos de la ruta de la Guía del PMBOK®' + (hy ? ' con el enfoque híbrido' : '') + ', del acta de constitución al acta de cierre.')
+      : planDone ? done + ' de ' + route.length + ' pasos completados · planificación completa: ' + (ad ? (flow ? 'sigue gestionar el flujo con revisiones periódicas, informar el desempeño, aceptar los entregables y cerrar.' : 'sigue iterar con revisión y retrospectiva, informar el desempeño, aceptar los entregables y cerrar.') : hy ? 'sigue ' + work + ', monitorear, controlar y cerrar.' : 'sigue monitorear, controlar y cerrar.')
+      : done + ' de ' + route.length + ' pasos completados · ' + (ad ? 'constituir el proyecto, preparar el backlog y los releases, ' + (flow ? 'gestionar el flujo' : 'iterar') + ', aceptar los entregables y cerrar.' : hy ? 'iniciar, planificar (en cascada y ' + (flow ? 'ágil' : 'por iteraciones') + '), establecer las líneas base, ' + work + ', controlar y cerrar.' : 'iniciar, planificar, establecer la línea base, controlar y cerrar.');
     return html`<section class=${cx('card dashboard-route', prominent && 'is-prominent')} data-card="route" data-prominent=${prominent ? 'true' : 'false'} data-mode=${mode}>
       <div class="dashboard-panel-head">
         <div class="stack-sm" style="gap:2px;min-width:0">
@@ -1193,8 +1225,8 @@
      230 px; cada fase usa las filas necesarias y reparte sus pasos entre ellas (8 pasos en 7 columnas → 4 + 4; 6 pasos en
      9 columnas → 6). Sin medida (primer cuadro) rige la regla CSS auto-fit. */
   const STEP_MIN = 230, STEP_GAP = 8;
-  const PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución por iteraciones' }, hibrido: { plan: 'Inicio y planificación (en cascada y ágil)' } };
-  const FLOW_PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución en flujo continuo' } };
+  const PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución por iteraciones y cierre' }, hibrido: { plan: 'Inicio y planificación (en cascada y ágil)' } };
+  const FLOW_PHASE_LABELS = { adaptativo: { plan: 'Inicio y preparación del producto', control: 'Ejecución en flujo continuo y cierre' } };
   function RouteSteps({ route, nextIdx, mode, flow }) {
     const ref = useRef();
     const w = useWidth(ref, 0);

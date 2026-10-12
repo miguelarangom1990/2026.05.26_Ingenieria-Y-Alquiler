@@ -230,11 +230,48 @@ button.sched-day:hover { border-color: var(--line-strong); }
     const progressOf = (r) => { if (!prog.has(r.id)) prog.set(r.id, A && PM.calc.releaseProgress ? PM.calc.releaseProgress({ release: r, items: arrOf(items), settings }) : { total: 0, done: 0, remaining: 0, pct: 0, count: 0 }); return prog.get(r.id); };
     return { releases, relById, relByTask, taskByRel, sprintsOf, progressOf, settings, unit: A ? A.unitShort(settings) : 'pts', any: relByTask.size > 0 };
   }
-  /* Referencia estable a los datos ágiles más recientes (para el editor de actividad, que se abre en un modal). */
+  /* Referencia estable a los datos ágiles y de costos más recientes (para el editor de actividad, que se abre en un modal,
+     y para eliminar actividades: los costos reales y los releases que las usan). */
   function useAgileRef(m) {
     const ref = useRef(null);
-    ref.current = { agile: m.agile, saveAgile: m.saveAgile, items: m.agileItems || [], agileOn: !!m.agileOn };
+    ref.current = { agile: m.agile, saveAgile: m.saveAgile, items: m.agileItems || [], agileOn: !!m.agileOn, costs: m.costs, saveCosts: m.saveCosts, tree: m.tree, currency: m.currency };
     return ref;
+  }
+  /* Costos reales (costs.actuals) que usan una actividad que se elimina. Quedan sin actividad (taskId) y conservan su
+     entregable (wbsId): siguen en el costo real del proyecto. Si la actividad representa un release (rel, según
+     PM.agile.linksOf) y sin ella el release perdería costo real en el AgileEVM (p. ej. registros sin entregable o de otro
+     paquete), se imputan al release (releaseId, solo los que no tienen uno). Como un release con registros marcados ya no
+     cuenta los demás por actividad o entregable, también se marcan los que hoy le cuentan solo a él; así su costo real
+     no cambia. Devuelve null si ningún registro usa la actividad. */
+  function planTaskCosts(costs, taskId, rel, tree, tasks, releases) {
+    const acts = arrOf(costs && costs.actuals);
+    const hit = acts.filter((a) => isObj(a) && a.taskId === taskId);
+    if (!hit.length) return null;
+    const plan = { count: hit.length, amount: PM.sum(hit, (a) => num(a.amount)), toRelease: 0, extra: 0, rel: null };
+    plan.actuals = acts.map((a) => (isObj(a) && a.taskId === taskId ? { ...a, taskId: null } : a));
+    const A = PM.agile;
+    if (!rel || !A || !A.releaseActualCost || !A.releaseCosts) return plan;
+    const rels = arrOf(releases).filter((r) => isObj(r) && r.id);
+    const tasksAfter = arrOf(tasks).filter((t) => isObj(t) && t.id !== taskId);
+    const relsAfter = rels.map((r) => (r.taskId === taskId ? { ...r, taskId: null } : r));
+    const before = A.releaseActualCost(rel, costs, tree, null, tasks, rels);
+    const after = A.releaseActualCost(relsAfter.find((r) => r.id === rel.id) || rel, { ...costs, actuals: plan.actuals }, tree, null, tasksAfter, relsAfter);
+    if (after >= before - 0.005) return plan;
+    /* registros que hoy cuentan para el release (misma regla del núcleo, sin fecha de corte) y no se comparten con otro */
+    const shared = new Set(A.releaseCosts(rels, costs, tree, null, tasks).shared.map((s) => s.actual));
+    const own = { ...rel, taskId };
+    const counts = (a) => { const e = A.releaseCosts([own], { actuals: [{ ...a, amount: 1 }] }, tree, null, tasks).byRelease.get(rel.id); return !!e && e.ac > 0; };
+    plan.rel = rel;
+    plan.actuals = acts.map((a) => {
+      if (!isObj(a)) return a;
+      const mine = a.taskId === taskId;
+      if (a.releaseId) return mine ? { ...a, taskId: null } : a;
+      /* los de la actividad que hoy cuentan para el release pasan a él aunque otro release también los cuente */
+      if (mine) { if (!counts(a)) return { ...a, taskId: null }; plan.toRelease++; return { ...a, taskId: null, releaseId: rel.id }; }
+      if (!shared.has(a) && counts(a)) { plan.extra++; return { ...a, releaseId: rel.id }; }
+      return a;
+    });
+    return plan;
   }
   const RelIcon = ({ r, derived }) => html`<span class="sched-rel" data-release=${r.id}><${ui.Icon} name="release" size=${12} title=${'Release vinculado: ' + relName(r) + (derived ? '. Avance calculado desde el backlog.' : '. Aún sin elementos estimados: el avance se registra en el cronograma.')} /></span>`;
   const DERIVED_TITLE = (r) => 'Avance calculado desde el backlog del release «' + relName(r) + '». Se actualiza al terminar elementos del backlog; no se edita en el cronograma.';
@@ -447,27 +484,41 @@ button.sched-day:hover { border-color: var(--line-strong); }
       PM.toast(head + 'el ' + fmt.date(wanted) + ' no es día hábil (' + why + '), así que la actividad empieza el siguiente día hábil.', { timeout: 7000 });
     }
   }
-  /* agileSrc: { agile, saveAgile } o una referencia ({ current }) a los datos ágiles más recientes (opcional): el release
-     que la actividad representaba (release.taskId) queda sin actividad vinculada. */
+  /* agileSrc: { agile, saveAgile, costs?, saveCosts?, tree?, currency? } o una referencia ({ current }) a esos datos (opcional):
+     el release que la actividad representaba (release.taskId) queda sin actividad vinculada y los costos reales que la
+     usaban quedan sin actividad o, si sostenían el costo real del release, imputados a él (planTaskCosts). */
   async function deleteTaskFlow(w, sched, id, agileSrc) {
     const t = sched.byId.get(id); if (!t) return false;
     const dependents = sched.tasks.filter((x) => (x.deps || []).some((d) => d.id === id));
     const AG = () => (agileSrc && 'current' in agileSrc ? agileSrc.current : agileSrc) || null;
     const relsOf = () => { const a = AG(); return arrOf(a && a.agile && a.agile.releases).filter((r) => isObj(r) && r.taskId === id); };
     /* el release que la actividad representa, con la regla del núcleo (PM.agile.linksOf) */
+    const linkedRel = () => { const a = AG(); return a && a.agile && PM.agile && PM.agile.linksOf ? PM.agile.linksOf(w.get().tasks || [], a.agile).get(id) || null : relsOf()[0] || null; };
+    const costPlan = (rel) => { const a = AG(); return a && a.costs ? planTaskCosts(a.costs, id, rel, a.tree || null, w.get().tasks || [], arrOf(a.agile && a.agile.releases)) : null; };
+    const relLinked = linkedRel();
+    const plan0 = costPlan(relLinked);
     const a0 = AG();
-    const relLinked = a0 && a0.agile && PM.agile && PM.agile.linksOf ? PM.agile.linksOf(w.get().tasks || [], a0.agile).get(id) || null : relsOf()[0] || null;
+    const money = (v) => fmt.money(v, (a0 && a0.currency) || 'COP');
     const ok = await PM.confirm({
       title: t.milestone ? 'Eliminar hito' : 'Eliminar actividad',
       body: html`<div class="stack-sm"><p>Se eliminará <strong>${taskName(t)}</strong> del cronograma.</p>${dependents.length ? html`<p class="small muted">También se quitará como predecesora de ${dependents.length === 1 ? '1 actividad' : dependents.length + ' actividades'}: ${dependents.slice(0, 4).map(taskName).join(', ')}${dependents.length > 4 ? '…' : ''}.</p>` : null}
-        ${relLinked ? html`<p class="small muted" data-confirm-release>La actividad representa el release «${relName(relLinked)}». El release y su backlog se conservan, sin actividad vinculada en el cronograma.</p>` : null}</div>`,
+        ${relLinked ? html`<p class="small muted" data-confirm-release>La actividad representa el release «${relName(relLinked)}». El release y su backlog se conservan, sin actividad vinculada en el cronograma.</p>` : null}
+        ${plan0 ? html`<p class="small muted" data-confirm-costs>${plan0.count === 1 ? '1 registro de costos reales usa' : plan0.count + ' registros de costos reales usan'} ${t.milestone ? 'este hito' : 'esta actividad'} (${money(plan0.amount)}). ${plan0.rel
+          ? 'Se imputarán al release «' + relName(plan0.rel) + '»' + (plan0.extra ? ', junto con ' + (plan0.extra === 1 ? 'otro registro que hoy le cuenta' : 'otros ' + plan0.extra + ' registros que hoy le cuentan') + ' por su entregable de la EDT,' : '') + ' para conservar su costo real en el valor ganado ágil (AgileEVM). Siguen en el costo real del proyecto.'
+          : 'Se conservan en el costo real del proyecto, sin actividad y con su entregable de la EDT, si lo tienen.'}</p>` : null}</div>`,
       confirmText: t.milestone ? 'Eliminar hito' : 'Eliminar actividad', tone: 'danger',
     });
     if (!ok) return false;
     const a = AG();
+    /* con los datos vivos (pudieron cambiar durante la confirmación) */
+    const plan = costPlan(linkedRel());
     if (relsOf().length && a && a.saveAgile) { const data = a.agile || {}; a.saveAgile({ ...data, releases: arrOf(data.releases).map((r) => (isObj(r) && r.taskId === id ? { ...r, taskId: null } : r)) }); }
     w.setTasks((ts) => ts.filter((x) => x.id !== id).map((x) => ((x.deps || []).some((d) => d.id === id) ? { ...x, deps: x.deps.filter((d) => d.id !== id) } : x)));
-    PM.toast(t.milestone ? 'Hito eliminado.' : 'Actividad eliminada.');
+    if (plan && a && a.saveCosts) a.saveCosts({ ...a.costs, actuals: plan.actuals });
+    const costMsg = !plan || !a || !a.saveCosts ? ''
+      : plan.rel ? ' ' + (plan.toRelease === 1 ? 'Su registro de costos reales quedó imputado' : 'Sus ' + plan.toRelease + ' registros de costos reales quedaron imputados') + ' al release «' + relName(plan.rel) + '».'
+      : ' ' + (plan.count === 1 ? '1 registro de costos reales quedó' : plan.count + ' registros de costos reales quedaron') + ' sin actividad.';
+    PM.toast((t.milestone ? 'Hito eliminado.' : 'Actividad eliminada.') + costMsg, costMsg ? { timeout: 6000 } : undefined);
     return true;
   }
   /* Una actividad por paquete de trabajo (hoja de la EDT) que aún no tenga actividades. */
