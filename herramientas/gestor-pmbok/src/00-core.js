@@ -120,7 +120,13 @@
   /* ------------------------------------------------------------------ fechas (ISO YYYY-MM-DD, aritmética UTC) */
   const DAY = 86400000;
   const D = (PM.date = {
-    valid: (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))),
+    /* fecha ISO real: mes 1–12 y día dentro del mes (Date.UTC desborda «2026-13-45» sin dar NaN) */
+    valid: (s) => {
+      if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+      const y = +s.slice(0, 4), m = +s.slice(5, 7), d = +s.slice(8, 10);
+      if (m < 1 || m > 12 || d < 1) return false;
+      return d <= (m === 2 ? ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28) : [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]);
+    },
     toMs: (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)),
     fromMs: (ms) => new Date(ms).toISOString().slice(0, 10),
     add: (iso, n) => D.fromMs(D.toMs(iso) + Math.round(n) * DAY),

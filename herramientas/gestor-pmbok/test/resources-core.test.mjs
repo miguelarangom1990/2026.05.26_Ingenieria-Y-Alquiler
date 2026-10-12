@@ -161,6 +161,12 @@ const results = await page.evaluate(() => {
   const rtO = R.riskTree({ planRows, risks: [{ id: 'O-1', descripcion: 'Precio', categoria: 'Externo', subcategoria: 'Clima y medio ambiente', probabilidad: 5, impacto: 5, tipo: 'Oportunidad' }, { id: 'A-1', descripcion: 'Lluvia', categoria: 'Externo', subcategoria: 'Clima y medio ambiente', probabilidad: 1, impacto: 2, tipo: 'Amenaza' }] });
   const gO = rtO.children.find((n) => n.label === 'Externo');
   eq('EDR de riesgos: oportunidades aparte', [gO.value, gO.threats, gO.opportunities, gO.max, gO.level, gO.children[0].children.map((c) => [c.code, c.tone, c.opportunity])], [2, 1, 1, 2, PM.calc.riskLevel(2).label, [['O-1', 'good', true], ['A-1', PM.calc.riskLevel(2).tone, false]]]);
+  // Robustez: costo unitario negativo, asignación solo con resourceId, fechas imposibles y recurso compacto
+  eq('costo unitario negativo → 0', R.assignment(R.catalog({ items: [{ id: 'n', name: 'Neg', unitCost: -50 }] }, null), { duration: 2 }, { resourceId: 'n', units: 1 }).cost, 0);
+  eq('asignación con resourceId y sin nombre: cuenta en el costo de la actividad', R.taskCost({ costMode: 'recursos', duration: 2, resources: [{ resourceId: 'r1', units: 1 }, { resourceId: 'nada', units: 1 }] }, cat).total, 2000);
+  eq('fechas imposibles no son válidas', ['2026-13-45', '2026-02-29', '2028-02-29', '2026-04-31', '2026-00-10', '2026-12-31', '1900-02-29', '2000-02-29'].map((d) => PM.date.valid(d)), [false, false, true, false, false, true, false, true]);
+  eq('recurso compacto: sin vacíos ni valores por omisión', R.compact({ ...R.newItem([], { name: 'Grúa', typeId: 'maquinaria', unitCost: 300, planned: false, reason: 'riesgo' }), id: 'g1', code: 'REC-009', addedDate: '2026-08-01', virtual: true }), { id: 'g1', code: 'REC-009', name: 'Grúa', typeId: 'maquinaria', unitCost: 300, planned: false, addedDate: '2026-08-01', reason: 'riesgo' });
+  eq('recurso compacto: el catálogo lo rellena igual', (() => { const full = R.newItem([], { id: 'g2', name: 'Andamio', unitCost: 5 }); const a = R.catalog({ items: [full] }, null).items[0], b = R.catalog({ items: [R.compact(full)] }, null).items[0]; return ['unit', 'origin', 'status', 'planned', 'dedication', 'hoursPerDay', 'agileTeam', 'availability', 'unitCost'].every((k) => a[k] === b[k]); })(), true);
   // Datos mal formados
   let bad = null;
   try {
@@ -204,6 +210,8 @@ let probe = await page.evaluate(() => { const e = document.getElementById('probe
 ok('modelo: costo calculado por recursos en el cronograma (2 × 5 × 40)', probe && probe.cost === '400' && probe.bac === '700', probe);
 const saved = await page.evaluate(async () => { const m = window.__probe; const v = m.catalog.items.find((x) => x.name === 'Cuadrilla'); const x = await m.saveItem({ ...v, unitCost: 50 }); await new Promise((r) => setTimeout(r, 1000)); await PM.store.flush(); return { x, doc: await PM.store.get(PM.paths.tool(PM.getState().projectId, 'resources')) }; });
 ok('guardar un recurso del catálogo', saved.doc.items.length === 1 && saved.doc.items[0].unitCost === 50 && saved.x.id === 'r1', saved.doc.items);
+const big = await page.evaluate(async () => { const m = window.__probe; const v = m.catalog.items.find((x) => x.name === 'Cuadrilla'); try { await m.saveItem({ ...v, notes: 'x'.repeat(300 * 1024) }); return 'guardado'; } catch (e) { return String(e.message); } });
+ok('un catálogo más grande que un registro no se guarda (y se avisa)', big === 'catálogo demasiado grande', big);
 await page.waitForTimeout(500);
 probe = await page.evaluate(() => ({ ...document.getElementById('probe').dataset }));
 ok('el costo calculado se actualiza al cambiar la tarifa', probe.cost === '500', probe);

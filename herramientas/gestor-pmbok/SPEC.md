@@ -634,6 +634,10 @@ Resource = { id, code ('REC-001'; PM.res.nextCode), name, typeId, subtype (texto
 - `PM.RES.plural(unidad)` / `PM.RES.unitN(n, unidad)`: unidades en plural («hora» → «horas», «usuario-mes» → «usuarios-mes»;
   los símbolos no cambian). Usarlas en 36, 40 y 42 al escribir cantidades.
 - `reserveUse({data, schedule, contingency})`: ver §10.3.
+- `compact(item)`: recurso sin campos vacíos ni con el valor de `PM.RES.DEFAULT_ITEM` (`catalog()` los rellena al leer); quien lea
+  `resources.items` crudos no debe suponer esos campos. `DOC_LIMIT` = 256 KiB: `useResourceModel` no escribe un catálogo que no
+  cabe (rechaza la promesa y avisa) y avisa al pasar el 90 %. `assignment` limita `unitCost` a ≥ 0; `taskCost` cuenta también
+  las asignaciones sin nombre cuyo `resourceId` está en el catálogo. `PM.date.valid` exige mes 1–12 y día dentro del mes.
 - `usage(cat, tasks)` → `Map(id → {tasks:[{task, units, qty, cost}], count, qty, cost})` (uso de cada recurso en el cronograma).
 - `availableOn(item, día)`; `teamCapacity({data, schedule, sprint, cal, settings, velocity})` → `{members[{…, normal, absentDays,
   inRangeDays}], personDays, normal, hours, ratio, suggested, unit, reference:{kind:'velocidad'|'habitual', personDays, sprints}}`

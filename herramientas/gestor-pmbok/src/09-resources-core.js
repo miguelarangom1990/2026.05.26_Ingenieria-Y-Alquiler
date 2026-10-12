@@ -114,6 +114,24 @@
   };
   res.typeOf = (types, typeId) => arr(types).find((t) => t.id === typeId) || UNCLASSIFIED;
   res.kindOf = (types, item) => (item && (item.kind === 'consumible' || item.kind === 'trabajo') ? item.kind : res.typeOf(types, item && item.typeId).kind);
+  /* Recurso compacto para guardar: sin los campos vacíos ni los que valen lo de PM.RES.DEFAULT_ITEM (catalog() los rellena al
+     leer). Así el catálogo entero cabe en un documento (tools/resources) con cientos de recursos. */
+  const KEEP = new Set(['id', 'code', 'name']);
+  res.compact = (item) => {
+    if (!isObj(item)) return item;
+    const out = {};
+    for (const [k, v] of Object.entries(item)) {
+      if (k === 'virtual' || v === undefined) continue;
+      if (!KEEP.has(k)) {
+        if (v === null || v === '' || (Array.isArray(v) && !v.length)) continue;
+        if (Object.prototype.hasOwnProperty.call(PM.RES.DEFAULT_ITEM, k) && v === PM.RES.DEFAULT_ITEM[k]) continue;
+      }
+      out[k] = v;
+    }
+    return out;
+  };
+  /* tamaño máximo de un documento de la base del artefacto (bytes) y umbral de aviso */
+  res.DOC_LIMIT = 256 * 1024;
   /* siguiente código REC-001 */
   res.nextCode = (items) => {
     let max = 0; for (const it of arr(items)) { const m = /^REC-(\d+)$/.exec(String((it && it.code) || '')); if (m) max = Math.max(max, Number(m[1])); }
@@ -162,13 +180,14 @@
     const kind = item ? cat.kindOf(item) : 'trabajo';
     const units = Math.max(0, num(a && a.units, 0));
     const qty = kind === 'consumible' ? (isNum(a && a.qty) ? Math.max(0, Number(a.qty)) : units * durOf(task)) : units * durOf(task);
-    const unitCost = item && isNum(item.unitCost) ? Number(item.unitCost) : null;
+    const unitCost = item && isNum(item.unitCost) ? Math.max(0, Number(item.unitCost)) : null;
     return { item, kind, name: item ? item.name : String((a && a.name) || ''), units, qty, unitCost, cost: unitCost !== null ? qty * unitCost : 0, priced: unitCost !== null };
   };
   /* costo de una actividad según su forma de costeo (task.costMode) */
   res.taskCost = function (task, cat) {
     const mode = ['recursos', 'mixto', 'unitario'].includes(task && task.costMode) ? task.costMode : 'global';
-    const lines = arr(task && task.resources).filter((a) => isObj(a) && String(a.name || '').trim()).map((a) => res.assignment(cat, task, a));
+    /* una asignación cuenta si tiene nombre o si su resourceId está en el catálogo (la misma regla que usage y rbsTree) */
+    const lines = arr(task && task.resources).filter((a) => isObj(a) && (String(a.name || '').trim() || (a.resourceId && cat && cat.byId && cat.byId.has(a.resourceId)))).map((a) => res.assignment(cat, task, a));
     const resourcesTotal = lines.reduce((s, l) => s + l.cost, 0);
     const fixed = mode === 'mixto' ? Math.max(0, num(task.costFixed, 0)) : 0;
     const unitario = { qty: Math.max(0, num(task && task.quantity, 0)), price: Math.max(0, num(task && task.unitPrice, 0)), unit: (task && task.qtyUnit) || '' };
@@ -500,7 +519,19 @@
     /* último valor escrito: varias escrituras seguidas en el mismo ciclo se encadenan sobre él (no sobre el valor pintado) */
     const latest = useRef({ src: null, data: null });
     const current = () => { const src = live.current.resources || PM.EMPTY.resources; if (latest.current.src !== src) latest.current = { src, data: src }; return latest.current.data; };
-    const write = (data) => { latest.current = { src: live.current.resources || PM.EMPTY.resources, data }; return Promise.resolve(live.current.saveResources(data)); };
+    /* se guarda compacto; si el catálogo no cabe en un documento, no se escribe (y se avisa) en lugar de perderse al recargar */
+    let warned = false;
+    const write = (data0) => {
+      const data = data0;
+      const size = new Blob([JSON.stringify(data)]).size;
+      if (size > res.DOC_LIMIT * 0.98) {
+        PM.toast('No se guardó: el catálogo de recursos supera el tamaño máximo de un registro (' + Math.round(size / 1024) + ' KB de ' + Math.round(res.DOC_LIMIT / 1024) + ' KB). Elimina recursos que ya no se usen o acorta sus notas.', { tone: 'crit' });
+        return Promise.reject(new Error('catálogo demasiado grande'));
+      }
+      if (size > res.DOC_LIMIT * 0.9 && !warned) { warned = true; PM.toast('El catálogo de recursos ocupa ' + Math.round(size / 1024) + ' KB de ' + Math.round(res.DOC_LIMIT / 1024) + ' KB permitidos por registro.', { tone: 'warn' }); }
+      latest.current = { src: live.current.resources || PM.EMPTY.resources, data };
+      return Promise.resolve(live.current.saveResources(data));
+    };
     const prepare = (data, item) => {
       const clean = { ...item }; delete clean.virtual;
       if (!clean.id || String(clean.id).startsWith('v:')) { clean.id = PM.uid('rec'); clean.code = clean.code || res.nextCode(data.items); }
