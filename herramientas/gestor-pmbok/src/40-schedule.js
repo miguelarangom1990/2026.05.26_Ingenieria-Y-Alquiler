@@ -2599,7 +2599,7 @@ button.sched-day:hover { border-color: var(--line-strong); }
       } else {
         /* recurso que solo existía como nombre en el cronograma: se registra en el catálogo (sin clasificar) */
         const ex = saved.find((x) => resKey(x.name) === R.key);
-        const p = L.saveItem(ex ? { ...ex, availability: val } : PM.res.newItem(saved, { name: R.name, typeId: null, availability: val, addedDate: L.statusDate || D.today() }));
+        const p = L.saveItem(ex ? { ...ex, availability: val } : PM.res.newItem(saved, { name: R.name, typeId: null, availability: val, addedDate: D.today() }));
         if (!ex) Promise.resolve(p).then((it) => { if (it) PM.toast('«' + R.name + '» quedó en el catálogo de recursos como ' + it.code + ', sin clasificar. Complétalo en la pestaña Catálogo.', { timeout: 6000 }); });
       }
       /* settings.resourceLimits (datos de antes) queda solo como respaldo: el valor vive ahora en el catálogo */

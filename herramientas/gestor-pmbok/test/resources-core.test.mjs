@@ -210,6 +210,7 @@ let probe = await page.evaluate(() => { const e = document.getElementById('probe
 ok('modelo: costo calculado por recursos en el cronograma (2 × 5 × 40)', probe && probe.cost === '400' && probe.bac === '700', probe);
 const saved = await page.evaluate(async () => { const m = window.__probe; const v = m.catalog.items.find((x) => x.name === 'Cuadrilla'); const x = await m.saveItem({ ...v, unitCost: 50 }); await new Promise((r) => setTimeout(r, 1000)); await PM.store.flush(); return { x, doc: await PM.store.get(PM.paths.tool(PM.getState().projectId, 'resources')) }; });
 ok('guardar un recurso del catálogo', saved.doc.items.length === 1 && saved.doc.items[0].unitCost === 50 && saved.x.id === 'r1', saved.doc.items);
+ok('el catálogo se guarda compacto (sin vacíos ni valores por omisión)', !('agileTeam' in saved.doc.items[0]) && !('absences' in saved.doc.items[0]) && !('virtual' in saved.doc.items[0]) && saved.doc.items[0].name === 'Cuadrilla', saved.doc.items[0]);
 const big = await page.evaluate(async () => { const m = window.__probe; const v = m.catalog.items.find((x) => x.name === 'Cuadrilla'); try { await m.saveItem({ ...v, notes: 'x'.repeat(300 * 1024) }); return 'guardado'; } catch (e) { return String(e.message); } });
 ok('un catálogo más grande que un registro no se guarda (y se avisa)', big === 'catálogo demasiado grande', big);
 await page.waitForTimeout(500);

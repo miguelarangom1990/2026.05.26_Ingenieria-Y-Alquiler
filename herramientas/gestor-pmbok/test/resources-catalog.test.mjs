@@ -15,6 +15,7 @@
 // al nombre de un «Sin clasificar» y recursos importados sin id.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+// Los recursos se guardan compactos (PM.res.compact): los campos vacíos o con su valor por omisión no están en el documento.
 import { openApp, createProject, errorCards, horizontalOverflow } from './harness.mjs';
 
 const argv = process.argv.slice(2);
@@ -125,7 +126,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     ok('al guardar se cierra el editor', await modalCount(page) === 0);
     const doc = await readTool(page, pid, 'resources');
     const it = itemByName(doc, 'Cuadrilla de montaje');
-    ok('alta: código, tipo, unidad, disponibilidad, costo, fecha de alta y ausencia', it && it.code === 'REC-001' && it.typeId === 'humano' && it.subtype === 'Montadores' && it.unit === 'cuadrilla' && it.availability === 3 && it.unitCost === 450000 && it.addedDate === TODAY && it.planned === true && it.absences.length === 1 && it.absences[0].from === '2026-09-01' && it.absences[0].note === 'Capacitación en alturas', it);
+    ok('alta: código, tipo, unidad, disponibilidad, costo, fecha de alta y ausencia', it && it.code === 'REC-001' && it.typeId === 'humano' && it.subtype === 'Montadores' && it.unit === 'cuadrilla' && it.availability === 3 && it.unitCost === 450000 && it.addedDate === TODAY && it.planned !== false && it.absences.length === 1 && it.absences[0].from === '2026-09-01' && it.absences[0].note === 'Capacitación en alturas', it);
     ok('la fila aparece en la tabla', await row(page, 'Cuadrilla de montaje').count() === 1);
   });
 
@@ -395,7 +396,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
       await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
       await sleep(page, 500);
       const it = itemByName(await readTool(page, pid, 'resources'), name);
-      ok(reason + ': guardado como no planificado sin solicitud', it && it.planned === false && it.reason === reason && it.changeRef === null && it.riskId === null && it.reserveAmount === null, it);
+      ok(reason + ': guardado como no planificado sin solicitud', it && it.planned === false && it.reason === reason && it.changeRef == null && it.riskId == null && it.reserveAmount == null, it);
     }
   });
 
@@ -527,7 +528,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await ed.getByRole('button', { name: 'Agregar recurso' }).click();
     await sleep(page, 400);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Andamio multidireccional adicional');
-    ok('«Sí»: planificado sin motivo', it && it.planned === true && it.reason === null && await modalCount(page) === 0, it);
+    ok('«Sí»: planificado sin motivo', it && it.planned !== false && it.reason == null && await modalCount(page) === 0, it);
   });
 
   await step('cambiar el motivo desde el editor', async () => {
@@ -539,7 +540,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await ed.getByRole('button', { name: 'Guardar cambios' }).click();
     await sleep(page, 400);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Grúa equivalente');
-    ok('marcado como planificado', it.planned === true && it.reason === null, it);
+    ok('marcado como planificado', it.planned !== false && it.reason == null, it);
   });
 
   await step('eliminar con asignaciones', async () => {
@@ -640,7 +641,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await page.keyboard.press('Enter');
     await sleep(page, 400);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Topógrafo');
-    ok('alta completa con el teclado', it && it.planned === true && await modalCount(page) === 0, it);
+    ok('alta completa con el teclado', it && it.planned !== false && await modalCount(page) === 0, it);
     ok('el foco vuelve al botón que abrió el editor', /Agregar recurso/.test((await active(page)).text));
     await addBtn.focus();
     await page.keyboard.press('Enter');
@@ -759,7 +760,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await ed.getByRole('button', { name: 'Agregar recurso' }).click();
     await sleep(page, 500);
     const cons = itemByName(await readTool(page, pid2, 'resources'), 'Consultor funcional externo');
-    ok('guardado en el equipo ágil con su tipo de servicio', cons && cons.agileTeam === true && cons.typeId === 'servicio' && cons.dedication === 100, cons);
+    ok('guardado en el equipo ágil con su tipo de servicio', cons && cons.agileTeam === true && cons.typeId === 'servicio' && (cons.dedication ?? 100) === 100, cons);
     ok('sin errores con datos grandes', !(await errorCards(page)).length && !errors.length, errors.slice(0, 3));
   });
 

@@ -522,7 +522,7 @@
     /* se guarda compacto; si el catálogo no cabe en un documento, no se escribe (y se avisa) en lugar de perderse al recargar */
     let warned = false;
     const write = (data0) => {
-      const data = data0;
+      const data = { ...data0, items: arr(data0.items).map((x) => res.compact(x)) };
       const size = new Blob([JSON.stringify(data)]).size;
       if (size > res.DOC_LIMIT * 0.98) {
         PM.toast('No se guardó: el catálogo de recursos supera el tamaño máximo de un registro (' + Math.round(size / 1024) + ' KB de ' + Math.round(res.DOC_LIMIT / 1024) + ' KB). Elimina recursos que ya no se usen o acorta sus notas.', { tone: 'crit' });
@@ -536,7 +536,8 @@
       const clean = { ...item }; delete clean.virtual;
       if (!clean.id || String(clean.id).startsWith('v:')) { clean.id = PM.uid('rec'); clean.code = clean.code || res.nextCode(data.items); }
       const items = arr(data.items).filter(isObj);
-      const i = items.findIndex((x) => x.id === item.id || x.id === clean.id);
+      /* solo por id real: un recurso crudo sin id no debe coincidir con otro sin id (undefined === undefined) */
+      const i = items.findIndex((x) => (item.id && x.id === item.id) || x.id === clean.id);
       return { clean, data: { ...data, items: i >= 0 ? items.map((x, j) => (j === i ? clean : x)) : [...items, clean] } };
     };
     const saveItem = useCallback((item) => { const p = prepare(current(), item); return write(p.data).then(() => p.clean); }, []);
