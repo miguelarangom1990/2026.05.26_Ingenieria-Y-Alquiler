@@ -331,6 +331,16 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   eq('term(enfoque hibrido) sin tildes', KB.term('enfoque hibrido') && KB.term('enfoque hibrido').term, 'Enfoque híbrido');
   ok('fórmula AgileEVM (PPC, APC, PV, EV)', /PPC = iteraciones transcurridas \/ iteraciones planeadas/.test(f('Valor ganado ágil')) && f('Valor ganado ágil').includes('PV = BAC × PPC') && f('Valor ganado ágil').includes('EV = BAC × APC'), f('Valor ganado ágil'));
   ok('fórmula de velocidad (promedio de 3) y ley de Little', f('Velocidad').includes('n = 3') && f('Límite WIP').includes('Ley de Little'), '');
+  /* Regresión: la fórmula del tiempo de ciclo coincide con el cálculo del gestor (PM.agile.flowTimes: días calendario
+     del inicio del trabajo a terminado, contando ambos días; el tiempo de entrega, de la creación a terminado). */
+  const fc = f('Tiempo de ciclo');
+  ok('fórmula del tiempo de ciclo: terminación − inicio del trabajo + 1, contando ambos días', /Tiempo de ciclo = fecha de terminación − fecha de inicio del trabajo \+ 1 \(días calendario, contando ambos días\)/.test(fc) && /Tiempo de entrega = fecha de terminación − fecha de creación del elemento \+ 1/.test(fc) && !/entrada a «En curso»/.test(fc), fc);
+  if (PM.agile && typeof PM.agile.flowTimes === 'function') {
+    const st = PM.agile.settings(null);
+    const same = PM.agile.flowTimes({ status: 'terminado', doneDate: '2026-10-09', createdAt: '2026-10-01', history: [{ date: '2026-10-01', status: 'backlog' }, { date: '2026-10-09', status: 'en-curso' }, { date: '2026-10-09', status: 'terminado' }] }, st);
+    const span = PM.agile.flowTimes({ status: 'terminado', doneDate: '2026-08-07', createdAt: '2026-08-01', history: [{ date: '2026-08-04', status: 'en-curso' }, { date: '2026-08-07', status: 'terminado' }] }, st);
+    ok('la fórmula del glosario reproduce PM.agile.flowTimes (mismo día: 1 día; 04→07 ago: 4 días; entrega 01→07 ago: 7 días)', same && same.cycle === 1 && same.lead === 9 && span && span.cycle === 4 && span.lead === 7, JSON.stringify([same, span]));
+  }
   ok('searchGlossary(kanban) encuentra el tablero', KB.searchGlossary('kanban').some((g) => g.term === 'Tablero Kanban'), KB.searchGlossary('kanban').map((g) => g.term).join(','));
   ok('sin texto provisional en la capa ágil', !BAD_TEXT.test(JSON.stringify([KB.areas.map((a) => a.agile), KB.glossary.filter((g) => AGILE_TERMS.includes(g.term))])), '');
   return out;

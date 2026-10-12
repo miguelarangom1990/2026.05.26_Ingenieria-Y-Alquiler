@@ -1029,7 +1029,7 @@
       definition: 'Representación visual del flujo de trabajo en columnas (por ejemplo, por hacer, en curso, en revisión y terminado) con tarjetas que avanzan de izquierda a derecha, límites WIP y políticas explícitas. Hace transparente el estado del trabajo y es la base de la programación bajo demanda.' },
     { term: 'Tiempo de ciclo', area: 'cronograma', view: 'metricas-agiles',
       definition: 'Tiempo que tarda un elemento desde que entra a trabajo hasta que queda terminado. Junto con el rendimiento (elementos terminados por semana) es la métrica principal de Kanban; el tiempo de entrega, en cambio, se cuenta desde que el elemento se solicita.',
-      formula: 'Tiempo de ciclo = fecha de terminación − fecha de entrada a «En curso» · Rendimiento = elementos terminados / período' },
+      formula: 'Tiempo de ciclo = fecha de terminación − fecha de inicio del trabajo + 1 (días calendario, contando ambos días) · Tiempo de entrega = fecha de terminación − fecha de creación del elemento + 1 · Rendimiento = elementos terminados / período' },
     { term: 'Diagrama de flujo acumulado', abbr: 'CFD', area: 'cronograma', view: 'metricas-agiles',
       definition: 'Gráfico de áreas apiladas con la cantidad de elementos en cada estado del tablero a lo largo del tiempo. La altura de la franja «en curso» muestra el trabajo en curso y su ancho horizontal aproxima el tiempo de ciclo; una franja que se ensancha indica un cuello de botella.' },
     { term: 'Valor ganado ágil', abbr: 'AgileEVM', area: 'costos', view: 'metricas-agiles',

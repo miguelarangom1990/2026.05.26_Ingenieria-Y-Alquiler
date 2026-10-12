@@ -973,7 +973,7 @@
       const own = cur.find((x) => x && x.id === a.id) || a;
       const auto = r && !own.releaseId && cur.some((x) => x && x.id !== a.id && x.releaseId === r.id) ? r : null;
       if (auto) patch.releaseId = auto.id;
-      if (update(a.id, patch) && auto) PM.toast('Registro imputado a «' + releaseName(auto) + '», el release que representa esa actividad: ese release ya tiene costos imputados y su AC solo suma esos. Cámbialo en la columna «Release» si no corresponde.');
+      if (update(a.id, patch) && auto) PM.toast('Registro imputado a «' + releaseName(auto) + '», el release que representa esa actividad: ese release ya tiene costos imputados y su AC solo suma esos. Cámbialo en la columna «Release» si no corresponde.', { timeout: 6500 });
     };
     /* imputa a su release los registros sin release de las actividades de releases con registros imputados */
     const imputeAll = () => {

@@ -189,6 +189,8 @@
 .docs-agile-body .row { flex-wrap: wrap; }
 .docs-agile-off { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-2); }
 .docs-agile-off > .icon { flex: none; margin-top: 2px; color: var(--accent); }
+.docs-ficha-link { display: inline; border: 0; background: none; padding: 0; color: var(--accent); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.docs-ficha-link:hover { color: var(--accent-hover); }
 .docs-agile-n { font-variant-numeric: tabular-nums; }
 .docs-agile-src { margin: 0; max-width: 80ch; }
 .docs-na-row .docs-out-name, .docs-na-row .docs-out-iname { color: var(--fg-2); }
@@ -536,6 +538,15 @@
     return PM.navigate('documento', { docId: s });
   };
 
+  /* Dónde se cambia el ciclo de vida: Ficha del proyecto › Datos del proyecto (campo «Ciclo de vida»). Si la vista ficha
+     está registrada, es un enlace a ella; `go(fn)` envuelve la navegación como en AgileNote. */
+  const FICHA_PATH = 'Ficha del proyecto › Datos del proyecto';
+  function LifecycleWhere({ go }) {
+    if (!PM.getView('ficha')) return FICHA_PATH;
+    const nav = () => PM.navigate('ficha');
+    return html`<button type="button" class="docs-ficha-link" data-ficha-link title="Abrir la ficha del proyecto para cambiar el ciclo de vida" onClick=${go ? go(nav) : nav}>${FICHA_PATH}</button>`;
+  }
+
   /* Consideraciones para entornos ágiles/adaptativos del área (PM.KB.areas[].agile: síntesis propia con referencia
      general a la Guía del PMBOK® 6.ª ed.). `go(fn)` envuelve la navegación (en el detalle del proceso, cierra el modal
      antes de navegar). En un proyecto predictivo avisa que no aplican y no ofrece las vistas ágiles (no están activas). */
@@ -564,7 +575,7 @@
     return html`<details class="docs-agile" data-agile=${area.id} open=${!!open}>
       <summary><${ui.Icon} name="sprint" size=${15} />Consideraciones para entornos ágiles/adaptativos <span class="docs-agile-area">· ${areaShort(area)}</span></summary>
       <div class="docs-agile-body">
-        ${project && !agileOn ? html`<p class="docs-agile-off" data-agile-off><${ui.Icon} name="info" size=${14} /><span>El ciclo de vida de este proyecto es ${project.lifecycle || 'Predictivo'}. Estas prácticas, las vistas ágiles y sus documentos aplican con un ciclo de vida adaptativo o híbrido, que se elige en Tablero › Datos del proyecto.</span></p>` : null}
+        ${project && !agileOn ? html`<p class="docs-agile-off" data-agile-off><${ui.Icon} name="info" size=${14} /><span>El ciclo de vida de este proyecto es ${project.lifecycle || 'Predictivo'}. Estas prácticas, las vistas ágiles y sus documentos aplican con un ciclo de vida adaptativo o híbrido, que se elige en <${LifecycleWhere} go=${wrap} />.</span></p>` : null}
         <p>${ag.summary}</p>
         ${practices.length ? html`<div class="label-caps">Prácticas recomendadas</div><ul class="docs-tips">${practices.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : null}
         ${views.length || docs.length || offViews.length ? html`<div class="label-caps">En el gestor</div>` : null}
@@ -1003,7 +1014,7 @@
       })}
       ${naRows.length ? html`<details class="card docs-na" data-na-section open=${!!(ql || tpl)}>
         <summary><${ui.Icon} name="sprint" size=${15} />Plantillas ágiles que no aplican a este proyecto <span class="docs-agile-area">· ${naRows.filter((e) => e.type !== 'instance').length} · no cuentan en el avance</span></summary>
-        <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido (Tablero › Datos del proyecto).</p>
+        <p class="small muted docs-na-note">El ciclo de vida de «${project.name}» es ${project.lifecycle || 'Predictivo'}. Estas plantillas son del enfoque ágil o híbrido (Scrum y Kanban) y no cuentan en el avance documental mientras el proyecto no tenga documentos de ellas; si creas uno, la plantilla pasa a contar en su área. Las vistas ágiles se activan con un ciclo de vida adaptativo o híbrido, que se elige en <${LifecycleWhere} />.</p>
         <div class="table-wrap docs-tablewrap"><table class="table docs-table" aria-label="Plantillas ágiles que no aplican a este proyecto">
           ${tableHead()}
           <tbody>${naRows.map((e) => html`<${DocRow} key=${e.key} e=${e} canWrite=${canWrite} />`)}</tbody>

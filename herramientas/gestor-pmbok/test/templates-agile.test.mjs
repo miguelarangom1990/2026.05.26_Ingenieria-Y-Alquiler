@@ -444,6 +444,8 @@ try {
   check(!pd.tools.includes('Backlog del producto') && /Con ciclo de vida adaptativo o híbrido también: Backlog del producto/.test(pd.off), '5.2: el backlog no figura entre las herramientas; una nota dice cuándo se activa', pd);
   check(pd.meter, '5.2: el detalle cuenta 2 documentos');
   check(!pd.open && /ciclo de vida de este proyecto es Predictivo/.test(pd.agOff) && !pd.btns.includes('Backlog del producto') && /Backlog del producto/.test(pd.offViews) && pd.btns.includes('Visión del producto'), 'consideraciones plegadas, con aviso del ciclo de vida, sin botón hacia la vista inactiva y con la plantilla', pd);
+  /* Regresión: el ciclo de vida se cambia en la ficha del proyecto (panel «Datos del proyecto»), no en el tablero. */
+  check(/que se elige en Ficha del proyecto › Datos del proyecto\./.test(pd.agOff) && !/Tablero ›/.test(pd.agOff) && pd.btns.includes('Ficha del proyecto › Datos del proyecto'), 'el aviso remite a «Ficha del proyecto › Datos del proyecto», con enlace', pd.agOff);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   await page.click('.docs-proc[data-code="4.3"]');
@@ -457,8 +459,11 @@ try {
   await page.waitForSelector('.modal details.docs-agile');
   check(await page.locator('.modal details.docs-agile').evaluate((d) => !d.open), 'en un proyecto predictivo el bloque ágil empieza plegado');
   await page.waitForTimeout(150);
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(150);
+  await page.locator('.modal details.docs-agile > summary').click();
+  await page.locator('.modal [data-agile-off] [data-ficha-link]').click();
+  await page.waitForTimeout(400);
+  const fichaLnk = await page.evaluate(() => ({ view: PM.getState().view, modal: !!document.querySelector('.modal'), lc: !!document.querySelector('#pf-lc') }));
+  check(fichaLnk.view === 'ficha' && !fichaLnk.modal && fichaLnk.lc, 'el enlace del aviso cierra el detalle del proceso y abre la ficha, donde está el campo «Ciclo de vida»', fichaLnk);
 
   step('Proyecto predictivo: lista maestra (regresión)');
   await gotoView(page, 'documentos');
@@ -492,6 +497,12 @@ try {
   await page.waitForTimeout(350);
   const lf = await page.evaluate(() => { const sec = document.querySelector('[data-na-section]'); return { open: sec && sec.open, rows: sec ? [...sec.querySelectorAll('tbody tr')].map((tr) => tr.getAttribute('data-tid')) : [], main: document.querySelectorAll('section[data-area]').length, empty: !!document.querySelector('.page .empty, .page [class*="empty"] h3') }; });
   check(lf.open === true && JSON.stringify(lf.rows) === '["retrospectiva"]' && lf.main === 0, 'filtrar por una plantilla ágil que no aplica abre la sección con esa plantilla', lf);
+  const naNote = await page.evaluate(() => (document.querySelector('[data-na-section] .docs-na-note') || {}).textContent || '');
+  check(/que se elige en Ficha del proyecto › Datos del proyecto\./.test(naNote) && !/Tablero ›/.test(naNote), 'la nota de la sección «no aplican» remite a «Ficha del proyecto › Datos del proyecto»', naNote);
+  await page.locator('[data-na-section] .docs-na-note [data-ficha-link]').click();
+  await page.waitForTimeout(400);
+  const fichaLnk2 = await page.evaluate(() => ({ view: PM.getState().view, lc: !!document.querySelector('#pf-lc') }));
+  check(fichaLnk2.view === 'ficha' && fichaLnk2.lc, 'y su enlace abre la ficha del proyecto', fichaLnk2);
 
   step('Definición de listo y de terminado: valores iniciales y creación');
   await page.evaluate(() => PM.openDocument('definicion-terminado'));
