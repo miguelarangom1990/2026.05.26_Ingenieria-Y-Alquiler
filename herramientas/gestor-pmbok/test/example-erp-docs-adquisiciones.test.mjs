@@ -8,7 +8,11 @@
 //      que calcula la aplicación (LB0, catálogo de recursos, costos reales por proveedor, velocidad y AgileEVM con PM.calc y
 //      PM.agile); ninguna fecha de un hecho pasa la fecha de corte ni la del documento o revisión que lo cita; los documentos y
 //      revisiones aprobados no citan hechos posteriores a su fecha; coherencia con el acta, los registros de riesgos, incidentes y
-//      lecciones y el informe de desempeño.
+//      lecciones y el informe de desempeño. Regresiones de la auditoría: precio de la suscripción solo desde la rev. 1 del análisis
+//      de hacer o comprar; requisito habilitante del contrato por iteraciones; ajuste por tasa de cambio de la red (como el informe
+//      de desempeño); órdenes de servicio fuera del valor fijo y con pólizas ampliadas; excepción de la póliza de cumplimiento de
+//      la orden de compra; liquidación con la evaluación final, ya pagados; capacitación por grupos y conciliación de la formación
+//      y la capacitación; facturación al cierre de la iteración o de la actividad; cajetines de las revisiones aprobadas.
 //   2) Interacción: crea el ejemplo desde el selector con el teclado, abre «Documentos» con el riel, filtra por enfoque si la
 //      lista lo ofrece, busca y abre con el teclado el registro de contratos y el enunciado del trabajo de la implementación, y
 //      revisa las columnas calculadas de los criterios de selección y del seguimiento de contratos.
@@ -328,7 +332,7 @@ async function validateInPage(page) {
       const closedBy = (at) => sprints.filter((s) => s.status === 'cerrado' && s.end <= at).length;
       /* las filas del implementador: iteraciones y bolsas (comparables con el valor fijo del contrato) y órdenes de servicio por horas */
       const isFixed = (a) => /precio fijo por iteración|horas adicionales del conector/.test(a.description);
-      const isOS = (r) => /órdenes de servicio por horas/.test(r.contrato);
+      const isOS = (r) => /órdenes de servicio por horas/i.test(r.contrato);
       const listOf = (k, r) => (k !== 'impl' ? actualsOf(k, r.fechaCorte) : actualsOf('impl', r.fechaCorte).filter((a) => (isOS(r) ? !isFixed(a) : isFixed(a))));
       /* actividades con servicios por horas del SOW: taller de planificación de releases (t03), ambientes (t13), migración (1.4),
          formación y capacitación (1.5.2 y 1.5.3), salidas y estabilización (1.9) */
