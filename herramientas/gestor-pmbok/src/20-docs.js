@@ -96,7 +96,7 @@
    estado y tipo, más cortos, ceden ancho al enfoque. Angosto (móvil): dos columnas; ahí el enfoque puede recortarse con
    «…», y su title y la línea de resumen muestran la opción completa. */
 .docs-fbar { container: docsflt / inline-size; min-width: 0; }
-.docs-filters { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.85fr) minmax(0, 1.15fr) minmax(0, 1.15fr); grid-template-areas: "q q a g" "s k ap ap"; gap: 8px; align-items: center; }
+.docs-filters { display: grid; grid-template-columns: minmax(0, 0.88fr) minmax(0, 0.88fr) minmax(0, 1.12fr) minmax(0, 1.12fr); grid-template-areas: "q q a g" "s k ap ap"; gap: 8px; align-items: center; }
 .docs-filters > .docs-f-q { grid-area: q; } .docs-filters > .docs-f-a { grid-area: a; } .docs-filters > .docs-f-g { grid-area: g; }
 .docs-filters > .docs-f-s { grid-area: s; } .docs-filters > .docs-f-k { grid-area: k; } .docs-filters > .docs-f-ap { grid-area: ap; }
 .docs-filters .select { text-overflow: ellipsis; }
