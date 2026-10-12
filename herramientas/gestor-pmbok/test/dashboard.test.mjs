@@ -775,9 +775,12 @@ try {
   ] }), resPid);
   await page.waitForSelector('[data-card="unplanned-resources"]');
   const resCard = (sel) => page.locator('[data-card="unplanned-resources"] ' + sel).innerText().then((t) => t.replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim());
-  const cost = await page.evaluate(() => PM.fmt.moneyShort(15 * 1500000 + 250000, 'COP').replace(/[  ]/g, ' '));
+  const [costA, costR] = await page.evaluate(() => [PM.fmt.moneyShort(15 * 1500000, 'COP'), PM.fmt.moneyShort(250000, 'COP')].map((x) => x.replace(/[\u00a0\u202f]/g, ' ')));
   check('alerta: cantidad de recursos no planificados', (await resCard('[data-count]')) === '3');
-  check('alerta: costo estimado (asignaciones valoradas y, sin asignación, el monto registrado)', (await resCard('[data-res-alert="summary"]')).includes('3 recursos no planificados con un costo estimado de ' + cost), [await resCard('[data-res-alert="summary"]'), cost]);
+  /* SPEC §10.3 y revisión integral: el costo de las asignaciones y el monto de reserva de los no asignados van separados y rotulados */
+  const sumTxt = await resCard('[data-res-alert="summary"]');
+  check('alerta: costo de las asignaciones y, aparte, el monto de reserva de los que no están asignados', sumTxt === '3 recursos no planificados: 1 asignado en el cronograma por ' + costA + ' (costo unitario del catálogo); 2 sin asignar, con ' + costR + ' de monto de reserva registrado.', [sumTxt, costA, costR]);
+  check('alerta: ya no llama «asignaciones» al monto de reserva', !/costo estimado/.test(sumTxt) && (await resCard('[data-res-cost="assigned"]')) === costA && (await resCard('[data-res-cost="reserve"]')) === costR);
   check('alerta: sin motivo, con texto y el recurso', /^1 sin motivo registrado: REC-004 Señalización vial/.test(await resCard('[data-res-alert="no-reason"]')));
   check('alerta: sin la solicitud de cambio que su motivo exige', /^1 requiere solicitud de cambio y no la tiene: REC-003 Plataforma de descargue/.test(await resCard('[data-res-alert="no-change"]')));
   check('alerta: consumo de la reserva para contingencias', /Consumen \$ 6 M de la reserva para contingencias: quedan \$ 3 M disponibles/.test(await resCard('[data-res-alert="reserve"]')));
@@ -829,6 +832,26 @@ try {
   check('recursos (400 px): sin desborde horizontal', (await horizontalOverflow(page)) <= 1);
   if (shots) await page.locator('[data-card="unplanned-resources"]').screenshot({ path: join(shots, '15-recursos-no-planificados-m.png') });
   await page.setViewportSize({ width: 1360, height: 900 });
+  /* reserva para contingencias sin duplicar (SPEC §10.3): con la grúa (6 M de reserva) en una actividad calculada por recursos,
+     su costo ya está en el BAC; la nueva línea base congela la reserva disponible (3 M), no la total (9 M) */
+  await page.evaluate(async (pid) => { const s = PM.clone(await PM.store.get(PM.paths.tool(pid, 'schedule'))); s.tasks = s.tasks.map((t) => (t.id === 't2' ? { ...t, costMode: 'recursos' } : t)); await PM.store.set(PM.paths.tool(pid, 'schedule'), s); }, resPid);
+  await wait(page, 400);
+  check('reserva: el consumo y el disponible siguen la regla única (PM.res.reserveUse)', /Consumen \$ 6 M de la reserva para contingencias: quedan \$ 3 M disponibles/.test(await resCard('[data-res-alert="reserve"]')), await resCard('[data-res-alert="reserve"]'));
+  await gotoView(page, 'lineas-base');
+  await page.getByRole('button', { name: 'Establecer línea base' }).first().click();
+  await page.waitForSelector('.modal [data-preview="cost"]');
+  const prevCost = (await page.locator('.modal [data-preview="cost"]').innerText()).replace(/[\u00a0\u202f]/g, ' ');
+  check('línea base: la vista previa explica la reserva que se congela (disponible) y lo ya consumido', prevCost.includes('BAC $ 42.500.000') && prevCost.includes('Reserva para contingencias $ 3.000.000: disponible $ 3.000.000 ($ 6.000.000 de los $ 9.000.000 del plan ya los consumieron recursos que responden a riesgos)'), prevCost);
+  await page.locator('.modal').getByRole('button', { name: 'Establecer LB0' }).click();
+  await wait(page, 600);
+  const resBl = await page.evaluate((pid) => PM.store.list(PM.paths.baselines(pid)).then((l) => l[0] && l[0].data), resPid);
+  check('línea base: BAC con la grúa (42,5 M) y reserva disponible (3 M): 45,5 M, sin contar dos veces los 6 M', resBl && resBl.cost && resBl.cost.bac === 42.5e6 && resBl.cost.contingency === 3e6 && resBl.cost.management === 5e6, resBl && resBl.cost && { bac: resBl.cost.bac, contingency: resBl.cost.contingency });
+  check('línea base: el registro de costos conserva la reserva total del plan (9 M)', (await page.evaluate((pid) => PM.store.get(PM.paths.tool(pid, 'costs')).then((c) => c.reserves.contingency), resPid)) === 9e6);
+  await page.locator('[data-card="baseline-detail"]').getByRole('tab', { name: 'Costos' }).click();
+  await page.waitForSelector('[data-compare="cost"] [data-summary="reserves"]');
+  const resSum = (await page.locator('[data-compare="cost"] [data-summary="reserves"]').innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
+  check('comparación de costos: reservas vigentes (contingencia disponible + gestión = 8 M) iguales a LB0 y lo que ya está en el BAC', /Reservas vigentes \(contingencia disponible \+ gestión\)/i.test(resSum) && /\$ 8 M/.test(resSum) && /En LB0: \$ 8 M/.test(resSum) && /\$ 6 M de la contingencia ya están en el BAC/.test(resSum), resSum);
+  await gotoView(page, 'tablero');
   /* rendimiento: 320 recursos (40 no planificados) y 500 actividades con asignaciones */
   const tBig = await page.evaluate(async () => {
     const id = await PM.projectOps.create({ name: 'Carga de recursos', code: 'PRY-REC-500', start: '2026-01-05', end: '2027-12-18', statusDate: '2026-09-15', budget: 9e9, currency: 'COP' });

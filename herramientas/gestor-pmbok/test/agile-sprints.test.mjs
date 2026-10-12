@@ -1156,8 +1156,12 @@ for (const width of [400, 1280, 1360, 1600]) {
       const basis = nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText());
       assert(/^Velocidad media de .+ × 66,2 % de los días-persona con que se logró\./.test(basis) && /Capacidad registrada: 14 pts/.test(basis), 'base de la sugerida y comparación con la registrada: ' + basis);
       const why = await page.$$eval(sug + ' [data-why]', (els) => Object.fromEntries(els.map((e) => [e.dataset.why, e.textContent.replace(/[  ]/g, ' ').trim()])));
-      eq(Object.keys(why).sort(), ['abs', 'ded', 'out'], 'motivos: ausencias, fuera de rango y dedicación (sin festivos ni iteración corta)');
-      assert(/Desarrollador líder \(2 días hábiles\)/.test(why.abs) && /Analista de pruebas \(1 día hábil\)/.test(why.out) && /Dueño del producto \(50 %\)/.test(why.ded), JSON.stringify(why));
+      eq(Object.keys(why).sort(), ['abs', 'out'], 'reducen la disponibilidad: ausencias y fuera de rango (sin festivos ni iteración corta)');
+      assert(/Desarrollador líder \(2 días hábiles\)/.test(why.abs) && /Analista de pruebas \(1 día hábil\)/.test(why.out), JSON.stringify(why));
+      const known = await page.$$eval(sug + ' [data-known]', (els) => Object.fromEntries(els.map((e) => [e.dataset.known, e.textContent.replace(/[  ]/g, ' ').trim()])));
+      eq(Object.keys(known), ['ded'], 'la dedicación parcial ya está en las iteraciones de referencia: se lista aparte');
+      assert(/Dueño del producto \(50 %\)/.test(known.ded) && /Ya considerado en las iteraciones de referencia/.test(nb(await page.locator(sug + ' [data-role="capacity-known-group"]').innerText())) && /Reducen la disponibilidad/.test(nb(await page.locator(sug + ' [data-role="capacity-why-group"]').innerText())), JSON.stringify(known));
+      eq(await page.getAttribute(sug + ' [data-role="capacity-why"]', 'aria-labelledby'), await page.locator(sug + ' [data-role="capacity-why-group"] .ags-capsug-why-h').getAttribute('id'), 'la lista de motivos tiene nombre accesible');
       assert((await page.getAttribute(sug + ' .ags-capsug-meter', 'aria-label')).includes('22 de 33,3 días-persona en promedio'), 'medidor con nombre accesible');
       /* detalle por miembro con el teclado */
       const tg = sug + ' [data-role="capacity-detail-toggle"]';
@@ -1224,6 +1228,34 @@ for (const width of [400, 1280, 1360, 1600]) {
       assert(/Sin velocidad: cierra al menos una iteración/.test(nb(await page.locator(sug + ' [data-role="capacity-basis"]').innerText())), 'explicación');
       eq(await page.locator(sug + ' [data-role="capacity-use"]').count(), 0, 'sin «Usar la sugerida»');
       assert(/22 de 25 días-persona de una iteración habitual \(88 %\)/.test(nb(await page.locator(sug).innerText())), 'la disponibilidad se sigue mostrando, frente a una iteración habitual');
+    });
+
+    await step('Disponibilidad del 100 %: el festivo que no acorta la iteración y la dedicación parcial no se presentan como reducciones', async () => {
+      /* sin iteraciones cerradas (paso anterior) la referencia es la iteración habitual; festivo el lun 7 sep y la iteración
+         hasta el 15 sep: conserva 10 días hábiles. A y C sin ausencias ni límite de fechas, B al 50 % */
+      const T2 = { ...TEAM, items: TEAM.items.map((x) => (x.id === 'ra' ? { ...x, absences: [] } : x.id === 'rc' ? { ...x, availableTo: null } : x)) };
+      await page.evaluate(async ({ pid, T2 }) => {
+        const P = PM.paths;
+        const s = await PM.store.get(P.tool(pid, 'schedule'));
+        await PM.store.set(P.tool(pid, 'schedule'), { ...s, settings: { ...s.settings, extraHolidays: ['2026-09-07'] } });
+        await PM.store.set(P.tool(pid, 'resources'), T2);
+        const a = await PM.store.get(P.tool(pid, 'agile'));
+        await PM.store.set(P.tool(pid, 'agile'), { ...a, sprints: a.sprints.map((x) => (x.id === 's3' ? { ...x, end: '2026-09-15' } : x)) });
+      }, { pid, T2 });
+      await until(page, async () => /25 de 25 días-persona de una iteración habitual \(100 %\)/.test(nb(await page.locator(sug + ' [data-role="capacity-availability"]').innerText())), '100 % de disponibilidad');
+      eq(await page.locator(sug + ' [data-role="capacity-why"]').count(), 0, 'sin lista de reducciones al 100 %');
+      const known = await page.$$eval(sug + ' [data-known]', (els) => Object.fromEntries(els.map((e) => [e.dataset.known, e.textContent.replace(/[\u00a0\u202f]/g, ' ').trim()])));
+      eq(Object.keys(known), ['hol', 'ded'], 'festivo y dedicación como «Ya considerado»');
+      assert(/^Festivo: lun 0?7 sep .*; la iteración conserva sus 10 días hábiles\.$/.test(known.hol) && /Dueño del producto \(50 %\)/.test(known.ded), JSON.stringify(known));
+      assert(/Ya considerado en la iteración habitual/.test(nb(await page.locator(sug + ' [data-role="capacity-known-group"]').innerText())), 'encabezado con la referencia');
+      if (shots) await page.locator(sug).screenshot({ path: join(shots, 'capacidad-sugerida-100.png') });
+      /* la misma iteración hasta el 14 sep: 9 días hábiles por el festivo → ahora sí reduce (90 %) */
+      await page.evaluate(async (pid) => { const a = await PM.store.get(PM.paths.tool(pid, 'agile')); await PM.store.set(PM.paths.tool(pid, 'agile'), { ...a, sprints: a.sprints.map((x) => (x.id === 's3' ? { ...x, end: '2026-09-14' } : x)) }); }, pid);
+      await until(page, async () => /\(90 %\)/.test(nb(await page.locator(sug + ' [data-role="capacity-availability"]').innerText())), '90 % de disponibilidad');
+      const why = await page.$$eval(sug + ' [data-why]', (els) => els.map((e) => e.dataset.why));
+      eq(why, ['len', 'hol'], 'iteración más corta y su festivo como reducciones');
+      eq(await page.$$eval(sug + ' [data-known]', (els) => els.map((e) => e.dataset.known)), ['ded'], 'la dedicación sigue como «Ya considerado»');
+      await page.evaluate(async (pid) => { const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); await PM.store.set(PM.paths.tool(pid, 'schedule'), { ...s, settings: { ...s.settings, extraHolidays: [] } }); }, pid);
     });
 
     await step('Rendimiento: 320 recursos (60 del equipo ágil con ausencias) — la planificación responde rápido', async () => {

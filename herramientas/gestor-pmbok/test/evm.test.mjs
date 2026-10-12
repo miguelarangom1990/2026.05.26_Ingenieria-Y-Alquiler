@@ -755,7 +755,6 @@ async function seedReserve(page, { baseline = true } = {}) {
 {
   const app = await openApp({ file, width: 1360, height: 950 });
   const p = app.page;
-  const text = (pg, sel) => pg.locator(sel).first().innerText().then(norm);
   const M = (v) => p.evaluate((v) => PM.fmt.money(v, 'COP').replace(/[  ]/g, ' '), v);
   try {
     await seedReserve(p);
