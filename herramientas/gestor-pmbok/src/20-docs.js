@@ -776,7 +776,7 @@
         <section><h3 class="h4 docs-io-h">Herramientas y técnicas</h3>
           ${tools.length ? html`<ul>${tools.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : html`<p class="small faint">Sin herramientas registradas.</p>`}
           ${toolViews.length ? html`<div class="stack-sm" style="margin-top:10px"><div class="label-caps">Herramientas de la aplicación</div><div class="row">
-            ${toolViews.map((v) => html`<${ui.Button} key=${v.id} size="sm" icon=${v.icon} onClick=${go(() => PM.navigate(v.id))}>${v.label}</${ui.Button}>`)}
+            ${toolViews.map((v) => html`<${ui.Button} key=${v.id} size="sm" icon=${v.icon} onClick=${go(() => PM.navigate(v.id, PM.KB.toolParams ? PM.KB.toolParams(p.code, v.id) : {}))}>${v.label}</${ui.Button}>`)}
           </div></div>` : null}
           ${offTools.length ? html`<p class="xsmall faint" style="margin:8px 0 0" data-off-tools>Con ciclo de vida adaptativo o híbrido también: ${offTools.map((v) => v.label).join(', ')}.</p>` : null}
         </section>
@@ -831,7 +831,7 @@
       const v = PM.getView(o.view);
       return html`<div class="docs-out-row"><span class="docs-out-name"><${ui.Icon} name=${v ? v.icon : 'process'} size=${15} />${o.label || (v ? v.label : o.view)}</span>
         <${ui.Chip}>Herramienta</${ui.Chip}>
-        ${v ? html`<${ui.Button} size="sm" icon="arrow-right" onClick=${go(() => PM.navigate(o.view))}>Abrir herramienta</${ui.Button}>` : null}
+        ${v ? html`<${ui.Button} size="sm" icon="arrow-right" onClick=${go(() => PM.navigate(o.view, o.params ? { ...o.params } : {}))}>Abrir herramienta</${ui.Button}>` : null}
       </div>`;
     }
     if (o.baseline) {

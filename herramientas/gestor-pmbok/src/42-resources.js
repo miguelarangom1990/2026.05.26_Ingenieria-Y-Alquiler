@@ -1182,14 +1182,15 @@
     </tr>`;
   }, (a, b) => a.d.sig === b.d.sig && a.showAgile === b.showAgile && a.canWrite === b.canWrite && a.currency === b.currency && a.api === b.api);
 
-  function ResourceCatalog() {
+  function ResourceCatalog(props) {
     const m = PM.useResourceModel();
     const canWrite = PM.useCanWrite();
     const live = useRef(m); live.current = m;
     const getLive = useCallback(() => live.current, []);
     const [q, setQ] = useState('');
     const [typeF, setTypeF] = useState('');
-    const [planF, setPlanF] = useState('');
+    /* filtro inicial desde la navegación (p. ej. el tablero o el valor ganado abren el catálogo con {plan: 'no-planificado'}) */
+    const [planF, setPlanF] = useState(() => { const pp = (props && props.plan) || ((PM.getState().params || {}).plan); return ['planificado', 'no-planificado', 'pendiente', 'sin-clasificar'].includes(pp) ? pp : ''; });
     const [sort, setSort] = useState({ key: 'code', dir: 1 });
     const cat = m.catalog;
     const tasks = m.schedule.tasks;
