@@ -6,7 +6,13 @@
 // motivo: riesgo con reserva para contingencias, sustitución, todo costo, rendimiento, cambio de alcance con solicitud
 // CC-00x en el registro de cambios, reserva de gestión pendiente y registrada desde el catálogo), eliminar con
 // asignaciones (quitar o conservar por nombre), búsqueda, filtros, orden, exportación CSV, teclado, solo lectura,
-// 300 recursos con 500 actividades, tema oscuro, 400 px y 1920 px.
+// 300 recursos con 500 actividades, tema oscuro, 400 px, 1360/1440 px (tabla compacta) y 1920 px.
+// Regresiones de la revisión integral: la solicitud de cambio se registra al guardar el recurso (cancelar no deja
+// solicitudes huérfanas ni duplicadas), fecha de alta y de la solicitud = hoy, aviso de la reserva estimada del riesgo,
+// solicitud de la reserva de gestión (tipo, costo obligatorio y fuente), casilla del equipo ágil para recursos de trabajo
+// que no son de personal, foco tras eliminar recursos y tipos, plural de las unidades, tipo sugerido según el proyecto,
+// clase conservada al reasignar tipos y confirmación al cambiarla, disponibilidad heredada de resourceLimits, renombrar
+// al nombre de un «Sin clasificar» y recursos importados sin id.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openApp, createProject, errorCards, horizontalOverflow } from './harness.mjs';
@@ -34,6 +40,13 @@ async function mountView(page) {
 const goto = async (page) => { await page.evaluate(() => PM.navigate('prueba-catalogo')); await sleep(page, 600); };
 const readTool = (page, pid, tool) => page.evaluate(async ({ pid, tool }) => { await PM.flushAll(); return PM.store.get(PM.paths.tool(pid, tool)); }, { pid, tool });
 const readDoc = (page, pid, id) => page.evaluate(async ({ pid, id }) => { await PM.flushAll(); return PM.store.get(PM.paths.doc(pid, id)); }, { pid, id });
+/* solicitudes de cambio del proyecto: filas del registro de cambios y documentos solicitud-cambio--… */
+const changeState = (page, pid) => page.evaluate(async (pid) => {
+  await PM.flushAll();
+  const reg = await PM.store.get(PM.paths.doc(pid, 'registro-cambios'));
+  const docs = await PM.store.list(PM.paths.docs(pid));
+  return { rows: ((reg && reg.fields && reg.fields.cambios) || []).map((r) => r.id), docs: docs.filter((d) => /^solicitud-cambio--/.test(d.id)).length };
+}, pid);
 const top = (page) => page.locator('.modal[role="dialog"]').last();
 const modalCount = (page) => page.locator('.modal[role="dialog"]').count();
 const bar = (page) => page.locator('[data-rcat-bar]');
@@ -68,6 +81,8 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
   await mountView(page);
   const pid = await createProject(page, { lifecycle: 'Predictivo', statusDate: STATUS });
   await sleep(page, 300);
+  /* fecha de alta y de las solicitudes de cambio: la de hoy (no la fecha de corte del proyecto) */
+  const TODAY = await page.evaluate(() => PM.date.today());
   let crId = null;
 
   await step('estado vacío', async () => {
@@ -110,7 +125,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     ok('al guardar se cierra el editor', await modalCount(page) === 0);
     const doc = await readTool(page, pid, 'resources');
     const it = itemByName(doc, 'Cuadrilla de montaje');
-    ok('alta: código, tipo, unidad, disponibilidad, costo, fecha de alta y ausencia', it && it.code === 'REC-001' && it.typeId === 'humano' && it.subtype === 'Montadores' && it.unit === 'cuadrilla' && it.availability === 3 && it.unitCost === 450000 && it.addedDate === STATUS && it.planned === true && it.absences.length === 1 && it.absences[0].from === '2026-09-01' && it.absences[0].note === 'Capacitación en alturas', it);
+    ok('alta: código, tipo, unidad, disponibilidad, costo, fecha de alta y ausencia', it && it.code === 'REC-001' && it.typeId === 'humano' && it.subtype === 'Montadores' && it.unit === 'cuadrilla' && it.availability === 3 && it.unitCost === 450000 && it.addedDate === TODAY && it.planned === true && it.absences.length === 1 && it.absences[0].from === '2026-09-01' && it.absences[0].note === 'Capacitación en alturas', it);
     ok('la fila aparece en la tabla', await row(page, 'Cuadrilla de montaje').count() === 1);
   });
 
@@ -125,6 +140,19 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await page.keyboard.press('Escape');
     await sleep(page, 200);
     ok('Escape cierra el editor sin guardar', await modalCount(page) === 0 && (await readTool(page, pid, 'resources')).items.length === 1);
+  });
+
+  await step('recurso de trabajo que no es una persona (proyecto predictivo)', async () => {
+    await bar(page).getByRole('button', { name: 'Agregar recurso' }).click();
+    await sleep(page, 250);
+    const ed = top(page);
+    await ed.locator('#rce-name').fill('Compresor de aire');
+    await ed.locator('#rce-type').selectOption('maquinaria');
+    await sleep(page, 100);
+    const t = await ed.innerText();
+    ok('sin casilla de equipo ágil; la sección se llama «Disponibilidad en el tiempo» y «Periodos no disponibles» aparece una vez', await ed.locator('#rce-agile').count() === 0 && (await ed.locator('[data-rcat-time]').innerText()).trim() === 'Disponibilidad en el tiempo' && (t.match(/Periodos no disponibles/g) || []).length === 1, (t.match(/Periodos no disponibles/g) || []).length);
+    await page.keyboard.press('Escape');
+    await sleep(page, 200);
   });
 
   await step('editar', async () => {
@@ -229,14 +257,20 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await dl.getByRole('button', { name: 'Subir «Material»' }).click();
     await dl.getByRole('button', { name: 'Eliminar el tipo «Software y licencias»' }).click();
     await sleep(page, 100);
-    ok('tipo sin uso: se quita sin preguntar', await dl.locator('li[data-type="software"]').count() === 0);
+    ok('tipo sin uso: se quita sin preguntar y el foco pasa al tipo siguiente', await dl.locator('li[data-type="software"]').count() === 0 && (await active(page)).id.startsWith('rct-n-'), await active(page));
     await dl.getByRole('button', { name: 'Eliminar el tipo «Transporte»' }).click();
     await sleep(page, 150);
     const panel = dl.locator('[data-rcat-move]');
-    ok('tipo en uso: pide a qué tipo reasignar', await panel.count() === 1 && /tiene 1 recurso/.test(await panel.innerText()) && (await active(page)).id === 'rct-move-to', await active(page));
+    ok('tipo en uso: pide a qué tipo reasignar (sugiere uno de la misma clase)', await panel.count() === 1 && /tiene 1 recurso/.test(await panel.innerText()) && (await active(page)).id === 'rct-move-to' && (await panel.locator('select').inputValue()) === 'humano', [await active(page), await panel.locator('select').inputValue()]);
+    await panel.getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 120);
+    ok('cancelar la reasignación: el foco vuelve a su botón Eliminar', (await active(page)).id === 'rct-del-transporte' && await dl.locator('[data-rcat-move]').count() === 0, await active(page));
+    await page.keyboard.press('Enter');
+    await sleep(page, 150);
     await panel.locator('select').selectOption('maquinaria');
     await panel.getByRole('button', { name: 'Eliminar y reasignar' }).click();
-    await sleep(page, 100);
+    await sleep(page, 150);
+    ok('eliminar y reasignar: el foco pasa al nombre del tipo siguiente', (await active(page)).id === 'rct-n-servicio', await active(page));
     ok('conteo tras la reasignación', /^1 recurso$/.test((await dl.locator('li[data-type="maquinaria"] .rcat-trow-n').innerText()).trim()) && await dl.locator('li[data-type="transporte"]').count() === 0);
     await dl.getByRole('button', { name: 'Guardar tipos' }).click();
     await sleep(page, 400);
@@ -325,12 +359,16 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 150);
     ok('riesgo: no supera la reserva disponible', /supera la reserva para contingencias disponible/.test(await fl.innerText()));
+    const over = fl.locator('[data-rcat-note="risk-over"]');
+    ok('riesgo: avisa que el monto supera la reserva estimada del riesgo', await over.count() === 1 && /supera en \$ 8\.000\.000 la reserva estimada del riesgo R-001/.test(await over.innerText()), await over.count() ? await over.innerText() : null);
     await fl.locator('#rcf-amount').fill('4000000');
+    await sleep(page, 100);
+    ok('riesgo: igual a la reserva estimada, sin aviso', await fl.locator('[data-rcat-note="risk-over"]').count() === 0);
     await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 500);
     ok('flujo y editor cerrados', await modalCount(page) === 0);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Malla de seguridad adicional');
-    ok('guardado: no planificado, riesgo, reserva, fecha de alta y estado «Solicitado»', it && it.planned === false && it.reason === 'riesgo' && it.riskId === 'R-001' && it.reserveAmount === 4000000 && it.addedDate === STATUS && !it.changeRef && it.status === 'solicitado', it);
+    ok('guardado: no planificado, riesgo, reserva, fecha de alta (hoy) y estado «Solicitado»', it && it.planned === false && it.reason === 'riesgo' && it.riskId === 'R-001' && it.reserveAmount === 4000000 && it.addedDate === TODAY && !it.changeRef && it.status === 'solicitado', it);
     const r = await row(page, 'Malla de seguridad adicional').innerText();
     ok('fila: chip «No planificado», motivo y riesgo', /No planificado/.test(r) && /Respuesta a un riesgo identificado/.test(r) && /Riesgo R-001/.test(r), r);
   });
@@ -339,10 +377,15 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     const fl = await addUnplanned(page, { name: 'Bomba de achique', typeId: 'maquinaria', reason: 'riesgo' });
     ok('disponible = contingencia − consumido', /\$ 6\.000\.000/.test(await fl.locator('[data-rcat-available]').innerText()), await fl.locator('[data-rcat-available]').innerText());
     await fl.locator('#rcf-risk').selectOption('R-001');
+    await sleep(page, 100);
+    ok('riesgo: muestra lo que otros recursos ya consumen del mismo riesgo', /ya consumida por otros recursos: \$ 4\.000\.000/.test(await fl.locator('[data-rcat-riskinfo]').innerText()), await fl.locator('[data-rcat-riskinfo]').innerText());
     await fl.locator('#rcf-amount').fill('1000000');
+    await sleep(page, 100);
+    const over = fl.locator('[data-rcat-note="risk-over"]');
+    ok('riesgo: aviso no bloqueante (la suma supera la reserva estimada del riesgo)', await over.count() === 1 && /consumen \$ 5\.000\.000: \$ 1\.000\.000 más que su reserva estimada/.test(await over.innerText()) && (await fl.locator('#rcf-amount').getAttribute('aria-describedby')) === 'rcf-risk-over', await over.count() ? await over.innerText() : null);
     await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 500);
-    ok('segundo consumo guardado', (itemByName(await readTool(page, pid, 'resources'), 'Bomba de achique') || {}).reserveAmount === 1000000);
+    ok('segundo consumo guardado pese al aviso', (itemByName(await readTool(page, pid, 'resources'), 'Bomba de achique') || {}).reserveAmount === 1000000);
   });
 
   await step('motivos que no cambian la línea base', async () => {
@@ -356,29 +399,42 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     }
   });
 
-  await step('cambio de alcance con solicitud CC-001', async () => {
+  await step('cambio de alcance: cancelar no deja solicitudes huérfanas', async () => {
     const fl = await addUnplanned(page, { name: 'Grúa telescópica 50 t', typeId: 'maquinaria', reason: 'cambio-alcance' });
-    ok('cambio de alcance: sección de control de cambios', await fl.locator('[data-rcat-cc]').count() === 1);
-    await fl.getByRole('button', { name: 'Registrar solicitud de cambio' }).click();
+    ok('cambio de alcance: sección de control de cambios con «nueva» elegida', await fl.locator('[data-rcat-cc]').count() === 1 && await fl.locator('label[data-choice="nueva"] input').isChecked() && /cuando se guarda el recurso/.test(await fl.locator('[data-rcat-cc]').innerText()));
+    await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 150);
-    ok('justificación obligatoria para registrar', /Escribe la justificación/.test(await fl.innerText()) && (await active(page)).id === 'rcf-just');
+    ok('justificación obligatoria para registrar', /Escribe la justificación/.test(await fl.innerText()) && (await active(page)).id === 'rcf-just', await active(page));
+    await fl.locator('#rcf-just').fill('El cliente cambió la secuencia de fachada y se requiere izaje adicional.');
+    await fl.locator('#rcf-cost').fill('7500000');
+    let cs = await changeState(page, pid);
+    ok('nada se registra antes de guardar el recurso', cs.rows.length === 0 && cs.docs === 0, cs);
+    await fl.getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 250);
+    ok('cancelar el flujo vuelve al editor', await modalCount(page) === 1 && /Nuevo recurso/.test(await top(page).innerText()));
+    await top(page).getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 300);
+    cs = await changeState(page, pid);
+    ok('cancelar: sin solicitud huérfana en el registro de cambios ni documento, y sin recurso', cs.rows.length === 0 && cs.docs === 0 && !itemByName(await readTool(page, pid, 'resources'), 'Grúa telescópica 50 t'), cs);
+  });
+
+  await step('cambio de alcance con solicitud CC-001 al guardar', async () => {
+    const fl = await addUnplanned(page, { name: 'Grúa telescópica 50 t', typeId: 'maquinaria', reason: 'cambio-alcance' });
     await fl.locator('#rcf-just').fill('El cliente cambió la secuencia de fachada y se requiere izaje adicional.');
     await fl.locator('#rcf-scope').fill('Izaje de plataformas adicionales en la torre 2');
     await fl.locator('#rcf-days').fill('3');
     await fl.locator('#rcf-cost').fill('7500000');
-    await fl.getByRole('button', { name: 'Registrar solicitud de cambio' }).click();
-    await sleep(page, 600);
-    ok('solicitud registrada y visible', /Solicitud CC-001 registrada/.test(await fl.locator('[data-rcat-note="cc-ok"]').innerText()) && (await fl.locator('#rcf-ref').inputValue()) === 'CC-001');
+    await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
+    await sleep(page, 900);
+    ok('flujo y editor cerrados', await modalCount(page) === 0);
     const reg = await readDoc(page, pid, 'registro-cambios');
     const rowCC = reg && reg.fields.cambios.find((c) => c.id === 'CC-001');
-    ok('registro de cambios: fila CC-001', rowCC && rowCC.estado === 'Registrada' && rowCC.impactoCronograma === 3 && rowCC.impactoCosto === 7500000 && /Grúa telescópica 50 t/.test(rowCC.descripcion) && rowCC.fecha === STATUS, rowCC);
-    await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
-    await sleep(page, 500);
+    ok('registro de cambios: fila CC-001 con la fecha de hoy y tipo «Actualización»', rowCC && rowCC.estado === 'Registrada' && rowCC.tipo === 'Actualización' && rowCC.impactoCronograma === 3 && rowCC.impactoCosto === 7500000 && /Grúa telescópica 50 t/.test(rowCC.descripcion) && rowCC.fecha === TODAY && reg.fields.cambios.length === 1, rowCC);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Grúa telescópica 50 t');
-    ok('recurso con changeRef y documento', it && it.reason === 'cambio-alcance' && it.changeRef === 'CC-001' && /^solicitud-cambio--/.test(it.changeDocId || ''), it);
+    ok('recurso con changeRef y documento', it && it.reason === 'cambio-alcance' && it.changeRef === 'CC-001' && /^solicitud-cambio--/.test(it.changeDocId || '') && it.addedDate === TODAY, it);
     crId = it.changeDocId;
     const sc = await readDoc(page, pid, crId);
-    ok('solicitud de cambio prellenada', sc && sc.fields.codigoCambio === 'CC-001' && sc.fields.decision === 'Registrada' && sc.fields.diasCronograma === 3 && sc.fields.valorCosto === 7500000 && sc.fields.elementosAfectados.includes('Línea base del alcance') && /secuencia de fachada/.test(sc.fields.justificacion), sc && sc.fields);
+    ok('solicitud de cambio prellenada (fecha de hoy, detalle del costo)', sc && sc.fields.codigoCambio === 'CC-001' && sc.fields.decision === 'Registrada' && sc.fields.fechaSolicitud === TODAY && sc.fields.diasCronograma === 3 && sc.fields.valorCosto === 7500000 && sc.fields.elementosAfectados.includes('Línea base del alcance') && /secuencia de fachada/.test(sc.fields.justificacion) && /Fuente de financiación/.test(sc.fields.impactoCosto || ''), sc && sc.fields);
     await row(page, 'Grúa telescópica 50 t').getByRole('button', { name: /Solicitud CC-001/ }).click();
     await sleep(page, 200);
     const st = await page.evaluate(() => ({ view: PM.getState().view, params: PM.getState().params }));
@@ -386,32 +442,81 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await goto(page);
   });
 
+  await step('cambiar el motivo no registra otra solicitud', async () => {
+    await row(page, 'Grúa telescópica 50 t').getByRole('button', { name: 'Editar «Grúa telescópica 50 t»' }).click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Cambiar el motivo…' }).click();
+    await sleep(page, 350);
+    const fl = top(page);
+    ok('flujo: la solicitud vinculada queda elegida', await fl.locator('label[data-choice="existente"] input').isChecked() && (await fl.locator('#rcf-ref').inputValue()) === 'CC-001');
+    await fl.locator('label[data-choice="nueva"]').click();
+    await sleep(page, 120);
+    ok('«nueva» con una vinculada: advierte que ya existe CC-001', /ya está vinculado con la solicitud CC-001/.test(await fl.locator('[data-rcat-note="cc-linked"]').innerText()));
+    await fl.locator('label[data-choice="existente"]').click();
+    await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Guardar cambios' }).click();
+    await sleep(page, 600);
+    const cs = await changeState(page, pid);
+    const it = itemByName(await readTool(page, pid, 'resources'), 'Grúa telescópica 50 t');
+    ok('sin duplicados: solo CC-001 y el recurso sigue vinculado', JSON.stringify(cs.rows) === '["CC-001"]' && cs.docs === 1 && it.changeRef === 'CC-001' && it.changeDocId === crId, [cs, it.changeRef]);
+  });
+
   await step('reserva de gestión pendiente y registrada desde el catálogo', async () => {
     const fl = await addUnplanned(page, { name: 'Planta eléctrica de respaldo', typeId: 'maquinaria', reason: 'reserva-gestion' });
+    ok('reserva de gestión: muestra la reserva del plan', /\$ 5\.000\.000/.test(await fl.locator('[data-rcat-mgmt]').innerText()));
+    await fl.locator('label[data-choice="despues"]').click();
     await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 500);
     const note = page.locator('[data-rcat-note="pending"]');
     ok('aviso de pendientes de solicitud de cambio', await note.count() === 1 && /1 recurso no planificado/.test(await note.innerText()) && (await tile(page, 'no-planificados')) === '7');
+    /* editor: «Registrar solicitud de cambio…» deja la solicitud pendiente hasta guardar; cancelar no registra nada */
+    await row(page, 'Planta eléctrica de respaldo').getByRole('button', { name: 'Editar «Planta eléctrica de respaldo»' }).click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Registrar solicitud de cambio…' }).click();
+    await sleep(page, 350);
+    let f2 = top(page);
+    await f2.locator('#rcf-just').fill('Falla del suministro eléctrico de la obra sin riesgo identificado.');
+    await f2.locator('#rcf-cost').fill('2500000');
+    await f2.getByRole('button', { name: 'Confirmar motivo' }).click();
+    await sleep(page, 300);
+    ok('editor: la solicitud queda pendiente hasta guardar', /se registra al guardar el recurso/.test(await top(page).locator('[data-rcat-pending-cc]').innerText()));
+    await top(page).getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 300);
+    let cs = await changeState(page, pid);
+    ok('cancelar el editor: no se registra ninguna solicitud', JSON.stringify(cs.rows) === '["CC-001"]' && cs.docs === 1, cs);
     await note.getByRole('button', { name: 'Ver pendientes' }).click();
     await sleep(page, 200);
     const names = await page.locator('tr[data-rcat-row]').evaluateAll((els) => els.map((e) => e.dataset.rcatRow));
     ok('filtro de pendientes', names.length === 1 && names[0] === 'Planta eléctrica de respaldo', names);
+    /* catálogo: cancelar el flujo tampoco registra nada */
     await row(page, 'Planta eléctrica de respaldo').getByRole('button', { name: 'Registrar solicitud' }).click();
     await sleep(page, 350);
-    const f2 = top(page);
-    ok('flujo prellenado con el motivo', await f2.locator('label[data-choice="reserva-gestion"] input').isChecked());
+    f2 = top(page);
+    await f2.locator('#rcf-just').fill('Prueba');
+    await page.keyboard.press('Escape');
+    await sleep(page, 250);
+    cs = await changeState(page, pid);
+    ok('catálogo: Escape en el flujo no registra nada', JSON.stringify(cs.rows) === '["CC-001"]' && await modalCount(page) === 0, cs);
+    await row(page, 'Planta eléctrica de respaldo').getByRole('button', { name: 'Registrar solicitud' }).click();
+    await sleep(page, 350);
+    f2 = top(page);
+    ok('flujo prellenado con el motivo y «nueva» elegida', await f2.locator('label[data-choice="reserva-gestion"] input').isChecked() && await f2.locator('label[data-choice="nueva"] input').isChecked());
     await f2.locator('#rcf-just').fill('Falla del suministro eléctrico de la obra sin riesgo identificado.');
-    await f2.getByRole('button', { name: 'Registrar solicitud de cambio' }).click();
-    await sleep(page, 600);
     await f2.getByRole('button', { name: 'Confirmar y abrir la solicitud' }).click();
-    await sleep(page, 600);
+    await sleep(page, 150);
+    ok('reserva de gestión: pide el costo estimado si no sale de las asignaciones', /Escribe el costo estimado que se pagaría con la reserva de gestión/.test(await f2.innerText()) && (await active(page)).id === 'rcf-cost', await active(page));
+    await f2.locator('#rcf-cost').fill('2500000');
+    await f2.getByRole('button', { name: 'Confirmar y abrir la solicitud' }).click();
+    await sleep(page, 900);
     const it = itemByName(await readTool(page, pid, 'resources'), 'Planta eléctrica de respaldo');
     const st = await page.evaluate(() => ({ view: PM.getState().view, params: PM.getState().params }));
     ok('CC-002 guardada y documento abierto', it.changeRef === 'CC-002' && st.view === 'documento' && st.params.docId === it.changeDocId, [it.changeRef, st]);
+    const sc = await readDoc(page, pid, it.changeDocId);
+    ok('solicitud de la reserva de gestión: tipo «Actualización», costo y fuente de financiación', sc && sc.fields.tipoCambio === 'Actualización' && sc.fields.valorCosto === 2500000 && /reserva de gestión/.test(sc.fields.impactoCosto || '') && /reserva de gestión/.test(sc.fields.descripcionCambio) && sc.fields.fechaSolicitud === TODAY, sc && { tipo: sc.fields.tipoCambio, valor: sc.fields.valorCosto, det: sc.fields.impactoCosto });
     await goto(page);
     ok('sin pendientes', await page.locator('[data-rcat-note="pending"]').count() === 0);
   });
-
   await step('recurso planificado con línea base', async () => {
     await bar(page).getByRole('button', { name: 'Agregar recurso' }).click();
     await sleep(page, 300);
@@ -446,10 +551,14 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await dl.getByRole('button', { name: 'Cancelar' }).click();
     await sleep(page, 200);
     ok('cancelar no elimina', !!itemByName(await readTool(page, pid, 'resources'), 'Cuadrilla de montaje'));
+    const order = await page.locator('tr[data-rcat-row]').evaluateAll((els) => els.map((e) => e.dataset.rcatRow));
+    const nextName = order[order.indexOf('Cuadrilla de montaje') + 1];
     await row(page, 'Cuadrilla de montaje').getByRole('button', { name: 'Eliminar «Cuadrilla de montaje»' }).click();
     await sleep(page, 300);
     await top(page).getByRole('button', { name: 'Eliminar recurso' }).click();
     await sleep(page, 500);
+    const af = await page.evaluate(() => { const a = document.activeElement; const tr = a && a.closest('tr[data-rcat-row]'); return { cls: a && a.className, row: tr && tr.dataset.rcatRow }; });
+    ok('tras eliminar, el foco pasa al nombre de la fila siguiente', /rcat-link/.test(af.cls || '') && af.row === nextName, [af, nextName]);
     let sch = await readTool(page, pid, 'schedule');
     ok('quitar: asignaciones eliminadas de las actividades', !itemByName(await readTool(page, pid, 'resources'), 'Cuadrilla de montaje') && sch.tasks.every((x) => !x.resources.some((a) => a.name === 'Cuadrilla de montaje')), sch.tasks.map((x) => x.resources.map((a) => a.name)));
     await row(page, 'Camión grúa').getByRole('button', { name: 'Eliminar «Camión grúa»' }).click();
@@ -564,7 +673,7 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await fl.getByRole('button', { name: 'Confirmar motivo' }).click();
     await sleep(page, 300);
     const r = await page.evaluate(() => window.__fl);
-    ok('el flujo devuelve el recurso con su motivo y no guarda', r && r.planned === false && r.reason === 'rendimiento' && r.addedDate === '2026-10-02' && !itemByNameIn(await readTool(page, pid, 'resources')), r);
+    ok('el flujo devuelve el recurso con su motivo y no guarda', r && r.planned === false && r.reason === 'rendimiento' && r.addedDate === TODAY && !itemByNameIn(await readTool(page, pid, 'resources')), r);
     await page.evaluate(() => { window.__td = undefined; PM.resourceTypesDialog(null).then((v) => { window.__td = v; }); });
     await sleep(page, 350);
     await top(page).getByRole('button', { name: 'Cancelar' }).click();
@@ -630,8 +739,191 @@ async function addUnplanned(page, { name, typeId, reason, before }) {
     await sleep(page, 500);
     const it = (await readTool(page, pid2, 'resources')).items.find((x) => x.id === 'r4');
     ok('guardar con datos grandes', it.unitCost === 99000);
-    ok('columna de equipo ágil en proyecto híbrido', await page.locator('.rcat-table th', { hasText: 'Equipo ágil' }).count() === 1);
+    ok('equipo ágil en proyecto híbrido (columna o dentro de la disponibilidad en la tabla compacta)', (await page.locator('.rcat-table').getAttribute('data-compact')) === '1' ? /Equipo ágil · 50 %/.test(await row(page, 'Recurso de carga 1').innerText()) : await page.locator('.rcat-table th', { hasText: 'Equipo ágil' }).count() === 1);
+    /* casilla del equipo ágil para un recurso de trabajo que no es de tipo personal (p. ej. un consultor) */
+    await bar(page).getByRole('button', { name: 'Agregar recurso' }).click();
+    await sleep(page, 300);
+    const ed = top(page);
+    await ed.locator('#rce-name').fill('Consultor funcional externo');
+    await ed.locator('#rce-type').selectOption('servicio');
+    await sleep(page, 100);
+    ok('servicio en proyecto híbrido: ofrece la casilla del equipo ágil', await ed.locator('#rce-agile').count() === 1 && await ed.locator('#rce-ded').count() === 0 && (await ed.locator('[data-rcat-time]').innerText()).trim() === 'Equipo ágil y disponibilidad');
+    await ed.locator('#rce-agile').focus();
+    await page.keyboard.press('Space');
+    await sleep(page, 100);
+    ok('al marcarla aparecen dedicación y horas', await ed.locator('#rce-ded').count() === 1 && await ed.locator('#rce-hours').count() === 1);
+    await page.keyboard.press('Space');
+    await sleep(page, 100);
+    ok('al desmarcarla la casilla sigue visible y conserva el foco', await ed.locator('#rce-agile').count() === 1 && (await active(page)).id === 'rce-agile' && !(await ed.locator('#rce-agile').isChecked()));
+    await page.keyboard.press('Space');
+    await ed.getByRole('button', { name: 'Agregar recurso' }).click();
+    await sleep(page, 500);
+    const cons = itemByName(await readTool(page, pid2, 'resources'), 'Consultor funcional externo');
+    ok('guardado en el equipo ágil con su tipo de servicio', cons && cons.agileTeam === true && cons.typeId === 'servicio' && cons.dedication === 100, cons);
     ok('sin errores con datos grandes', !(await errorCards(page)).length && !errors.length, errors.slice(0, 3));
+  });
+
+  /* integridad del catálogo: disponibilidad heredada de resourceLimits, renombrar al nombre de un «Sin clasificar»,
+     recursos importados sin id, tipo sugerido según el proyecto, plural de las unidades, clase al eliminar o cambiar tipos */
+  await step('integridad del catálogo', async () => {
+    const pid3 = await createProject(page, { name: 'Proyecto de enlaces', code: 'PRY-TEST-ENL', lifecycle: 'Predictivo', statusDate: STATUS });
+    await page.evaluate(async (pid) => {
+      await PM.store.set(PM.paths.tool(pid, 'resources'), { preset: 'general', types: [], items: [
+        { id: 'g1', code: 'REC-001', name: 'Grúa', typeId: 'maquinaria', unit: 'equipo', unitCost: 1000000 },
+        { id: 'g2', code: 'REC-002', name: 'Camión grúa', typeId: 'transporte', unit: 'equipo', unitCost: 900000 },
+        { id: 'g3', code: 'REC-003', name: 'Grúa torre del cliente', typeId: 'transporte', unit: 'equipo' },
+        { id: 'c1', code: 'REC-004', name: 'Concreto 3000 psi', typeId: 'material', unit: 'm³', unitCost: 500000 },
+        { id: 'c2', code: 'REC-005', name: 'Cuadrilla', typeId: 'humano', unit: 'cuadrilla', unitCost: 300000 },
+        { id: 'k1', code: 'REC-006', name: 'Kit de anclaje', typeId: 'material', unit: 'kit', unitCost: 20000 },
+        { id: 'l1', code: 'REC-007', name: 'Licencia de diseño', typeId: 'software', unit: 'licencia', unitCost: 100000 },
+        { name: 'Grúa telescópica', typeId: 'maquinaria', unitCost: 2000000, supplier: 'Arrendadora de izaje' },
+        { name: 'Andamio colgante', typeId: 'herramienta', unitCost: 50000 },
+      ] });
+      await PM.store.set(PM.paths.tool(pid, 'schedule'), { settings: { workweek: 5, holidaysCO: true, extraHolidays: [], resourceLimits: { 'Grúa': 2, 'Grúa 2': 1 } }, tasks: [
+        { id: 'a', name: 'Izaje 1', duration: 2, deps: [], costMode: 'recursos', resources: [{ resourceId: 'g1', name: 'Grúa', units: 1 }] },
+        { id: 'b', name: 'Izaje 2 (grúa del contratista)', duration: 3, deps: [], costMode: 'recursos', resources: [{ name: 'Grúa 2', units: 1 }] },
+        { id: 'f', name: 'Fundir placa', duration: 5, deps: [], costMode: 'recursos', resources: [{ resourceId: 'c1', name: 'Concreto 3000 psi', units: 1, qty: 12 }, { resourceId: 'c2', name: 'Cuadrilla', units: 2 }] },
+        { id: 'k', name: 'Anclajes', duration: 1, deps: [], cost: 100000, resources: [{ resourceId: 'k1', name: 'Kit de anclaje', units: 1, qty: 10 }] },
+        { id: 'd', name: 'Diseño de anclajes', duration: 4, deps: [], costMode: 'recursos', resources: [{ resourceId: 'l1', name: 'Licencia de diseño', units: 1, qty: 3 }] },
+        { id: 'gt', name: 'Izaje de vigas', duration: 1, deps: [], cost: 500000, resources: [{ name: 'Grúa telescópica', units: 1 }, { name: 'Andamio colgante', units: 1 }] },
+      ] });
+    }, pid3);
+    await sleep(page, 300);
+    await goto(page);
+    const costOf = (id) => page.evaluate(async ({ pid, id }) => { await PM.flushAll(); const r = await PM.store.get(PM.paths.tool(pid, 'resources')); const s = await PM.store.get(PM.paths.tool(pid, 'schedule')); return PM.res.taskCost(s.tasks.find((t) => t.id === id), PM.res.catalog(r, s)).total; }, { pid: pid3, id });
+
+    /* plural de la unidad en «Uso planificado» */
+    ok('uso planificado: unidad en plural («10 kits»)', /10 kits/.test(await row(page, 'Kit de anclaje').innerText()), await row(page, 'Kit de anclaje').innerText());
+
+    /* disponibilidad heredada de resourceLimits: vaciarla en el editor la quita */
+    ok('disponibilidad heredada de resourceLimits', /2 por día/.test(await row(page, 'Grúa').innerText()));
+    await row(page, 'Grúa').getByRole('button', { name: 'Editar «Grúa»' }).click();
+    await sleep(page, 300);
+    let ed = top(page);
+    ok('el editor muestra la disponibilidad heredada', (await ed.locator('#rce-avail').inputValue()) === '2');
+    await fillNum(ed.locator('#rce-avail'), '');
+    await ed.getByRole('button', { name: 'Guardar cambios' }).click();
+    await sleep(page, 500);
+    let sch = await readTool(page, pid3, 'schedule');
+    ok('vaciar la disponibilidad: «Sin límite» y se quita la clave de resourceLimits', /Sin límite/.test(await row(page, 'Grúa').innerText()) && !('Grúa' in sch.settings.resourceLimits) && sch.settings.resourceLimits['Grúa 2'] === 1, sch.settings.resourceLimits);
+
+    /* renombrar al nombre de un recurso «Sin clasificar»: confirma y enlaza */
+    ok('antes: «Izaje 2» sin costo (Grúa 2 sin clasificar)', (await costOf('b')) === 0);
+    await row(page, 'Grúa').getByRole('button', { name: 'Editar «Grúa»' }).click();
+    await sleep(page, 300);
+    ed = top(page);
+    await ed.locator('#rce-name').fill('Grúa 2');
+    await ed.getByRole('button', { name: 'Guardar cambios' }).click();
+    await sleep(page, 300);
+    let cf = top(page);
+    const mt = await cf.innerText();
+    ok('renombrar al nombre de un «Sin clasificar»: pide confirmación con asignaciones y costo', await cf.locator('[data-rcat-merge]').count() === 1 && /1 asignación de 1 actividad/.test(mt) && /suma \$ 3\.000\.000/.test(mt) && /Izaje 2/.test(mt), mt.slice(0, 400));
+    await cf.getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 250);
+    ok('cancelar: el editor sigue abierto con el foco en el nombre y nada cambia', await modalCount(page) === 1 && (await active(page)).id === 'rce-name' && !!itemByName(await readTool(page, pid3, 'resources'), 'Grúa') && (await costOf('b')) === 0, await active(page));
+    await top(page).getByRole('button', { name: 'Guardar cambios' }).click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Guardar y enlazar' }).click();
+    await sleep(page, 600);
+    sch = await readTool(page, pid3, 'schedule');
+    const res3 = await readTool(page, pid3, 'resources');
+    const ab = sch.tasks.find((t) => t.id === 'b').resources[0];
+    ok('enlazado: la asignación queda con resourceId y sin la clave antigua de resourceLimits', (itemByName(res3, 'Grúa 2') || {}).id === 'g1' && ab.resourceId === 'g1' && !('Grúa 2' in sch.settings.resourceLimits) && await row(page, 'Grúa 2').count() === 1 && (await costOf('b')) === 3000000, [ab, sch.settings.resourceLimits]);
+
+    /* tipo sugerido: el que ya usa el proyecto para recursos con la misma palabra clave */
+    await bar(page).getByRole('button', { name: 'Agregar recurso' }).click();
+    await sleep(page, 250);
+    ed = top(page);
+    await ed.locator('#rce-name').fill('Grúa telescópica de 50 t');
+    await ed.locator('#rce-name').press('Tab');
+    await sleep(page, 100);
+    ok('tipo sugerido según las grúas del proyecto (Transporte, 2 de 3)', (await ed.locator('#rce-type').inputValue()) === 'transporte', await ed.locator('#rce-type').inputValue());
+    await page.keyboard.press('Escape');
+    await sleep(page, 200);
+
+    /* recurso importado sin id: el virtual con su nombre se clasifica sin falsos duplicados y lo reemplaza */
+    const gtRow = row(page, 'Grúa telescópica');
+    if (await gtRow.getByRole('button', { name: 'Clasificar «Grúa telescópica»' }).count()) {
+      await gtRow.getByRole('button', { name: 'Clasificar «Grúa telescópica»' }).click();
+      await sleep(page, 300);
+      ed = top(page);
+      ok('importado sin id: el editor toma sus datos (tipo y costo)', (await ed.locator('#rce-type').inputValue()) === 'maquinaria' && (await ed.locator('#rce-cost').inputValue()).replace(/\D/g, '') === '2000000');
+      await ed.getByRole('button', { name: 'Guardar en el catálogo' }).click();
+      await sleep(page, 500);
+      ok('clasificar no da «Ya existe…»', await modalCount(page) === 0, await modalCount(page) ? await top(page).innerText() : null);
+    }
+    let raw = (await readTool(page, pid3, 'resources')).items.filter((x) => x.name === 'Grúa telescópica');
+    ok('queda un solo recurso «Grúa telescópica», con id y sus datos', raw.length === 1 && !!raw[0].id && raw[0].typeId === 'maquinaria' && raw[0].unitCost === 2000000 && raw[0].supplier === 'Arrendadora de izaje', raw);
+    if (await bar(page).getByRole('button', { name: 'Clasificar los sin clasificar' }).count()) {
+      await bar(page).getByRole('button', { name: 'Clasificar los sin clasificar' }).click();
+      await sleep(page, 300);
+      const dl = top(page);
+      ok('lote: el importado sin id trae su tipo', (await dl.locator('tr[data-rcat-crow="Andamio colgante"] select').inputValue()) === 'herramienta');
+      await dl.getByRole('button', { name: 'Clasificar 1 recurso' }).click();
+      await sleep(page, 500);
+    }
+    raw = (await readTool(page, pid3, 'resources')).items.filter((x) => x.name === 'Andamio colgante');
+    ok('lote: un solo «Andamio colgante», con id', raw.length === 1 && !!raw[0].id && raw[0].typeId === 'herramienta' && raw[0].unitCost === 50000, raw);
+
+    /* eliminar un tipo en uso sin otro de la misma clase: hay que elegir el destino */
+    await bar(page).getByRole('button', { name: 'Tipos de recurso…' }).click();
+    await sleep(page, 300);
+    let dl = top(page);
+    await dl.getByRole('button', { name: 'Eliminar el tipo «Material»' }).click();
+    await sleep(page, 150);
+    let panel = dl.locator('[data-rcat-move]');
+    ok('destino sugerido: el otro tipo consumible', (await panel.locator('select').inputValue()) === 'software');
+    await panel.locator('select').selectOption('humano');
+    await sleep(page, 100);
+    ok('destino de otra clase: avisa que sus recursos conservan la clase', /sus 2 recursos conservan la clase consumible/.test(await panel.locator('[data-rcat-move-note]').innerText()));
+    await panel.getByRole('button', { name: 'Eliminar y reasignar' }).click();
+    await sleep(page, 150);
+    await dl.getByRole('button', { name: 'Eliminar el tipo «Software y licencias»' }).click();
+    await sleep(page, 150);
+    panel = dl.locator('[data-rcat-move]');
+    ok('sin otro tipo de la misma clase: no elige destino por omisión', (await panel.locator('select').inputValue()) === '');
+    await panel.getByRole('button', { name: 'Eliminar y reasignar' }).click();
+    await sleep(page, 150);
+    ok('sin destino: pide elegirlo y lleva el foco a la lista', /Elige a qué tipo pasan sus recursos/.test(await panel.innerText()) && (await active(page)).id === 'rct-move-to', await active(page));
+    await panel.getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 120);
+    await dl.getByRole('button', { name: 'Guardar tipos' }).click();
+    await sleep(page, 500);
+    let r3 = await readTool(page, pid3, 'resources');
+    const conc = itemByName(r3, 'Concreto 3000 psi');
+    ok('reasignado a otra clase: conserva la clase consumible y el costo no cambia', conc.typeId === 'humano' && conc.kind === 'consumible' && itemByName(r3, 'Kit de anclaje').kind === 'consumible' && (await costOf('f')) === 9000000 && await modalCount(page) === 0, [conc, await costOf('f')]);
+
+    /* cambiar la clase de un tipo con recursos: aviso y confirmación con el efecto en el costo */
+    await bar(page).getByRole('button', { name: 'Tipos de recurso…' }).click();
+    await sleep(page, 300);
+    dl = top(page);
+    await dl.locator('li[data-type="software"] select[aria-label^="Clase"]').selectOption('trabajo');
+    await sleep(page, 100);
+    ok('cambiar la clase de un tipo con recursos: aviso en la fila', /Cambia la clase de 1 recurso de «Software y licencias» a trabajo/.test(await dl.locator('[data-rcat-note="kind-change"]').innerText()));
+    await dl.getByRole('button', { name: 'Guardar tipos' }).click();
+    await sleep(page, 300);
+    cf = top(page);
+    const kt = await cf.innerText();
+    ok('al guardar: confirma con las actividades cuyo costo cambia', await cf.locator('[data-rcat-kindchange]').count() === 1 && /Cambia el costo de 1 actividad/.test(kt) && /\$ 300\.000 a \$ 400\.000/.test(kt), kt.slice(0, 400));
+    await cf.getByRole('button', { name: 'Cancelar' }).click();
+    await sleep(page, 250);
+    r3 = await readTool(page, pid3, 'resources');
+    ok('cancelar: no guarda los tipos', await modalCount(page) === 1 && r3.types.find((t) => t.id === 'software').kind === 'consumible' && (await costOf('d')) === 300000);
+    await page.keyboard.press('Escape');
+    await sleep(page, 200);
+
+    /* eliminar desde el editor: el foco pasa a la fila siguiente */
+    const order = await page.locator('tr[data-rcat-row]').evaluateAll((els) => els.map((e) => e.dataset.rcatRow));
+    const nextName = order[order.indexOf('Kit de anclaje') + 1];
+    await row(page, 'Kit de anclaje').locator('button.rcat-link').first().click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Eliminar' }).first().click();
+    await sleep(page, 300);
+    await top(page).getByRole('button', { name: 'Eliminar recurso' }).click();
+    await sleep(page, 600);
+    const af = await page.evaluate(() => { const a = document.activeElement; const tr = a && a.closest('tr[data-rcat-row]'); return { cls: a && a.className, row: tr && tr.dataset.rcatRow }; });
+    ok('eliminar desde el editor: el foco pasa al nombre de la fila siguiente', await modalCount(page) === 0 && /rcat-link/.test(af.cls || '') && af.row === nextName, [af, nextName]);
+    ok('sin errores en la integridad del catálogo', !(await errorCards(page)).length && !errors.length, errors.slice(0, 3));
   });
   await browser.close();
 }
@@ -665,9 +957,27 @@ async function visualSession({ width, height, dark, tag }) {
     ok(tag + ': la columna del recurso queda fija al desplazar', sticky <= 2, sticky);
     await page.evaluate(() => { document.querySelector('.rcat-twrap').scrollLeft = 0; });
   }
+  /* 1360 y 1440 px: tabla compacta; la columna de acciones y «Uso planificado» quedan a la vista */
+  const fit = () => page.evaluate(() => {
+    const w = document.querySelector('.rcat-twrap'); const wr = w.getBoundingClientRect();
+    const td = document.querySelector('tr[data-rcat-row] td.ctl').getBoundingClientRect();
+    const th = [...document.querySelectorAll('.rcat-table thead th')].find((x) => /Uso planificado/.test(x.textContent)).getBoundingClientRect();
+    return { compact: document.querySelector('.rcat-table').dataset.compact, cw: w.clientWidth, sw: w.scrollWidth, acts: td.right <= wr.right + 1 && td.left >= wr.left, use: th.right <= td.left + 1 };
+  });
+  if (width >= 1300 && width < 1900) {
+    let tw = await fit();
+    ok(tag + ': a ' + width + ' px la tabla se compacta y deja a la vista las acciones y el uso planificado', tw.compact === '1' && tw.acts && tw.use && tw.sw <= tw.cw + 1, tw);
+    await page.setViewportSize({ width: 1440, height });
+    await sleep(page, 400);
+    tw = await fit();
+    ok(tag + ': a 1440 px, igual', tw.compact === '1' && tw.acts && tw.use && tw.sw <= tw.cw + 1, tw);
+    await page.setViewportSize({ width, height });
+    await sleep(page, 300);
+  }
   if (width >= 1900) {
     const fw = await page.evaluate(() => { const r = document.querySelector('[data-rcat]').getBoundingClientRect(); const p = document.querySelector('.page').getBoundingClientRect(); const w = document.querySelector('.rcat-twrap'); return { r: Math.round(r.width), p: Math.round(p.width), sw: w.scrollWidth, cw: w.clientWidth }; });
     ok(tag + ': ancho completo y tabla sin desplazamiento lateral', fw.p - fw.r < 60 && fw.sw <= fw.cw + 1, fw);
+    ok(tag + ': con espacio, la tabla muestra todas las columnas', (await fit()).compact === '0' && await page.locator('.rcat-table th', { hasText: 'Clase y unidad' }).count() === 1);
   }
   await page.getByRole('button', { name: 'Agregar recurso' }).first().click();
   await sleep(page, 300);
