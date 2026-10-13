@@ -155,7 +155,8 @@ try {
   await page.click('.docs-gbtn[data-group="inicio"]');
   check(await page.locator('.docs-matrix .docs-proc.is-dim').count() === 0, 'quitar resaltado');
   const totalTxt = await page.locator('[data-total]').innerText();
-  const nTpl = await page.evaluate(() => PM.templateList.filter((t) => !t.agile).length); /* proyecto predictivo: las plantillas ágiles no cuentan */
+  /* proyecto predictivo: las plantillas ágiles no cuentan, ni los documentos posteriores al cierre que aún no existen */
+  const nTpl = await page.evaluate(() => PM.templateList.filter((t) => !t.agile && !PM.isAfterCloseDoc(t.id)).length);
   check(totalTxt.includes('0 de ' + nTpl + ' documentos aprobados') && totalTxt.includes(nTpl + ' sin iniciar'), 'el total del mapa cuenta todas las plantillas, como el tablero y la lista (' + totalTxt + ')');
   const nInicio = await page.evaluate(() => PM.templateList.filter((t) => t.group === 'inicio' && !t.agile).length);
   check((await page.locator('.docs-gbtn[data-group="inicio"] .docs-gbtn-sub').innerText()).includes('0/' + nInicio + ' documentos'), 'el grupo Inicio cuenta las plantillas del grupo (' + nInicio + ')');
@@ -651,7 +652,7 @@ try {
         const by = {}; for (const d of docs) { const t = (d.data && d.data.template) || d.id.split('--')[0]; (by[t] = by[t] || []).push(d.data); }
         const st = (t) => { const ds = by[t.id] || []; return !ds.length ? 'none' : ds.some((x) => x.status === 'aprobado') ? 'ok' : 'wip'; };
         const count = (list) => { const c = { ok: 0, wip: 0, none: 0, total: list.length }; for (const t of list) c[st(t)]++; return c; };
-        const project = await PM.store.get(PM.paths.project(PM.getState().projectId)); const tpls = PM.applicableTemplates(project, by);
+        const project = await PM.store.get(PM.paths.project(PM.getState().projectId)); const tpls = PM.countedTemplates(project, by);
         return { total: count(tpls), groups: Object.fromEntries(['inicio', 'planificacion', 'ejecucion', 'monitoreo', 'cierre'].map((g) => [g, count(tpls.filter((t) => t.group === g))])) };
       });
       await gotoView(p, 'procesos');
@@ -843,7 +844,7 @@ try {
         const c = { tpl: tpls.length, ids: tpls.map((t) => t.id).sort(), total: 0, aprobado: 0, revision: 0, borrador: 0, sin: 0, obsoleto: 0 };
         for (const t of tpls) {
           const ds = by[t.id] || [];
-          if (!ds.length) { c.total++; c.sin++; continue; }
+          if (!ds.length) { if (!PM.isAfterCloseDoc(t.id)) { c.total++; c.sin++; } continue; }
           if (t.multiple) { for (const d of ds) { c.total++; c[d.data.status || 'borrador']++; } continue; }
           const d = ds.find((x) => x.id === t.id) || ds[0];
           c.total++; c[d.data.status || 'borrador']++;

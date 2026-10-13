@@ -15,6 +15,20 @@
             | {view, label}            herramienta de la aplicación que materializa la salida
             | {baseline, label}        'scope' | 'schedule' | 'cost'
             | {text}                   salida sin documento propio en la aplicación
+   - Output.afterClose = true       documento posterior al cierre que complementa las salidas de la
+                                   Guía (informe de realización de los beneficios en 4.7: lo emite el
+                                   dueño de los beneficios después de cerrar el proyecto). Sin label:
+                                   no es salida de la Guía. Quien mida el avance documental no debe
+                                   contarlo (el proyecto cierra sin él) y debe mostrarlo con un
+                                   distintivo de texto «Posterior al cierre».
+   - Documentos de negocio (15-templates-negocio.js): la evaluación de necesidades es el antecedente
+     del caso de negocio y el acuerdo con el cliente es la entrada «Acuerdos»; ambos son entradas de
+     4.1 (inputsDocs), como el caso de negocio y el plan de gestión de los beneficios. El acuerdo con
+     el cliente también es entrada donde la Guía lista «Acuerdos» y el contrato con el cliente aporta
+     información (4.5, 4.7, 5.2, 6.5 hitos contractuales, 7.3, 11.2 multas y garantías, 13.1 y 13.2
+     comités y supervisión); en 9.6 y 12.3 los acuerdos son los de los proveedores (registro de
+     adquisiciones). 4.6 lo actualiza (update): los cambios aprobados que alteran valor, plazo o
+     alcance del contrato se formalizan como modificaciones del acuerdo.
    - toolViews: herramientas de la aplicación que apoyan las técnicas del proceso
      (p. ej. 8.1 «diagramas de flujo» → flujogramas). No son salidas.
    - toolParams = {viewId: params}  parámetros de navegación de una herramienta en ese proceso
@@ -70,6 +84,9 @@
   const PMIS = 'Sistema de información para la dirección de proyectos (PMIS)';
   const CHARTER = 'Acta de constitución del proyecto';
   const BIZ = 'Documentos de negocio (caso de negocio, plan de gestión de los beneficios)';
+  /* 4.1: la evaluación de necesidades precede al caso de negocio; los acuerdos con el cliente originan el proyecto */
+  const BIZ_41 = 'Documentos de negocio (caso de negocio y plan de gestión de los beneficios, precedidos por la evaluación de necesidades)';
+  const AGREEMENTS_41 = 'Acuerdos (contrato, orden de compra o de servicio, o acuerdo interno)';
   const WPD = 'Datos de desempeño del trabajo';
   const WPR = 'Informes de desempeño del trabajo';
 
@@ -249,10 +266,10 @@
     /* ===================== 4. Integración ===================== */
     P('4.1', 'Desarrollar el Acta de Constitución del Proyecto', 'integracion', 'inicio', 'unica',
       'Desarrolla el documento que autoriza formalmente la existencia del proyecto y confiere al director del proyecto la autoridad para aplicar recursos de la organización a sus actividades. Beneficio clave: vincula el proyecto con los objetivos estratégicos de la organización, crea un registro formal del proyecto y muestra el compromiso de la organización con él.', {
-        inputs: [BIZ, 'Acuerdos', EEF, OPA],
+        inputs: [BIZ_41, AGREEMENTS_41, EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, grupos focales, entrevistas)', 'Habilidades interpersonales y de equipo (gestión de conflictos, facilitación, gestión de reuniones)', REU],
         outputs: [doc('acta-constitucion'), doc('registro-supuestos')],
-        inputsDocs: ['caso-negocio', 'plan-gestion-beneficios'],
+        inputsDocs: ['evaluacion-necesidades', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'],
       }),
     P('4.2', 'Desarrollar el Plan para la Dirección del Proyecto', 'integracion', 'planificacion', 'unica',
       'Define, prepara y coordina todos los componentes del plan (planes de gestión, líneas base y planes adicionales) y los consolida en un plan integral para la dirección del proyecto. Beneficio clave: produce un documento integral que define la base de todo el trabajo del proyecto y el modo en que se realizará.', {
@@ -286,14 +303,16 @@
         outputs: [doc('informe-desempeno', 'Informes de desempeño del trabajo'), CR(), PMPU('cualquier componente'),
           PDU('pronósticos de costos, registro de incidentes, registro de lecciones aprendidas, registro de riesgos, pronósticos del cronograma'),
           upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos')],
-        inputsDocs: ['plan-direccion', 'registro-supuestos', 'estimacion-costos', 'registro-incidentes', 'registro-lecciones', 'informe-calidad', 'registro-riesgos', 'informe-riesgos'],
+        inputsDocs: ['plan-direccion', 'registro-supuestos', 'estimacion-costos', 'registro-incidentes', 'registro-lecciones', 'informe-calidad', 'registro-riesgos', 'informe-riesgos', 'acuerdo-cliente'],
         toolViews: ['tablero', 'valor-ganado', 'metricas-agiles'],
       }),
     P('4.6', 'Realizar el Control Integrado de Cambios', 'integracion', 'monitoreo', 'continua',
       'Revisa todas las solicitudes de cambio; aprueba y gestiona los cambios a entregables, documentos del proyecto, activos de la organización y plan para la dirección del proyecto, y comunica las decisiones. Beneficio clave: permite considerar los cambios documentados de manera integrada y reduce el riesgo de los cambios hechos sin tener en cuenta los objetivos o planes generales del proyecto.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de cambios, plan de gestión de la configuración, línea base del alcance, línea base del cronograma, línea base de costos)', 'Documentos del proyecto (base de las estimaciones, matriz de trazabilidad de requisitos, informe de riesgos)', WPR, 'Solicitudes de cambio', EEF, OPA],
         tools: [JE, 'Herramientas de control de cambios', 'Análisis de datos (análisis de alternativas, análisis costo-beneficio)', 'Toma de decisiones (votación, toma de decisiones autocrática, análisis de decisiones con múltiples criterios)', REU],
-        outputs: [doc('solicitud-cambio', 'Solicitudes de cambio aprobadas'), PMPU('cualquier componente'), view('lineas-base', 'Líneas base actualizadas por los cambios aprobados'), PDU('registro de cambios'), doc('registro-cambios')],
+        outputs: [doc('solicitud-cambio', 'Solicitudes de cambio aprobadas'), PMPU('cualquier componente'), view('lineas-base', 'Líneas base actualizadas por los cambios aprobados'), PDU('registro de cambios'), doc('registro-cambios'),
+          /* no es salida de la Guía: los cambios aprobados que alteran el contrato con el cliente se formalizan con otrosí u orden de cambio */
+          upd('acuerdo-cliente')],
         inputsDocs: ['plan-gestion-cambios', 'plan-gestion-configuracion', 'estimacion-costos', 'matriz-trazabilidad', 'informe-riesgos', 'informe-desempeno', 'solicitud-cambio', 'plan-release'],
         toolViews: ['lineas-base', 'iteraciones'],
       }),
@@ -301,8 +320,10 @@
       'Finaliza todas las actividades del proyecto, de una fase o de un contrato. Beneficio clave: archiva la información del proyecto o fase, documenta el trabajo completado y libera los recursos de la organización para nuevos esfuerzos.', {
         inputs: [CHARTER, 'Plan para la dirección del proyecto (todos los componentes)', 'Documentos del proyecto (registro de supuestos, base de las estimaciones, registro de cambios, registro de incidentes, registro de lecciones aprendidas, lista de hitos, comunicaciones del proyecto, mediciones de control de calidad, informes de calidad, documentación de requisitos, registro de riesgos, informe de riesgos)', 'Entregables aceptados', BIZ, 'Acuerdos', 'Documentación de las adquisiciones', OPA],
         tools: [JE, 'Análisis de datos (análisis de documentos, análisis de regresión, análisis de tendencias, análisis de variación)', REU],
-        outputs: [doc('acta-cierre', 'Transferencia del producto, servicio o resultado final'), doc('informe-final', 'Informe final'), PDU('registro de lecciones aprendidas'), upd('registro-lecciones'), OPAU()],
-        inputsDocs: ['acta-constitucion', 'plan-direccion', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-lecciones', 'registro-comunicaciones', 'mediciones-control-calidad', 'informe-calidad', 'documentacion-requisitos', 'registro-riesgos', 'informe-riesgos', 'acta-aceptacion-entregable', 'caso-negocio', 'plan-gestion-beneficios', 'registro-adquisiciones'],
+        outputs: [doc('acta-cierre', 'Transferencia del producto, servicio o resultado final'), doc('informe-final', 'Informe final'), PDU('registro de lecciones aprendidas'), upd('registro-lecciones'), OPAU(),
+          /* después del cierre: el dueño de los beneficios mide lo logrado frente al caso de negocio (no es salida de la Guía) */
+          { doc: 'informe-beneficios', afterClose: true }],
+        inputsDocs: ['acta-constitucion', 'plan-direccion', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-lecciones', 'registro-comunicaciones', 'mediciones-control-calidad', 'informe-calidad', 'documentacion-requisitos', 'registro-riesgos', 'informe-riesgos', 'acta-aceptacion-entregable', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente', 'registro-adquisiciones'],
       }),
 
     /* ===================== 5. Alcance ===================== */
@@ -318,7 +339,7 @@
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión del alcance, plan de gestión de los requisitos, plan de involucramiento de los interesados)', 'Documentos del proyecto (registro de supuestos, registro de lecciones aprendidas, registro de interesados)', 'Documentos de negocio (caso de negocio)', 'Acuerdos', EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, entrevistas, grupos focales, cuestionarios y encuestas, estudios comparativos)', 'Análisis de datos (análisis de documentos)', 'Toma de decisiones (votación, análisis de decisiones con múltiples criterios)', 'Representación de datos (diagramas de afinidad, mapeo mental)', 'Habilidades interpersonales y de equipo (técnica de grupo nominal, observación/conversación, facilitación)', 'Diagrama de contexto', 'Prototipos'],
         outputs: [doc('documentacion-requisitos'), doc('matriz-trazabilidad'), agl(doc('vision-producto'))],
-        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'plan-involucramiento-interesados', 'registro-supuestos', 'registro-lecciones', 'registro-interesados', 'caso-negocio'],
+        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'plan-involucramiento-interesados', 'registro-supuestos', 'registro-lecciones', 'registro-interesados', 'caso-negocio', 'acuerdo-cliente'],
         toolViews: ['backlog'],
       }),
     P('5.3', 'Definir el Alcance', 'alcance', 'planificacion', 'unica',
@@ -397,7 +418,7 @@
           PMPU('plan de gestión del cronograma, línea base de costos'),
           PDU('atributos de las actividades, registro de supuestos, estimaciones de la duración, registro de lecciones aprendidas, requisitos de recursos, registro de riesgos'),
           upd('registro-supuestos'), upd('estimaciones-duracion'), upd('registro-lecciones'), upd('requisitos-recursos'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-cronograma', 'registro-supuestos', 'estimaciones-duracion', 'registro-lecciones', 'asignaciones-recursos', 'requisitos-recursos', 'registro-riesgos'],
+        inputsDocs: ['plan-gestion-cronograma', 'registro-supuestos', 'estimaciones-duracion', 'registro-lecciones', 'asignaciones-recursos', 'requisitos-recursos', 'registro-riesgos', 'acuerdo-cliente'],
         toolViews: ['cronograma', 'red', 'recursos', 'iteraciones'],
       }),
     P('6.6', 'Controlar el Cronograma', 'cronograma', 'monitoreo', 'continua',
@@ -435,7 +456,7 @@
         tools: [JE, 'Agregación de costos', 'Análisis de datos (análisis de reservas)', 'Revisión de información histórica', 'Conciliación del límite de financiamiento', 'Financiamiento'],
         outputs: [base('cost', 'Línea base de costos'), view('valor-ganado', 'Curva S de la línea base de costos'), doc('requisitos-financiamiento'),
           PDU('estimaciones de costos, cronograma del proyecto, registro de riesgos'), upd('estimacion-costos'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-costos', 'plan-gestion-recursos', 'estimacion-costos', 'registro-riesgos', 'caso-negocio', 'plan-gestion-beneficios'],
+        inputsDocs: ['plan-gestion-costos', 'plan-gestion-recursos', 'estimacion-costos', 'registro-riesgos', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'],
         toolViews: ['valor-ganado', 'lineas-base', 'estructuras'],
         toolParams: BRK('costos'),
       }),
@@ -593,7 +614,7 @@
         inputs: ['Plan para la dirección del proyecto (plan de gestión de los requisitos, plan de gestión del cronograma, plan de gestión de los costos, plan de gestión de la calidad, plan de gestión de los recursos, plan de gestión de los riesgos, línea base del alcance, línea base del cronograma, línea base de costos)', 'Documentos del proyecto (registro de supuestos, estimaciones de costos, estimaciones de la duración, registro de incidentes, registro de lecciones aprendidas, documentación de requisitos, requisitos de recursos, registro de interesados)', 'Acuerdos', 'Documentación de las adquisiciones', EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, listas de verificación, entrevistas)', 'Análisis de datos (análisis de causa raíz, análisis de supuestos y restricciones, análisis FODA, análisis de documentos)', 'Habilidades interpersonales y de equipo (facilitación)', 'Listas rápidas', REU],
         outputs: [doc('registro-riesgos'), doc('informe-riesgos'), PDU('registro de supuestos, registro de incidentes, registro de lecciones aprendidas'), upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-lecciones')],
-        inputsDocs: ['plan-gestion-requisitos', 'plan-gestion-cronograma', 'plan-gestion-costos', 'plan-gestion-calidad', 'plan-gestion-recursos', 'plan-gestion-riesgos', 'registro-supuestos', 'estimacion-costos', 'estimaciones-duracion', 'registro-incidentes', 'registro-lecciones', 'documentacion-requisitos', 'requisitos-recursos', 'registro-interesados', 'registro-adquisiciones'],
+        inputsDocs: ['plan-gestion-requisitos', 'plan-gestion-cronograma', 'plan-gestion-costos', 'plan-gestion-calidad', 'plan-gestion-recursos', 'plan-gestion-riesgos', 'registro-supuestos', 'estimacion-costos', 'estimaciones-duracion', 'registro-incidentes', 'registro-lecciones', 'documentacion-requisitos', 'requisitos-recursos', 'registro-interesados', 'registro-adquisiciones', 'acuerdo-cliente'],
         toolViews: ['estructuras'],
         toolParams: BRK('riesgos'),
       }),
@@ -685,7 +706,7 @@
         outputs: [doc('registro-interesados'), view('interesados-matriz', 'Mapeo/representación de interesados (poder e interés)'), CR(),
           PMPU('plan de gestión de los requisitos, plan de gestión de las comunicaciones, plan de gestión de los riesgos, plan de involucramiento de los interesados'),
           PDU('registro de supuestos, registro de incidentes, registro de riesgos'), upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-riesgos')],
-        inputsDocs: ['acta-constitucion', 'caso-negocio', 'plan-gestion-beneficios', 'plan-gestion-comunicaciones', 'plan-involucramiento-interesados', 'registro-cambios', 'registro-incidentes', 'documentacion-requisitos'],
+        inputsDocs: ['acta-constitucion', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente', 'plan-gestion-comunicaciones', 'plan-involucramiento-interesados', 'registro-cambios', 'registro-incidentes', 'documentacion-requisitos'],
         toolViews: ['interesados-matriz'],
       }),
     P('13.2', 'Planificar el Involucramiento de los Interesados', 'interesados', 'planificacion', 'periodica',
@@ -693,7 +714,7 @@
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión de los recursos, plan de gestión de las comunicaciones, plan de gestión de los riesgos)', 'Documentos del proyecto (registro de supuestos, registro de cambios, registro de incidentes, cronograma del proyecto, registro de riesgos, registro de interesados)', 'Acuerdos', EEF, OPA],
         tools: [JE, 'Recopilación de datos (estudios comparativos)', 'Análisis de datos (análisis de supuestos y restricciones, análisis de causa raíz)', 'Toma de decisiones (priorización/clasificación)', 'Representación de datos (mapeo mental, matriz de evaluación del involucramiento de los interesados)', REU],
         outputs: [doc('plan-involucramiento-interesados'), view('interesados-matriz', 'Matriz de evaluación del involucramiento de los interesados')],
-        inputsDocs: ['acta-constitucion', 'plan-gestion-recursos', 'plan-gestion-comunicaciones', 'plan-gestion-riesgos', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-riesgos', 'registro-interesados'],
+        inputsDocs: ['acta-constitucion', 'plan-gestion-recursos', 'plan-gestion-comunicaciones', 'plan-gestion-riesgos', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-riesgos', 'registro-interesados', 'acuerdo-cliente'],
         toolViews: ['interesados-matriz'],
       }),
     P('13.3', 'Gestionar la Participación de los Interesados', 'interesados', 'ejecucion', 'continua',
@@ -720,8 +741,10 @@
 
   /* ---------------------------------------------------------------- catálogo canónico de documentos (SPEC §6) */
   const docs = [
+    ['evaluacion-necesidades', 'Evaluación de necesidades', '4.1', 'integracion', 'inicio', 'documento'],
     ['caso-negocio', 'Caso de negocio', '4.1', 'integracion', 'inicio', 'documento'],
     ['plan-gestion-beneficios', 'Plan de gestión de los beneficios', '4.1', 'integracion', 'inicio', 'plan'],
+    ['acuerdo-cliente', 'Acuerdo con el cliente', '4.1', 'integracion', 'inicio', 'documento'],
     ['acta-constitucion', 'Acta de constitución del proyecto', '4.1', 'integracion', 'inicio', 'acta'],
     ['registro-supuestos', 'Registro de supuestos', '4.1', 'integracion', 'inicio', 'registro'],
     ['plan-direccion', 'Plan para la dirección del proyecto', '4.2', 'integracion', 'planificacion', 'plan'],
@@ -735,6 +758,7 @@
     ['registro-cambios', 'Registro de cambios', '4.6', 'integracion', 'monitoreo', 'registro'],
     ['informe-final', 'Informe final del proyecto', '4.7', 'integracion', 'cierre', 'informe'],
     ['acta-cierre', 'Acta de cierre y aceptación final', '4.7', 'integracion', 'cierre', 'acta'],
+    ['informe-beneficios', 'Informe de realización de los beneficios', '4.7', 'integracion', 'cierre', 'informe', true],
     ['plan-gestion-alcance', 'Plan de gestión del alcance', '5.1', 'alcance', 'planificacion', 'plan'],
     ['plan-gestion-requisitos', 'Plan de gestión de los requisitos', '5.1', 'alcance', 'planificacion', 'plan'],
     ['documentacion-requisitos', 'Documentación de requisitos', '5.2', 'alcance', 'planificacion', 'registro'],
@@ -881,6 +905,14 @@
       definition: 'Condición o situación actual que puede tener un impacto en los objetivos del proyecto. A diferencia del riesgo, el incidente ya está ocurriendo y se gestiona en el registro de incidentes.' },
     { term: 'Lecciones aprendidas', area: 'integracion',
       definition: 'Conocimiento adquirido durante un proyecto que muestra cómo se abordaron, o cómo deberían abordarse en el futuro, los eventos del proyecto, con el fin de mejorar el desempeño futuro.' },
+    /* Documentos de negocio antes y después del proyecto (Guía del PMBOK® 6.ª ed., 1.2.6; Guía de práctica del análisis de negocio del PMI) */
+    { term: 'Evaluación de necesidades', area: 'integracion', doc: 'evaluacion-necesidades',
+      definition: 'Análisis que se hace antes de que exista el proyecto para entender un problema u oportunidad del negocio: la situación actual frente a la deseada, sus causas, los interesados afectados y las opciones de alto nivel para atenderlo. Su recomendación decide si se elabora el caso de negocio, del que es el antecedente.' },
+    { term: 'Acuerdos', area: 'integracion', doc: 'acuerdo-cliente',
+      definition: 'Documentos que fijan las intenciones iniciales del proyecto: contrato, orden de compra o de servicio, carta de intención, acuerdo de nivel de servicio o memorando de entendimiento. Con un cliente externo suele ser un contrato; en un proyecto interno, un acuerdo entre el patrocinador y las áreas. Son entrada del acta de constitución (4.1) y se modifican con otrosíes, adiciones o prórrogas aprobados en el control integrado de cambios.' },
+    { term: 'Realización de los beneficios', area: 'integracion', doc: 'informe-beneficios',
+      definition: 'Obtención efectiva de los beneficios que justificaron el proyecto en el caso de negocio. Muchos se logran después del cierre: el plan de gestión de los beneficios define quién los mide (el dueño de los beneficios), con qué indicadores y cuándo, y el informe de realización de los beneficios compara en cada medición lo logrado con lo prometido.',
+      formula: 'Avance hacia la meta = (resultado − línea base) / (meta − línea base)' },
     /* Cronograma */
     { term: 'Hito', area: 'cronograma', view: 'cronograma',
       definition: 'Punto o evento significativo dentro del proyecto. Tiene duración cero y marca la finalización de entregables o fases, o compromisos contractuales.' },

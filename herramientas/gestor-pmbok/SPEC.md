@@ -46,6 +46,7 @@ Colombia**, tono profesional y directo.
 | `src/12-templates-a.js` | plantillas: Integración, Alcance, Cronograma. |
 | `src/13-templates-b.js` | plantillas: Costos, Calidad, Recursos, Comunicaciones, Riesgos, Adquisiciones, Interesados. |
 | `src/14-templates-agile.js` | plantillas ágiles (§9.5). |
+| `src/15-templates-negocio.js` | documentos de negocio: evaluación de necesidades, acuerdo con el cliente, informe de realización de los beneficios (§6). |
 | `src/20-docs.js` | vistas `procesos`, `documentos`, `documento` (editor). |
 | `src/30-wbs.js` | vista `edt`. |
 | `src/36-breakdowns.js` | vista `estructuras` (estructuras de desglose de costos, riesgos y recursos en diagrama; §10). |
@@ -58,7 +59,7 @@ Colombia**, tono profesional y directo.
 | `src/70-matrices.js` | vistas `raci`, `riesgos-matriz`, `interesados-matriz`, `calidad`. |
 | `src/80-dashboard.js` | vistas `tablero`, `lineas-base`, `ficha`. |
 | `src/90-example.js` | constructor del proyecto de ejemplo (`PM.registerExample`). |
-| `src/91–93-example-medellin*.js`, `src/96-example-medellin-agile.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital en 96). |
+| `src/91–93-example-medellin*.js`, `src/96-example-medellin-agile.js`, `src/98-example-medellin-docs-negocio.js` | ejemplo inmobiliario en Medellín (híbrido: capa ágil comercial y digital en 96; documentos de negocio en 98). |
 | `src/11-doc-approach.js` | enfoque de la metodología de cada plantilla (`PM.DOC_APPROACHES`, `PM.DOC_APPROACH`, `PM.docApproach`; §5.1). |
 | `src/94-example-erp.js`, `src/95-example-erp-docs.js`, `src/97-example-erp-docs-*.js` | ejemplo ágil: implementación del ERP de Ingeniería y Alquiler (datos y documentos; §9.7). |
 | `src/99-boot.js` | arranque. Núcleo. |
@@ -269,12 +270,14 @@ Revisión (`…/revs/{revId}`): `{rev, status, date (ts), byId, note, fields, ti
 ### 5.1 Enfoque de la metodología de cada plantilla (11-doc-approach.js)
 
 `PM.DOC_APPROACHES`: `predictivo` («Predictivo / tradicional»), `adaptativo` («Ágil / adaptativo») y `ambos` («Ambos
-enfoques»), con `short`, `tone`, `icon` y `hint`. `PM.DOC_APPROACH[id] = {approach, why, replacement}` clasifica las 59
-plantillas (25 predictivas, 6 ágiles y 28 de ambos enfoques; panel de tres perspectivas: Guía del PMBOK® 6.ª ed. con la
+enfoques»), con `short`, `tone`, `icon` y `hint`. `PM.DOC_APPROACH[id] = {approach, why, replacement}` clasifica las 62
+plantillas (25 predictivas, 6 ágiles y 31 de ambos enfoques; panel de tres perspectivas: Guía del PMBOK® 6.ª ed. con la
 Guía de prácticas ágiles, 7.ª ed. con la Guía de Scrum 2020 y práctica en proyectos de TI). `PM.docApproach(t|id)` →
 `{id, label, short, tone, icon, hint, why, replacement}` o `null`; una plantilla puede declarar `approach` y las de
 `agile: true` son `adaptativo`. Es orientativo: dice a qué enfoque pertenece el documento, no que esté prohibido en el otro.
-Una plantilla nueva debe agregarse al mapa (la prueba `docs` exige que las 59 tengan enfoque).
+Una plantilla nueva debe agregarse al mapa (la prueba `docs` exige que las 62 tengan enfoque; los documentos de negocio de
+`15-templates-negocio.js` —evaluación de necesidades, acuerdo con el cliente e informe de realización de los beneficios— son de
+ambos enfoques).
 Lista maestra (20): columna «Enfoque» entre «Proceso» y «Estado» (instancias de plantillas múltiples heredan la de su
 fila madre), filtro «Enfoque de la metodología» (valores exactos `predictivo`, `adaptativo`, `ambos` y combinados
 `predictivo+ambos`, `adaptativo+ambos`), nota plegable «¿Qué indica el enfoque?», enfoque en la vista del documento,
@@ -300,8 +303,10 @@ Grupo (id): inicio, planificacion, ejecucion, monitoreo (Monitoreo y control), c
 
 | id | Nombre | Proceso | Área | Grupo | kind | múltiple |
 |---|---|---|---|---|---|---|
+| evaluacion-necesidades | Evaluación de necesidades | 4.1 (entrada) | integracion | inicio | documento | |
 | caso-negocio | Caso de negocio | 4.1 (entrada) | integracion | inicio | documento | |
 | plan-gestion-beneficios | Plan de gestión de los beneficios | 4.1 (entrada) | integracion | inicio | plan | |
+| acuerdo-cliente | Acuerdo con el cliente | 4.1 (entrada; 4.6 lo actualiza) | integracion | inicio | documento | |
 | acta-constitucion | Acta de constitución del proyecto | 4.1 | integracion | inicio | acta | |
 | registro-supuestos | Registro de supuestos | 4.1 | integracion | inicio | registro | |
 | plan-direccion | Plan para la dirección del proyecto | 4.2 | integracion | planificacion | plan | |
@@ -315,6 +320,7 @@ Grupo (id): inicio, planificacion, ejecucion, monitoreo (Monitoreo y control), c
 | registro-cambios | Registro de cambios | 4.6 | integracion | monitoreo | registro | |
 | informe-final | Informe final del proyecto | 4.7 | integracion | cierre | informe | |
 | acta-cierre | Acta de cierre y aceptación final | 4.7 | integracion | cierre | acta | |
+| informe-beneficios | Informe de realización de los beneficios | 4.7 (posterior al cierre) | integracion | cierre | informe | sí |
 | plan-gestion-alcance | Plan de gestión del alcance | 5.1 | alcance | planificacion | plan | |
 | plan-gestion-requisitos | Plan de gestión de los requisitos | 5.1 | alcance | planificacion | plan | |
 | documentacion-requisitos | Documentación de requisitos | 5.2 | alcance | planificacion | registro | |
@@ -358,6 +364,15 @@ Herramientas que también son salidas de procesos (ids de vista): `edt` (EDT y d
 alcance), `cronograma` (6.2 lista de actividades e hitos, 6.5 cronograma), `red` (6.3 diagrama de red), `recursos` (9.2),
 `valor-ganado` (7.3 línea base de costos, 7.4 pronósticos y datos de desempeño), `lineas-base`, `raci` (9.1),
 `riesgos-matriz` (11.3), `interesados-matriz` (13.1/13.2), `calidad` (8.2/8.3), `flujogramas` (8.1 / 4.2).
+
+Documentos de negocio (15-templates-negocio.js): la evaluación de necesidades, el caso de negocio, el plan de gestión de
+los beneficios y el acuerdo con el cliente son entradas de 4.1 (ningún proceso los crea). El acuerdo con el cliente también
+es entrada de 4.5, 4.7, 5.2, 6.5, 7.3, 11.2, 13.1 y 13.2, y 4.6 lo actualiza (otrosíes, adiciones, prórrogas y órdenes de
+cambio). El informe de realización de los beneficios es una salida de 4.7 posterior al cierre (`afterClose: true`, sin
+`label`): no es salida de la Guía, el proyecto cierra sin él y no cuenta en el avance documental mientras el proyecto no
+tenga uno (20-docs: `PM.isAfterCloseDoc`, `PM.countsInProgress`, `PM.countedTemplates`, que usan el mapa de procesos, la
+lista maestra y el tablero); se muestra con el distintivo de texto «Posterior al cierre» en la salida de 4.7 y en la fila de
+la lista maestra, y el filtro «Sin iniciar» no lo lista.
 
 ## 7. Diseño
 
@@ -600,15 +615,19 @@ Claves que otros módulos leen o prellenan (respeta exactamente):
   Kanban, iteraciones de 2 semanas, 3 releases (inventario y alquiler de equipos; facturación electrónica y cartera;
   mantenimiento y tablero gerencial), iteraciones cerradas y una en curso a la fecha de corte, documentos ágiles y PMBOK.
   Documentos: `PM.exampleDocs.erp(F, ctx)` (95) más los módulos `97-example-erp-docs-*.js` (integración, adquisiciones,
-  comunicaciones, equipo), que se registran en `PM.exampleDocs.erpParts` con la misma firma; `ctx = {R, CODE, STATUS_DATE,
+  comunicaciones, equipo, negocio), que se registran en `PM.exampleDocs.erpParts` con la misma firma; `ctx = {R, CODE, STATUS_DATE,
   data}` (data: schedule, wbs, costs, agile, items, baselines, resources). Una plantilla única la aporta un solo módulo; las
   múltiples suman instancias y se numeran por fecha de creación. El ejemplo diligencia los documentos ágiles y de ambos
   enfoques que corresponden a la fecha de corte (el informe final y el acta de cierre quedan para el cierre) y conserva dos
   planes predictivos que usa por su LB0 (cambios y riesgos). Una revisión aprobada lleva quien la aprobó aunque la emisión
-  vigente esté en revisión.
-- `medellin` (91–93): ciclo de vida Híbrido; la obra y la estructuración siguen en cascada y el entregable comercial y digital
+  vigente esté en revisión. Los documentos de negocio (97-example-erp-docs-negocio) son la evaluación de necesidades, el
+  acuerdo con el cliente (con su otrosí) y el primer seguimiento de beneficios, en borrador y programado para después del
+  cierre (no cuenta en el avance documental).
+- `medellin` (91–93, 96 y 98): ciclo de vida Híbrido; la obra y la estructuración siguen en cascada y el entregable comercial y digital
   (sala de ventas virtual, CRM y campañas) se gestiona con Kanban/Scrum. Las cifras financieras del ejemplo no cambian: el avance
-  derivado del backlog coincide con el avance guardado de las actividades vinculadas.
+  derivado del backlog coincide con el avance guardado de las actividades vinculadas. Los documentos de negocio (98, que se
+  suman a `PM.exampleDocs.medellin`) son la evaluación de necesidades y el acuerdo interno de la junta directiva; el proyecto
+  no ha cerrado, así que no tiene informe de beneficios.
 
 ## 10. Recursos del proyecto y estructuras de desglose
 

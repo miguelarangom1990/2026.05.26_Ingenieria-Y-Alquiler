@@ -12,6 +12,10 @@
    Por plantilla: [enfoque, por qué se acopla, cómo cambia o qué lo reemplaza
    en el otro enfoque]. Una plantilla puede declarar `approach` para anularlo;
    las plantillas ágiles (agile: true) son «adaptativo».
+   Clasifica las 62 plantillas: 25 predictivas, 6 ágiles y 31 de ambos enfoques
+   (los documentos de negocio de 15-templates-negocio.js —evaluación de
+   necesidades, acuerdo con el cliente e informe de realización de los
+   beneficios— son de ambos enfoques).
    ========================================================================== */
 (function () {
   'use strict';
@@ -25,8 +29,10 @@
   ]);
 
   const MAP = {
+    'evaluacion-necesidades': ['ambos', 'Antes de todo proyecto se analiza el problema u oportunidad, la situación actual frente a la deseada y las opciones; no depende de cómo se entregará la solución.', 'En ágil alimenta la visión del producto y las hipótesis de valor; se revisa con lo que se aprende en las revisiones de cada iteración.'],
     'caso-negocio': ['ambos', 'Justifica la inversión antes de elegir cómo se entrega el producto; la gerencia lo exige para aprobar el presupuesto en cualquier enfoque.', 'En ágil es más corto (hipótesis de valor y costo por release) y se revisa al cerrar cada release para decidir si se sigue invirtiendo.'],
     'plan-gestion-beneficios': ['ambos', 'Define qué beneficios se esperan, quién responde por ellos y cuándo se miden; no depende de cómo se construye el producto.', 'En ágil los beneficios se miden después de cada release y se enlazan con las métricas de éxito de la visión del producto.'],
+    'acuerdo-cliente': ['ambos', 'Todo proyecto nace de un contrato, una orden o un acuerdo interno que fija objeto, valor, plazo y obligaciones; la ley y la gobernanza lo exigen en cualquier enfoque.', 'En ágil se pacta por capacidad, iteración o release con tope de valor y aceptación en cada revisión; los ajustes del backlog no requieren otrosí.'],
     'acta-constitucion': ['ambos', 'Autoriza formalmente el proyecto, nombra al responsable y fija presupuesto y límites; la gobernanza la exige en proyectos predictivos, ágiles e híbridos.', 'En ágil es más corta: propósito, objetivos medibles, presupuesto por release y autoridad del dueño del producto; el detalle va al backlog.'],
     'registro-supuestos': ['ambos', 'Todo proyecto parte de supuestos y restricciones (normativa, fechas, datos, proveedores); en ágil no desaparecen: se validan pronto.', 'En ágil es una lista corta de hipótesis: los supuestos críticos se validan con investigaciones (spikes) o en la revisión de la iteración.'],
     'plan-direccion': ['ambos', 'Declara el ciclo de vida, el enfoque de desarrollo y las decisiones de adaptación, e integra los planes; en ágil fija el marco, no el detalle.', 'En ágil es breve: releases, cadencia de las iteraciones, presupuesto, gobierno y umbrales de cambio; el detalle se planifica por iteración.'],
@@ -40,6 +46,7 @@
     'registro-cambios': ['ambos', 'Deja la traza de los cambios que decide el comité; en ágil recibe las solicitudes que superan el umbral del release, como lo hace el gestor.', 'En ágil registra solo los cambios de línea base del release o del contrato; los ajustes del backlog quedan en las actas de revisión.'],
     'informe-final': ['ambos', 'Todo proyecto debe cerrar con un balance de objetivos, costos, beneficios y lecciones, sin importar cómo se ejecutó.', 'En ágil es más liviano: resume el valor entregado por release, las métricas de la visión y las lecciones de las retrospectivas.'],
     'acta-cierre': ['ambos', 'La aceptación final, la transferencia a la operación y el cierre de los contratos se hacen en cualquier enfoque.', 'En ágil consolida las aceptaciones de cada release y las actas de revisión; la aceptación final suele ser un trámite corto.'],
+    'informe-beneficios': ['ambos', 'Comparar los beneficios logrados con los del caso de negocio le toca a la organización después del cierre, sin importar cómo se entregó el producto.', 'En ágil los beneficios se miden después de cada release con las métricas de éxito de la visión del producto, sin esperar al cierre.'],
     'plan-gestion-alcance': ['predictivo', 'Define cómo elaborar el enunciado, la EDT y la línea base del alcance. En ágil el alcance se descubre y se ordena en el backlog.', 'Visión del producto, backlog priorizado por el dueño del producto, refinamiento continuo y definición de listo y de terminado.'],
     'plan-gestion-requisitos': ['predictivo', 'Fija de antemano cómo recopilar, priorizar y aprobar los requisitos. En ágil se elaboran justo a tiempo y se priorizan de forma continua.', 'Refinamiento del backlog, definición de listo y priorización MoSCoW a cargo del dueño del producto.'],
     'documentacion-requisitos': ['predictivo', 'Documenta todos los requisitos antes de construir. En ágil se escriben como historias con criterios de aceptación y se detallan poco antes de usarse.', 'Épicas e historias del backlog con criterios de aceptación; los requisitos normativos entran como «Debe tener» o en la definición de terminado.'],

@@ -599,6 +599,8 @@
   const SPECIAL = {
     'caso-negocio': { status: 'aprobado', rev: '0', date: '2026-07-24' },
     'plan-gestion-beneficios': { status: 'aprobado', rev: '0', date: '2026-07-24' },
+    'evaluacion-necesidades': { status: 'aprobado', rev: '0', date: '2026-07-13' },
+    'acuerdo-cliente': { status: 'aprobado', rev: '0', date: '2026-07-29' },
     'acta-constitucion': {
       status: 'aprobado', rev: '0', date: '2026-08-03',
       history: [['A', 'borrador', '2026-07-28', 'Primer borrador para revisión del patrocinador.', 'draft'], ['B', 'revision', '2026-07-31', 'Ajustes de la Gerencia General: reservas y límite de gasto del director.', 'review'], ['0', 'aprobado', '2026-08-03', 'Emisión aprobada y firmada por el patrocinador.']],

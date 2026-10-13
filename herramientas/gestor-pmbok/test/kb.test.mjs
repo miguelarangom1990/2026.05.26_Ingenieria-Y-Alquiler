@@ -8,11 +8,13 @@ const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : nu
 const file = opt('--file') || 'gestor-pmbok.html';
 
 // SPEC §6 — ids canónicos de documentos
-const CANON_DOCS = ['caso-negocio', 'plan-gestion-beneficios', 'acta-constitucion', 'registro-supuestos', 'plan-direccion', 'plan-gestion-cambios', 'plan-gestion-configuracion', 'entregables', 'registro-incidentes', 'registro-lecciones', 'informe-desempeno', 'solicitud-cambio', 'registro-cambios', 'informe-final', 'acta-cierre', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'documentacion-requisitos', 'matriz-trazabilidad', 'enunciado-alcance', 'acta-aceptacion-entregable', 'plan-gestion-cronograma', 'estimaciones-duracion', 'plan-gestion-costos', 'estimacion-costos', 'requisitos-financiamiento', 'plan-gestion-calidad', 'metricas-calidad', 'documentos-prueba', 'informe-calidad', 'mediciones-control-calidad', 'plan-gestion-recursos', 'acta-constitucion-equipo', 'requisitos-recursos', 'estructura-desglose-recursos', 'asignaciones-recursos', 'evaluacion-desempeno-equipo', 'plan-gestion-comunicaciones', 'registro-comunicaciones', 'acta-reunion', 'plan-gestion-riesgos', 'registro-riesgos', 'informe-riesgos', 'analisis-cuantitativo', 'plan-gestion-adquisiciones', 'estrategia-adquisiciones', 'decisiones-hacer-comprar', 'enunciado-trabajo-adquisicion', 'criterios-seleccion-proveedores', 'registro-adquisiciones', 'control-adquisiciones', 'registro-interesados', 'plan-involucramiento-interesados'];
+const CANON_DOCS = ['evaluacion-necesidades', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente', 'acta-constitucion', 'registro-supuestos', 'plan-direccion', 'plan-gestion-cambios', 'plan-gestion-configuracion', 'entregables', 'registro-incidentes', 'registro-lecciones', 'informe-desempeno', 'solicitud-cambio', 'registro-cambios', 'informe-final', 'acta-cierre', 'informe-beneficios', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'documentacion-requisitos', 'matriz-trazabilidad', 'enunciado-alcance', 'acta-aceptacion-entregable', 'plan-gestion-cronograma', 'estimaciones-duracion', 'plan-gestion-costos', 'estimacion-costos', 'requisitos-financiamiento', 'plan-gestion-calidad', 'metricas-calidad', 'documentos-prueba', 'informe-calidad', 'mediciones-control-calidad', 'plan-gestion-recursos', 'acta-constitucion-equipo', 'requisitos-recursos', 'estructura-desglose-recursos', 'asignaciones-recursos', 'evaluacion-desempeno-equipo', 'plan-gestion-comunicaciones', 'registro-comunicaciones', 'acta-reunion', 'plan-gestion-riesgos', 'registro-riesgos', 'informe-riesgos', 'analisis-cuantitativo', 'plan-gestion-adquisiciones', 'estrategia-adquisiciones', 'decisiones-hacer-comprar', 'enunciado-trabajo-adquisicion', 'criterios-seleccion-proveedores', 'registro-adquisiciones', 'control-adquisiciones', 'registro-interesados', 'plan-involucramiento-interesados'];
 // SPEC §9.5 — plantillas ágiles (al final del catálogo)
 const AGILE_DOCS = ['vision-producto', 'definicion-terminado', 'plan-release', 'planificacion-sprint', 'acta-revision-sprint', 'retrospectiva'];
 CANON_DOCS.push(...AGILE_DOCS);
-const MULTIPLE = ['informe-desempeno', 'solicitud-cambio', 'acta-aceptacion-entregable', 'informe-calidad', 'acta-reunion', 'enunciado-trabajo-adquisicion', 'planificacion-sprint', 'acta-revision-sprint', 'retrospectiva'];
+const MULTIPLE = ['informe-desempeno', 'solicitud-cambio', 'acta-aceptacion-entregable', 'informe-calidad', 'acta-reunion', 'enunciado-trabajo-adquisicion', 'planificacion-sprint', 'acta-revision-sprint', 'retrospectiva', 'informe-beneficios'];
+// Documentos de negocio (15-templates-negocio.js): antecedente y acuerdo (entradas de 4.1) e informe posterior al cierre (4.7)
+const BUSINESS_INPUTS = ['evaluacion-necesidades', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'];
 // SPEC §9.5 — proceso, área, grupo y kind de las plantillas ágiles
 const AGILE_CATALOG = {
   'vision-producto': ['5.2', 'alcance', 'inicio', 'documento'], 'definicion-terminado': ['8.1', 'calidad', 'planificacion', 'documento'],
@@ -64,13 +66,13 @@ const PROCS = {
 
 // Correspondencia mínima proceso → documentos / vistas / líneas base (encargo del módulo)
 const MAP = {
-  '4.1': { docs: ['acta-constitucion', 'registro-supuestos'], inputsDocs: ['caso-negocio', 'plan-gestion-beneficios'] },
+  '4.1': { docs: ['acta-constitucion', 'registro-supuestos'], inputsDocs: ['evaluacion-necesidades', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'] },
   '4.2': { docs: ['plan-direccion', 'plan-gestion-cambios', 'plan-gestion-configuracion'] },
   '4.3': { docs: ['entregables', 'registro-incidentes', 'solicitud-cambio', 'planificacion-sprint'] },
   '4.4': { docs: ['registro-lecciones', 'retrospectiva'], inputsDocs: ['criterios-seleccion-proveedores'] },
   '4.5': { docs: ['informe-desempeno', 'solicitud-cambio'] },
   '4.6': { docs: ['solicitud-cambio', 'registro-cambios'], views: ['lineas-base'] },
-  '4.7': { docs: ['informe-final', 'acta-cierre'] },
+  '4.7': { docs: ['informe-final', 'acta-cierre', 'informe-beneficios'], inputsDocs: ['caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'] },
   '5.1': { docs: ['plan-gestion-alcance', 'plan-gestion-requisitos'] },
   '5.2': { docs: ['documentacion-requisitos', 'matriz-trazabilidad', 'vision-producto'] },
   '5.3': { docs: ['enunciado-alcance'] },
@@ -118,10 +120,10 @@ const MAP = {
 const NO_CR = ['4.1', '4.2', '4.4', '4.7', '5.1', '5.2', '5.3', '5.4', '6.1', '6.3', '6.4', '7.1', '7.2', '7.3', '8.1', '9.1', '9.2', '10.1', '10.2', '11.1', '11.2', '11.3', '11.4', '13.2'];
 
 const AGILE_TERMS = ['Backlog del producto', 'Historia de usuario', 'Épica', 'Iteración', 'Velocidad', 'Diagrama de trabajo pendiente', 'Diagrama de trabajo completado', 'Límite WIP', 'Definición de listo', 'Definición de terminado', 'Priorización MoSCoW', 'Puntos de historia', 'Valor ganado ágil', 'Release', 'Retrospectiva', 'Dueño del producto', 'Scrum Master', 'Tiempo de ciclo', 'Diagrama de flujo acumulado', 'Enfoque híbrido'];
-const REQUIRED_TERMS = ['Estructura de desglose del trabajo', 'Paquete de trabajo', 'Cuenta de control', 'Diccionario de la EDT/WBS', 'Línea base', 'Línea base para la medición del desempeño', 'Ruta crítica', 'Holgura total', 'Holgura libre', 'Adelanto', 'Retraso', 'Relación final a inicio', 'Relación inicio a inicio', 'Relación final a final', 'Relación inicio a final', 'Método de la ruta crítica', 'Estimación por tres valores', 'Compresión del cronograma', 'Intensificación', 'Ejecución rápida', 'Nivelación de recursos', 'Valor planificado', 'Valor ganado', 'Costo real', 'Variación del cronograma', 'Variación del costo', 'Índice de desempeño del cronograma', 'Índice de desempeño del costo', 'Estimación a la conclusión', 'Estimación hasta la conclusión', 'Variación a la conclusión', 'Índice de desempeño del trabajo por completar', 'Cronograma ganado', 'Reserva para contingencias', 'Reserva de gestión', 'Presupuesto hasta la conclusión', 'Matriz RACI', 'Matriz de probabilidad e impacto', 'Valor monetario esperado', 'Análisis de Pareto', 'Diagrama de Ishikawa', 'Gráfico de control', 'Solicitud de cambio', 'Comité de control de cambios', 'Control integrado de cambios', 'Interesado', 'Matriz de evaluación del involucramiento de los interesados', 'Acta de constitución del proyecto', 'Enunciado del alcance del proyecto'];
+const REQUIRED_TERMS = ['Estructura de desglose del trabajo', 'Paquete de trabajo', 'Cuenta de control', 'Diccionario de la EDT/WBS', 'Línea base', 'Línea base para la medición del desempeño', 'Ruta crítica', 'Holgura total', 'Holgura libre', 'Adelanto', 'Retraso', 'Relación final a inicio', 'Relación inicio a inicio', 'Relación final a final', 'Relación inicio a final', 'Método de la ruta crítica', 'Estimación por tres valores', 'Compresión del cronograma', 'Intensificación', 'Ejecución rápida', 'Nivelación de recursos', 'Valor planificado', 'Valor ganado', 'Costo real', 'Variación del cronograma', 'Variación del costo', 'Índice de desempeño del cronograma', 'Índice de desempeño del costo', 'Estimación a la conclusión', 'Estimación hasta la conclusión', 'Variación a la conclusión', 'Índice de desempeño del trabajo por completar', 'Cronograma ganado', 'Reserva para contingencias', 'Reserva de gestión', 'Presupuesto hasta la conclusión', 'Matriz RACI', 'Matriz de probabilidad e impacto', 'Valor monetario esperado', 'Análisis de Pareto', 'Diagrama de Ishikawa', 'Gráfico de control', 'Solicitud de cambio', 'Comité de control de cambios', 'Control integrado de cambios', 'Interesado', 'Matriz de evaluación del involucramiento de los interesados', 'Acta de constitución del proyecto', 'Enunciado del alcance del proyecto', 'Evaluación de necesidades', 'Acuerdos', 'Realización de los beneficios'];
 
 const { browser, page, errors } = await openApp({ file });
-const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS }) => {
+const results = await page.evaluate(({ BUSINESS_INPUTS, CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS }) => {
   const out = [];
   const ok = (name, cond, detail) => out.push({ name, ok: !!cond, detail: cond ? '' : detail });
   const eq = (name, got, exp) => ok(name, JSON.stringify(got) === JSON.stringify(exp), 'obtenido ' + JSON.stringify(got) + ' · esperado ' + JSON.stringify(exp));
@@ -186,7 +188,7 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   const missing = CANON_DOCS.filter((d) => !referenced.has(d));
   ok('cada documento canónico aparece al menos una vez', !missing.length, 'faltan ' + missing.join(', '));
   const outputDocs = new Set(KB.processes.flatMap((p) => p.outputs.filter((o) => o.doc).map((o) => o.doc)));
-  const notOutput = CANON_DOCS.filter((d) => !outputDocs.has(d) && !['caso-negocio', 'plan-gestion-beneficios'].includes(d));
+  const notOutput = CANON_DOCS.filter((d) => !outputDocs.has(d) && !BUSINESS_INPUTS.includes(d));
   ok('cada documento canónico (salvo entradas de 4.1) es salida de algún proceso', !notOutput.length, notOutput.join(', '));
   const glossViews = KB.glossary.filter((g) => g.view).map((g) => ['glosario', g.view]);
   const badViews = [...viewRefs, ...glossViews].filter(([, v]) => !VIEWS.includes(v));
@@ -230,6 +232,31 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   eq('processesForDoc(registro-riesgos, output)', codes(KB.processesForDoc('registro-riesgos', 'output')), ['11.2']);
   ok('processesForDoc(registro-riesgos) incluye 11.2–11.7', ['11.2', '11.3', '11.4', '11.5', '11.6', '11.7'].every((c) => codes(KB.processesForDoc('registro-riesgos')).includes(c)), codes(KB.processesForDoc('registro-riesgos')).join(','));
   ok('processesForDoc(caso-negocio) incluye 4.1 como entrada', codes(KB.processesForDoc('caso-negocio', 'input')).includes('4.1'), '');
+  /* documentos de negocio: antes (entradas de 4.1) y después del proyecto (4.7, posterior al cierre) */
+  eq('4.1: entradas de negocio en orden (evaluación de necesidades, caso de negocio, plan de beneficios, acuerdo con el cliente)', KB.process('4.1').inputsDocs.filter((d) => BUSINESS_INPUTS.includes(d)), BUSINESS_INPUTS);
+  ok('4.1: las entradas de texto nombran la evaluación de necesidades y los acuerdos', /evaluación de necesidades/.test(KB.process('4.1').inputs[0]) && /^Acuerdos \(/.test(KB.process('4.1').inputs[1]), KB.process('4.1').inputs.join(' | '));
+  for (const d of BUSINESS_INPUTS) ok(d + ': ningún proceso lo crea (entrada de 4.1)', !KB.processesForDoc(d, 'output').length, codes(KB.processesForDoc(d, 'output')).join(','));
+  eq('documentos de negocio que algún proceso actualiza: solo el acuerdo con el cliente, en 4.6 (otrosíes y órdenes de cambio)', BUSINESS_INPUTS.map((d) => [d, codes(KB.processesForDoc(d, 'update'))]), [['evaluacion-necesidades', []], ['caso-negocio', []], ['plan-gestion-beneficios', []], ['acuerdo-cliente', ['4.6']]]);
+  const u46 = KB.process('4.6').outputs.filter((o) => o.doc === 'acuerdo-cliente');
+  ok('4.6: actualiza el acuerdo con el cliente sin atribuirlo a la Guía (update, sin etiqueta)', u46.length === 1 && u46[0].update === true && !u46[0].label && !u46[0].afterClose, JSON.stringify(u46));
+  eq('acuerdo-cliente: entrada donde la Guía lista los acuerdos y el contrato con el cliente aporta información', codes(KB.processesForDoc('acuerdo-cliente', 'input')), ['4.1', '4.5', '4.7', '5.2', '6.5', '7.3', '11.2', '13.1', '13.2']);
+  /* toda entrada «Acuerdos» de la Guía enlaza un documento: el acuerdo con el cliente o el registro de contratos con proveedores */
+  const agreementProcs = KB.processes.filter((p) => p.inputs.some((x) => /^Acuerdos\b/.test(x)));
+  const unlinked = agreementProcs.filter((p) => !p.inputsDocs.includes('acuerdo-cliente') && !p.inputsDocs.includes('registro-adquisiciones')).map((p) => p.code);
+  ok('cada proceso con la entrada «Acuerdos» enlaza el acuerdo con el cliente o el registro de adquisiciones', agreementProcs.length >= 11 && !unlinked.length, 'sin enlace: ' + unlinked.join(', '));
+  eq('9.6 y 12.3: los acuerdos son los de los proveedores (registro de adquisiciones), no el del cliente', ['9.6', '12.3'].map((c) => [KB.process(c).inputsDocs.includes('registro-adquisiciones'), KB.process(c).inputsDocs.includes('acuerdo-cliente')]), [[true, false], [true, false]]);
+  /* los procesos que declara cada plantilla de negocio la referencian en la base de conocimiento (sin referencias huérfanas) */
+  if (PM.templates && PM.templates['acuerdo-cliente']) {
+    const orphans = ['evaluacion-necesidades', 'acuerdo-cliente', 'informe-beneficios'].flatMap((id) => (PM.templates[id].processes || [PM.templates[id].process]).filter((c) => !KB.processesForDoc(id).some((p) => p.code === c)).map((c) => id + '@' + c));
+    ok('documentos de negocio: cada proceso de la plantilla los referencia en la base de conocimiento', !orphans.length, orphans.join(', '));
+  }
+  eq('evaluacion-necesidades: solo la usa 4.1', codes(KB.processesForDoc('evaluacion-necesidades')), ['4.1']);
+  const o47 = KB.process('4.7').outputs.filter((o) => o.doc === 'informe-beneficios');
+  ok('4.7: informe de realización de los beneficios como salida posterior al cierre (afterClose, sin etiqueta de la Guía)', o47.length === 1 && o47[0].afterClose === true && !o47[0].label && !o47[0].update, JSON.stringify(o47));
+  eq('informe-beneficios: solo 4.7 lo crea', codes(KB.processesForDoc('informe-beneficios', 'output')), ['4.7']);
+  eq('catálogo: documentos de negocio (proceso, área, grupo, kind, múltiple)', ['evaluacion-necesidades', 'acuerdo-cliente', 'informe-beneficios'].map((id) => { const d = KB.doc(id); return d && [d.process, d.area, d.group, d.kind, d.multiple]; }), [['4.1', 'integracion', 'inicio', 'documento', false], ['4.1', 'integracion', 'inicio', 'documento', false], ['4.7', 'integracion', 'cierre', 'informe', true]]);
+  eq('glosario: términos de los documentos de negocio con su plantilla', ['Evaluación de necesidades', 'Acuerdos', 'Realización de los beneficios'].map((t) => (KB.glossary.find((g) => g.term === t) || {}).doc), ['evaluacion-necesidades', 'acuerdo-cliente', 'informe-beneficios']);
+  eq('term(acuerdos) y term(evaluacion de necesidades) sin tildes', [KB.term('acuerdos') && KB.term('acuerdos').term, KB.term('evaluacion de necesidades') && KB.term('evaluacion de necesidades').term], ['Acuerdos', 'Evaluación de necesidades']);
   eq('processesForDoc(entregables, produces)', codes(KB.processesForDoc('entregables', 'produces')), ['4.3', '5.5', '8.3']);
   eq('processesForDoc(acta-constitucion, output)', codes(KB.processesForDoc('acta-constitucion', 'output')), ['4.1']);
   eq('processesForDoc(id inexistente)', KB.processesForDoc('no-existe'), []);
@@ -386,7 +413,7 @@ const results = await page.evaluate(({ CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUP
   ok('documentos relacionados de las estructuras', g('Estructura de desglose de recursos').doc === 'estructura-desglose-recursos' && g('Estructura de desglose de los riesgos').doc === 'plan-gestion-riesgos', '');
   ok('sin texto provisional en los términos de recursos', !BAD_TEXT.test(JSON.stringify(KB.glossary.filter((x) => RESOURCE_TERMS.includes(x.term)))), '');
   return out;
-}, { CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS });
+}, { BUSINESS_INPUTS, CANON_DOCS, MULTIPLE, VIEWS, AREAS, GROUPS, PROCS, MAP, NO_CR, REQUIRED_TERMS, AGILE_DOCS, AGILE_CATALOG, AGILE_VIEWS, AGILE_TOOLVIEWS, AGILE_TERMS, BREAKDOWN_TOOLS, RESOURCE_VIEW_PROCS, RESOURCE_TERMS });
 
 let fails = 0;
 for (const r of results) { if (!r.ok) fails++; if (!r.ok || args.includes('--verbose')) console.log((r.ok ? 'ok   ' : 'FAIL ') + r.name + (r.ok ? '' : '\n      ' + r.detail)); }

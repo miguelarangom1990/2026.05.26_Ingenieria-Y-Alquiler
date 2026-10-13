@@ -18,7 +18,7 @@
    COP 15.000 millones, 416 viviendas en una plataforma con cuatro bloques de 8 pisos,
    ventas por COP 162.122 millones y costo total de COP 141.939 millones (LB0/LB1).
    Proyecto, empresas y cifras son ficticios; se usan roles, no nombres de personas.
-   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93 y 96).
+   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93, 96 y 98).
    Ciclo de vida híbrido: la capa ágil de los canales digitales de venta (paquete
    1.4.2) sale de PM.exampleAgile.medellin (archivo 96). El release se representa en
    el cronograma con la actividad C02D (costo 0, en la LB1), que toma su avance del
@@ -1161,7 +1161,7 @@
     },
   ];
 
-  /* ---------------------------------------------------------------- documentos (PM.exampleDocs.medellin, archivos 92 y 93) */
+  /* ---------------------------------------------------------------- documentos (PM.exampleDocs.medellin, archivos 92, 93, 96 y 98) */
   const ts = (date) => date + 'T15:00:00.000Z';
   function docsData(project) {
     const src = (PM.exampleDocs && PM.exampleDocs.medellin) || {};

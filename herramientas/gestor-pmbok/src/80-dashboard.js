@@ -709,10 +709,11 @@
     </button>`;
   }
   function DocsCard({ docs, project }) {
-    /* plantillas que aplican al proyecto (20-docs, PM.applicableTemplates): las ágiles solo con ciclo de vida adaptativo o
-       híbrido, o si el proyecto ya tiene documentos de ellas; así el conteo coincide con el mapa de procesos y la lista */
+    /* plantillas que cuentan en el avance (20-docs, PM.countedTemplates): las ágiles solo con ciclo de vida adaptativo o
+       híbrido, o si el proyecto ya tiene documentos de ellas, y sin los documentos posteriores al cierre que aún no
+       existen; así el conteo coincide con el mapa de procesos y la lista */
     const catalog = PM.templateList || [];
-    const templates = useMemo(() => (typeof PM.applicableTemplates === 'function' ? PM.applicableTemplates(project, docs.byTemplate) : catalog), [catalog, project, docs.byTemplate]);
+    const templates = useMemo(() => (typeof PM.countedTemplates === 'function' ? PM.countedTemplates(project, docs.byTemplate) : typeof PM.applicableTemplates === 'function' ? PM.applicableTemplates(project, docs.byTemplate) : catalog), [catalog, project, docs.byTemplate]);
     const statusOf = (t) => { const ds = docs.byTemplate[t.id] || []; if (!ds.length) return 'none'; return ds.some((d) => d.status === 'aprobado') ? 'ok' : 'wip'; };
     const count = (list) => { const c = { ok: 0, wip: 0, none: 0, total: list.length }; for (const t of list) c[statusOf(t)]++; return c; };
     const total = count(templates);

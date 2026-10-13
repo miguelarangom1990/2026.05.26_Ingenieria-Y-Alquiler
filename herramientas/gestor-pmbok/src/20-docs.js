@@ -4,9 +4,11 @@
    revisiones (convención de planos), historial, exportación (Markdown/HTML)
    y redacción asistida con Claude.
    Vistas: procesos, documentos, documento (oculta). Expone PM.openDocument,
-   PM.templateApplies(t|id, project, byTemplate) y PM.applicableTemplates(project,
-   byTemplate): las plantillas ágiles (SPEC §9.5) solo cuentan en el avance
-   documental con ciclo de vida adaptativo o híbrido, o si ya tienen documentos.
+   PM.templateApplies(t|id, project, byTemplate), PM.applicableTemplates(project,
+   byTemplate) y PM.countedTemplates(project, byTemplate): las plantillas ágiles
+   (SPEC §9.5) solo cuentan en el avance documental con ciclo de vida adaptativo o
+   híbrido, o si ya tienen documentos; los documentos posteriores al cierre
+   (PM.isAfterCloseDoc, PM.countsInProgress) solo cuentan si el proyecto ya los tiene.
    La vista `documentos` acepta los parámetros area, status, template y approach
    (enfoque de la metodología, 11-doc-approach: 'predictivo' | 'adaptativo' |
    'ambos', o combinado con «ambos»: 'predictivo+ambos' | 'adaptativo+ambos';
@@ -418,7 +420,13 @@
   /* Documentos que miden el avance de un proceso: los que el proceso crea (no los que solo actualiza),
      sin contar los que dependen de eventos (una solicitud de cambio puede no ocurrir nunca). */
   const EVENT_DOCS = new Set(['solicitud-cambio']);
-  const trackedDocs = (p) => uniq(((p && p.outputs) || []).filter((o) => o && o.doc && !o.update && !EVENT_DOCS.has(o.doc)).map((o) => o.doc));
+  const trackedDocs = (p) => uniq(((p && p.outputs) || []).filter((o) => o && o.doc && !o.update && !o.afterClose && !EVENT_DOCS.has(o.doc)).map((o) => o.doc));
+  const afterCloseDoc = (id) => !!(PM.KB && (PM.KB.processes || []).some((p) => (p.outputs || []).some((o) => o && o.doc === id && o.afterClose)));
+  /* Documentos posteriores al cierre (salida afterClose de la base de conocimiento, p. ej. el informe de realización de
+     los beneficios): los emite la organización después de cerrar el proyecto, así que no cuentan en el avance documental
+     (mapa, lista maestra y tablero) mientras el proyecto no tenga documentos de ellos. */
+  PM.isAfterCloseDoc = afterCloseDoc;
+  PM.countsInProgress = (t, byTemplate) => { const id = typeof t === 'string' ? t : t && t.id; return !afterCloseDoc(id) || !!(byTemplate && Array.isArray(byTemplate[id]) && byTemplate[id].length); };
   /* Capa ágil (SPEC §9.1): las plantillas ágiles (§9.5) aplican con ciclo de vida adaptativo o híbrido. En un proyecto
      predictivo no cuentan en el avance documental (mapa, lista maestra y tablero) ni se proponen como entradas o
      herramientas, salvo que el proyecto ya tenga documentos de esa plantilla (entonces cuentan como cualquier otro). */
@@ -438,6 +446,9 @@
   /* Uso compartido (p. ej. la tarjeta de documentación del tablero): mismas plantillas que cuentan el mapa y la lista. */
   PM.templateApplies = templateApplies;
   PM.applicableTemplates = (project, byTemplate) => (PM.templateList || []).filter((t) => templateApplies(t, project, byTemplate));
+  /* Plantillas que cuentan en el avance documental (mapa, lista maestra y tablero): las que aplican, sin los documentos
+     posteriores al cierre que el proyecto aún no tiene. */
+  PM.countedTemplates = (project, byTemplate) => PM.applicableTemplates(project, byTemplate).filter((t) => PM.countsInProgress(t, byTemplate));
   /* Vistas que el proyecto puede abrir (las ágiles declaran when: PM.agile.when). */
   const viewAvailable = (v, project) => { if (!v || !v.when) return true; try { return !!v.when(project); } catch (e) { return false; } };
   /* Procesos de una plantilla separados en los que crean el documento y los que solo lo actualizan. */
@@ -730,8 +741,9 @@
       for (const p of procs) (cell[p.area + '|' + p.group] = cell[p.area + '|' + p.group] || []).push(p);
       const all = PM.templateList || [];
       const tpls = all.filter((t) => applies(t.id));
-      const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(tpls.filter((t) => t.group === g.id), idx) }));
-      const total = templateProgress(tpls, idx);
+      const counted = tpls.filter((t) => PM.countsInProgress(t, idx.byTemplate));
+      const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(counted.filter((t) => t.group === g.id), idx) }));
+      const total = templateProgress(counted, idx);
       return { A, G, procs, cell, groupStats, total, tpls, notApplicable: all.length - tpls.length };
     }, [K, idx, applies]);
 
@@ -896,7 +908,7 @@
       const insts = sortedInstances(idx.byTemplate[o.doc]);
       const name = docName(o.doc);
       const nameNode = html`<span class="stack-sm" style="gap:0;min-width:0"><span>${name}</span>${o.label && norm(o.label) !== norm(name) ? html`<span class="xsmall faint">Salida de la Guía: ${o.label}</span>` : null}</span>`;
-      const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}`;
+      const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}${o.afterClose ? html`<${ui.Chip} title="Lo emite la organización después de cerrar el proyecto; no cuenta en el avance">Posterior al cierre</${ui.Chip}>` : null}`;
       if (na) {
         return html`<div class="docs-out-row docs-na-row" data-doc=${o.doc} data-na="1">
           <span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${nameNode}</span>${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}<${NaTag} />
@@ -951,7 +963,7 @@
       const insts = sortedInstances(idx.byTemplate[t.id]);
       /* na: plantilla ágil que no aplica al proyecto (predictivo y sin documentos): se lista aparte y no cuenta. */
       /* ap: enfoque de la metodología de la plantilla (las instancias lo heredan). */
-      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate), ap: apOf(t) };
+      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate), ap: apOf(t), after: afterCloseDoc(t.id) };
       if (!t.multiple) {
         const doc = insts.find((d) => d.id === t.id) || insts[0] || null;
         out.push({ ...base, type: 'single', key: t.id, doc, status: doc ? statusOf(doc) : 'sin', code: baseCode(project, t.id), name: t.name });
@@ -967,7 +979,11 @@
     }
     return out;
   }
-  const countable = (e) => !e.na && (e.type !== 'parent' || !e.count);
+  /* after: documento que la organización emite después del cierre (p. ej. el informe de seguimiento de beneficios);
+     mientras no exista no cuenta en el avance (PM.countsInProgress). */
+  const pendingAfter = (e) => !!e.after && (e.type === 'parent' ? !e.count : e.type === 'single' && !e.doc);
+  const countable = (e) => !e.na && (e.type !== 'parent' || !e.count) && !pendingAfter(e);
+  const AfterStatus = () => html`<${ui.Chip} title="Lo emite la organización después de cerrar el proyecto; no cuenta en el avance">Posterior al cierre</${ui.Chip}>`;
   const NaStatus = () => html`<${ui.Chip} title="Plantilla del enfoque ágil o híbrido: no aplica al ciclo de vida predictivo y no cuenta en el avance documental">No aplica</${ui.Chip}>`;
   /* Celda «Enfoque»: distintivo en cada plantilla (en las múltiples, en la fila madre); las instancias lo heredan (celda
      vacía); los documentos sin plantilla, «—» en la tabla y «Enfoque: sin plantilla» en la tarjeta (móvil), donde no
@@ -988,7 +1004,7 @@
         <td class="docs-c-name"><div class="stack-sm" style="gap:0"><span style="font-weight:600">${e.name}</span><span class="xsmall faint">${kindLabel(e.kind)}${kindLabel(e.kind) ? ' · ' : ''}${e.count ? e.count + (e.count === 1 ? ' documento' : ' documentos') : 'Admite varios documentos por proyecto'}</span></div></td>
         <td class="docs-c-proc mono xsmall">${e.process}</td>
         ${apCol ? html`<${ApCell} e=${e} />` : null}
-        <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : html`<${StatusChip} status="sin" />`}</td>
+        <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : e.after ? html`<${AfterStatus} />` : html`<${StatusChip} status="sin" />`}</td>
         <td class="docs-c-rev"></td><td class="docs-c-upd"></td>
         <td class="docs-act">${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${openIt} aria-label=${'Nuevo: ' + e.name}>Nuevo</${ui.Button}>` : e.count ? null : html`<${ui.Button} size="sm" icon="eye" onClick=${openIt}>Ver plantilla</${ui.Button}>`}</td>
       </tr>`;
@@ -1000,7 +1016,7 @@
       <td class="docs-c-name"><div class="stack-sm" style="gap:0"><button type="button" class="docs-link" onClick=${openIt}>${e.name}</button>${e.type !== 'instance' && kindLabel(e.kind) ? html`<span class="xsmall faint">${kindLabel(e.kind)}</span>` : e.type === 'orphan' ? html`<span class="xsmall faint">Plantilla no disponible</span>` : null}</div></td>
       <td class="docs-c-proc mono xsmall">${e.process}</td>
       ${apCol ? html`<${ApCell} e=${e} />` : null}
-      <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
+      <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : pendingAfter(e) ? html`<${AfterStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
       <td class="docs-c-rev mono">${d && d.rev ? html`<span class="docs-m-only">Rev. </span>${d.rev}` : html`<span class="faint">—</span>`}</td>
       <td class="docs-c-upd xsmall faint">${d ? PM.fmt.datetime(d.updatedAt) : '—'}</td>
       <td class="docs-act"><${ui.Button} size="sm" icon=${!d ? (canWrite ? 'plus' : 'eye') : 'file'} onClick=${openIt} aria-label=${btn + ': ' + e.name}>${btn}</${ui.Button}></td>
@@ -1083,7 +1099,7 @@
       const apSet = ap ? new Set(ap.split('+')) : null;
       const matchT = (e) => (!tpl || e.tid === tpl) && (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind) && (!apSet || !!(e.ap && apSet.has(e.ap.id)));
       const matchQ = (e) => !ql || norm([e.code, e.name, e.t && e.t.name, e.t && e.t.abbr, e.process].join(' ')).includes(ql);
-      const matchS = (e) => !estado || e.status === estado;
+      const matchS = (e) => !estado || (e.status === estado && !(estado === 'sin' && pendingAfter(e)));
       const visible = [];
       for (const e of entries) {
         if (e.type === 'instance' || !matchT(e)) continue;
@@ -1091,7 +1107,7 @@
           const insts = instOf.get(e.tid) || [];
           const pq = matchQ(e);
           const vis = insts.filter((x) => (pq || matchQ(x)) && matchS(x));
-          const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length));
+          const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length && !e.after));
           if (ok) visible.push(e, ...vis);
         } else if (matchQ(e) && matchS(e)) visible.push(e);
       }

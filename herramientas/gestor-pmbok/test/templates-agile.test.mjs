@@ -339,8 +339,8 @@ try {
   check(m.det && m.open === true && /Consideraciones para entornos ágiles\/adaptativos · Alcance/.test(m.summary), 'proyecto híbrido: consideraciones del área abiertas en el detalle', m);
   check(m.practices >= 3 && m.buttons.includes('Backlog del producto') && m.buttons.includes('Visión del producto'), 'prácticas recomendadas y botones hacia la vista y la plantilla', m.buttons);
   check(m.tools.includes('Backlog del producto'), '5.2: el backlog figura entre las herramientas de la aplicación', m.tools);
-  const hy = await page.evaluate(() => ({ nAll: PM.templateList.length, total: document.querySelector('[data-total]').innerText, na: !!document.querySelector('[data-total-na]'), m65: document.querySelector('.docs-proc[data-code="6.5"] .docs-proc-meta').innerText.trim(), off: !!document.querySelector('.modal [data-agile-off]') }));
-  check(hy.nAll === 59 && hy.total.includes('de 59 documentos aprobados') && !hy.na && /\d\/1$/.test(hy.m65) && !hy.off, 'proyecto híbrido: el mapa cuenta las 59 plantillas y 6.5 mide el plan de releases', hy);
+  const hy = await page.evaluate(() => ({ nAll: PM.templateList.length, nAgile: PM.templateList.filter((t) => t.agile).length, total: document.querySelector('[data-total]').innerText, na: !!document.querySelector('[data-total-na]'), m65: document.querySelector('.docs-proc[data-code="6.5"] .docs-proc-meta').innerText.trim(), off: !!document.querySelector('.modal [data-agile-off]') }));
+  check(hy.nAgile === 6 && hy.total.includes('de ' + hy.nAll + ' documentos aprobados') && !hy.na && /\d\/1$/.test(hy.m65) && !hy.off, 'proyecto híbrido: el mapa cuenta todas las plantillas (' + hy.nAll + ', con las 6 ágiles) y 6.5 mide el plan de releases', hy);
   await shot(page, 'proceso-5-2-claro', false);
   /* se llega con Tab desde el último botón de las salidas (modalidad de teclado → :focus-visible) */
   await page.locator('.modal .docs-out button').last().focus();
@@ -418,7 +418,7 @@ try {
   const mapPred = () => page.evaluate(() => {
     const meta = (c) => document.querySelector('.docs-proc[data-code="' + c + '"] .docs-proc-meta').innerText.trim();
     return {
-      nonAgile: PM.templateList.filter((t) => !t.agile).length, inicio: PM.templateList.filter((t) => t.group === 'inicio' && !t.agile).length,
+      nonAgile: PM.templateList.filter((t) => !t.agile).length, counted: PM.templateList.filter((t) => !t.agile && !PM.isAfterCloseDoc(t.id)).length, inicio: PM.templateList.filter((t) => t.group === 'inicio' && !t.agile).length, inicioAll: PM.templateList.filter((t) => t.group === 'inicio').length,
       total: document.querySelector('[data-total]').innerText, na: (document.querySelector('[data-total-na]') || {}).textContent || '',
       m: Object.fromEntries(['6.5', '5.2', '4.3', '8.1', '4.4', '5.5'].map((c) => [c, meta(c)])),
       inicioTxt: document.querySelector('.docs-gbtn[data-group="inicio"] .docs-gbtn-sub').innerText,
@@ -427,11 +427,12 @@ try {
     };
   });
   const pm = await mapPred();
-  check(pm.nonAgile === 53 && pm.total.includes('0 de 53 documentos aprobados') && pm.total.includes('53 sin iniciar') && /6 plantillas ágiles no aplican/.test(pm.na), 'el total del mapa cuenta 53 plantillas y avisa que las 6 ágiles no aplican', pm.total);
+  /* counted: las no ágiles sin los documentos posteriores al cierre (el informe de beneficios no cuenta mientras no exista) */
+  check(pm.counted === pm.nonAgile - 1 && pm.total.includes('0 de ' + pm.counted + ' documentos aprobados') && pm.total.includes(pm.counted + ' sin iniciar') && /6 plantillas ágiles no aplican/.test(pm.na), 'el total del mapa cuenta las ' + pm.counted + ' plantillas no ágiles (sin el informe posterior al cierre) y avisa que las 6 ágiles no aplican', pm.total);
   check(pm.m['6.5'] === 'Salidas en herramientas', '6.5 sin medidor (el plan de releases no cuenta)', pm.m['6.5']);
   check(pm.m['5.2'].endsWith('0/2') && pm.m['4.3'].endsWith('0/2') && pm.m['8.1'].endsWith('0/2') && pm.m['4.4'].endsWith('0/1') && pm.m['5.5'].endsWith('0/1'), 'los medidores de 5.2, 4.3, 8.1, 4.4 y 5.5 no cuentan su salida ágil', pm.m);
-  check(pm.inicioTxt.includes('0/' + pm.inicio + ' documentos') && pm.inicio === 5, 'el grupo Inicio no cuenta la visión del producto', pm.inicioTxt);
-  check(pm.api === 53 && pm.apiH === 59 && pm.apiDoc === true && pm.apiNo === false, 'PM.applicableTemplates / PM.templateApplies (para el tablero): 53 en predictivo, 59 en híbrido; una plantilla ágil con documentos aplica', pm);
+  check(pm.inicioTxt.includes('0/' + pm.inicio + ' documentos') && pm.inicioAll === pm.inicio + 1, 'el grupo Inicio no cuenta la visión del producto', pm.inicioTxt);
+  check(pm.api === pm.nonAgile && pm.apiH === pm.nonAgile + 6 && pm.apiDoc === true && pm.apiNo === false, 'PM.applicableTemplates / PM.templateApplies (para el tablero): ' + pm.nonAgile + ' en predictivo, ' + (pm.nonAgile + 6) + ' en híbrido; una plantilla ágil con documentos aplica', pm);
   await page.click('.docs-proc[data-code="5.2"]');
   await page.waitForSelector('.modal details.docs-agile');
   await page.waitForTimeout(200);
@@ -476,7 +477,7 @@ try {
       main: [...document.querySelectorAll('section[data-area] tbody tr')].map((tr) => tr.getAttribute('data-tid') || tr.getAttribute('data-doc')).filter((id) => AG.includes(id)) };
   });
   const lp = await listPred();
-  check(/Documentos 53 53 plantillas \(sin 6 ágiles\)/.test(lp.stat) && /Sin iniciar 53/.test(lp.stat), 'la lista cuenta 53 documentos y aclara que las 6 ágiles no cuentan', lp.stat);
+  check(lp.stat.includes('Documentos ' + pm.counted + ' ' + pm.nonAgile + ' plantillas (sin 6 ágiles)') && lp.stat.includes('Sin iniciar ' + pm.counted), 'la lista cuenta ' + pm.counted + ' documentos y aclara que las 6 ágiles no cuentan', lp.stat);
   check(lp.sec && lp.open === false && lp.rows.length === 6 && lp.chips.every((c) => c === 'No aplica') && !lp.main.length, 'las 6 plantillas ágiles van aparte, plegadas y con el estado «No aplica»', lp);
   await page.locator('[data-na-section] > summary').focus();
   await page.keyboard.press('Enter');
@@ -489,10 +490,10 @@ try {
   await page.waitForTimeout(500);
   await gotoView(page, 'procesos');
   const pm2 = await mapPred();
-  check(pm2.total.includes('0 de 54 documentos aprobados') && /5 plantillas ágiles no aplican/.test(pm2.na) && pm2.m['5.2'].endsWith('0/3'), 'un documento ágil creado en un proyecto predictivo sí cuenta (mapa 54, 5.2 0/3)', pm2);
+  check(pm2.total.includes('0 de ' + (pm.counted + 1) + ' documentos aprobados') && /5 plantillas ágiles no aplican/.test(pm2.na) && pm2.m['5.2'].endsWith('0/3'), 'un documento ágil creado en un proyecto predictivo sí cuenta (mapa ' + (pm.counted + 1) + ', 5.2 0/3)', pm2);
   await gotoView(page, 'documentos');
   const lp2 = await listPred();
-  check(lp2.rows.length === 5 && lp2.main.includes('vision-producto') && /Documentos 54/.test(lp2.stat), 'y pasa de la sección «no aplican» a su área en la lista', lp2);
+  check(lp2.rows.length === 5 && lp2.main.includes('vision-producto') && lp2.stat.includes('Documentos ' + (pm.counted + 1) + ' '), 'y pasa de la sección «no aplican» a su área en la lista', lp2);
   await page.evaluate(() => PM.navigate('documentos', { template: 'retrospectiva' }));
   await page.waitForTimeout(350);
   const lf = await page.evaluate(() => { const sec = document.querySelector('[data-na-section]'); return { open: sec && sec.open, rows: sec ? [...sec.querySelectorAll('tbody tr')].map((tr) => tr.getAttribute('data-tid')) : [], main: document.querySelectorAll('section[data-area]').length, empty: !!document.querySelector('.page .empty, .page [class*="empty"] h3') }; });

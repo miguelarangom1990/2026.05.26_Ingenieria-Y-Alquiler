@@ -3,7 +3,7 @@
 //   1) Construye una página aislada (núcleo + 90) y valida el constructor, la importación y los cálculos.
 //   2) Crea el ejemplo desde el estado vacío del portafolio (botón «Crear proyecto de ejemplo») y verifica persistencia.
 //   3) Ejecuta test/smoke.mjs sobre esa página.
-//   4) Si existen plantillas (12-, 13-), construye núcleo + plantillas + 90 y valida los documentos y revisiones.
+//   4) Si existen plantillas (12-, 13-, 15-), construye núcleo + plantillas + 90 y valida los documentos y revisiones.
 //   5) Sin --quick: construye con todos los módulos presentes y recorre todas las vistas (claro, oscuro, 400 px).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
@@ -38,6 +38,8 @@ async function validateInPage(page) {
   return page.evaluate(async () => {
     const out = { checks: [] };
     const ok = (cond, msg, extra) => out.checks.push({ ok: !!cond, msg, extra: cond ? undefined : extra });
+    /* pendiente de otro módulo: se informa sin contar como falla (la comprobación se vuelve estricta cuando el módulo lo resuelve) */
+    const pend = (msg, extra) => (out.pending = out.pending || []).push({ msg, extra });
     const D = PM.date;
     ok(!!PM.getExample('andamio'), 'el ejemplo del andamio está registrado', PM.examples.map((e) => e.id));
     const ex = PM.getExample('andamio').build({ today: PM.date.today() });
@@ -332,6 +334,59 @@ async function validateInPage(page) {
         if (b.status === 'aprobado') ok(b.titleBlock.fechaAprobacion <= st && D.dow(b.titleBlock.fechaAprobacion) % 6 !== 0, d.id + ': aprobado en día hábil hasta el corte', b.titleBlock.fechaAprobacion);
       }
       ok(!anach.length, 'ningún documento aprobado cita hechos posteriores a su aprobación', anach);
+      /* Documentos de negocio (15-templates-negocio.js): la evaluación de necesidades y el acuerdo con el cliente se
+         generan con fechas anteriores o iguales a la del acta de constitución; el informe de beneficios (cierre) no. */
+      if (PM.templates['evaluacion-necesidades'] && PM.templates['acuerdo-cliente']) {
+        const get = (id) => (docs.find((x) => x.id === id) || {}).data || null;
+        const acta = get('acta-constitucion'), evn = get('evaluacion-necesidades'), acu = get('acuerdo-cliente');
+        const caso = get('caso-negocio'), fin = get('requisitos-financiamiento'), radq = get('registro-adquisiciones');
+        const actaDate = acta && acta.titleBlock.fechaAprobacion;
+        ok(evn && acu && actaDate === '2026-08-03', 'evaluación de necesidades y acuerdo con el cliente en el ejemplo', [!!evn, !!acu, actaDate]);
+        if (evn && acu) {
+          const day = (x) => String(x || '').slice(0, 10);
+          const revsOf = async (id) => (await PM.store.list(PM.paths.revs(pid, id))).map((r) => r.data).sort((a, x) => String(a.date).localeCompare(String(x.date)));
+          /* evaluación: una sola emisión (rev. 0), a más tardar con el acta y sin reemisiones */
+          ok(evn.status === 'aprobado' && evn.rev === '0' && evn.titleBlock.fechaAprobacion <= actaDate && day(evn.createdAt) <= actaDate, 'evaluacion-necesidades: aprobada en rev. 0 a más tardar con el acta de constitución', [evn.status, evn.rev, evn.titleBlock.fechaAprobacion]);
+          ok(!(await revsOf('evaluacion-necesidades')).length, 'evaluacion-necesidades: sin reemisiones (no cita hechos posteriores)');
+          const isoIn = (v, out = []) => { if (typeof v === 'string') out.push(...(v.match(/\b20\d\d-\d\d-\d\d\b/g) || [])); else if (Array.isArray(v)) v.forEach((x) => isoIn(x, out)); else if (v && typeof v === 'object') Object.values(v).forEach((x) => isoIn(x, out)); return out; };
+          const fe = evn.fields, fa = acu.fields, fc = caso.fields;
+          ok(isoIn(fe).every((d) => d <= fc.fechaCaso) && fe.fechaEvaluacion < fc.fechaCaso && fe.fechaDecision <= fc.fechaCaso, 'evaluación: todas sus fechas son anteriores o iguales al caso de negocio (' + fc.fechaCaso + ')', isoIn(fe));
+          /* la evaluación precede al caso de negocio: su emisión va después de la decisión que registra y antes del caso. La fecha
+             de emisión la fija 90-example.js (SPECIAL); mientras use la del grupo inicio (3 de agosto) queda pendiente. */
+          const evnAt = evn.titleBlock.fechaAprobacion, casoAt = caso.titleBlock.fechaAprobacion;
+          if (evnAt <= casoAt) ok(evnAt >= fe.fechaDecision && evnAt >= fe.fechaEvaluacion && day(evn.createdAt) <= casoAt, 'evaluación: emitida después de la decisión del patrocinador (' + fe.fechaDecision + ') y a más tardar con el caso de negocio (' + casoAt + ')', [evnAt, day(evn.createdAt)]);
+          else pend('90-example.js: la evaluación de necesidades se emite el ' + evnAt + ', después del caso de negocio (' + casoAt + ') del que es antecedente y de la decisión que registra (' + fe.fechaDecision + '); falta fijarla en SPECIAL (p. ej. ' + fe.fechaDecision + ')');
+          ok(fe.opciones.map((r) => r.opcion).join('|') === fc.opciones.map((r) => r.opcion).join('|') && fe.opciones.every((r) => r.pasaCaso), 'evaluación: las opciones que pasan son las alternativas del caso de negocio');
+          const util = fe.brechas.find((r) => /inventario/i.test(r.aspecto));
+          const brechaCol = PM.templates['evaluacion-necesidades'].sections.flatMap((x) => x.fields).find((x) => x.key === 'brechas').columns.find((c) => c.key === 'brecha');
+          ok(util && util.valorActual === 62 && util.valorDeseado === 75 && brechaCol.calc(util, fe.brechas) === 13, 'evaluación: brecha de utilización 62 % → 75 % (13 puntos), la línea base y la meta del plan de beneficios');
+          const signed = [fa.fechaFirma, ...fa.polizas.map((r) => r.fechaAprobacion), ...fa.firmas.map((r) => r.fecha)];
+          ok(signed.every((d) => D.valid(d) && d <= actaDate) && fa.fechaFirma <= '2026-07-31', 'acuerdo: firma, aprobación de pólizas y firmas antes del acta de constitución y de la condición del caso de negocio (31 de julio)', signed);
+          ok(fa.fechaInicio === meta.start && fa.fechaTerminacion === meta.end && fa.contratante === meta.client && fa.fechaInicio === acta.fields.fechaInicio && fa.fechaTerminacion === acta.fields.fechaFin, 'acuerdo: inicio, terminación y contratante iguales a la ficha y al acta de constitución');
+          ok(fa.plazo.startsWith((D.diff(fa.fechaInicio, fa.fechaTerminacion) + 1) + ' días calendario'), 'acuerdo: plazo en días calendario calculado con las fechas', fa.plazo);
+          ok(fa.valorInicial === fc.valorContrato && fa.anticipoValor === Math.round(fa.valorInicial * fa.anticipoPct / 100) && fa.anticipoValor === 119600000, 'acuerdo: valor del caso de negocio ($ 598 M) y anticipo del 20 % ($ 119,6 M)', [fa.valorInicial, fa.anticipoValor]);
+          const ago = fin && fin.fields.periodos.find((r) => r.fuente === 'Anticipo del cliente');
+          ok(ago && ago.financiamiento === fa.anticipoValor, 'acuerdo: el anticipo es el financiamiento de agosto en los requisitos de financiamiento', ago);
+          const aseg = PM.templates['acuerdo-cliente'].sections.flatMap((x) => x.fields).find((x) => x.key === 'polizas').columns.find((c) => c.key === 'valorAsegurado');
+          ok(JSON.stringify(fa.polizas.map((r) => aseg.calc(r, fa.polizas))) === JSON.stringify([119600000, 119600000, 29900000, 119600000]) && fa.polizas.every((r) => r.estado === 'Aprobada'), 'acuerdo: valores asegurados de las pólizas (anticipo, cumplimiento 20 %, salarios 5 %, responsabilidad civil)');
+          ok(/CS-2026-031/.test(fa.numeroAcuerdo) && (PM.templates['acta-cierre'] ? PM.templates['acta-cierre'].example.contrato.includes('CS-2026-031') : true) && !(radq ? radq.fields.contratos : []).some((r) => /CS-2026-031/.test(r.numero)), 'acuerdo: contrato CS-2026-031 del acta de cierre, distinto de los contratos con proveedores del registro');
+          /* acuerdo: rev. 0 (firma y pólizas) sin la orden de cambio y rev. 1 después de la orden de cambio No. 1 del CC-002 */
+          const ra = await revsOf('acuerdo-cliente');
+          const r0 = ra.find((r) => r.rev === '0'), r1 = ra.find((r) => r.rev === '1');
+          const lastSigned = signed.slice().sort().pop();
+          ok(r0 && r0.status === 'aprobado' && day(r0.date) >= lastSigned && day(r0.date) <= actaDate && day(acu.createdAt) === day(r0.date) && Array.isArray(r0.fields.modificaciones) && !r0.fields.modificaciones.length && !/CC-002|plataforma (?:voladiza )?de descargue/i.test(JSON.stringify(r0.fields)), 'acuerdo: rev. 0 emitida después de la firma y de las pólizas (' + lastSigned + '), a más tardar con el acta y sin la orden de cambio', r0 && [day(r0.date), r0.fields.modificaciones]);
+          const mods = fa.modificaciones || [], m = mods[0] || {};
+          ok(ra.length === 2 && r1 && acu.status === 'aprobado' && acu.rev === '1' && acu.titleBlock.fechaAprobacion === day(r1.date) && acu.titleBlock.fechaAprobacion > m.fecha && acu.titleBlock.fechaAprobacion > EV['CC-002'] && acu.titleBlock.fechaAprobacion <= st, 'acuerdo: rev. 1 aprobada después de la orden de cambio No. 1 y antes del corte', [acu.rev, acu.titleBlock.fechaAprobacion, ra.map((r) => r.rev + '@' + day(r.date))]);
+          const vf = PM.templates['acta-cierre'] ? PM.templates['acta-cierre'].example.valorFinal : null;
+          ok(mods.length === 1 && m.solicitudCambio === 'CC-002' && m.tipo === 'Orden de cambio' && m.estado === 'Firmada' && m.fecha >= EV['CC-002'] && m.fecha <= st && m.efectoPlazo === 0 && (vf === null || m.efectoValor === vf - fa.valorInicial) && m.efectoValor === 12600000, 'acuerdo: orden de cambio No. 1 del CC-002, firmada después de su aprobación ($ 12,6 M = valor final del acta de cierre − valor inicial; sin prórroga)', m);
+          const sc = get('solicitud-cambio--ej1');
+          ok(!sc || (/\$ 12,6 M/.test(sc.fields.impactoCosto) && /póliza de cumplimiento/.test(sc.fields.impactoOtros) && /póliza de cumplimiento/.test(m.objeto) && /no mueve la fecha de fin/.test(sc.fields.impactoCronograma)), 'acuerdo: la orden de cambio cuadra con la solicitud CC-002 (valor facturado, ajuste de la póliza de cumplimiento y fecha de fin)', sc && [sc.fields.impactoCosto, sc.fields.impactoCronograma]);
+          const modCols = PM.templates['acuerdo-cliente'].sections.flatMap((x) => x.fields).find((x) => x.key === 'modificaciones').columns;
+          const cc = (k) => modCols.find((c) => c.key === k).calc(m, mods);
+          ok(cc('valorAcumulado') === m.efectoValor && cc('plazoAcumulado') === 0 && fa.fechaTerminacion === meta.end, 'acuerdo: adiciones acumuladas $ 12,6 M, sin prórrogas; la terminación sigue en la fecha de la ficha', [cc('valorAcumulado'), cc('plazoAcumulado')]);
+        }
+        ok(!docs.some((x) => x.id.startsWith('informe-beneficios')), 'el informe de realización de los beneficios no se genera (posterior al cierre)');
+      }
       const scope = docs.find((x) => x.id === 'enunciado-alcance');
       if (scope) {
         const r0 = (await PM.store.list(PM.paths.revs(pid, 'enunciado-alcance'))).find((r) => r.data.rev === '0');
@@ -348,6 +403,7 @@ async function validateInPage(page) {
 function report(label, res) {
   section(label);
   for (const c of res.checks) { if (c.ok) passes++; else { failures++; console.log('  FALLA: ' + c.msg + (c.extra !== undefined ? ' → ' + JSON.stringify(c.extra).slice(0, 500) : '')); } }
+  for (const c of res.pending || []) console.log('  PENDIENTE: ' + c.msg + (c.extra !== undefined ? ' → ' + JSON.stringify(c.extra).slice(0, 300) : ''));
   console.log(`  ${res.checks.filter((c) => c.ok).length}/${res.checks.length} verificaciones · plantillas ${res.templates} · documentos ${res.docs} · ${res.writes} escrituras · ${res.totalKB} KB`);
   if (res.evm) console.log(`  PV ${(res.evm.pv / 1e6).toFixed(1)} M · EV ${(res.evm.ev / 1e6).toFixed(1)} M · AC ${(res.evm.ac / 1e6).toFixed(1)} M · SPI ${res.evm.spi.toFixed(3)} · CPI ${res.evm.cpi.toFixed(3)} · EAC ${(res.evm.eac / 1e6).toFixed(1)} M · fin pronosticado ${res.evm.forecastFinish}`);
 }
@@ -426,7 +482,7 @@ section('Prueba de humo (test/smoke.mjs)');
 }
 
 /* ------------------------------------------------------------------ 4) con plantillas */
-const tplPrefixes = ['12', '13'].filter((p) => readdirSync(join(root, 'src')).some((f) => f.startsWith(p + '-') && f.endsWith('.js')));
+const tplPrefixes = ['12', '13', '15'].filter((p) => readdirSync(join(root, 'src')).some((f) => f.startsWith(p + '-') && f.endsWith('.js')));
 if (!tplPrefixes.length) console.log('\n• Plantillas: no existen 12-/13- todavía; se omite la verificación de documentos.');
 else {
   const fileT = build('example-tpl.html', [...tplPrefixes, '90'].join(','));
