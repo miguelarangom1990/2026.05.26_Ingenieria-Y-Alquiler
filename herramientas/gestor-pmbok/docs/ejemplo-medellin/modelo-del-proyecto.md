@@ -833,3 +833,99 @@ Fuente: `CATALOG` en `src/91-example-medellin.js` y el equipo de la capa ágil (
 - **No planificados.** El subcontrato de la pantalla anclada y los drenajes (REC-025: respuesta al R-004, materializado con el INC-004; consume COP 600 M de la reserva para contingencias, aprobados con el CC-003 sin nueva línea base), el turno extendido de formaleta del bloque B desde el 14 de septiembre de 2026 (acción correctiva del INC-006: variación) y el segundo desarrollador web de la agencia en septiembre y octubre (refuerzo del release). Solo la pantalla consume reserva: de los COP 2.363 M de la reserva para contingencias quedan disponibles COP 1.763 M. Ninguno requiere nueva línea base.
 - **Equipo de la capa ágil.** Desarrollador web, diseñador de contenidos y especialista en pauta de la agencia (CT-013) y analista de CRM, con dedicación del 85 % (trabajan de lunes a viernes: 17 de los 20 días hábiles de la iteración), asignados a C02D (precio global, costo 0); el coordinador de mercadeo digital (facilitador) no cuenta en la capacidad. El diseñador tuvo 3 días de vacaciones en la iteración 8 (65,45 días-persona de los cuatro integrantes; el histograma muestra esos días sin disponibilidad) y el segundo desarrollador está disponible del 17 de septiembre al 31 de octubre (iteración 9: 85 días-persona). Capacidad sugerida de la iteración 10: 23,2 puntos (83,3 días-persona frente a 67,15 en promedio de las iteraciones 6 a 8, con cuatro integrantes, de las que sale la velocidad media de 18,7 puntos); el equipo registró 19 puntos, prudente mientras el refuerzo se integra.
 - **Riesgos.** Cada riesgo del registro (y de sus revisiones LB0 y LB1) tiene su subcategoría de la estructura de desglose de los riesgos del plan de gestión de los riesgos (11 subcategorías).
+
+## 26. Documentos de negocio (antes, durante y después del proyecto)
+
+Los genera `src/98-example-medellin-docs-negocio.js`, que agrega `evaluacion-necesidades` y `acuerdo-cliente` a `PM.exampleDocs.medellin` con `Object.assign`, como 92 y 93. Los verifica `test/example-medellin-docs-negocio.test.mjs`.
+
+### 26.1 Instrumento que origina el proyecto (decisión)
+
+El promotor desarrolla el proyecto para sí mismo: el cliente del proyecto (`project.client`) es el propio promotor y el patrocinador es su junta directiva. Por eso la entrada «Acuerdos» del proceso 4.1 **no es un contrato con un tercero**. Es un **acuerdo interno**: la decisión de la junta directiva que aprueba el caso de negocio y encarga el proyecto a la gerencia del proyecto, registrada en el **acta JD-2025-01E** (ficticia).
+
+- La sesión es **extraordinaria**. El 10 de enero de 2025 fue viernes y la sesión ordinaria de enero era el segundo martes (14 de enero). La junta se reúne en sesión extraordinaria para aprobar el caso de negocio antes del acta de constitución (2025-01-13) y del inicio del CT-001 (2025-01-14), que se adjudica ese mismo 10 de enero.
+- Numeración de las actas de junta: `JD-AAAA-MM`, con el sufijo `E` para las extraordinarias, como el acta JD-2026-09E del registro de comunicaciones (93, COM-018).
+- La fiducia mercantil y el encargo de preventas (CT-011, inicio 2025-04-30), el crédito constructor (CT-014) y la construcción (CT-015) son contratos derivados. Están en el registro de adquisiciones (93) y no originan el proyecto, porque el acta de constitución (2025-01-13) es anterior a todos ellos.
+- Por la misma razón, el número del acuerdo no coincide con ningún contrato CT-001 a CT-025.
+
+Fuentes: 92 (caso de negocio aprobado por la junta el 2025-01-10; acta de constitución del 2025-01-13 con `cliente` = promotor y `patrocinador` = junta); sección 14 («Sesiona el segundo martes de cada mes»); 93, COM-018 y acta JD-2026-09E.
+
+### 26.2 Fechas nuevas
+
+| Hecho | Fecha | Supuesto o fuente |
+|---|---|---|
+| Evaluación de necesidades presentada a la junta | 2024-12-06 | Supuesto nuevo: viernes anterior a la sesión de diciembre. |
+| Decisión de la junta: elaborar el caso de negocio | 2024-12-10 | Supuesto nuevo. Es la sesión ordinaria del segundo martes de diciembre de 2024 (sección 14). Es anterior al caso de negocio (2025-01-10, sección 21). |
+| Acuerdo interno firmado (rev. 0), acta JD-2025-01E | 2025-01-10 | Sesión extraordinaria (viernes). Es la misma decisión que aprueba el caso de negocio y el plan de gestión de los beneficios (sección 21, `casoDeNegocio`). Es anterior al acta de constitución (2025-01-13). |
+| Decisión de inversión (factibilidad y LB0) | 2025-04-22 | Ya está en el modelo (sección 10, E05; 93, COM-002, «Acta de junta de abril de 2025»). **No modifica el acuerdo**: cumple la condición pactada en sus cláusulas Segunda y Cuarta. No va en la tabla de modificaciones ni origina una revisión. |
+| Orden de cambio No. 1 del acuerdo | 2026-03-10 | Fecha de aprobación del CC-002 por la junta (sección 16). |
+| Emisión de la rev. 1 del acuerdo (vigente) | 2026-03-13 | LB1 (sección 21, `lb1`). |
+
+### 26.3 Evaluación de necesidades (PRY-2025-003-EVN, rev. 0 aprobada el 2024-12-10)
+
+- Roles: elaboró el estructurador financiero, revisó el gerente comercial y aprobó la junta directiva.
+- Solicitante: el gerente general del promotor, en la revisión del portafolio para el plan estratégico 2025-2028. Es un supuesto nuevo; el rol ya existe en las firmas del acta de constitución.
+- Origen: «Implementar o cambiar una estrategia de negocio o tecnológica» (plan estratégico 2025-2028).
+- Problema, causas, objetivos de la organización y datos del lote: salen del caso de negocio (`necesidad`, `alineacion`, `brecha`). Son estos:
+  - Lote de 50.000 m² por COP 15.000 millones (COP 300.000/m² bruto).
+  - Norma Z4_DE_1: 100 viviendas/ha, IC 0,6 y 8 pisos.
+  - Hasta 500 viviendas (sección 2, aprovechamientos).
+- Brechas (valor actual → deseado):
+  - Proyectos en preventas: 0 → 1 (plan estratégico).
+  - Procedimiento de suelo de expansión: 0 → 1 (plan de beneficios: «No existe en el promotor»).
+  - Satisfacción de los compradores: 4,1 → 4,3.
+  - Solicitudes de posventa por vivienda en el primer año: 2,3 → 1,5.
+  - Las dos últimas salen de las líneas base y metas del plan de gestión de los beneficios. La brecha la calcula la plantilla: 1, 1, 0,2 y −0,8.
+- Interesados afectados: para los compradores potenciales (hogares de estrato 3 del occidente), la afectación usa solo hechos del caso de negocio: son el segmento con mayor demanda del occidente y en suelo urbano consolidado el costo del lote obliga a productos de mayor precio, fuera de su segmento.
+- Opciones: las del caso de negocio (no hacer nada, súper lotes y desarrollo integral). La recomendación es comparar en el caso el desarrollo integral en una y en dos etapas. Las tres opciones pasan al caso.
+- La evaluación no cita cifras de diseño de la prefactibilidad (416 viviendas, 104 VIS, aporte de COP 24.000 millones, presupuesto de COP 143.339 millones), porque son posteriores.
+- La recomendación de «solicitar desde ya ofertas para el estudio de títulos, el avalúo y el estudio de mercado» es coherente con las solicitudes de oferta del 2025-01-06 para el CT-001 y el CT-002 (93, cronograma de adquisiciones).
+
+### 26.4 Acuerdo con el cliente (PRY-2025-003-ACU, rev. 1 vigente aprobada el 2026-03-13)
+
+Cajetín: elabora el abogado del proyecto, revisa el gerente de proyecto y aprueba la junta directiva.
+
+| Campo | Valor | Fuente |
+|---|---|---|
+| Tipo | Acuerdo interno o memorando de entendimiento | Decisión 26.1 |
+| Referencia | Acta JD-2025-01E — sesión extraordinaria de la junta directiva del 10 de enero de 2025 (ficticia) | Supuesto nuevo (26.1) |
+| Contratante | Promotora Modelo Occidente S.A.S. (ficticia), por decisión de su junta directiva (patrocinador) | Ficha del proyecto |
+| Área ejecutora | Gerencia del proyecto: gerente de proyecto con el estructurador financiero, el gerente comercial, el abogado y el contador del proyecto | Sección 14 (todos del promotor) |
+| Modalidad / base del valor | Presupuesto interno asignado / No aplica (acuerdo interno) | — |
+| Valor | COP 143.339 millones | Presupuesto del acta de constitución = costo estimado del caso de negocio = `project.budget` |
+| Inicio / terminación | 2025-01-13 / 2029-03-28 | Ficha del proyecto y acta de constitución |
+| Plazo | 1.536 días calendario (unos 4,2 años) | Calculado con `PM.date.diff(inicio, fin) + 1`; «4,2 años» es el resumen del ejemplo |
+| Anticipo, retención en garantía | 0 % y $ 0 | No aplican en un acuerdo interno |
+| Pólizas | Los tres amparos por defecto (cumplimiento, salarios, RCE) en estado «No aplica» | Entre las partes no hay pólizas. Las garantías se pactan en cada contrato con terceros según su objeto: las otorgan los consultores, la comercializadora y el constructor; la fiduciaria no (CT-011: pólizas «No aplica», entidad vigilada por la Superintendencia Financiera). Para la construcción se suma el amparo patrimonial de la Ley 1796 de 2016 |
+| Forma de pago (fases) | Sin pagos entre las partes. El gerente ejecuta el presupuesto asignado con sus límites de contratación (contratos de más de COP 1.000 millones con aprobación de la junta). Fase de estructuración: hasta COP 420 millones (debida diligencia, mercado y factibilidad = CT-001 + CT-002 + CT-003) y arras de COP 3.000 millones sujetas al estudio de títulos; la gerencia, la gestión administrativa, la unidad de actuación urbanística y el inicio de los diseños se ejecutan dentro del presupuesto asignado. La decisión de inversión autoriza pagar el 80 % del lote con la escritura (COP 12.000 millones) y contratar la fiducia. Fuentes: aporte de COP 24.000 millones, cuotas iniciales en el encargo fiduciario, crédito constructor de COP 56.000 millones y saldos de precio a la escrituración | Acta de constitución (`recursosFinancieros`, `responsabilidadAutoridad`), caso de negocio (`flujoCaja`), 91 (E06) y 93 (CT-001 a CT-004) |
+| Control de modificaciones | Las aprueba la junta como comité de control de cambios y se formalizan con una orden de cambio numerada. Los cambios del gerente de hasta COP 300 millones no modifican el acuerdo; tampoco las decisiones que el acuerdo ya prevé (decisión de inversión e inicio de cada etapa), que se registran en el acta de la junta | Acta de constitución (`limiteGasto`, `responsabilidadAutoridad`) |
+| Supervisión | Junta directiva (informe mensual del segundo martes); la revisoría fiscal audita la ejecución del presupuesto | Secciones 14 y 20; G06 (revisoría fiscal) |
+| Firmas (2025-01-10) | Presidente de la junta directiva, gerente general del promotor (representante legal) y gerente de proyecto | Mismos firmantes del acta de constitución |
+
+Por qué la forma de pago no bloquea «el resto del presupuesto» hasta la decisión de inversión: en los datos del ejemplo, antes del 2025-04-22 ya hay COP 466 millones de costos reales fuera de E01 a E04 (G05 gerencia, G06 gestión administrativa, D01 esquema básico y E08 unidad de actuación). Además, el CT-004 (diseño arquitectónico, COP 1.133 millones) se adjudicó el 2025-02-24 y empezó el 2025-03-03. El acta de constitución limita los COP 420 millones a la debida diligencia, el mercado y la factibilidad; no bloquea el resto del presupuesto.
+
+Modificaciones. Solo hay una; no cambia el valor ni el plazo y la plantilla calcula los acumulados en $ 0 y 0 días.
+
+| Número | Tipo | Fecha | Solicitud de cambio | Efecto | Estado |
+|---|---|---|---|---|---|
+| Orden de cambio No. 1 | Orden de cambio | 2026-03-10 | CC-002 | Agrega al objeto la mitigación vial con cargo a la reserva para contingencias (COP 430 millones) y lleva el inicio de obra de la etapa 1 al 2026-03-16 (LB1). El presupuesto y el fin del proyecto no cambian: 0 en valor y en plazo. | Firmada |
+
+No son modificaciones del acuerdo:
+
+- La decisión de inversión (2025-04-22): cumple la condición pactada. El ejemplo la registra en el acta de junta de abril de 2025 (COM-002). En el ejemplo, «otrosí» se usa para modificar contratos con terceros y promesas de compraventa con compradores (92: plan de gestión de los cambios y CC-002), no para una decisión de la junta del mismo promotor.
+- CC-003: usa la contingencia dentro del presupuesto.
+- CC-004: cambia la lista de precios.
+- CC-005: traslada reservas sin cambiar el presupuesto, y está en análisis.
+
+Revisiones emitidas:
+
+- Rev. 0 (2025-01-10): sin modificaciones.
+- Rev. 1 (2026-03-13, vigente): orden de cambio No. 1. Entran a los documentos del acuerdo el acta de constitución, la factibilidad aprobada en la decisión de inversión (acta de junta de abril de 2025) y el plan para la dirección con la LB1.
+
+Ninguna revisión cita hechos posteriores a su fecha:
+
+- La rev. 0 no cita el acta de constitución, la decisión de inversión ni la fiduciaria (adjudicada el 2025-04-25); solo prevé la decisión de inversión como condición.
+- La mitigación vial y el CC-002 aparecen solo en la rev. 1.
+
+### 26.5 Informe de realización de los beneficios
+
+No se diligencia: se emite después del cierre y el proyecto no ha cerrado al corte del 2026-09-30. El cierre de la línea base es el 2029-03-28 y el pronóstico, el 2029-06-29. Lo emitirá el dueño de los beneficios (la junta directiva; lo mide la gerencia general del promotor) con la frecuencia trimestral del plan de gestión de los beneficios.

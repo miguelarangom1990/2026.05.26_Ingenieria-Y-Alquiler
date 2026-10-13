@@ -339,8 +339,9 @@ try {
   check(m.det && m.open === true && /Consideraciones para entornos ágiles\/adaptativos · Alcance/.test(m.summary), 'proyecto híbrido: consideraciones del área abiertas en el detalle', m);
   check(m.practices >= 3 && m.buttons.includes('Backlog del producto') && m.buttons.includes('Visión del producto'), 'prácticas recomendadas y botones hacia la vista y la plantilla', m.buttons);
   check(m.tools.includes('Backlog del producto'), '5.2: el backlog figura entre las herramientas de la aplicación', m.tools);
-  const hy = await page.evaluate(() => ({ nAll: PM.templateList.length, nAgile: PM.templateList.filter((t) => t.agile).length, total: document.querySelector('[data-total]').innerText, na: !!document.querySelector('[data-total-na]'), m65: document.querySelector('.docs-proc[data-code="6.5"] .docs-proc-meta').innerText.trim(), off: !!document.querySelector('.modal [data-agile-off]') }));
-  check(hy.nAgile === 6 && hy.total.includes('de ' + hy.nAll + ' documentos aprobados') && !hy.na && /\d\/1$/.test(hy.m65) && !hy.off, 'proyecto híbrido: el mapa cuenta todas las plantillas (' + hy.nAll + ', con las 6 ágiles) y 6.5 mide el plan de releases', hy);
+  /* nAll: todas las plantillas salvo los documentos posteriores al cierre que el proyecto aún no tiene (informe de beneficios) */
+  const hy = await page.evaluate(() => ({ nAll: PM.templateList.filter((t) => !PM.isAfterCloseDoc(t.id)).length, nAgile: PM.templateList.filter((t) => t.agile).length, total: document.querySelector('[data-total]').innerText, na: !!document.querySelector('[data-total-na]'), m65: document.querySelector('.docs-proc[data-code="6.5"] .docs-proc-meta').innerText.trim(), off: !!document.querySelector('.modal [data-agile-off]') }));
+  check(hy.nAgile === 6 && hy.total.includes('de ' + hy.nAll + ' documentos aprobados') && !hy.na && /\d\/1$/.test(hy.m65) && !hy.off, 'proyecto híbrido: el mapa cuenta todas las plantillas (' + hy.nAll + ', con las 6 ágiles y sin el informe posterior al cierre) y 6.5 mide el plan de releases', hy);
   await shot(page, 'proceso-5-2-claro', false);
   /* se llega con Tab desde el último botón de las salidas (modalidad de teclado → :focus-visible) */
   await page.locator('.modal .docs-out button').last().focus();

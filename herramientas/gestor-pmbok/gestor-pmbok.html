@@ -3875,6 +3875,20 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
             | {view, label}            herramienta de la aplicación que materializa la salida
             | {baseline, label}        'scope' | 'schedule' | 'cost'
             | {text}                   salida sin documento propio en la aplicación
+   - Output.afterClose = true       documento posterior al cierre que complementa las salidas de la
+                                   Guía (informe de realización de los beneficios en 4.7: lo emite el
+                                   dueño de los beneficios después de cerrar el proyecto). Sin label:
+                                   no es salida de la Guía. Quien mida el avance documental no debe
+                                   contarlo (el proyecto cierra sin él) y debe mostrarlo con un
+                                   distintivo de texto «Posterior al cierre».
+   - Documentos de negocio (15-templates-negocio.js): la evaluación de necesidades es el antecedente
+     del caso de negocio y el acuerdo con el cliente es la entrada «Acuerdos»; ambos son entradas de
+     4.1 (inputsDocs), como el caso de negocio y el plan de gestión de los beneficios. El acuerdo con
+     el cliente también es entrada donde la Guía lista «Acuerdos» y el contrato con el cliente aporta
+     información (4.5, 4.7, 5.2, 6.5 hitos contractuales, 7.3, 11.2 multas y garantías, 13.1 y 13.2
+     comités y supervisión); en 9.6 y 12.3 los acuerdos son los de los proveedores (registro de
+     adquisiciones). 4.6 lo actualiza (update): los cambios aprobados que alteran valor, plazo o
+     alcance del contrato se formalizan como modificaciones del acuerdo.
    - toolViews: herramientas de la aplicación que apoyan las técnicas del proceso
      (p. ej. 8.1 «diagramas de flujo» → flujogramas). No son salidas.
    - toolParams = {viewId: params}  parámetros de navegación de una herramienta en ese proceso
@@ -3930,6 +3944,9 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
   const PMIS = 'Sistema de información para la dirección de proyectos (PMIS)';
   const CHARTER = 'Acta de constitución del proyecto';
   const BIZ = 'Documentos de negocio (caso de negocio, plan de gestión de los beneficios)';
+  /* 4.1: la evaluación de necesidades precede al caso de negocio; los acuerdos con el cliente originan el proyecto */
+  const BIZ_41 = 'Documentos de negocio (caso de negocio y plan de gestión de los beneficios, precedidos por la evaluación de necesidades)';
+  const AGREEMENTS_41 = 'Acuerdos (contrato, orden de compra o de servicio, o acuerdo interno)';
   const WPD = 'Datos de desempeño del trabajo';
   const WPR = 'Informes de desempeño del trabajo';
 
@@ -4109,10 +4126,10 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
     /* ===================== 4. Integración ===================== */
     P('4.1', 'Desarrollar el Acta de Constitución del Proyecto', 'integracion', 'inicio', 'unica',
       'Desarrolla el documento que autoriza formalmente la existencia del proyecto y confiere al director del proyecto la autoridad para aplicar recursos de la organización a sus actividades. Beneficio clave: vincula el proyecto con los objetivos estratégicos de la organización, crea un registro formal del proyecto y muestra el compromiso de la organización con él.', {
-        inputs: [BIZ, 'Acuerdos', EEF, OPA],
+        inputs: [BIZ_41, AGREEMENTS_41, EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, grupos focales, entrevistas)', 'Habilidades interpersonales y de equipo (gestión de conflictos, facilitación, gestión de reuniones)', REU],
         outputs: [doc('acta-constitucion'), doc('registro-supuestos')],
-        inputsDocs: ['caso-negocio', 'plan-gestion-beneficios'],
+        inputsDocs: ['evaluacion-necesidades', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'],
       }),
     P('4.2', 'Desarrollar el Plan para la Dirección del Proyecto', 'integracion', 'planificacion', 'unica',
       'Define, prepara y coordina todos los componentes del plan (planes de gestión, líneas base y planes adicionales) y los consolida en un plan integral para la dirección del proyecto. Beneficio clave: produce un documento integral que define la base de todo el trabajo del proyecto y el modo en que se realizará.', {
@@ -4146,14 +4163,16 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         outputs: [doc('informe-desempeno', 'Informes de desempeño del trabajo'), CR(), PMPU('cualquier componente'),
           PDU('pronósticos de costos, registro de incidentes, registro de lecciones aprendidas, registro de riesgos, pronósticos del cronograma'),
           upd('registro-incidentes'), upd('registro-lecciones'), upd('registro-riesgos')],
-        inputsDocs: ['plan-direccion', 'registro-supuestos', 'estimacion-costos', 'registro-incidentes', 'registro-lecciones', 'informe-calidad', 'registro-riesgos', 'informe-riesgos'],
+        inputsDocs: ['plan-direccion', 'registro-supuestos', 'estimacion-costos', 'registro-incidentes', 'registro-lecciones', 'informe-calidad', 'registro-riesgos', 'informe-riesgos', 'acuerdo-cliente'],
         toolViews: ['tablero', 'valor-ganado', 'metricas-agiles'],
       }),
     P('4.6', 'Realizar el Control Integrado de Cambios', 'integracion', 'monitoreo', 'continua',
       'Revisa todas las solicitudes de cambio; aprueba y gestiona los cambios a entregables, documentos del proyecto, activos de la organización y plan para la dirección del proyecto, y comunica las decisiones. Beneficio clave: permite considerar los cambios documentados de manera integrada y reduce el riesgo de los cambios hechos sin tener en cuenta los objetivos o planes generales del proyecto.', {
         inputs: ['Plan para la dirección del proyecto (plan de gestión de cambios, plan de gestión de la configuración, línea base del alcance, línea base del cronograma, línea base de costos)', 'Documentos del proyecto (base de las estimaciones, matriz de trazabilidad de requisitos, informe de riesgos)', WPR, 'Solicitudes de cambio', EEF, OPA],
         tools: [JE, 'Herramientas de control de cambios', 'Análisis de datos (análisis de alternativas, análisis costo-beneficio)', 'Toma de decisiones (votación, toma de decisiones autocrática, análisis de decisiones con múltiples criterios)', REU],
-        outputs: [doc('solicitud-cambio', 'Solicitudes de cambio aprobadas'), PMPU('cualquier componente'), view('lineas-base', 'Líneas base actualizadas por los cambios aprobados'), PDU('registro de cambios'), doc('registro-cambios')],
+        outputs: [doc('solicitud-cambio', 'Solicitudes de cambio aprobadas'), PMPU('cualquier componente'), view('lineas-base', 'Líneas base actualizadas por los cambios aprobados'), PDU('registro de cambios'), doc('registro-cambios'),
+          /* no es salida de la Guía: los cambios aprobados que alteran el contrato con el cliente se formalizan con otrosí u orden de cambio */
+          upd('acuerdo-cliente')],
         inputsDocs: ['plan-gestion-cambios', 'plan-gestion-configuracion', 'estimacion-costos', 'matriz-trazabilidad', 'informe-riesgos', 'informe-desempeno', 'solicitud-cambio', 'plan-release'],
         toolViews: ['lineas-base', 'iteraciones'],
       }),
@@ -4161,8 +4180,10 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       'Finaliza todas las actividades del proyecto, de una fase o de un contrato. Beneficio clave: archiva la información del proyecto o fase, documenta el trabajo completado y libera los recursos de la organización para nuevos esfuerzos.', {
         inputs: [CHARTER, 'Plan para la dirección del proyecto (todos los componentes)', 'Documentos del proyecto (registro de supuestos, base de las estimaciones, registro de cambios, registro de incidentes, registro de lecciones aprendidas, lista de hitos, comunicaciones del proyecto, mediciones de control de calidad, informes de calidad, documentación de requisitos, registro de riesgos, informe de riesgos)', 'Entregables aceptados', BIZ, 'Acuerdos', 'Documentación de las adquisiciones', OPA],
         tools: [JE, 'Análisis de datos (análisis de documentos, análisis de regresión, análisis de tendencias, análisis de variación)', REU],
-        outputs: [doc('acta-cierre', 'Transferencia del producto, servicio o resultado final'), doc('informe-final', 'Informe final'), PDU('registro de lecciones aprendidas'), upd('registro-lecciones'), OPAU()],
-        inputsDocs: ['acta-constitucion', 'plan-direccion', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-lecciones', 'registro-comunicaciones', 'mediciones-control-calidad', 'informe-calidad', 'documentacion-requisitos', 'registro-riesgos', 'informe-riesgos', 'acta-aceptacion-entregable', 'caso-negocio', 'plan-gestion-beneficios', 'registro-adquisiciones'],
+        outputs: [doc('acta-cierre', 'Transferencia del producto, servicio o resultado final'), doc('informe-final', 'Informe final'), PDU('registro de lecciones aprendidas'), upd('registro-lecciones'), OPAU(),
+          /* después del cierre: el dueño de los beneficios mide lo logrado frente al caso de negocio (no es salida de la Guía) */
+          { doc: 'informe-beneficios', afterClose: true }],
+        inputsDocs: ['acta-constitucion', 'plan-direccion', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-lecciones', 'registro-comunicaciones', 'mediciones-control-calidad', 'informe-calidad', 'documentacion-requisitos', 'registro-riesgos', 'informe-riesgos', 'acta-aceptacion-entregable', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente', 'registro-adquisiciones'],
       }),
 
     /* ===================== 5. Alcance ===================== */
@@ -4178,7 +4199,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión del alcance, plan de gestión de los requisitos, plan de involucramiento de los interesados)', 'Documentos del proyecto (registro de supuestos, registro de lecciones aprendidas, registro de interesados)', 'Documentos de negocio (caso de negocio)', 'Acuerdos', EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, entrevistas, grupos focales, cuestionarios y encuestas, estudios comparativos)', 'Análisis de datos (análisis de documentos)', 'Toma de decisiones (votación, análisis de decisiones con múltiples criterios)', 'Representación de datos (diagramas de afinidad, mapeo mental)', 'Habilidades interpersonales y de equipo (técnica de grupo nominal, observación/conversación, facilitación)', 'Diagrama de contexto', 'Prototipos'],
         outputs: [doc('documentacion-requisitos'), doc('matriz-trazabilidad'), agl(doc('vision-producto'))],
-        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'plan-involucramiento-interesados', 'registro-supuestos', 'registro-lecciones', 'registro-interesados', 'caso-negocio'],
+        inputsDocs: ['acta-constitucion', 'plan-gestion-alcance', 'plan-gestion-requisitos', 'plan-involucramiento-interesados', 'registro-supuestos', 'registro-lecciones', 'registro-interesados', 'caso-negocio', 'acuerdo-cliente'],
         toolViews: ['backlog'],
       }),
     P('5.3', 'Definir el Alcance', 'alcance', 'planificacion', 'unica',
@@ -4257,7 +4278,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
           PMPU('plan de gestión del cronograma, línea base de costos'),
           PDU('atributos de las actividades, registro de supuestos, estimaciones de la duración, registro de lecciones aprendidas, requisitos de recursos, registro de riesgos'),
           upd('registro-supuestos'), upd('estimaciones-duracion'), upd('registro-lecciones'), upd('requisitos-recursos'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-cronograma', 'registro-supuestos', 'estimaciones-duracion', 'registro-lecciones', 'asignaciones-recursos', 'requisitos-recursos', 'registro-riesgos'],
+        inputsDocs: ['plan-gestion-cronograma', 'registro-supuestos', 'estimaciones-duracion', 'registro-lecciones', 'asignaciones-recursos', 'requisitos-recursos', 'registro-riesgos', 'acuerdo-cliente'],
         toolViews: ['cronograma', 'red', 'recursos', 'iteraciones'],
       }),
     P('6.6', 'Controlar el Cronograma', 'cronograma', 'monitoreo', 'continua',
@@ -4295,7 +4316,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         tools: [JE, 'Agregación de costos', 'Análisis de datos (análisis de reservas)', 'Revisión de información histórica', 'Conciliación del límite de financiamiento', 'Financiamiento'],
         outputs: [base('cost', 'Línea base de costos'), view('valor-ganado', 'Curva S de la línea base de costos'), doc('requisitos-financiamiento'),
           PDU('estimaciones de costos, cronograma del proyecto, registro de riesgos'), upd('estimacion-costos'), upd('registro-riesgos')],
-        inputsDocs: ['plan-gestion-costos', 'plan-gestion-recursos', 'estimacion-costos', 'registro-riesgos', 'caso-negocio', 'plan-gestion-beneficios'],
+        inputsDocs: ['plan-gestion-costos', 'plan-gestion-recursos', 'estimacion-costos', 'registro-riesgos', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente'],
         toolViews: ['valor-ganado', 'lineas-base', 'estructuras'],
         toolParams: BRK('costos'),
       }),
@@ -4453,7 +4474,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         inputs: ['Plan para la dirección del proyecto (plan de gestión de los requisitos, plan de gestión del cronograma, plan de gestión de los costos, plan de gestión de la calidad, plan de gestión de los recursos, plan de gestión de los riesgos, línea base del alcance, línea base del cronograma, línea base de costos)', 'Documentos del proyecto (registro de supuestos, estimaciones de costos, estimaciones de la duración, registro de incidentes, registro de lecciones aprendidas, documentación de requisitos, requisitos de recursos, registro de interesados)', 'Acuerdos', 'Documentación de las adquisiciones', EEF, OPA],
         tools: [JE, 'Recopilación de datos (tormenta de ideas, listas de verificación, entrevistas)', 'Análisis de datos (análisis de causa raíz, análisis de supuestos y restricciones, análisis FODA, análisis de documentos)', 'Habilidades interpersonales y de equipo (facilitación)', 'Listas rápidas', REU],
         outputs: [doc('registro-riesgos'), doc('informe-riesgos'), PDU('registro de supuestos, registro de incidentes, registro de lecciones aprendidas'), upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-lecciones')],
-        inputsDocs: ['plan-gestion-requisitos', 'plan-gestion-cronograma', 'plan-gestion-costos', 'plan-gestion-calidad', 'plan-gestion-recursos', 'plan-gestion-riesgos', 'registro-supuestos', 'estimacion-costos', 'estimaciones-duracion', 'registro-incidentes', 'registro-lecciones', 'documentacion-requisitos', 'requisitos-recursos', 'registro-interesados', 'registro-adquisiciones'],
+        inputsDocs: ['plan-gestion-requisitos', 'plan-gestion-cronograma', 'plan-gestion-costos', 'plan-gestion-calidad', 'plan-gestion-recursos', 'plan-gestion-riesgos', 'registro-supuestos', 'estimacion-costos', 'estimaciones-duracion', 'registro-incidentes', 'registro-lecciones', 'documentacion-requisitos', 'requisitos-recursos', 'registro-interesados', 'registro-adquisiciones', 'acuerdo-cliente'],
         toolViews: ['estructuras'],
         toolParams: BRK('riesgos'),
       }),
@@ -4545,7 +4566,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         outputs: [doc('registro-interesados'), view('interesados-matriz', 'Mapeo/representación de interesados (poder e interés)'), CR(),
           PMPU('plan de gestión de los requisitos, plan de gestión de las comunicaciones, plan de gestión de los riesgos, plan de involucramiento de los interesados'),
           PDU('registro de supuestos, registro de incidentes, registro de riesgos'), upd('registro-supuestos'), upd('registro-incidentes'), upd('registro-riesgos')],
-        inputsDocs: ['acta-constitucion', 'caso-negocio', 'plan-gestion-beneficios', 'plan-gestion-comunicaciones', 'plan-involucramiento-interesados', 'registro-cambios', 'registro-incidentes', 'documentacion-requisitos'],
+        inputsDocs: ['acta-constitucion', 'caso-negocio', 'plan-gestion-beneficios', 'acuerdo-cliente', 'plan-gestion-comunicaciones', 'plan-involucramiento-interesados', 'registro-cambios', 'registro-incidentes', 'documentacion-requisitos'],
         toolViews: ['interesados-matriz'],
       }),
     P('13.2', 'Planificar el Involucramiento de los Interesados', 'interesados', 'planificacion', 'periodica',
@@ -4553,7 +4574,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         inputs: [CHARTER, 'Plan para la dirección del proyecto (plan de gestión de los recursos, plan de gestión de las comunicaciones, plan de gestión de los riesgos)', 'Documentos del proyecto (registro de supuestos, registro de cambios, registro de incidentes, cronograma del proyecto, registro de riesgos, registro de interesados)', 'Acuerdos', EEF, OPA],
         tools: [JE, 'Recopilación de datos (estudios comparativos)', 'Análisis de datos (análisis de supuestos y restricciones, análisis de causa raíz)', 'Toma de decisiones (priorización/clasificación)', 'Representación de datos (mapeo mental, matriz de evaluación del involucramiento de los interesados)', REU],
         outputs: [doc('plan-involucramiento-interesados'), view('interesados-matriz', 'Matriz de evaluación del involucramiento de los interesados')],
-        inputsDocs: ['acta-constitucion', 'plan-gestion-recursos', 'plan-gestion-comunicaciones', 'plan-gestion-riesgos', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-riesgos', 'registro-interesados'],
+        inputsDocs: ['acta-constitucion', 'plan-gestion-recursos', 'plan-gestion-comunicaciones', 'plan-gestion-riesgos', 'registro-supuestos', 'registro-cambios', 'registro-incidentes', 'registro-riesgos', 'registro-interesados', 'acuerdo-cliente'],
         toolViews: ['interesados-matriz'],
       }),
     P('13.3', 'Gestionar la Participación de los Interesados', 'interesados', 'ejecucion', 'continua',
@@ -4580,8 +4601,10 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
 
   /* ---------------------------------------------------------------- catálogo canónico de documentos (SPEC §6) */
   const docs = [
+    ['evaluacion-necesidades', 'Evaluación de necesidades', '4.1', 'integracion', 'inicio', 'documento'],
     ['caso-negocio', 'Caso de negocio', '4.1', 'integracion', 'inicio', 'documento'],
     ['plan-gestion-beneficios', 'Plan de gestión de los beneficios', '4.1', 'integracion', 'inicio', 'plan'],
+    ['acuerdo-cliente', 'Acuerdo con el cliente', '4.1', 'integracion', 'inicio', 'documento'],
     ['acta-constitucion', 'Acta de constitución del proyecto', '4.1', 'integracion', 'inicio', 'acta'],
     ['registro-supuestos', 'Registro de supuestos', '4.1', 'integracion', 'inicio', 'registro'],
     ['plan-direccion', 'Plan para la dirección del proyecto', '4.2', 'integracion', 'planificacion', 'plan'],
@@ -4595,6 +4618,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
     ['registro-cambios', 'Registro de cambios', '4.6', 'integracion', 'monitoreo', 'registro'],
     ['informe-final', 'Informe final del proyecto', '4.7', 'integracion', 'cierre', 'informe'],
     ['acta-cierre', 'Acta de cierre y aceptación final', '4.7', 'integracion', 'cierre', 'acta'],
+    ['informe-beneficios', 'Informe de realización de los beneficios', '4.7', 'integracion', 'cierre', 'informe', true],
     ['plan-gestion-alcance', 'Plan de gestión del alcance', '5.1', 'alcance', 'planificacion', 'plan'],
     ['plan-gestion-requisitos', 'Plan de gestión de los requisitos', '5.1', 'alcance', 'planificacion', 'plan'],
     ['documentacion-requisitos', 'Documentación de requisitos', '5.2', 'alcance', 'planificacion', 'registro'],
@@ -4741,6 +4765,14 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       definition: 'Condición o situación actual que puede tener un impacto en los objetivos del proyecto. A diferencia del riesgo, el incidente ya está ocurriendo y se gestiona en el registro de incidentes.' },
     { term: 'Lecciones aprendidas', area: 'integracion',
       definition: 'Conocimiento adquirido durante un proyecto que muestra cómo se abordaron, o cómo deberían abordarse en el futuro, los eventos del proyecto, con el fin de mejorar el desempeño futuro.' },
+    /* Documentos de negocio antes y después del proyecto (Guía del PMBOK® 6.ª ed., 1.2.6; Guía de práctica del análisis de negocio del PMI) */
+    { term: 'Evaluación de necesidades', area: 'integracion', doc: 'evaluacion-necesidades',
+      definition: 'Análisis que se hace antes de que exista el proyecto para entender un problema u oportunidad del negocio: la situación actual frente a la deseada, sus causas, los interesados afectados y las opciones de alto nivel para atenderlo. Su recomendación decide si se elabora el caso de negocio, del que es el antecedente.' },
+    { term: 'Acuerdos', area: 'integracion', doc: 'acuerdo-cliente',
+      definition: 'Documentos que fijan las intenciones iniciales del proyecto: contrato, orden de compra o de servicio, carta de intención, acuerdo de nivel de servicio o memorando de entendimiento. Con un cliente externo suele ser un contrato; en un proyecto interno, un acuerdo entre el patrocinador y las áreas. Son entrada del acta de constitución (4.1) y se modifican con otrosíes, adiciones o prórrogas aprobados en el control integrado de cambios.' },
+    { term: 'Realización de los beneficios', area: 'integracion', doc: 'informe-beneficios',
+      definition: 'Obtención efectiva de los beneficios que justificaron el proyecto en el caso de negocio. Muchos se logran después del cierre: el plan de gestión de los beneficios define quién los mide (el dueño de los beneficios), con qué indicadores y cuándo, y el informe de realización de los beneficios compara en cada medición lo logrado con lo prometido.',
+      formula: 'Avance hacia la meta = (resultado − línea base) / (meta − línea base)' },
     /* Cronograma */
     { term: 'Hito', area: 'cronograma', view: 'cronograma',
       definition: 'Punto o evento significativo dentro del proyecto. Tiene duración cero y marca la finalización de entregables o fases, o compromisos contractuales.' },
@@ -5066,6 +5098,10 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
    Por plantilla: [enfoque, por qué se acopla, cómo cambia o qué lo reemplaza
    en el otro enfoque]. Una plantilla puede declarar `approach` para anularlo;
    las plantillas ágiles (agile: true) son «adaptativo».
+   Clasifica las 62 plantillas: 25 predictivas, 6 ágiles y 31 de ambos enfoques
+   (los documentos de negocio de 15-templates-negocio.js —evaluación de
+   necesidades, acuerdo con el cliente e informe de realización de los
+   beneficios— son de ambos enfoques).
    ========================================================================== */
 (function () {
   'use strict';
@@ -5079,8 +5115,10 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
   ]);
 
   const MAP = {
+    'evaluacion-necesidades': ['ambos', 'Antes de todo proyecto se analiza el problema u oportunidad, la situación actual frente a la deseada y las opciones; no depende de cómo se entregará la solución.', 'En ágil alimenta la visión del producto y las hipótesis de valor; se revisa con lo que se aprende en las revisiones de cada iteración.'],
     'caso-negocio': ['ambos', 'Justifica la inversión antes de elegir cómo se entrega el producto; la gerencia lo exige para aprobar el presupuesto en cualquier enfoque.', 'En ágil es más corto (hipótesis de valor y costo por release) y se revisa al cerrar cada release para decidir si se sigue invirtiendo.'],
     'plan-gestion-beneficios': ['ambos', 'Define qué beneficios se esperan, quién responde por ellos y cuándo se miden; no depende de cómo se construye el producto.', 'En ágil los beneficios se miden después de cada release y se enlazan con las métricas de éxito de la visión del producto.'],
+    'acuerdo-cliente': ['ambos', 'Todo proyecto nace de un contrato, una orden o un acuerdo interno que fija objeto, valor, plazo y obligaciones; la ley y la gobernanza lo exigen en cualquier enfoque.', 'En ágil se pacta por capacidad, iteración o release con tope de valor y aceptación en cada revisión; los ajustes del backlog no requieren otrosí.'],
     'acta-constitucion': ['ambos', 'Autoriza formalmente el proyecto, nombra al responsable y fija presupuesto y límites; la gobernanza la exige en proyectos predictivos, ágiles e híbridos.', 'En ágil es más corta: propósito, objetivos medibles, presupuesto por release y autoridad del dueño del producto; el detalle va al backlog.'],
     'registro-supuestos': ['ambos', 'Todo proyecto parte de supuestos y restricciones (normativa, fechas, datos, proveedores); en ágil no desaparecen: se validan pronto.', 'En ágil es una lista corta de hipótesis: los supuestos críticos se validan con investigaciones (spikes) o en la revisión de la iteración.'],
     'plan-direccion': ['ambos', 'Declara el ciclo de vida, el enfoque de desarrollo y las decisiones de adaptación, e integra los planes; en ágil fija el marco, no el detalle.', 'En ágil es breve: releases, cadencia de las iteraciones, presupuesto, gobierno y umbrales de cambio; el detalle se planifica por iteración.'],
@@ -5094,6 +5132,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
     'registro-cambios': ['ambos', 'Deja la traza de los cambios que decide el comité; en ágil recibe las solicitudes que superan el umbral del release, como lo hace el gestor.', 'En ágil registra solo los cambios de línea base del release o del contrato; los ajustes del backlog quedan en las actas de revisión.'],
     'informe-final': ['ambos', 'Todo proyecto debe cerrar con un balance de objetivos, costos, beneficios y lecciones, sin importar cómo se ejecutó.', 'En ágil es más liviano: resume el valor entregado por release, las métricas de la visión y las lecciones de las retrospectivas.'],
     'acta-cierre': ['ambos', 'La aceptación final, la transferencia a la operación y el cierre de los contratos se hacen en cualquier enfoque.', 'En ágil consolida las aceptaciones de cada release y las actas de revisión; la aceptación final suele ser un trámite corto.'],
+    'informe-beneficios': ['ambos', 'Comparar los beneficios logrados con los del caso de negocio le toca a la organización después del cierre, sin importar cómo se entregó el producto.', 'En ágil los beneficios se miden después de cada release con las métricas de éxito de la visión del producto, sin esperar al cierre.'],
     'plan-gestion-alcance': ['predictivo', 'Define cómo elaborar el enunciado, la EDT y la línea base del alcance. En ágil el alcance se descubre y se ordena en el backlog.', 'Visión del producto, backlog priorizado por el dueño del producto, refinamiento continuo y definición de listo y de terminado.'],
     'plan-gestion-requisitos': ['predictivo', 'Fija de antemano cómo recopilar, priorizar y aprobar los requisitos. En ágil se elaboran justo a tiempo y se priorizan de forma continua.', 'Refinamiento del backlog, definición de listo y priorización MoSCoW a cargo del dueño del producto.'],
     'documentacion-requisitos': ['predictivo', 'Documenta todos los requisitos antes de construir. En ágil se escriben como historias con criterios de aceptación y se detallan poco antes de usarse.', 'Épicas e historias del backlog con criterios de aceptación; los requisitos normativos entran como «Debe tener» o en la definición de terminado.'],
@@ -10292,14 +10331,622 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
 </script>
 <script>
 /* ==========================================================================
+   15-templates-negocio.js — documentos de negocio que rodean al proyecto
+   (Guía del PMBOK® 6.ª ed., 1.2.6, y Guía de práctica del análisis de negocio
+   del PMI), complementan el caso de negocio y el plan de gestión de los
+   beneficios (12-templates-a.js):
+   - ANTES: evaluación de necesidades (antecedente del caso de negocio) y
+     acuerdo con el cliente (contrato, orden o acuerdo interno: la entrada
+     «Acuerdos» del proceso 4.1).
+   - DESPUÉS: informe de realización de los beneficios (lo emite el dueño de
+     los beneficios después del cierre, en cada medición; múltiple).
+   Contrato: SPEC.md §5–§6. Las claves de campos y columnas son estables (los
+   ejemplos de Medellín y del ERP las diligencian).
+   Los ejemplos describen el proyecto del andamio (SPEC.md §8): la evaluación
+   y el acuerdo se generan en el ejemplo (90) con su emisión inicial anterior
+   o igual a la del acta de constitución. El acuerdo registra la orden de
+   cambio No. 1 (CC-002, septiembre): el ejemplo emite la rev. 0 sin ella y la
+   rev. 1 después de la orden. El informe de beneficios ilustra un
+   seguimiento posterior al cierre y no se genera (grupo «cierre»).
+   ========================================================================== */
+(function () {
+  'use strict';
+  const PM = window.PM;
+  if (!PM || typeof PM.registerTemplates !== 'function') return;
+
+  /* ------------------------------------------------------------------ opciones */
+  /* Evaluación de necesidades. Origen: los cuatro factores que dan lugar a los proyectos según la Guía del PMBOK® 6.ª ed.,
+     1.2.1 (contexto de inicio del proyecto); la evaluación precede al caso de negocio (1.2.6.1). */
+  const ORIGEN_NECESIDAD = [
+    'Cumplir un requisito legal, normativo o social',
+    'Atender la solicitud o necesidad de un cliente o interesado',
+    'Implementar o cambiar una estrategia de negocio o tecnológica',
+    'Crear, mejorar o reparar un producto, proceso o servicio',
+  ];
+  const ATIENDE = ['Sí', 'Parcialmente', 'No'];
+  const GRADO = ['Alto', 'Medio', 'Bajo'];
+  const DECISION_EVALUACION = ['Elaborar el caso de negocio', 'Ampliar el análisis', 'Descartar la necesidad'];
+  // Acuerdo con el cliente
+  const TIPO_ACUERDO = ['Contrato', 'Orden de compra', 'Orden de servicio', 'Aceptación de oferta', 'Convenio', 'Acuerdo interno o memorando de entendimiento'];
+  const MODALIDAD_PRECIO = ['Precio global fijo', 'Precios unitarios', 'Tarifas por periodo (alquiler o servicio)', 'Administración delegada', 'Costo reembolsable más honorarios', 'Tiempo y materiales con tope', 'Mixto', 'Presupuesto interno asignado'];
+  const BASE_VALOR = ['Antes de IVA', 'IVA incluido', 'No aplica (acuerdo interno)'];
+  const AMPAROS = [
+    'Buen manejo y correcta inversión del anticipo',
+    'Cumplimiento',
+    'Pago de salarios, prestaciones sociales e indemnizaciones laborales',
+    'Responsabilidad civil extracontractual',
+    'Calidad del servicio',
+    'Calidad y correcto funcionamiento de los bienes',
+    'Estabilidad y calidad de la obra',
+    'Otra garantía',
+  ];
+  const ESTADO_POLIZA = ['Pendiente', 'Aprobada', 'Vencida', 'No aplica'];
+  const PARTES = ['Contratista o área ejecutora', 'Contratante o patrocinador', 'Ambas partes'];
+  const TIPO_MODIFICACION = ['Otrosí', 'Adición en valor', 'Prórroga del plazo', 'Adición y prórroga', 'Orden de cambio', 'Suspensión', 'Reanudación', 'Cesión', 'Terminación anticipada'];
+  const ESTADO_MODIFICACION = ['En trámite', 'Firmada', 'Rechazada'];
+  // Informe de realización de los beneficios
+  const ESTADO_BENEFICIO = ['Logrado', 'Parcial', 'No logrado', 'Pendiente'];
+  const ESTADO_ACCION = ['Pendiente', 'En curso', 'Cumplida'];
+  const CONCLUSION_CASO = ['Se cumplió', 'Se cumple parcialmente', 'No se cumplió', 'Aún no se puede concluir'];
+
+  /* ------------------------------------------------------------------ cálculos de columnas (puros, toleran vacíos) */
+  const numOrNull = (v) => {
+    if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
+  const round = (x, d) => { const f = Math.pow(10, d === undefined ? 2 : d); return Math.round(x * f) / f; };
+  const get = (row, key) => (row && typeof row === 'object' ? row[key] : undefined);
+  const indexIn = (row, rows) => {
+    if (!Array.isArray(rows)) return -1;
+    let i = rows.indexOf(row);
+    if (i < 0 && row && row.id) i = rows.findIndex((r) => r && r.id === row.id);
+    return i;
+  };
+  /* Acumulado en el orden de la tabla: suma fn(fila) desde la primera fila hasta la actual. */
+  const cumulative = (fn) => (row, rows) => {
+    const i = indexIn(row, rows);
+    const upto = i < 0 ? [row] : rows.slice(0, i + 1);
+    let any = false, s = 0;
+    for (const r of upto) { const x = fn(r); if (x !== null) { any = true; s += x; } }
+    return any ? round(s) : null;
+  };
+
+  // Evaluación de necesidades: brecha = valor deseado − valor actual (en la unidad del indicador)
+  const calcBrecha = (row) => {
+    const a = numOrNull(get(row, 'valorActual')), d = numOrNull(get(row, 'valorDeseado'));
+    return a === null || d === null ? null : round(d - a, 2);
+  };
+  // Acuerdo: valor asegurado = valor base × porcentaje
+  const calcAsegurado = (row) => {
+    const b = numOrNull(get(row, 'valorBase')), p = numOrNull(get(row, 'porcentaje'));
+    return b === null || p === null ? null : Math.round((b * p) / 100);
+  };
+  /* Acuerdo: suman las modificaciones firmadas y las que no tienen estado; no suman las que están en trámite ni las
+     rechazadas (los textos de ayuda de la tabla lo dicen igual). */
+  const vigente = (row) => !['en trámite', 'rechazada'].includes(String(get(row, 'estado') || '').trim().toLowerCase());
+  const calcValorAcumulado = cumulative((row) => (vigente(row) ? numOrNull(get(row, 'efectoValor')) : null));
+  const calcPlazoAcumulado = cumulative((row) => (vigente(row) ? numOrNull(get(row, 'efectoPlazo')) : null));
+  /* Informe de beneficios: avance hacia la meta desde la línea base (fracción; 1 = meta cumplida).
+     Sin línea base se toma 0. Sirve para metas que suben o bajan; si la meta es mantener el valor
+     de la línea base, da 1 cuando el resultado lo iguala y 0 si no. */
+  const calcAvanceBeneficio = (row) => {
+    const r = numOrNull(get(row, 'resultado')), m = numOrNull(get(row, 'meta'));
+    if (r === null || m === null) return null;
+    const b = numOrNull(get(row, 'lineaBase')) || 0;
+    if (m === b) return r === m ? 1 : 0;
+    return round((r - b) / (m - b), 4);
+  };
+
+  /* ------------------------------------------------------------------ formatos */
+  const cur = (ctx) => (ctx && ctx.currency) || (typeof PM.currentCurrency === 'function' ? PM.currentCurrency() : 'COP');
+  const fmtMoney = (v, row, ctx) => (v === null || v === undefined || v === '' ? '—' : PM.fmt.money(v, cur(ctx)));
+  const fmtNum1 = (v) => (v === null || v === undefined || v === '' ? '—' : PM.fmt.num(v, 1));
+  const fmtDays = (v) => (v === null || v === undefined || v === '' ? '—' : PM.fmt.num(v, 0) + (Math.abs(v) === 1 ? ' día' : ' días'));
+  const fmtAvance = (v) => (v === null || v === undefined || v === '' ? '—' : PM.fmt.pct(v, 0));
+
+  /* ------------------------------------------------------------------ proyecto de ejemplo (SPEC §8) */
+  const EX = {
+    name: 'EJEMPLO · Andamio multidireccional Torre 2 — Edificio Altavista',
+    client: 'Constructora Modelo S.A.S. (ficticia)',
+    sponsor: 'Gerencia General',
+    start: '2026-08-03',
+    end: '2026-12-18',
+  };
+  /* Cifras que vienen de otras plantillas del ejemplo (caso de negocio, informe final y acta de cierre). */
+  const exOf = (id) => (PM.templates && PM.templates[id] && PM.templates[id].example) || {};
+  const pick = (v, dflt) => (typeof v === 'number' && Number.isFinite(v) ? v : dflt);
+  const VALOR_CONTRATO = pick(exOf('caso-negocio').valorContrato, 598000000);
+  const VALOR_FINAL = pick(exOf('acta-cierre').valorFinal, 610600000);
+  const COSTO_FINAL = pick(exOf('informe-final').costoFinal, 464300000);
+  const MARGEN_FINAL = round(((VALOR_FINAL - COSTO_FINAL) / VALOR_FINAL) * 100, 1);
+  const ANTICIPO_PCT = 20;
+  const ANTICIPO = Math.round((VALOR_CONTRATO * ANTICIPO_PCT) / 100);
+  const PLAZO_DIAS = PM.date && typeof PM.date.diff === 'function' ? PM.date.diff(EX.start, EX.end) + 1 : 138;
+  /* Orden de cambio No. 1 del contrato (CC-002, plataforma de descargue del piso 8): el acta de cierre liquida el valor
+     final como el contrato inicial más esta orden. No mueve la fecha de terminación (la solicitud de cambio usa la
+     holgura de la ruta de accesos y protecciones). */
+  const ORDEN_CAMBIO_1 = VALOR_FINAL - VALOR_CONTRATO;
+  /* Beneficios de mediano plazo del plan de gestión de los beneficios: «hasta 1 año» después del cierre. */
+  const FECHA_CIERRE = typeof exOf('acta-cierre').fechaCierre === 'string' ? exOf('acta-cierre').fechaCierre : '2026-12-22';
+  const FIN_MEDIANO_PLAZO = PM.date && typeof PM.date.addMonths === 'function' ? PM.date.addMonths(FECHA_CIERRE, 12) : '2027-12-22';
+
+  /* Columnas de firmas (mismas claves que las actas de 12-templates-a.js) */
+  const firmasColumns = () => [
+    { key: 'rol', label: 'Rol', type: 'text', width: 200, hint: 'Parte o rol con el que firma (contratante, contratista, patrocinador, área ejecutora).' },
+    { key: 'nombre', label: 'Nombre o cargo', type: 'text', width: 220 },
+    { key: 'fecha', label: 'Fecha', type: 'date' },
+  ];
+
+  const templates = [
+    /* ================================================================== ANTES · 4.1 (antecedente del caso de negocio) */
+    {
+      id: 'evaluacion-necesidades',
+      name: 'Evaluación de necesidades',
+      abbr: 'EVN',
+      area: 'integracion', group: 'inicio', process: '4.1', processes: ['4.1'],
+      kind: 'documento', multiple: false,
+      purpose: 'Analiza, antes de que exista el proyecto, el problema o la oportunidad del negocio: la situación actual frente a la deseada, sus causas, los interesados afectados y las opciones de alto nivel. Su recomendación decide si se elabora el caso de negocio.',
+      tips: [
+        'Describe el problema, no la solución: «el cliente necesita andamio certificado para su fachada» es una necesidad; «montar 15 niveles de andamio» ya es una solución.',
+        'Mide la situación actual con datos (utilización del inventario, capacidad de montaje, piezas disponibles): esas cifras serán la línea base del plan de gestión de los beneficios.',
+        'Incluye siempre la opción de no hacer nada y deja escrito si cada opción pasa o no al caso de negocio.',
+        'Consulta a los afectados antes de recomendar: cliente, interventoría, almacén, SST y montaje ven riesgos distintos.',
+      ],
+      sections: [
+        {
+          id: 'identificacion', title: 'Identificación',
+          fields: [
+            { key: 'nombre', label: 'Necesidad u oportunidad', type: 'text', from: 'project.name', required: true, hint: 'Nombre corto de la iniciativa; si se aprueba, suele convertirse en el nombre del proyecto.' },
+            { key: 'origen', label: 'Origen de la necesidad', type: 'select', options: ORIGEN_NECESIDAD, hint: 'Qué la motiva, según la Guía del PMBOK® (1.2.1, contexto de inicio del proyecto): requisito legal, solicitud de un interesado, estrategia, o crear o mejorar un producto o servicio.' },
+            { key: 'solicitante', label: 'Quién plantea la necesidad', type: 'text', hint: 'Cliente, área o interesado que la presenta.' },
+            { key: 'patrocinador', label: 'Patrocinador', type: 'text', from: 'project.sponsor', hint: 'Quién decide si se elabora el caso de negocio.' },
+            { key: 'responsableAnalisis', label: 'Responsable del análisis', type: 'text', hint: 'Rol que elabora la evaluación (analista de negocio, gerencia comercial, director designado).' },
+            { key: 'fechaEvaluacion', label: 'Fecha de la evaluación', type: 'date', required: true, hint: 'Fecha en que se presenta la evaluación al patrocinador.' },
+          ],
+        },
+        {
+          id: 'necesidad', title: 'Problema u oportunidad',
+          fields: [
+            { key: 'problema', label: 'Enunciado del problema u oportunidad', type: 'textarea', required: true, hint: 'Qué pasa hoy, a quién afecta y qué se pierde si no se actúa. Escríbelo sin proponer todavía una solución.' },
+            { key: 'objetivosOrganizacion', label: 'Metas y objetivos de la organización relacionados', type: 'textarea', hint: 'Objetivos estratégicos a los que contribuiría atender la necesidad.' },
+            { key: 'urgencia', label: 'Urgencia y ventana de oportunidad', type: 'textarea', hint: 'Por qué actuar ahora: fechas del cliente, temporada, vigencia de una norma, plazo para ofertar.' },
+          ],
+        },
+        {
+          id: 'situacion', title: 'Situación actual y deseada',
+          description: 'Compara cómo está hoy la organización (o el cliente) con cómo debería estar. Si la brecha se puede medir, registra el indicador con su valor actual y el deseado: la brecha se calcula sola y luego sirve de línea base para el plan de gestión de los beneficios.',
+          fields: [
+            {
+              key: 'brechas', label: 'Análisis de brechas', type: 'table', addLabel: 'Agregar aspecto',
+              hint: 'Un aspecto por fila: procesos, personas y competencias, equipos, información o capacidades del negocio.',
+              columns: [
+                { key: 'aspecto', label: 'Aspecto o capacidad', type: 'text', width: 180 },
+                { key: 'actual', label: 'Situación actual', type: 'textarea', width: 220 },
+                { key: 'deseada', label: 'Situación deseada', type: 'textarea', width: 220 },
+                { key: 'indicador', label: 'Indicador', type: 'text', width: 170 },
+                { key: 'valorActual', label: 'Valor actual', type: 'number', width: 100 },
+                { key: 'valorDeseado', label: 'Valor deseado', type: 'number', width: 100 },
+                { key: 'brecha', label: 'Brecha', type: 'calc', calc: calcBrecha, format: fmtNum1, hint: 'Valor deseado − valor actual, en la unidad del indicador.' },
+              ],
+            },
+            { key: 'causas', label: 'Causas principales', type: 'list', hint: 'Por qué existe la brecha (análisis de causa raíz, cinco porqués o diagrama de Ishikawa).' },
+            {
+              key: 'afectados', label: 'Interesados afectados', type: 'table', addLabel: 'Agregar interesado',
+              hint: 'Quiénes sufren el problema o se benefician de resolverlo, y qué esperan; el detalle irá al registro de interesados.',
+              columns: [
+                { key: 'interesado', label: 'Interesado', type: 'text', width: 200 },
+                { key: 'afectacion', label: 'Cómo lo afecta la necesidad', type: 'textarea', width: 260 },
+                { key: 'expectativa', label: 'Qué espera de la solución', type: 'textarea', width: 240 },
+                { key: 'grado', label: 'Grado de afectación', type: 'select', options: GRADO },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'opciones', title: 'Opciones de alto nivel',
+          description: 'Opciones generales para atender la necesidad, sin diseñarlas todavía. Incluye no hacer nada; el caso de negocio compara en detalle las que pasan.',
+          fields: [
+            {
+              key: 'opciones', label: 'Opciones', type: 'table', addLabel: 'Agregar opción',
+              hint: 'Una fila por opción, con lo que resuelve, sus ventajas y desventajas, y si pasa al caso de negocio.',
+              columns: [
+                { key: 'opcion', label: 'Opción', type: 'text', width: 180 },
+                { key: 'descripcion', label: 'Descripción', type: 'textarea', width: 240 },
+                { key: 'atiende', label: '¿Atiende la necesidad?', type: 'select', options: ATIENDE },
+                { key: 'ventajas', label: 'Ventajas', type: 'textarea', width: 200 },
+                { key: 'desventajas', label: 'Desventajas y riesgos', type: 'textarea', width: 220 },
+                { key: 'pasaCaso', label: 'Pasa al caso de negocio', type: 'check' },
+              ],
+              defaultRows: [
+                { id: 'opcion-1', opcion: 'No hacer nada' },
+                { id: 'opcion-2', opcion: 'Hacer lo mínimo' },
+                { id: 'opcion-3', opcion: 'Hacer más (solución completa)' },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'recomendacion', title: 'Recomendación y decisión',
+          fields: [
+            { key: 'recomendacion', label: 'Recomendación', type: 'textarea', required: true, hint: 'Si se elabora el caso de negocio, con qué opciones y qué hay que confirmar antes (inventario, capacidad, condiciones del cliente).' },
+            { key: 'criteriosEvaluacion', label: 'Criterios para comparar las opciones en el caso de negocio', type: 'list', hint: 'Con qué se decidirá: cumplimiento normativo, margen, flujo de caja, riesgo, aporte a la estrategia.' },
+            { key: 'supuestosRestricciones', label: 'Supuestos y restricciones identificados', type: 'list', hint: 'Condiciones que se dan por ciertas o que limitan las opciones; pasan al registro de supuestos.' },
+            { key: 'decision', label: 'Decisión del patrocinador', type: 'select', options: DECISION_EVALUACION },
+            { key: 'fechaDecision', label: 'Fecha de la decisión', type: 'date' },
+          ],
+        },
+      ],
+      example: {
+        nombre: EX.name,
+        origen: 'Atender la solicitud o necesidad de un cliente o interesado',
+        solicitante: 'Director de obra del cliente (Constructora Modelo S.A.S., ficticia)',
+        patrocinador: EX.sponsor,
+        responsableAnalisis: 'Director de proyecto (designado para la oferta) con el ingeniero de diseño',
+        fechaEvaluacion: '2026-07-10',
+        problema: 'Constructora Modelo S.A.S. (ficticia) debe ejecutar entre agosto y diciembre de 2026 la fachada de la Torre 2 del Edificio Altavista (15 pisos), y su contrato con la interventoría exige trabajo en alturas conforme a la Resolución 4272 de 2021, con andamio diseñado, inspeccionado y certificado por persona competente. El cliente pidió una solución que incluya ingeniería, montaje y certificación, y no solo el alquiler del equipo. Para la empresa es la oportunidad de ocupar el inventario de andamio multidireccional que queda libre en el segundo semestre.',
+        objetivosOrganizacion: 'Objetivo estratégico 2026: crecer 15 % los ingresos por servicios integrales de andamios (ingeniería, montaje y certificación) frente al alquiler simple. Plan estratégico 2026–2028: elevar la utilización del inventario propio de andamio multidireccional y conservar a los clientes constructores recurrentes.',
+        urgencia: 'El cliente necesita definir el proveedor en julio para tener el primer frente de andamio montado en la segunda quincena de septiembre. Si la empresa no oferta, el inventario queda ocioso en el segundo semestre y el cliente contrata con otro proveedor.',
+        brechas: [
+          { id: 'r1', aspecto: 'Utilización del inventario de andamio multidireccional', actual: 'El 62 % de los m² disponibles está alquilado (julio de 2026); cerca de 4.800 m² quedarán ociosos en el segundo semestre.', deseada: 'Inventario ocupado en al menos 75 % entre septiembre y noviembre de 2026.', indicador: 'm² alquilados ÷ m² disponibles (%)', valorActual: 62, valorDeseado: 75 },
+          { id: 'r2', aspecto: 'Servicio integral con este cliente', actual: 'Solo alquiler simple: ningún contrato de ingeniería, montaje y certificación con el cliente.', deseada: 'Un contrato de servicio integral en ejecución que abra la puerta a la Torre 3 del mismo proyecto.', indicador: 'Contratos integrales con el cliente', valorActual: 0, valorDeseado: 1 },
+          { id: 'r3', aspecto: 'Capacidad de montaje y supervisión', actual: 'Ingeniero de diseño y cuadrillas de montadores certificados disponibles, con un supervisor de montaje libre para el segundo semestre.', deseada: 'Dos frentes de montaje en paralelo, cada uno con su supervisor.', indicador: 'Supervisores de montaje disponibles', valorActual: 1, valorDeseado: 2 },
+          { id: 'r4', aspecto: 'Piezas para la Torre 2', actual: 'Almacén confirmó en bodega cerca del 90 % de las piezas requeridas; faltan diagonales y plataformas.', deseada: 'El 100 % de las piezas disponible antes del despacho, con el faltante cubierto por un proveedor aliado.', indicador: 'Piezas disponibles (%)', valorActual: 90, valorDeseado: 100 },
+          { id: 'r5', aspecto: 'Trabajo en alturas certificado', actual: 'El cliente no tiene ingeniería de andamios ni inspección por persona competente para la fachada.', deseada: 'Andamio diseñado con memoria de cálculo, montado por etapas e inspeccionado por persona competente conforme a la Resolución 4272 de 2021.', indicador: '', valorActual: null, valorDeseado: null },
+        ],
+        causas: [
+          'El contrato del cliente con la interventoría exige trabajo en alturas certificado conforme a la Resolución 4272 de 2021.',
+          'La fachada de la Torre 2 (mampostería, pañete y pintura) empieza en agosto y requiere andamio en las fachadas norte, oriente y occidente.',
+          'Sin nuevos contratos, cerca de 4.800 m² de andamio multidireccional quedarán sin ocupar en el segundo semestre.',
+        ],
+        afectados: [
+          { id: 'r1', interesado: 'Director de obra del cliente', afectacion: 'Sin andamio certificado no puede iniciar la fachada ni cumplir su programa de obra.', expectativa: 'Andamio disponible por etapas para no frenar la fachada.', grado: 'Alto' },
+          { id: 'r2', interesado: 'Interventoría del cliente', afectacion: 'Debe aprobar el diseño y liberar cada nivel antes de su uso.', expectativa: 'Cumplimiento normativo, memoria de cálculo aprobada y liberación de niveles por persona competente.', grado: 'Alto' },
+          { id: 'r3', interesado: 'Gerencia General', afectacion: 'Responde por el crecimiento de los servicios integrales y por la utilización del inventario.', expectativa: 'Margen del contrato y relación de largo plazo con el cliente.', grado: 'Alto' },
+          { id: 'r4', interesado: 'Almacén y Coordinador logístico', afectacion: 'Deben reservar el inventario y cubrir el faltante de piezas.', expectativa: 'Disponibilidad de piezas, despachos y retorno sin faltantes.', grado: 'Medio' },
+          { id: 'r5', interesado: 'Coordinador SST (HSE)', afectacion: 'El servicio integral suma cinco meses de trabajo en alturas continuo.', expectativa: 'Trabajo en alturas sin accidentes y registros del SG-SST al día.', grado: 'Alto' },
+        ],
+        opciones: [
+          { id: 'r1', opcion: 'No hacer nada (no ofertar)', descripcion: 'No presentar oferta y mantener el inventario disponible para alquileres simples.', atiende: 'No', ventajas: 'Sin inversión ni exposición adicional al trabajo en alturas.', desventajas: 'Pérdida de un cliente recurrente e inventario ocioso en el segundo semestre.', pasaCaso: true },
+          { id: 'r2', opcion: 'Hacer lo mínimo (solo alquiler)', descripcion: 'Alquilar el equipo puesto en obra; el cliente asume montaje, certificación y desmontaje.', atiende: 'Parcialmente', ventajas: 'Menor costo y menor exposición de la empresa al trabajo en alturas.', desventajas: 'No responde por sí sola a la exigencia de la interventoría sobre certificación y control del trabajo en alturas; más daños y pérdidas de piezas con montaje de terceros.', pasaCaso: true },
+          { id: 'r3', opcion: 'Hacer más (solución integral)', descripcion: 'Ingeniería, suministro, montaje por etapas, certificación, mantenimiento en obra, desmontaje y retiro.', atiende: 'Sí', ventajas: 'Atiende la exigencia de la interventoría y ocupa el inventario con un servicio de más valor.', desventajas: 'Mayor exposición al trabajo en alturas; dependencia de la grúa del cliente; lluvias de temporada.', pasaCaso: true },
+        ],
+        recomendacion: 'Elaborar el caso de negocio con las tres opciones y presentarlo a la Gerencia General antes de ofertar. Antes de cerrarlo hay que confirmar el costo de un supervisor de montaje adicional y del subarriendo de diagonales y plataformas, y las condiciones de pago del cliente (anticipo, actas de obra y retención en garantía).',
+        criteriosEvaluacion: [
+          'Cumplimiento de la exigencia de la interventoría sobre trabajo en alturas (Resolución 4272 de 2021).',
+          'Margen bruto con el costo completo y las reservas.',
+          'Flujo de caja: anticipo, plazo de pago y retención en garantía.',
+          'Riesgos de seguridad y salud en el trabajo y de cronograma (lluvias y grúa del cliente).',
+          'Aporte a la utilización del inventario y a la relación con el cliente.',
+        ],
+        supuestosRestricciones: [
+          'El inventario confirmado por almacén el 10 de julio de 2026 se reserva para el proyecto.',
+          'La grúa y el montacargas de la obra los aporta el cliente.',
+          'Los despachos se hacen en los horarios permitidos a vehículos de carga en Bogotá.',
+          'Plataformas con carga de servicio de 200 kg/m² en todos los niveles.',
+        ],
+        decision: 'Elaborar el caso de negocio',
+        fechaDecision: '2026-07-13',
+      },
+    },
+
+    /* ================================================================== ANTES · 4.1 (entrada «Acuerdos») */
+    {
+      id: 'acuerdo-cliente',
+      name: 'Acuerdo con el cliente',
+      abbr: 'ACU',
+      area: 'integracion', group: 'inicio', process: '4.1', processes: ['4.1', '4.6'],
+      kind: 'documento', multiple: false,
+      purpose: 'Resume el contrato, la orden de compra o de servicio, o el acuerdo interno que origina el proyecto: partes, objeto, valor, forma de pago, plazo, garantías, obligaciones, condiciones de aceptación y sanciones, con el control de sus modificaciones (otrosíes, adiciones y prórrogas). Es la entrada «Acuerdos» del acta de constitución.',
+      tips: [
+        'Firma el acuerdo y aprueba las pólizas antes del acta de inicio: el anticipo y la movilización dependen de ellas.',
+        'Lleva al acta de constitución lo que el acuerdo fija (fechas, valor, hitos de pago y entregables); el acta no puede contradecirlo.',
+        'Toda modificación de valor, plazo o alcance pasa por el control integrado de cambios (4.6) y se formaliza con otrosí u orden de cambio firmada y con el ajuste de las pólizas.',
+        'En un proyecto interno usa un acuerdo o memorando de entendimiento entre el patrocinador y las áreas: presupuesto asignado, responsables, entregables y criterios de aceptación; las pólizas no aplican.',
+      ],
+      sections: [
+        {
+          id: 'identificacion', title: 'Identificación del acuerdo',
+          fields: [
+            { key: 'tipoAcuerdo', label: 'Tipo de acuerdo', type: 'select', options: TIPO_ACUERDO, required: true, hint: 'Con un cliente externo suele ser un contrato o una orden; en un proyecto interno, un acuerdo o memorando de entendimiento.' },
+            { key: 'numeroAcuerdo', label: 'Número o referencia', type: 'text', hint: 'Número del contrato, de la orden o del acuerdo interno.' },
+            { key: 'objeto', label: 'Objeto', type: 'textarea', required: true, hint: 'Qué se obliga a hacer o entregar el contratista o el área ejecutora, tal como lo dice el acuerdo.' },
+            { key: 'contratante', label: 'Contratante o área solicitante', type: 'text', from: 'project.client', hint: 'Cliente externo o, en un proyecto interno, el área o el patrocinador que encarga el trabajo.' },
+            { key: 'contratista', label: 'Contratista o área ejecutora', type: 'text', hint: 'Quien ejecuta: la empresa (razón social) o el área interna responsable.' },
+            { key: 'modalidadPrecio', label: 'Modalidad de precio', type: 'select', options: MODALIDAD_PRECIO, hint: 'Cómo se paga el trabajo; en un proyecto interno, «Presupuesto interno asignado».' },
+            { key: 'fechaFirma', label: 'Fecha de firma', type: 'date', hint: 'Fecha en que firman las dos partes (o se acepta la orden).' },
+            { key: 'fechaInicio', label: 'Fecha de inicio', type: 'date', from: 'project.start', hint: 'Fecha del acta de inicio u orden de iniciar.' },
+            { key: 'fechaTerminacion', label: 'Fecha de terminación pactada', type: 'date', from: 'project.end', hint: 'Fecha de terminación del plazo, sin prórrogas.' },
+            { key: 'plazo', label: 'Plazo', type: 'text', hint: 'Duración pactada y cómo se cuenta (días calendario o hábiles, desde el acta de inicio).' },
+          ],
+        },
+        {
+          id: 'valor', title: 'Valor y forma de pago',
+          fields: [
+            { key: 'valorInicial', label: 'Valor inicial', type: 'money', required: true, hint: 'Valor pactado al firmar, sin modificaciones. Las adiciones van en la tabla de modificaciones.' },
+            { key: 'baseValor', label: 'Base del valor', type: 'select', options: BASE_VALOR, hint: 'Si el valor incluye o no el IVA (o si es un presupuesto interno).' },
+            { key: 'anticipoPct', label: 'Anticipo (%)', type: 'pct', min: 0, max: 100, hint: 'Porcentaje del valor inicial que se gira por anticipado; 0 si no hay anticipo.' },
+            { key: 'anticipoValor', label: 'Valor del anticipo', type: 'money', hint: 'Valor inicial × porcentaje del anticipo.' },
+            { key: 'retencionPct', label: 'Retención en garantía (%)', type: 'pct', min: 0, max: 100, hint: 'Porcentaje de cada pago que retiene el contratante hasta la liquidación.' },
+            { key: 'formaPago', label: 'Forma de pago', type: 'textarea', hint: 'Hitos o periodicidad de facturación, documentos para pagar (actas, factura electrónica), plazo de pago, amortización del anticipo y devolución de la retención.' },
+          ],
+        },
+        {
+          id: 'garantias', title: 'Garantías y pólizas',
+          description: 'El valor asegurado se calcula con el valor base (del contrato o del anticipo) y el porcentaje exigido.',
+          fields: [
+            {
+              key: 'polizas', label: 'Pólizas exigidas', type: 'table', addLabel: 'Agregar póliza',
+              hint: 'Una fila por amparo, con su base, porcentaje, vigencia y estado de aprobación por el contratante.',
+              columns: [
+                { key: 'amparo', label: 'Amparo', type: 'select', options: AMPAROS, width: 260 },
+                { key: 'valorBase', label: 'Valor base', type: 'money', width: 140 },
+                { key: 'porcentaje', label: 'Porcentaje', type: 'pct', width: 90 },
+                { key: 'valorAsegurado', label: 'Valor asegurado', type: 'calc', calc: calcAsegurado, format: fmtMoney, hint: 'Valor base × porcentaje.' },
+                { key: 'vigencia', label: 'Vigencia', type: 'text', width: 220 },
+                { key: 'fechaAprobacion', label: 'Aprobación', type: 'date' },
+                { key: 'estado', label: 'Estado', type: 'select', options: ESTADO_POLIZA },
+              ],
+              defaultRows: [
+                { id: 'poliza-1', amparo: 'Cumplimiento' },
+                { id: 'poliza-2', amparo: 'Pago de salarios, prestaciones sociales e indemnizaciones laborales' },
+                { id: 'poliza-3', amparo: 'Responsabilidad civil extracontractual' },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'obligaciones', title: 'Obligaciones, aceptación y sanciones',
+          fields: [
+            {
+              key: 'obligaciones', label: 'Obligaciones de las partes', type: 'table', addLabel: 'Agregar obligación',
+              hint: 'Las obligaciones principales de cada parte, con la cláusula que las fija y el rol que responde por ellas.',
+              columns: [
+                { key: 'parte', label: 'Parte', type: 'select', options: PARTES, width: 200 },
+                { key: 'obligacion', label: 'Obligación', type: 'textarea', width: 300 },
+                { key: 'clausula', label: 'Cláusula o anexo', type: 'text', width: 140 },
+                { key: 'responsable', label: 'Responsable (rol)', type: 'text', width: 180 },
+              ],
+            },
+            { key: 'supervision', label: 'Supervisor o interventor', type: 'text', hint: 'Quién vigila el cumplimiento por el contratante y aprueba actas y pagos.' },
+            { key: 'responsableContratista', label: 'Responsable por el contratista o el área ejecutora', type: 'text', hint: 'Quién administra el acuerdo por quien ejecuta y quién firma como representante.' },
+            { key: 'condicionesAceptacion', label: 'Condiciones de entrega y aceptación', type: 'textarea', hint: 'Cómo se entregan y aceptan los entregables: documentos, pruebas, quién firma y cuándo se liquida.' },
+            { key: 'multas', label: 'Multas y cláusula penal', type: 'textarea', hint: 'Causales, porcentajes, topes y exclusiones (hechos del contratante, fuerza mayor).' },
+            { key: 'suspensionTerminacion', label: 'Suspensión y terminación anticipada', type: 'textarea', hint: 'Cuándo se puede suspender o terminar el acuerdo y con qué procedimiento.' },
+            { key: 'otrasClausulas', label: 'Otras cláusulas relevantes', type: 'textarea', hint: 'Indemnidad, confidencialidad, propiedad de los diseños, cesión, solución de controversias.' },
+          ],
+        },
+        {
+          id: 'documentos', title: 'Documentos contractuales y modificaciones',
+          fields: [
+            { key: 'documentosContractuales', label: 'Documentos del acuerdo (en orden de prelación)', type: 'list', hint: 'Contrato, pliego o términos de referencia, oferta, anexos, pólizas y actas; el primero prevalece si hay contradicción.' },
+            {
+              key: 'modificaciones', label: 'Modificaciones (otrosíes, adiciones y prórrogas)', type: 'table', addLabel: 'Agregar modificación',
+              hint: 'Una fila por modificación, en orden de fecha. Los acumulados suman las firmadas y las que aún no tienen estado; no suman las que están en trámite ni las rechazadas.',
+              columns: [
+                { key: 'numero', label: 'Número', type: 'text', width: 110 },
+                { key: 'tipo', label: 'Tipo', type: 'select', options: TIPO_MODIFICACION, width: 170 },
+                { key: 'fecha', label: 'Fecha', type: 'date' },
+                { key: 'objeto', label: 'Objeto', type: 'textarea', width: 260 },
+                { key: 'solicitudCambio', label: 'Solicitud de cambio', type: 'text', width: 110, hint: 'Código del registro de cambios (CC-###) que la originó.' },
+                { key: 'efectoValor', label: 'Efecto en el valor', type: 'money', width: 140, hint: 'Positivo si adiciona valor; negativo si lo reduce.' },
+                { key: 'efectoPlazo', label: 'Efecto en el plazo (días)', type: 'number', width: 110, hint: 'Días calendario que se prorroga (positivo) o reduce (negativo) el plazo.' },
+                { key: 'valorAcumulado', label: 'Adiciones acumuladas', type: 'calc', calc: calcValorAcumulado, format: fmtMoney, hint: 'Suma del efecto en el valor hasta esta fila, sin las modificaciones en trámite ni las rechazadas.' },
+                { key: 'plazoAcumulado', label: 'Prórrogas acumuladas', type: 'calc', calc: calcPlazoAcumulado, format: fmtDays, hint: 'Suma del efecto en el plazo hasta esta fila, sin las modificaciones en trámite ni las rechazadas.' },
+                { key: 'estado', label: 'Estado', type: 'select', options: ESTADO_MODIFICACION },
+              ],
+            },
+            { key: 'controlModificaciones', label: 'Cómo se modifica el acuerdo', type: 'textarea', hint: 'Quién solicita, quién aprueba (comité de control de cambios), quién firma y cómo se ajustan las pólizas.' },
+          ],
+        },
+        {
+          id: 'firmas', title: 'Firmas',
+          fields: [
+            { key: 'firmas', label: 'Firmas', type: 'table', addLabel: 'Agregar firma', hint: 'Firman los representantes de las partes; en un acuerdo interno, el patrocinador y los jefes de las áreas.', columns: firmasColumns() },
+          ],
+        },
+      ],
+      example: {
+        tipoAcuerdo: 'Contrato',
+        numeroAcuerdo: 'CS-2026-031 (ficticio)',
+        objeto: 'Ingeniería, suministro, montaje por etapas, inspección y certificación, alquiler con mantenimiento en obra, desmontaje y retiro del andamio multidireccional para las fachadas norte, oriente y occidente de la Torre 2 (15 pisos) del Edificio Altavista (ficticio), Bogotá D.C., conforme al pliego técnico del contratante.',
+        contratante: EX.client,
+        contratista: 'Ingeniería y Alquiler S.A.S.',
+        modalidadPrecio: 'Precio global fijo',
+        fechaFirma: '2026-07-27',
+        fechaInicio: EX.start,
+        fechaTerminacion: EX.end,
+        plazo: PLAZO_DIAS + ' días calendario contados desde el acta de inicio (del 3 de agosto al 18 de diciembre de 2026).',
+        valorInicial: VALOR_CONTRATO,
+        baseValor: 'Antes de IVA',
+        anticipoPct: ANTICIPO_PCT,
+        anticipoValor: ANTICIPO,
+        retencionPct: 5,
+        formaPago: 'Anticipo del 20 % contra la aprobación de las pólizas, amortizado en las actas de corte en la misma proporción. Actas de corte mensuales de alquiler y montaje aprobadas por la interventoría; factura electrónica radicada dentro de los 3 días hábiles siguientes a la aprobación del acta y pago a 30 días desde la radicación. De cada pago se retiene el 5 % en garantía, que se devuelve con el acta de liquidación. Los faltantes y daños de la inspección de retorno se facturan según la tarifa de la oferta.',
+        polizas: [
+          { id: 'r1', amparo: 'Buen manejo y correcta inversión del anticipo', valorBase: ANTICIPO, porcentaje: 100, vigencia: 'Plazo del contrato y cuatro meses más', fechaAprobacion: '2026-07-29', estado: 'Aprobada' },
+          { id: 'r2', amparo: 'Cumplimiento', valorBase: VALOR_CONTRATO, porcentaje: 20, vigencia: 'Plazo del contrato y seis meses más', fechaAprobacion: '2026-07-29', estado: 'Aprobada' },
+          { id: 'r3', amparo: 'Pago de salarios, prestaciones sociales e indemnizaciones laborales', valorBase: VALOR_CONTRATO, porcentaje: 5, vigencia: 'Plazo del contrato y tres años más', fechaAprobacion: '2026-07-29', estado: 'Aprobada' },
+          { id: 'r4', amparo: 'Responsabilidad civil extracontractual', valorBase: VALOR_CONTRATO, porcentaje: 20, vigencia: 'Del 3 de agosto al 31 de diciembre de 2026', fechaAprobacion: '2026-07-29', estado: 'Aprobada' },
+        ],
+        obligaciones: [
+          { id: 'r1', parte: 'Contratista o área ejecutora', obligacion: 'Diseñar, suministrar, montar por etapas, certificar, mantener, desmontar y retirar el andamio conforme al pliego técnico y a la Resolución 4272 de 2021.', clausula: 'Primera y anexo 1', responsable: 'Director de proyecto' },
+          { id: 'r2', parte: 'Contratista o área ejecutora', obligacion: 'Entregar la memoria de cálculo firmada por ingeniero civil con matrícula vigente y los planos de montaje para aprobación de la interventoría antes de montar.', clausula: 'Anexo 1', responsable: 'Ingeniero de diseño' },
+          { id: 'r3', parte: 'Contratista o área ejecutora', obligacion: 'Trabajar con personal certificado en alturas, afiliado y al día en seguridad social, y entregar las planillas de aportes con cada acta de corte.', clausula: 'Séptima', responsable: 'Coordinador SST (HSE)' },
+          { id: 'r4', parte: 'Contratante o patrocinador', obligacion: 'Entregar por etapas el frente de fachada despejado y la zona de acopio demarcada.', clausula: 'Octava', responsable: 'Director de obra del cliente' },
+          { id: 'r5', parte: 'Contratante o patrocinador', obligacion: 'Disponer la grúa y el montacargas de la obra para izar el material desde el nivel 6, según la programación del comité de obra.', clausula: 'Octava', responsable: 'Director de obra del cliente' },
+          { id: 'r6', parte: 'Contratante o patrocinador', obligacion: 'Custodiar el equipo en obra fuera de la jornada y responder por los faltantes y daños según la tarifa de la oferta.', clausula: 'Novena', responsable: 'Director de obra del cliente' },
+          { id: 'r7', parte: 'Contratante o patrocinador', obligacion: 'Pagar el anticipo y las actas de corte aprobadas en los plazos de la forma de pago.', clausula: 'Cuarta', responsable: 'Director de obra del cliente' },
+          { id: 'r8', parte: 'Ambas partes', obligacion: 'Asistir al comité de obra semanal y firmar las actas de aceptación de cada etapa, con el visto bueno de la interventoría.', clausula: 'Sexta', responsable: 'Director de proyecto y director de obra del cliente' },
+        ],
+        supervision: 'Interventoría del cliente (supervisión técnica: aprueba el diseño, libera los niveles y aprueba las actas de corte); el director de obra del cliente administra el contrato.',
+        responsableContratista: 'Director de proyecto; firma como representante legal la Gerencia General.',
+        condicionesAceptacion: 'Cada etapa (niveles 1 a 5, 6 a 10 y 11 a 15 con accesos y protecciones) se entrega con la lista de chequeo aprobada y la tarjeta verde de la persona competente, y se acepta con acta firmada por el director de obra del cliente con el visto bueno de la interventoría. La ingeniería se acepta con la aprobación de la memoria de cálculo por la interventoría. Al terminar, el frente se entrega libre de equipo, la inspección de retorno define los faltantes y daños, y el contrato se cierra con el acta de liquidación.',
+        multas: 'Multa del 0,1 % del valor del contrato por cada día hábil de retraso atribuible al contratista en un hito contractual, después de cinco días hábiles de tolerancia, con tope del 10 %. Los retrasos por lluvia o por falta de grúa o de frente despejado del contratante no causan multa. Cláusula penal pecuniaria del 20 % del valor del contrato por incumplimiento grave, amparada por la póliza de cumplimiento.',
+        suspensionTerminacion: 'El contratista puede suspender el servicio si el contratante incumple los pagos por más de 60 días. La interventoría puede suspender el frente por condiciones inseguras. El contratante puede terminar el contrato por incumplimiento grave de los requisitos de seguridad y salud en el trabajo, previo requerimiento escrito.',
+        otrasClausulas: 'Indemnidad del contratante frente a reclamaciones laborales del personal del contratista. Los diseños y la memoria de cálculo son del contratista y se entregan para uso exclusivo en la obra. Las controversias se resuelven por arreglo directo y, si no hay acuerdo, por conciliación en un centro de conciliación de Bogotá.',
+        documentosContractuales: [
+          'Contrato de servicios CS-2026-031 (ficticio) y sus modificaciones',
+          'Pliego técnico del contratante (anexo 1)',
+          'Oferta técnica y económica del contratista, con la tarifa de faltantes y daños (anexo 2)',
+          'Programa de hitos contractuales (anexo 3)',
+          'Pólizas aprobadas por el contratante',
+          'Acta de inicio',
+        ],
+        /* La orden de cambio es posterior a la emisión inicial: el ejemplo (90) emite la rev. 0 sin esta fila (antes del
+           CC-002) y la rev. 1 después de la orden. */
+        modificaciones: [
+          { id: 'r1', numero: 'Orden de cambio No. 1', tipo: 'Orden de cambio', fecha: '2026-09-14', objeto: 'Diseño, suministro, montaje, inspección y desmontaje de una plataforma voladiza de descargue en el piso 8, integrada al andamio, para recibir el material de fachada izado con la grúa del contratante. No cambia la fecha de terminación. El contratista amplía el valor asegurado de la póliza de cumplimiento en el 20 % del valor de la orden.', solicitudCambio: 'CC-002', efectoValor: ORDEN_CAMBIO_1, efectoPlazo: 0, estado: 'Firmada' },
+        ],
+        controlModificaciones: 'Las modificaciones de valor, plazo o alcance se tramitan con solicitud de cambio, se deciden en el comité de control de cambios ampliado (Gerencia General y director de obra del cliente) y se formalizan con orden de cambio u otrosí firmado por los representantes legales, con el ajuste del valor asegurado de las pólizas.',
+        firmas: [
+          { id: 'r1', rol: 'Contratante', nombre: 'Representante legal de Constructora Modelo S.A.S. (ficticia)', fecha: '2026-07-27' },
+          { id: 'r2', rol: 'Contratista', nombre: 'Gerencia General (representante legal de Ingeniería y Alquiler S.A.S.)', fecha: '2026-07-27' },
+        ],
+      },
+    },
+
+    /* ================================================================== DESPUÉS · 4.7 (posterior al cierre) */
+    {
+      id: 'informe-beneficios',
+      name: 'Informe de realización de los beneficios',
+      abbr: 'IRB',
+      area: 'integracion', group: 'cierre', process: '4.7', processes: ['4.7'],
+      kind: 'informe', multiple: true,
+      purpose: 'Compara, después del cierre del proyecto, los beneficios logrados con los prometidos en el caso de negocio y en el plan de gestión de los beneficios. Lo emite el dueño de los beneficios en cada medición, hasta que todos se logren o se descarten.',
+      tips: [
+        'Usa los mismos indicadores, líneas base y metas del plan de gestión de los beneficios; si alguno cambia, explica por qué en las desviaciones.',
+        'Lo elabora la organización, no el equipo del proyecto: el dueño de los beneficios (una gerencia) lo emite en las fechas del plan.',
+        'Registra también los beneficios no previstos y los efectos negativos; ambos sirven para el próximo caso de negocio.',
+        'Cierra cada medición con una conclusión sobre el caso de negocio y la fecha de la próxima medición.',
+      ],
+      sections: [
+        {
+          id: 'identificacion', title: 'Identificación de la medición',
+          fields: [
+            { key: 'proyecto', label: 'Proyecto', type: 'text', from: 'project.name', required: true, hint: 'Proyecto (o programa) cuyos beneficios se miden.' },
+            { key: 'numeroInforme', label: 'Número del seguimiento', type: 'text', hint: 'Consecutivo y periodo, p. ej. «Seguimiento No. 1 — enero de 2027».' },
+            { key: 'fechaMedicion', label: 'Fecha de la medición', type: 'date', required: true, hint: 'Fecha de corte de los datos del informe.' },
+            { key: 'periodoDesde', label: 'Periodo medido desde', type: 'date' },
+            { key: 'periodoHasta', label: 'Periodo medido hasta', type: 'date' },
+            { key: 'duenoBeneficios', label: 'Dueño de los beneficios', type: 'text', hint: 'Gerencia que responde por los beneficios después del cierre, según el plan de gestión de los beneficios.' },
+            { key: 'fuentes', label: 'Fuentes de la medición', type: 'textarea', hint: 'De dónde salen los datos: contabilidad, informes de operación, encuestas, informe final del proyecto.' },
+          ],
+        },
+        {
+          id: 'beneficios', title: 'Beneficios previstos frente a los logrados',
+          description: 'Una fila por beneficio del plan de gestión de los beneficios y por criterio de éxito del caso de negocio. El avance mide cuánto de la distancia entre la línea base y la meta se recorrió: 100 % es la meta cumplida.',
+          fields: [
+            {
+              key: 'beneficios', label: 'Beneficios', type: 'table', addLabel: 'Agregar beneficio',
+              hint: 'Registra la línea base, la meta y el resultado en la misma unidad. Un beneficio sin resultado todavía queda «Pendiente».',
+              columns: [
+                { key: 'beneficio', label: 'Beneficio', type: 'textarea', width: 220 },
+                { key: 'indicador', label: 'Indicador', type: 'text', width: 190 },
+                { key: 'unidad', label: 'Unidad', type: 'text', width: 90 },
+                { key: 'lineaBase', label: 'Línea base', type: 'number', width: 110 },
+                { key: 'meta', label: 'Meta', type: 'number', width: 110 },
+                { key: 'fechaMeta', label: 'Fecha meta', type: 'date' },
+                { key: 'resultado', label: 'Resultado', type: 'number', width: 110 },
+                { key: 'avance', label: 'Avance hacia la meta', type: 'calc', calc: calcAvanceBeneficio, format: fmtAvance, hint: '(Resultado − línea base) ÷ (meta − línea base). Sin línea base se toma 0.' },
+                { key: 'estado', label: 'Estado', type: 'select', options: ESTADO_BENEFICIO },
+                { key: 'comentario', label: 'Comentario', type: 'textarea', width: 240 },
+              ],
+            },
+            { key: 'noPrevistos', label: 'Beneficios no previstos y efectos negativos', type: 'list', hint: 'Lo que el caso de negocio no anticipó, bueno o malo.' },
+            { key: 'desviaciones', label: 'Desviaciones y causas', type: 'textarea', hint: 'Por qué un beneficio no se logró, se logró en parte o se adelantó; qué parte depende de la operación y qué del proyecto.' },
+          ],
+        },
+        {
+          id: 'sostenimiento', title: 'Sostenimiento y conclusión',
+          fields: [
+            {
+              key: 'acciones', label: 'Acciones para lograr o sostener los beneficios', type: 'table', addLabel: 'Agregar acción',
+              hint: 'Qué hará la organización para lograr los beneficios pendientes o sostener los logrados.',
+              columns: [
+                { key: 'accion', label: 'Acción', type: 'textarea', width: 280 },
+                { key: 'responsable', label: 'Responsable', type: 'text', width: 180 },
+                { key: 'fechaObjetivo', label: 'Fecha objetivo', type: 'date' },
+                { key: 'estado', label: 'Estado', type: 'select', options: ESTADO_ACCION },
+              ],
+            },
+            { key: 'conclusionCaso', label: '¿Se cumple el caso de negocio?', type: 'select', options: CONCLUSION_CASO },
+            { key: 'conclusion', label: 'Conclusión sobre el caso de negocio', type: 'textarea', required: true, hint: 'Si la inversión valió la pena frente a lo prometido y qué falta por confirmar.' },
+            { key: 'proximaMedicion', label: 'Próxima medición', type: 'date' },
+            { key: 'alcanceProximaMedicion', label: 'Qué se medirá en la próxima medición', type: 'textarea' },
+          ],
+        },
+      ],
+      /* Seguimiento posterior al cierre del andamio: las cifras salen del caso de negocio, del plan de gestión de los
+         beneficios, del informe final y del acta de cierre (12-templates-a.js). No se genera en el ejemplo (grupo «cierre»). */
+      example: {
+        proyecto: EX.name,
+        numeroInforme: 'Seguimiento No. 1 — enero de 2027',
+        fechaMedicion: '2027-01-29',
+        periodoDesde: EX.start,
+        periodoHasta: '2026-12-31',
+        duenoBeneficios: 'Gerencia General; la Gerencia Comercial sigue el beneficio de cliente recurrente.',
+        fuentes: 'Informe final y acta de cierre del proyecto (22 de diciembre de 2026), facturación del sistema contable, informe mensual de almacén y encuesta de satisfacción de cierre del cliente.',
+        beneficios: [
+          { id: 'r1', beneficio: 'Ingreso por servicio integral de andamios', indicador: 'Ingreso facturado antes de IVA', unidad: 'COP', lineaBase: 0, meta: VALOR_CONTRATO, fechaMeta: EX.end, resultado: VALOR_FINAL, estado: 'Logrado', comentario: 'Valor final del contrato: $ 598 M iniciales más la orden de cambio No. 1 por $ 12,6 M, facturado al 100 % (acta de cierre).' },
+          { id: 'r2', beneficio: 'Mayor utilización del inventario de andamio multidireccional', indicador: 'm² alquilados ÷ m² disponibles', unidad: '%', lineaBase: 62, meta: 75, fechaMeta: '2026-11-30', resultado: 78, estado: 'Logrado', comentario: 'La utilización llegó a 78 % en octubre de 2026 (informe final), por encima de la meta de 75 % del plan.' },
+          { id: 'r3', beneficio: 'Cliente recurrente', indicador: 'Invitaciones a ofertar nuevas torres', unidad: 'invitaciones', lineaBase: 0, meta: 1, fechaMeta: '2027-06-30', resultado: null, estado: 'Pendiente', comentario: 'Se mide al terminar el primer semestre de 2027; la Gerencia Comercial lo reporta en el informe trimestral de ventas.' },
+          { id: 'r4', beneficio: 'Referencia comercial en trabajo seguro en alturas', indicador: 'Certificación de buen servicio emitida por el cliente', unidad: 'certificaciones', lineaBase: 0, meta: 1, fechaMeta: FIN_MEDIANO_PLAZO, resultado: null, estado: 'Pendiente', comentario: 'El plan pide la certificación con calificación ≥ 4,5 / 5 a mediano plazo (hasta un año después del cierre). El cliente aún no la emite; la encuesta de cierre dio 4,6 / 5 (fila de satisfacción del cliente).' },
+          { id: 'r5', beneficio: 'Margen bruto del contrato (criterio de éxito del caso de negocio)', indicador: 'Margen bruto real al liquidar', unidad: '%', lineaBase: null, meta: 18, fechaMeta: FECHA_CIERRE, resultado: MARGEN_FINAL, estado: 'Logrado', comentario: 'Ingreso de $ 610,6 M y costo final de $ 464,3 M (informe final): margen de 24,0 % frente al mínimo de 18 % del caso de negocio.' },
+          { id: 'r6', beneficio: 'Cero accidentes con incapacidad en trabajo en alturas (criterio de éxito del caso de negocio)', indicador: 'Accidentes con incapacidad', unidad: 'accidentes', lineaBase: 0, meta: 0, fechaMeta: EX.end, resultado: 0, estado: 'Logrado', comentario: 'Cero accidentes; un casi accidente (caída de una abrazadera sin lesionados) investigado y cerrado (informe final).' },
+          { id: 'r7', beneficio: 'Satisfacción del cliente (criterio de éxito del caso de negocio)', indicador: 'Calificación del cliente en la encuesta de cierre', unidad: 'puntos sobre 5', lineaBase: null, meta: 4.5, fechaMeta: FECHA_CIERRE, resultado: 4.6, estado: 'Logrado', comentario: 'Calificación de 4,6 / 5 en la encuesta de cierre (informe final), por encima del mínimo de 4,5 del caso de negocio.' },
+        ],
+        noPrevistos: [
+          'La orden de cambio No. 1 (plataforma de descargue del piso 8) agregó $ 12,6 M de ingreso que el caso de negocio no preveía y un servicio que la empresa ofrecerá como opción estándar en fachadas de más de 10 pisos.',
+          'Efecto negativo: el desmontaje terminó el 15 de diciembre, tres días después de lo planificado, lo que retrasó la disponibilidad del equipo para otros contratos.',
+        ],
+        desviaciones: 'El ingreso y la utilización del inventario superaron la meta. La certificación escrita de buen servicio aún no se ha recibido, aunque la encuesta de cierre dio 4,6 / 5. El montaje completo terminó 4 días hábiles después de lo planificado y el cierre 3 días hábiles después, por la baja disponibilidad de la grúa del cliente y cinco días de lluvia; el atraso no afectó los beneficios económicos.',
+        acciones: [
+          { id: 'r1', accion: 'Solicitar al cliente la certificación de buen servicio con la calificación de la encuesta de cierre.', responsable: 'Gerencia Comercial', fechaObjetivo: '2027-02-26', estado: 'Pendiente' },
+          { id: 'r2', accion: 'Hacer seguimiento a la invitación para ofertar la Torre 3 y preparar la oferta con las lecciones del proyecto (ventana diaria de grúa garantizada y jornada extendida para la temporada de lluvias).', responsable: 'Gerencia Comercial', fechaObjetivo: '2027-06-30', estado: 'En curso' },
+          { id: 'r3', accion: 'Incluir la plataforma de descargue como opción estándar en las ofertas de fachadas de más de 10 pisos.', responsable: 'Gerencia Comercial con el ingeniero de diseño', fechaObjetivo: '2027-03-31', estado: 'Pendiente' },
+          { id: 'r4', accion: 'Seguir la utilización del inventario de andamio multidireccional en el informe mensual de almacén y compararla con la meta de 75 %.', responsable: 'Almacén', fechaObjetivo: '2027-04-30', estado: 'En curso' },
+        ],
+        conclusionCaso: 'Se cumple parcialmente',
+        conclusion: 'El caso de negocio se cumple en lo económico, en seguridad y en la satisfacción del cliente: ingreso de $ 610,6 M frente a $ 598 M previstos, margen de 24,0 % frente al mínimo de 18 %, utilización del inventario de 78 %, cero accidentes con incapacidad y encuesta de cierre de 4,6 / 5. Quedan pendientes la invitación a ofertar la Torre 3 y la certificación escrita de buen servicio, que se evaluarán en la próxima medición.',
+        proximaMedicion: '2027-04-30',
+        alcanceProximaMedicion: 'Estado de la invitación a la Torre 3, certificación de buen servicio y utilización del inventario en el primer trimestre de 2027.',
+      },
+    },
+  ];
+
+  PM.registerTemplates(templates);
+
+  /* Orden del catálogo (SPEC §6): la lista maestra ordena por área, grupo y proceso y, dentro del mismo proceso, por
+     orden de registro. Se ubican junto a sus documentos hermanos: la evaluación de necesidades antes del caso de negocio,
+     el acuerdo con el cliente después del plan de gestión de los beneficios y el informe de beneficios después del acta
+     de cierre. Si la plantilla de referencia no está cargada, quedan al final. */
+  const place = (id, anchor, after) => {
+    const list = PM.templateList;
+    const from = list.findIndex((t) => t && t.id === id);
+    if (from < 0 || !list.some((t) => t && t.id === anchor)) return;
+    const [t] = list.splice(from, 1);
+    const at = list.findIndex((x) => x && x.id === anchor);
+    list.splice(after ? at + 1 : at, 0, t);
+  };
+  place('evaluacion-necesidades', 'caso-negocio', false);
+  place('acuerdo-cliente', 'plan-gestion-beneficios', true);
+  place('informe-beneficios', 'acta-cierre', true);
+})();
+
+</script>
+<script>
+/* ==========================================================================
    20-docs.js — documentos del proyecto: mapa de procesos (10 áreas × 5
    grupos), lista maestra de documentos y editor con cajetín, flujo de
    revisiones (convención de planos), historial, exportación (Markdown/HTML)
    y redacción asistida con Claude.
    Vistas: procesos, documentos, documento (oculta). Expone PM.openDocument,
-   PM.templateApplies(t|id, project, byTemplate) y PM.applicableTemplates(project,
-   byTemplate): las plantillas ágiles (SPEC §9.5) solo cuentan en el avance
-   documental con ciclo de vida adaptativo o híbrido, o si ya tienen documentos.
+   PM.templateApplies(t|id, project, byTemplate), PM.applicableTemplates(project,
+   byTemplate) y PM.countedTemplates(project, byTemplate): las plantillas ágiles
+   (SPEC §9.5) solo cuentan en el avance documental con ciclo de vida adaptativo o
+   híbrido, o si ya tienen documentos; los documentos posteriores al cierre
+   (PM.isAfterCloseDoc, PM.countsInProgress) solo cuentan si el proyecto ya los tiene.
    La vista `documentos` acepta los parámetros area, status, template y approach
    (enfoque de la metodología, 11-doc-approach: 'predictivo' | 'adaptativo' |
    'ambos', o combinado con «ambos»: 'predictivo+ambos' | 'adaptativo+ambos';
@@ -10711,7 +11358,13 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
   /* Documentos que miden el avance de un proceso: los que el proceso crea (no los que solo actualiza),
      sin contar los que dependen de eventos (una solicitud de cambio puede no ocurrir nunca). */
   const EVENT_DOCS = new Set(['solicitud-cambio']);
-  const trackedDocs = (p) => uniq(((p && p.outputs) || []).filter((o) => o && o.doc && !o.update && !EVENT_DOCS.has(o.doc)).map((o) => o.doc));
+  const trackedDocs = (p) => uniq(((p && p.outputs) || []).filter((o) => o && o.doc && !o.update && !o.afterClose && !EVENT_DOCS.has(o.doc)).map((o) => o.doc));
+  const afterCloseDoc = (id) => !!(PM.KB && (PM.KB.processes || []).some((p) => (p.outputs || []).some((o) => o && o.doc === id && o.afterClose)));
+  /* Documentos posteriores al cierre (salida afterClose de la base de conocimiento, p. ej. el informe de realización de
+     los beneficios): los emite la organización después de cerrar el proyecto, así que no cuentan en el avance documental
+     (mapa, lista maestra y tablero) mientras el proyecto no tenga documentos de ellos. */
+  PM.isAfterCloseDoc = afterCloseDoc;
+  PM.countsInProgress = (t, byTemplate) => { const id = typeof t === 'string' ? t : t && t.id; return !afterCloseDoc(id) || !!(byTemplate && Array.isArray(byTemplate[id]) && byTemplate[id].length); };
   /* Capa ágil (SPEC §9.1): las plantillas ágiles (§9.5) aplican con ciclo de vida adaptativo o híbrido. En un proyecto
      predictivo no cuentan en el avance documental (mapa, lista maestra y tablero) ni se proponen como entradas o
      herramientas, salvo que el proyecto ya tenga documentos de esa plantilla (entonces cuentan como cualquier otro). */
@@ -10731,6 +11384,9 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
   /* Uso compartido (p. ej. la tarjeta de documentación del tablero): mismas plantillas que cuentan el mapa y la lista. */
   PM.templateApplies = templateApplies;
   PM.applicableTemplates = (project, byTemplate) => (PM.templateList || []).filter((t) => templateApplies(t, project, byTemplate));
+  /* Plantillas que cuentan en el avance documental (mapa, lista maestra y tablero): las que aplican, sin los documentos
+     posteriores al cierre que el proyecto aún no tiene. */
+  PM.countedTemplates = (project, byTemplate) => PM.applicableTemplates(project, byTemplate).filter((t) => PM.countsInProgress(t, byTemplate));
   /* Vistas que el proyecto puede abrir (las ágiles declaran when: PM.agile.when). */
   const viewAvailable = (v, project) => { if (!v || !v.when) return true; try { return !!v.when(project); } catch (e) { return false; } };
   /* Procesos de una plantilla separados en los que crean el documento y los que solo lo actualizan. */
@@ -11023,8 +11679,9 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       for (const p of procs) (cell[p.area + '|' + p.group] = cell[p.area + '|' + p.group] || []).push(p);
       const all = PM.templateList || [];
       const tpls = all.filter((t) => applies(t.id));
-      const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(tpls.filter((t) => t.group === g.id), idx) }));
-      const total = templateProgress(tpls, idx);
+      const counted = tpls.filter((t) => PM.countsInProgress(t, idx.byTemplate));
+      const groupStats = G.map((g) => ({ g, count: procs.filter((p) => p.group === g.id).length, ...templateProgress(counted.filter((t) => t.group === g.id), idx) }));
+      const total = templateProgress(counted, idx);
       return { A, G, procs, cell, groupStats, total, tpls, notApplicable: all.length - tpls.length };
     }, [K, idx, applies]);
 
@@ -11189,7 +11846,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       const insts = sortedInstances(idx.byTemplate[o.doc]);
       const name = docName(o.doc);
       const nameNode = html`<span class="stack-sm" style="gap:0;min-width:0"><span>${name}</span>${o.label && norm(o.label) !== norm(name) ? html`<span class="xsmall faint">Salida de la Guía: ${o.label}</span>` : null}</span>`;
-      const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}`;
+      const upd = html`${o.agile ? html`<${ui.Chip} tone="accent" title="Documento del enfoque ágil o híbrido (Scrum y Kanban) que complementa las salidas de la Guía">Ágil</${ui.Chip}>` : null}${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}${o.afterClose ? html`<${ui.Chip} title="Lo emite la organización después de cerrar el proyecto; no cuenta en el avance">Posterior al cierre</${ui.Chip}>` : null}`;
       if (na) {
         return html`<div class="docs-out-row docs-na-row" data-doc=${o.doc} data-na="1">
           <span class="docs-out-name"><${ui.Icon} name="file" size=${15} />${nameNode}</span>${o.update ? html`<${ui.Chip} tone="info" title="El proceso actualiza este documento, creado en otro proceso">Actualiza</${ui.Chip}>` : null}<${NaTag} />
@@ -11244,7 +11901,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       const insts = sortedInstances(idx.byTemplate[t.id]);
       /* na: plantilla ágil que no aplica al proyecto (predictivo y sin documentos): se lista aparte y no cuenta. */
       /* ap: enfoque de la metodología de la plantilla (las instancias lo heredan). */
-      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate), ap: apOf(t) };
+      const base = { tid: t.id, t, area: t.area, group: t.group, kind: t.kind, process: t.process || '', na: !templateApplies(t, project, idx.byTemplate), ap: apOf(t), after: afterCloseDoc(t.id) };
       if (!t.multiple) {
         const doc = insts.find((d) => d.id === t.id) || insts[0] || null;
         out.push({ ...base, type: 'single', key: t.id, doc, status: doc ? statusOf(doc) : 'sin', code: baseCode(project, t.id), name: t.name });
@@ -11260,7 +11917,11 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
     }
     return out;
   }
-  const countable = (e) => !e.na && (e.type !== 'parent' || !e.count);
+  /* after: documento que la organización emite después del cierre (p. ej. el informe de seguimiento de beneficios);
+     mientras no exista no cuenta en el avance (PM.countsInProgress). */
+  const pendingAfter = (e) => !!e.after && (e.type === 'parent' ? !e.count : e.type === 'single' && !e.doc);
+  const countable = (e) => !e.na && (e.type !== 'parent' || !e.count) && !pendingAfter(e);
+  const AfterStatus = () => html`<${ui.Chip} title="Lo emite la organización después de cerrar el proyecto; no cuenta en el avance">Posterior al cierre</${ui.Chip}>`;
   const NaStatus = () => html`<${ui.Chip} title="Plantilla del enfoque ágil o híbrido: no aplica al ciclo de vida predictivo y no cuenta en el avance documental">No aplica</${ui.Chip}>`;
   /* Celda «Enfoque»: distintivo en cada plantilla (en las múltiples, en la fila madre); las instancias lo heredan (celda
      vacía); los documentos sin plantilla, «—» en la tabla y «Enfoque: sin plantilla» en la tarjeta (móvil), donde no
@@ -11281,7 +11942,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
         <td class="docs-c-name"><div class="stack-sm" style="gap:0"><span style="font-weight:600">${e.name}</span><span class="xsmall faint">${kindLabel(e.kind)}${kindLabel(e.kind) ? ' · ' : ''}${e.count ? e.count + (e.count === 1 ? ' documento' : ' documentos') : 'Admite varios documentos por proyecto'}</span></div></td>
         <td class="docs-c-proc mono xsmall">${e.process}</td>
         ${apCol ? html`<${ApCell} e=${e} />` : null}
-        <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : html`<${StatusChip} status="sin" />`}</td>
+        <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : e.count ? null : e.after ? html`<${AfterStatus} />` : html`<${StatusChip} status="sin" />`}</td>
         <td class="docs-c-rev"></td><td class="docs-c-upd"></td>
         <td class="docs-act">${canWrite ? html`<${ui.Button} size="sm" icon="plus" onClick=${openIt} aria-label=${'Nuevo: ' + e.name}>Nuevo</${ui.Button}>` : e.count ? null : html`<${ui.Button} size="sm" icon="eye" onClick=${openIt}>Ver plantilla</${ui.Button}>`}</td>
       </tr>`;
@@ -11293,7 +11954,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       <td class="docs-c-name"><div class="stack-sm" style="gap:0"><button type="button" class="docs-link" onClick=${openIt}>${e.name}</button>${e.type !== 'instance' && kindLabel(e.kind) ? html`<span class="xsmall faint">${kindLabel(e.kind)}</span>` : e.type === 'orphan' ? html`<span class="xsmall faint">Plantilla no disponible</span>` : null}</div></td>
       <td class="docs-c-proc mono xsmall">${e.process}</td>
       ${apCol ? html`<${ApCell} e=${e} />` : null}
-      <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
+      <td class="docs-c-status">${e.na ? html`<${NaStatus} />` : pendingAfter(e) ? html`<${AfterStatus} />` : html`<${StatusChip} status=${e.status} />`}</td>
       <td class="docs-c-rev mono">${d && d.rev ? html`<span class="docs-m-only">Rev. </span>${d.rev}` : html`<span class="faint">—</span>`}</td>
       <td class="docs-c-upd xsmall faint">${d ? PM.fmt.datetime(d.updatedAt) : '—'}</td>
       <td class="docs-act"><${ui.Button} size="sm" icon=${!d ? (canWrite ? 'plus' : 'eye') : 'file'} onClick=${openIt} aria-label=${btn + ': ' + e.name}>${btn}</${ui.Button}></td>
@@ -11376,7 +12037,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
       const apSet = ap ? new Set(ap.split('+')) : null;
       const matchT = (e) => (!tpl || e.tid === tpl) && (!area || e.area === area) && (!grp || e.group === grp) && (!kind || e.kind === kind) && (!apSet || !!(e.ap && apSet.has(e.ap.id)));
       const matchQ = (e) => !ql || norm([e.code, e.name, e.t && e.t.name, e.t && e.t.abbr, e.process].join(' ')).includes(ql);
-      const matchS = (e) => !estado || e.status === estado;
+      const matchS = (e) => !estado || (e.status === estado && !(estado === 'sin' && pendingAfter(e)));
       const visible = [];
       for (const e of entries) {
         if (e.type === 'instance' || !matchT(e)) continue;
@@ -11384,7 +12045,7 @@ select.cell-input { appearance: none; cursor: pointer; padding-right: 18px; back
           const insts = instOf.get(e.tid) || [];
           const pq = matchQ(e);
           const vis = insts.filter((x) => (pq || matchQ(x)) && matchS(x));
-          const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length));
+          const ok = (pq || vis.length) && (!estado || vis.length || (estado === 'sin' && !insts.length && !e.after));
           if (ok) visible.push(e, ...vis);
         } else if (matchQ(e) && matchS(e)) visible.push(e);
       }
@@ -31206,10 +31867,11 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     </button>`;
   }
   function DocsCard({ docs, project }) {
-    /* plantillas que aplican al proyecto (20-docs, PM.applicableTemplates): las ágiles solo con ciclo de vida adaptativo o
-       híbrido, o si el proyecto ya tiene documentos de ellas; así el conteo coincide con el mapa de procesos y la lista */
+    /* plantillas que cuentan en el avance (20-docs, PM.countedTemplates): las ágiles solo con ciclo de vida adaptativo o
+       híbrido, o si el proyecto ya tiene documentos de ellas, y sin los documentos posteriores al cierre que aún no
+       existen; así el conteo coincide con el mapa de procesos y la lista */
     const catalog = PM.templateList || [];
-    const templates = useMemo(() => (typeof PM.applicableTemplates === 'function' ? PM.applicableTemplates(project, docs.byTemplate) : catalog), [catalog, project, docs.byTemplate]);
+    const templates = useMemo(() => (typeof PM.countedTemplates === 'function' ? PM.countedTemplates(project, docs.byTemplate) : typeof PM.applicableTemplates === 'function' ? PM.applicableTemplates(project, docs.byTemplate) : catalog), [catalog, project, docs.byTemplate]);
     const statusOf = (t) => { const ds = docs.byTemplate[t.id] || []; if (!ds.length) return 'none'; return ds.some((d) => d.status === 'aprobado') ? 'ok' : 'wip'; };
     const count = (list) => { const c = { ok: 0, wip: 0, none: 0, total: list.length }; for (const t of list) c[statusOf(t)]++; return c; };
     const total = count(templates);
@@ -33009,6 +33671,8 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   const SPECIAL = {
     'caso-negocio': { status: 'aprobado', rev: '0', date: '2026-07-24' },
     'plan-gestion-beneficios': { status: 'aprobado', rev: '0', date: '2026-07-24' },
+    'evaluacion-necesidades': { status: 'aprobado', rev: '0', date: '2026-07-13' },
+    'acuerdo-cliente': { status: 'aprobado', rev: '0', date: '2026-07-29' },
     'acta-constitucion': {
       status: 'aprobado', rev: '0', date: '2026-08-03',
       history: [['A', 'borrador', '2026-07-28', 'Primer borrador para revisión del patrocinador.', 'draft'], ['B', 'revision', '2026-07-31', 'Ajustes de la Gerencia General: reservas y límite de gasto del director.', 'review'], ['0', 'aprobado', '2026-08-03', 'Emisión aprobada y firmada por el patrocinador.']],
@@ -33301,7 +33965,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
    COP 15.000 millones, 416 viviendas en una plataforma con cuatro bloques de 8 pisos,
    ventas por COP 162.122 millones y costo total de COP 141.939 millones (LB0/LB1).
    Proyecto, empresas y cifras son ficticios; se usan roles, no nombres de personas.
-   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93 y 96).
+   Los documentos se construyen con PM.exampleDocs.medellin (archivos 92, 93, 96 y 98).
    Ciclo de vida híbrido: la capa ágil de los canales digitales de venta (paquete
    1.4.2) sale de PM.exampleAgile.medellin (archivo 96). El release se representa en
    el cronograma con la actividad C02D (costo 0, en la LB1), que toma su avance del
@@ -34444,7 +35108,7 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
     },
   ];
 
-  /* ---------------------------------------------------------------- documentos (PM.exampleDocs.medellin, archivos 92 y 93) */
+  /* ---------------------------------------------------------------- documentos (PM.exampleDocs.medellin, archivos 92, 93, 96 y 98) */
   const ts = (date) => date + 'T15:00:00.000Z';
   function docsData(project) {
     const src = (PM.exampleDocs && PM.exampleDocs.medellin) || {};
@@ -42665,6 +43329,681 @@ textarea.cell-input.matrices-autotext { resize: none; overflow: hidden; display:
   (PM.exampleDocs.erpParts = PM.exampleDocs.erpParts || []).push(part);
   /* supuestos del caso de negocio y reparto de la reserva, para las pruebas y la documentación */
   PM.exampleDocs.erpIntegracion = { BEN: PM.deepFreeze ? PM.deepFreeze(cp(BEN)) : cp(BEN), ALT: cp(ALT), RISK_TASKS: cp(RISK_TASKS) };
+})();
+
+</script>
+<script>
+/* ==========================================================================
+   97-example-erp-docs-negocio.js — documentos de negocio del ejemplo ágil
+   «EJEMPLO · Implementación del ERP de Ingeniería y Alquiler»
+   (94-example-erp.js, SPEC §9.7) con las plantillas de 15-templates-negocio.js:
+   - ANTES: evaluación de necesidades (abril de 2026, antes del caso de negocio
+     rev. 0), aprobada con la decisión de la Gerencia General de elaborar el caso.
+   - ANTES: acuerdo con el cliente. El proyecto es interno, así que es un acuerdo
+     interno o memorando de entendimiento entre la Gerencia General
+     (patrocinadora) y las áreas usuarias, con la oficina de proyectos (PMO) y TI
+     como áreas ejecutoras: presupuesto asignado, dedicación del dueño del
+     producto y de los usuarios clave, gobierno y criterios de aceptación de
+     cada release. Rev. 0 firmada con el acta de constitución (presupuesto
+     preliminar del acta rev. 0) y rev. 1 con el otrosí No. 1 de la LB0
+     (presupuesto aprobado), firmado por los mismos nueve firmantes. Las áreas
+     con usuario clave son las del catálogo de recursos; contabilidad participa
+     con el contador y la firma el gerente administrativo y financiero.
+     Decisión sobre el CC-001: no modifica el acuerdo, porque no cambió el
+     presupuesto, la fecha de fin ni la dedicación pactada;
+     la regla de modificación de la rev. 1 (solo los cambios de nivel 3 del plan
+     de gestión de cambios o de la dedicación requieren otrosí) lo deja escrito
+     sin citar hechos posteriores a su fecha.
+   - DESPUÉS: informe de realización de los beneficios. El cierre es posterior
+     al corte, así que solo hay un seguimiento PROGRAMADO (borrador): los
+     beneficios del plan de gestión de los beneficios (rev. 2) y del caso de
+     negocio (rev. 1) con su indicador, línea base, meta y fecha meta, en estado
+     «Pendiente» y sin resultados (sin línea base numérica, la meta tope de los
+     rechazos de la DIAN va en el comentario para que el avance no se calcule
+     desde 0). Las acciones son de sostenimiento, posteriores al cierre. Se
+     mide con los datos del primer mes completo después del cierre, al terminar el cierre contable de ese mes (cinco
+     primeros días hábiles del mes siguiente, como la restricción S-05); la
+     próxima medición cubre el mes de la meta de cartera, la última de la
+     medición mensual de la PMO según el plan de gestión de los beneficios.
+   Se registra en PM.exampleDocs.erpParts con la firma (F, ctx). Usa los
+   documentos de 95 (PM.exampleDocs.erp) y los de los otros módulos 97 (caso de
+   negocio, plan de gestión de los beneficios, requisitos de financiamiento,
+   plan para la dirección…): sin el módulo de integración no genera nada. Las
+   cifras salen de esos documentos, de F, de ctx.data (LB0, catálogo de
+   recursos) o del calendario del proyecto (PM.cal); los supuestos propios
+   (fechas de la evaluación, número del memorando) están en
+   docs/ejemplo-erp/supuestos-y-fuentes.md. Los documentos aprobados (y sus
+   revisiones) no citan hechos posteriores a su fecha. Se usan roles, no
+   nombres de personas.
+   ========================================================================== */
+(function () {
+  'use strict';
+  const PM = window.PM;
+  if (!PM || !PM.date || !PM.cal || !PM.fmt) return;
+  const D = PM.date;
+
+  /* textos con espacios normales (los formatos usan espacios de no separación solo para la pantalla) */
+  const plain = (v) => String(v).replace(/[  ]/g, ' ');
+  const ms = (v) => plain(PM.fmt.moneyShort(v, 'COP'));
+  const money = (v) => plain(PM.fmt.money(v, 'COP'));
+  const n0 = (v) => plain(PM.fmt.num(v, 0));
+  const nm = (v) => plain(PM.fmt.num(v, Number.isInteger(v) ? 0 : 1));
+  const pc = (x, d) => plain(PM.fmt.pct(x, d || 0));
+  const dl = (iso) => plain(PM.fmt.date(iso, 'long'));
+  const monthName = (iso) => plain(PM.fmt.date(iso, 'monthLong'));
+  const cp = (x) => JSON.parse(JSON.stringify(x));
+  const rows = (prefix, list) => list.map((r, i) => ({ id: prefix + '-' + String(i + 1).padStart(2, '0'), ...r }));
+  const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
+  const r100k = (v) => Math.round(v / 1e5) * 1e5;
+  const lc = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+  const noDot = (s) => String(s).replace(/\.\s*$/, '');
+  const andList = (list) => (list.length < 2 ? list.join('') : list.slice(0, -1).join(', ') + ' y ' + list[list.length - 1]);
+  const WORDS = ['cero', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
+  const nw = (n) => (Number.isInteger(n) && n >= 0 && n <= 10 ? WORDS[n] : n0(n));
+  /* primer número de un texto con coma decimal («3,8 % de las piezas» → 3.8); null si no tiene */
+  const numIn = (s) => { const m = /(\d+(?:,\d+)?)/.exec(plain(s || '')); return m ? parseFloat(m[1].replace(',', '.')) : null; };
+  /* «de cerca de 4 % (…) a 0,5 % o menos» → [4, 0.5] (criterios de éxito del caso de negocio rev. 0) */
+  const fromTo = (s) => { const m = /: de (?:cerca de )?(\d+(?:,\d+)?)[^]*? a (\d+(?:,\d+)?)/.exec(plain(s || '')); return m ? [numIn(m[1]), numIn(m[2])] : [null, null]; };
+  /* fecha escrita en un texto («al 31 de marzo de 2027» → '2027-03-31'); null si no tiene */
+  const MONTHS = Array.from({ length: 12 }, (_, i) => plain(PM.fmt.date('2026-' + String(i + 1).padStart(2, '0') + '-01', 'monthLong')).split(' ')[0]);
+  const dateIn = (s) => {
+    const m = /(\d{1,2}) de ([a-záéíóú]+) de (\d{4})/.exec(plain(s || ''));
+    const k = m ? MONTHS.indexOf(m[2]) : -1;
+    return k < 0 ? null : m[3] + '-' + String(k + 1).padStart(2, '0') + '-' + String(+m[1]).padStart(2, '0');
+  };
+
+  const ROLE = {
+    pat: 'Gerencia General', po: 'Dueño del producto (Gerente administrativo y financiero)', pof: 'Gerente administrativo y financiero',
+    pmo: 'Jefe de la PMO', ti: 'Jefe de TI', con: 'Contador', adop: 'Dueño del producto y jefes de las áreas usuarias',
+  };
+  const PARTE = { pat: 'Contratante o patrocinador', eje: 'Contratista o área ejecutora', ambas: 'Ambas partes' };
+  /* quienes firman el acuerdo interno y cada otrosí (la regla de modificación lo exige): la Gerencia General, el gerente administrativo
+     y financiero (dueño del producto y superior de contabilidad), la PMO, TI y el jefe de cada área usuaria (el de
+     facturación y cartera firma por esas dos áreas) */
+  const FIRMANTES = [
+    ['Patrocinadora', ROLE.pat],
+    ['Dueño del producto y contabilidad', ROLE.pof],
+    ['Área ejecutora: PMO', ROLE.pmo],
+    ['Área ejecutora: TI', ROLE.ti],
+    ['Área comercial', 'Gerente comercial'],
+    ['Logística', 'Coordinador logístico'],
+    ['Almacén', 'Jefe de almacén'],
+    ['Mantenimiento', 'Jefe de mantenimiento'],
+    ['Facturación y cartera', 'Jefe de facturación y cartera'],
+  ];
+  /* áreas con usuario clave, si el catálogo de recursos no las nombra (rec-uc: seis personas) */
+  const AREAS_UC = 'comercial, logística, almacén, mantenimiento, facturación y cartera';
+
+  /* ------------------------------------------------------------------ supuestos del módulo (ejemplo)
+     Fechas de la evaluación de necesidades (antes del caso de negocio rev. 0, que se elaboró el 28 de abril de 2026) y
+     número del memorando de entendimiento (consecutivo con el código del proyecto). docs/ejemplo-erp/supuestos-y-fuentes.md. */
+  const SUP = { evaluacion: '2026-04-14', decision: '2026-04-17', memorando: 'MDE-' };
+  /* unidad de cada métrica de éxito de la visión del producto (en su orden) para el informe de beneficios */
+  const UNIDAD_VISION = ['días hábiles', '% de las facturas emitidas', '% de las piezas', '% de los m² disponibles', '% de la cartera total'];
+
+  /* ================================================================== módulo
+     Se calcula una vez por construcción (ctx): el módulo de integración lo llama como par y el constructor lo llama
+     después; la marca «busy» evita la recursión cuando este módulo llama a los demás. */
+  const memo = new WeakMap();
+  function part(F, ctx) {
+    if (ctx && typeof ctx === 'object' && memo.has(ctx)) return cp(memo.get(ctx));
+    if (part.busy) return {};
+    part.busy = true;
+    let out = {};
+    try { out = build(F, ctx) || {}; } finally { part.busy = false; }
+    if (ctx && typeof ctx === 'object') memo.set(ctx, out);
+    return cp(out);
+  }
+
+  function build(F, ctx) {
+    const { R, CODE, data } = ctx || {};
+    if (!F || !data || !data.schedule || !Array.isArray(data.baselines) || !data.resources) return {};
+    const { schedule, baselines, resources } = data;
+    const START = F.start, END = F.end, LB0 = F.lb0Date;
+    const cal = PM.cal.make(schedule.settings, START);
+    const LB = ((baselines.find((b) => b && b.data && b.data.number === 0) || baselines[0]) || {}).data;
+    if (!LB || !LB.schedule || !LB.cost) return {};
+    const lbTask = (id) => LB.schedule.tasks.find((t) => t.id === id) || {};
+    const task = (id) => schedule.tasks.find((t) => t.id === id) || {};
+    const catItem = (key) => (resources.items || []).find((x) => x.id === 'rec-' + key) || {};
+    const ded = (it) => (it.dedication === undefined || it.dedication === null ? 100 : it.dedication);
+
+    /* documentos de 95 y de los otros módulos 97 */
+    const base = PM.exampleDocs && typeof PM.exampleDocs.erp === 'function' ? PM.exampleDocs.erp(F) || {} : {};
+    const peers = {};
+    for (const fn of (PM.exampleDocs && Array.isArray(PM.exampleDocs.erpParts)) ? PM.exampleDocs.erpParts : []) {
+      if (fn === part || typeof fn !== 'function') continue;
+      let p = null;
+      try { p = fn(F, ctx); } catch (e) { p = null; }
+      if (p && typeof p === 'object') for (const k of Object.keys(p)) if (!(k in peers)) peers[k] = p[k];
+    }
+    const entryOf = (tid) => base[tid] || peers[tid] || null;
+    const fieldsAt = (tid, rev) => {
+      const e = entryOf(tid);
+      if (!e) return null;
+      if (rev === undefined || String(e.rev) === String(rev)) return e.fields || null;
+      const r = (e.revs || []).find((x) => String(x.rev) === String(rev));
+      return r ? r.fields || e.fields || null : null;
+    };
+    const BEN = PM.exampleDocs && PM.exampleDocs.erpIntegracion && PM.exampleDocs.erpIntegracion.BEN;
+    const caso = fieldsAt('caso-negocio'), caso0 = fieldsAt('caso-negocio', '0'), pben = fieldsAt('plan-gestion-beneficios');
+    const acta = fieldsAt('acta-constitucion'), acta0 = fieldsAt('acta-constitucion', '0');
+    const vision = fieldsAt('vision-producto');
+    if (!BEN || !caso || !caso0 || !pben || !acta || !acta0 || !vision) return {};
+    /* última revisión aprobada de un documento a una fecha (sin el documento, la referencia va sin revisión) */
+    const revAt = (tid, at) => {
+      const e = entryOf(tid);
+      if (!e) return undefined;
+      const list = [...(e.revs || []).map((r) => [r.rev, r.status || 'aprobado', r.date]), [e.rev, e.status, e.date]].filter(([rv, st, d]) => st === 'aprobado' && d && d <= at && /^\d+$/.test(String(rv)));
+      list.sort((a, b) => String(a[2]).localeCompare(String(b[2])) || Number(a[0]) - Number(b[0]));
+      return list.length ? String(list[list.length - 1][0]) : undefined;
+    };
+    const ref = (tid, at) => { const rv = revAt(tid, at); return CODE + '-' + ((PM.templates[tid] && PM.templates[tid].abbr) || 'DOC') + (rv !== undefined ? ' rev. ' + rv : ''); };
+    const NAME = acta.nombreProyecto;
+    const golive1 = F.milestones.t29.actual;
+    const R1_REVIEW = cal.addWork(golive1, 1);           // revisión del caso de negocio al cierre del release 1 (integración)
+    const lbBac = LB.cost.bac, lbCont = LB.cost.contingency, lbMan = LB.cost.management;
+
+    /* ================================================================ 4.1 · EVALUACIÓN DE NECESIDADES (abril de 2026) */
+    const crit0 = caso0.criteriosExito || [];
+    const critOf = (re) => crit0.find((s) => re.test(plain(s))) || '';
+    const [diasA, diasD] = fromTo(critOf(/^Cierre mensual/));
+    const [invA, invD] = fromTo(critOf(/^Diferencia entre el inventario/));
+    const [utilA, utilD] = fromTo(critOf(/^Utilización/));
+    const [carA, carD] = fromTo(critOf(/^Cartera vencida/));
+    const rechD = numIn(critOf(/^Facturas electrónicas rechazadas/));
+    const opc0 = caso0.opciones || [];
+    const opcName = (letter) => (opc0.find((o) => o.opcion.startsWith(letter + '.')) || {}).opcion || letter;
+    const evaluacion = {
+      nombre: NAME,
+      origen: 'Crear, mejorar o reparar un producto, proceso o servicio',
+      solicitante: 'Gerente administrativo y financiero, con el coordinador logístico, el jefe de almacén y el jefe de facturación y cartera',
+      patrocinador: ROLE.pat,
+      responsableAnalisis: 'Jefe de la PMO, con el gerente administrativo y financiero y el jefe de TI',
+      fechaEvaluacion: SUP.evaluacion,
+      problema: 'Los equipos en alquiler, las remisiones de entrega y devolución y la liquidación del alquiler se controlan en hojas de cálculo separadas por área; el software contable registra la factura al final del mes sin conocer el estado de los equipos y la factura electrónica se emite a mano en el portal del proveedor tecnológico. El corte mensual de alquileres tarda hasta ' + nw(diasA) + ' días hábiles, el inventario de la bodega no coincide con el de las obras, los faltantes y daños se detectan días después y sin soporte para cobrarlos, y la cartera se conoce con una semana de retraso. Con más obras activas en Bogotá y la Sabana, la operación no crece sin más personal administrativo y la Gerencia General decide compras de inventario sin datos de utilización.',
+      objetivosOrganizacion: 'Plan estratégico 2026–2028: controlar el inventario en alquiler y facturar a tiempo, y crecer en alquiler en Bogotá y la Sabana sin aumentar el personal administrativo. La utilización del andamio multidireccional es la base para decidir inversiones en inventario.',
+      urgencia: 'Cada mes con más obras activas el cierre exige más horas de digitación y conciliación. Ninguna salida a producción puede caer en el cierre mensual ni en el cierre anual, así que conviene empezar en mayo de 2026 para tener el primer módulo (inventario y alquiler) en producción en el segundo semestre y el último después del cierre anual.',
+      brechas: rows('br', [
+        { aspecto: 'Cierre mensual de facturación de alquileres', actual: 'Hasta ' + nw(diasA) + ' días hábiles: la liquidación se arma en hojas de cálculo con las remisiones y las actas en papel.', deseada: 'Facturar el alquiler el mismo día del corte: cierre en ' + nw(diasD) + ' día hábil.', indicador: 'Días hábiles del cierre mensual de facturación', valorActual: diasA, valorDeseado: diasD },
+        { aspecto: 'Factura electrónica', actual: 'Se emite a mano en el portal del proveedor tecnológico, sin conexión con el control de equipos ni con la cartera.', deseada: 'Factura electrónica emitida desde el sistema y validada por la DIAN, con menos de ' + nm(rechD) + ' % de rechazos.', indicador: 'Facturas rechazadas por la DIAN (% de las emitidas); hoy no hay línea base', valorActual: null, valorDeseado: rechD },
+        { aspecto: 'Inventario por bodega y obra', actual: 'El inventario de la bodega no coincide con el de las obras: la diferencia frente al conteo físico se estima cerca de ' + nm(invA) + ' % de las piezas y se medirá en el descubrimiento.', deseada: 'Inventario confiable por bodega, obra y estado, con diferencia de ' + nm(invD) + ' % o menos en los conteos.', indicador: 'Diferencia entre el inventario físico y el del sistema (% de las piezas)', valorActual: invA, valorDeseado: invD },
+        { aspecto: 'Utilización del andamio multidireccional', actual: 'Almacén estima cerca de ' + nm(utilA) + ' % de los m² alquilados y la medirá con el inventario de julio; no hay disponibilidad en línea por bodega y obra.', deseada: nm(utilD) + ' % o más, sin comprar más equipo.', indicador: 'm² alquilados ÷ m² disponibles (%)', valorActual: utilA, valorDeseado: utilD },
+        { aspecto: 'Cartera', actual: nm(carA) + ' % de la cartera total está vencida a más de 60 días y se conoce con una semana de retraso.', deseada: nm(carD) + ' % o menos, con la cartera por edades al día y bloqueo de despachos a clientes en mora.', indicador: 'Cartera vencida a más de 60 días ÷ cartera total (%)', valorActual: carA, valorDeseado: carD },
+        { aspecto: 'Capacidad interna para implementar', actual: 'No hay un sistema integrado ni un equipo interno que pueda implementarlo: TI tiene un jefe y un analista.', deseada: 'Socio implementador con experiencia en alquiler de equipos, un usuario clave por área con dedicación pactada y datos maestros depurados.', indicador: '', valorActual: null, valorDeseado: null },
+      ]),
+      causas: [
+        'Hojas de cálculo y sistemas separados para equipos, remisiones y facturación: cada área digita los mismos datos.',
+        'Remisiones y actas de entrega y devolución en papel, que llegan a facturación días después del corte.',
+        'Sin trazabilidad por pieza entre bodegas y obras: los faltantes y daños se detectan tarde y sin soporte para cobrarlos.',
+        'Factura electrónica emitida a mano en el portal del proveedor tecnológico, por fuera del control de equipos.',
+        'Crecimiento de las obras activas sin un sistema que escale sin más personal administrativo.',
+      ],
+      afectados: rows('af', [
+        { interesado: ROLE.pat, afectacion: 'Decide inversiones en inventario, tarifas y crédito sin indicadores diarios; la operación no crece sin más personal administrativo.', expectativa: 'Tablero diario de utilización del inventario, ingresos y cartera.', grado: 'Alto' },
+        { interesado: 'Gerente administrativo y financiero (facturación, cartera y contabilidad)', afectacion: 'El cierre de facturación tarda hasta ' + nw(diasA) + ' días hábiles y la cartera se conoce con una semana de retraso.', expectativa: 'Cierre de facturación en un día y cartera vencida de ' + nm(carD) + ' % o menos.', grado: 'Alto' },
+        { interesado: 'Coordinador logístico', afectacion: 'Llama a la bodega para saber qué hay disponible y digita dos veces las remisiones.', expectativa: 'Despachar sin llamar a la bodega.', grado: 'Alto' },
+        { interesado: 'Jefe de almacén y personal de bodega', afectacion: 'Concilian a mano el inventario al final del mes y registran en papel las entregas y las devoluciones.', expectativa: 'Menos trabajo de conciliación y equipos fáciles de usar en el patio y sin conexión.', grado: 'Alto' },
+        { interesado: 'Jefe de facturación y cartera', afectacion: 'Liquida el alquiler en hojas de cálculo y emite cada factura electrónica a mano.', expectativa: 'Prefactura desde las actas y factura electrónica sin rechazos.', grado: 'Alto' },
+        { interesado: 'Jefe de mantenimiento', afectacion: 'Recibe los equipos sin historial: no puede programar el preventivo ni soportar el cobro de daños.', expectativa: 'Programar el preventivo y cobrar los daños con soporte.', grado: 'Medio' },
+        { interesado: 'Gerente comercial', afectacion: 'Cotiza y compromete entregas sin conocer la disponibilidad real.', expectativa: 'Comprometer entregas con datos reales.', grado: 'Medio' },
+        { interesado: 'Clientes de alquiler (obras)', afectacion: 'Reciben la factura días después del corte y cobros de faltantes y daños sin soporte.', expectativa: 'Factura oportuna y cobros con el soporte del acta de devolución.', grado: 'Medio' },
+      ]),
+      opciones: rows('op', [
+        { opcion: opcName('A'), descripcion: 'Seguir con las hojas de cálculo, el software contable y la factura electrónica en el portal del proveedor tecnológico.', atiende: 'No', ventajas: 'Sin inversión ni esfuerzo de las áreas.', desventajas: 'Las brechas siguen y crecen con las obras activas: no se puede crecer en alquiler sin más personal administrativo.', pasaCaso: true },
+        { opcion: opcName('B'), descripcion: 'Conectar la facturación electrónica al software contable y llevar el inventario en una aplicación de bodega independiente.', atiende: 'Parcialmente', ventajas: 'Inversión y plazo menores.', desventajas: 'No resuelve la disponibilidad por obra, la utilización, la cartera ni el mantenimiento, y deja dos fuentes de datos por conciliar.', pasaCaso: true },
+        { opcion: opcName('C'), descripcion: 'ERP de mercado medio en la nube con un socio implementador, entregado por releases: primero inventario y alquiler.', atiende: 'Sí', ventajas: 'Cubre las brechas medibles con una sola fuente de datos, entrega valor desde el primer release y no requiere servidores propios.', desventajas: 'Exige depurar los datos maestros, pactar la dedicación de los usuarios clave e integrar el proveedor tecnológico de facturación electrónica.', pasaCaso: true },
+        { opcion: opcName('D'), descripcion: 'ERP con licencia perpetua, servidores en la sede y desarrollos a la medida, con una sola salida a producción.', atiende: 'Sí', ventajas: 'Control total de la solución y de los desarrollos.', desventajas: 'Inversión y soporte altos, beneficios más tardíos y todo el alcance en una sola fecha; TI tendría que operar los servidores.', pasaCaso: true },
+      ]),
+      recomendacion: 'Elaborar el caso de negocio con las cuatro opciones y presentarlo a la Gerencia General con el acta de constitución. Antes de cerrarlo hay que estimar el presupuesto de orden de magnitud con referencias de mercado de la suscripción en la nube y de la implementación, estimar los beneficios con las líneas base de esta evaluación (la diferencia de inventario se medirá en el descubrimiento y la utilización, con el inventario de julio) y pactar con las áreas, en un acuerdo interno, la dedicación del dueño del producto y de los usuarios clave.',
+      criteriosEvaluacion: [
+        'Cobertura de las brechas: cierre de facturación, factura electrónica, inventario, utilización y cartera.',
+        'Beneficio neto a tres años de operación, después de la suscripción y de la inversión.',
+        'Valor temprano: un primer release útil antes de terminar el proyecto.',
+        'Riesgos de los datos maestros, de la disponibilidad de los usuarios clave y de la integración con la DIAN.',
+        'Capacidad de TI para operar la solución sin servidores propios.',
+      ],
+      supuestosRestricciones: [
+        'La factura electrónica cumple el anexo técnico vigente de la DIAN y se emite por medio de un proveedor tecnológico autorizado.',
+        'Ninguna salida a producción en los cinco primeros días hábiles de cada mes (cierre mensual) ni durante el cierre anual.',
+        'Los saldos migrados de inventario y cartera los concilian y aprueban contabilidad y la revisoría fiscal.',
+        'El proyecto se financia con recursos propios de la empresa, sin crédito.',
+        'Los usuarios clave mantienen su operación diaria: su dedicación al proyecto se pacta con la Gerencia General.',
+      ],
+      decision: 'Elaborar el caso de negocio',
+      fechaDecision: SUP.decision,
+    };
+
+    /* ================================================================ 4.1 · ACUERDO INTERNO (memorando de entendimiento) */
+    const valorInicial = acta0.presupuesto;
+    const budget = F.budget;
+    const po = catItem('po'), uc = catItem('uc'), sm = catItem('sm'), dir = catItem('dir');
+    const poHours = (ded(po) / 100) * (po.hoursPerDay || 8);
+    /* áreas usuarias: las del usuario clave del catálogo de recursos (contabilidad participa con el contador, rec-con) */
+    const areas = (/usuario clave de (.+?) \(/.exec(plain(uc.notes || '')) || [])[1] || AREAS_UC;
+    const rf0 = fieldsAt('requisitos-financiamiento', '0');
+    const tramos = rf0 && Array.isArray(rf0.periodos) ? rf0.periodos.filter((p) => p.financiamiento > 0) : [];
+    const umbral = (n) => ((fieldsAt('plan-gestion-cambios') || {}).umbrales || []).find((u) => u.nivel === 'Nivel ' + n) || null;
+    const releaseHitos = (f) => (f.hitos || []).filter((h) => /^Release \d en producción$/.test(h.hito));
+    const plazoTxt = n0(D.diff(START, END) + 1) + ' días calendario (' + n0(cal.countWork(START, END)) + ' días hábiles con el calendario del proyecto), del ' + dl(START) + ' al ' + dl(END) + ': hasta el cierre, después de la estabilización del último release.';
+    const acuFields = (stage) => {
+      const at = stage >= 1 ? LB0 : START;
+      const actaS = stage >= 1 ? acta : acta0;
+      const u1 = umbral(1), u2 = umbral(2), u3 = umbral(3);
+      const hitosTxt = releaseHitos(actaS).map((h) => lc(h.hito) + ' el ' + dl(h.fecha) + ' (' + lc(noDot(h.criterio)) + ')');
+      return {
+        tipoAcuerdo: 'Acuerdo interno o memorando de entendimiento',
+        numeroAcuerdo: SUP.memorando + CODE,
+        objeto: 'Acuerdo interno para implementar el ERP de mercado medio en la nube por releases (proyecto interno ' + CODE + '): la Gerencia General asigna el presupuesto y gobierna el proyecto; las áreas usuarias —' + areas + '— se comprometen con la dedicación del dueño del producto y de sus usuarios clave, la depuración de sus datos y la aceptación de cada release; contabilidad, por medio del contador, concilia los saldos migrados, y la oficina de proyectos (PMO) y TI lo ejecutan con el fabricante del ERP y el socio implementador' + (stage >= 1 ? ' contratados.' : ' que se contraten.'),
+        contratante: 'Gerencia General (patrocinadora) de Ingeniería y Alquiler S.A.S.',
+        contratista: 'Oficina de proyectos (PMO) y TI, con las áreas usuarias (' + areas + ') y contabilidad',
+        modalidadPrecio: 'Presupuesto interno asignado',
+        fechaFirma: START,
+        fechaInicio: START,
+        fechaTerminacion: END,
+        plazo: plazoTxt,
+        valorInicial,
+        baseValor: 'No aplica (acuerdo interno)',
+        anticipoPct: 0,
+        anticipoValor: 0,
+        retencionPct: 0,
+        formaPago: stage >= 1
+          ? 'No hay pagos entre las partes. La Gerencia General libera el presupuesto en ' + nw(tramos.length) + ' tramos que suman ' + ms(sum(tramos, (p) => p.financiamiento)) + ', la línea base de costos (requisitos de financiamiento, ' + ref('requisitos-financiamiento', at) + '): el primero con el acta de constitución, el segundo al firmar los contratos y, desde el tercero, cada uno con la revisión del caso de negocio al cierre de un release. La reserva de gestión (' + ms(lbMan) + ') queda en la tesorería. Los pagos a los proveedores siguen las condiciones de sus contratos (registro de contratos y acuerdos, ' + ref('registro-adquisiciones', at) + '). Las horas internas de los usuarios clave y del personal de bodega se imputan al proyecto con el costo del catálogo de recursos y se pagan con la nómina de cada área; el tiempo del dueño del producto no se imputa.'
+          : 'No hay pagos entre las partes. La Gerencia General libera el presupuesto por tramos: el primero con el acta de constitución y los siguientes según el valor que confirme la revisión del caso de negocio al cierre de cada release. Los pagos a los proveedores seguirán las condiciones de sus contratos. Las horas internas de los usuarios clave se imputan al proyecto con el costo del catálogo de recursos y se pagan con la nómina de cada área; el tiempo del dueño del producto no se imputa.',
+        polizas: [],
+        obligaciones: rows('ob', [
+          { parte: PARTE.pat, obligacion: stage >= 1 ? 'Asignar el presupuesto aprobado de ' + ms(budget) + ' y liberarlo por tramos según la revisión del caso de negocio al cierre de cada release.' : 'Asignar el presupuesto preliminar de ' + ms(valorInicial) + ' y liberarlo por tramos según la revisión del caso de negocio al cierre de cada release.', clausula: 'Presupuesto', responsable: ROLE.pat },
+          { parte: PARTE.pat, obligacion: 'Presidir el comité quincenal de seguimiento y la revisión de cierre de cada release, y aprobar el acta de cierre del proyecto.', clausula: 'Gobierno', responsable: ROLE.pat },
+          { parte: PARTE.pat, obligacion: stage >= 1 && u3 ? 'Decidir los cambios de nivel 3 (' + lc(noDot(u3.criterio)) + ') y autorizar el uso de la reserva de gestión.' : 'Decidir los cambios al presupuesto, a la fecha de fin y a la dedicación pactada en este acuerdo.', clausula: 'Gobierno', responsable: ROLE.pat },
+          { parte: PARTE.eje, obligacion: 'Dueño del producto: dedicar al menos ' + nw(poHours) + ' horas diarias (' + ded(po) + ' % de su jornada) a refinar y ordenar el backlog y a aceptar o rechazar los incrementos en la revisión de cada iteración. Su tiempo no se imputa al presupuesto del proyecto.', clausula: 'Dedicación', responsable: ROLE.po },
+          { parte: PARTE.eje, obligacion: 'Asignar un usuario clave por área usuaria (' + areas + ': ' + nw(uc.availability) + ' en total), con suplente, que asista al refinamiento, a la revisión de cada iteración de su release y a la prueba de aceptación, con su agenda fuera del cierre mensual. Las horas de los talleres, la depuración de datos, la formación y la capacitación se imputan al proyecto a ' + money(uc.unitCost) + ' por día.', clausula: 'Dedicación', responsable: 'Jefes de las áreas usuarias' },
+          { parte: PARTE.eje, obligacion: 'Depurar los datos maestros de cada área y conciliar los saldos migrados de inventario y cartera, con la aprobación de contabilidad y de la revisoría fiscal antes de cada salida a producción.', clausula: 'Datos', responsable: ROLE.con + ' y jefes de las áreas usuarias' },
+          { parte: PARTE.eje, obligacion: 'Dirigir el proyecto (jefe de la PMO al ' + ded(dir) + ' % y Scrum Master al ' + ded(sm) + ' %): plan, líneas base, informe quincenal, control de cambios y contratos con el fabricante del ERP y el socio implementador dentro del presupuesto.', clausula: 'Dirección', responsable: R.dir },
+          { parte: PARTE.eje, obligacion: 'Proveer los ambientes, los equipos de bodega, la seguridad y los respaldos, y recibir el soporte al terminar la estabilización; desde entonces el soporte va con el presupuesto de operación de TI.', clausula: 'Infraestructura y soporte', responsable: ROLE.ti },
+          { parte: PARTE.ambas, obligacion: 'Usar el ERP como única fuente de cada proceso y retirar las hojas de cálculo de control al salir cada release.', clausula: 'Adopción', responsable: ROLE.adop },
+        ]),
+        supervision: 'Gerencia General, en el comité quincenal de seguimiento y en la revisión de cierre de cada release; el dueño del producto acepta o rechaza los incrementos.',
+        responsableContratista: 'Director de proyecto (jefe de la PMO). Firman este acuerdo y cada otrosí la Gerencia General, el jefe de la PMO, el jefe de TI, el jefe de cada área usuaria (el de facturación y cartera, por esas dos áreas) y el gerente administrativo y financiero, como dueño del producto y por contabilidad.',
+        condicionesAceptacion: actaS.requisitosAprobacion + ' Salidas a producción del acta de constitución (' + ref('acta-constitucion', at) + '): ' + andList(hitosTxt) + '. Ninguna salida cae en los cinco primeros días hábiles del mes.',
+        multas: 'No aplican multas ni cláusula penal entre áreas de la misma empresa. Si un área no cumple la dedicación pactada, el director de proyecto lo presenta en el comité quincenal y la Gerencia General decide; si el incumplimiento cambia la fecha de un release, se tramita ' + (stage >= 1 ? 'una solicitud de cambio según el plan de gestión de cambios (' + ref('plan-gestion-cambios', at) + ').' : 'como un cambio que decide la Gerencia General.'),
+        suspensionTerminacion: 'La Gerencia General puede no liberar el tramo siguiente, diferir un release o cancelar el proyecto si la revisión del caso de negocio al cierre de un release no confirma su valor; en ese caso se cierra lo entregado y se documentan las lecciones (criterios de salida del acta de constitución).',
+        otrasClausulas: 'Restricciones que las áreas exigen al proyecto: ' + (actaS.requisitosAltoNivel || []).filter((x) => /DIAN|cierre mensual/.test(x)).map((x) => lc(noDot(x))).join('; ') + '. Garantías: entre áreas de la misma empresa no se exigen pólizas; las de los proveedores van en sus contratos. Los datos de clientes, tarifas y cartera que se usen en las pruebas y en la migración solo se usan para el proyecto.',
+        documentosContractuales: stage >= 1
+          ? [
+            'Este acuerdo interno (' + SUP.memorando + CODE + ') y su otrosí No. 1',
+            'Acta de constitución del proyecto (' + ref('acta-constitucion', at) + ')',
+            'Plan para la dirección del proyecto (' + ref('plan-direccion', at) + ') y plan de releases (' + ref('plan-release', at) + '), con la línea base LB0',
+            'Plan de gestión de cambios (' + ref('plan-gestion-cambios', at) + ')',
+            'Requisitos de financiamiento del proyecto (' + ref('requisitos-financiamiento', at) + ')',
+            'Caso de negocio (' + ref('caso-negocio', at) + ') y plan de gestión de los beneficios (' + ref('plan-gestion-beneficios', at) + ')',
+          ]
+          : [
+            'Este acuerdo interno (' + SUP.memorando + CODE + ')',
+            'Acta de constitución del proyecto (' + ref('acta-constitucion', at) + ')',
+            'Caso de negocio (' + ref('caso-negocio', at) + ') y plan de gestión de los beneficios (' + ref('plan-gestion-beneficios', at) + ')',
+          ],
+        modificaciones: stage >= 1
+          ? rows('mo', [{
+            numero: 'Otrosí No. 1', tipo: 'Otrosí', fecha: LB0,
+            objeto: 'Presupuesto aprobado de ' + ms(budget) + ' con la LB0 (BAC de ' + ms(lbBac) + ', reserva para contingencias de ' + ms(lbCont) + ' y reserva de gestión de ' + ms(lbMan) + ') en lugar del preliminar de ' + ms(valorInicial) + '; tramos del financiamiento y criterios de aceptación de los tres releases. El plazo no cambia.',
+            solicitudCambio: '', efectoValor: budget - valorInicial, efectoPlazo: D.diff(acta0.fechaFin, acta.fechaFin), estado: 'Firmada',
+          }])
+          : [],
+        controlModificaciones: stage >= 1 && u1 && u2 && u3
+          ? 'Las modificaciones las propone el director de proyecto, las aprueba la Gerencia General y las firman como otrosí quienes firman este acuerdo. Requieren otrosí los cambios de nivel 3 del plan de gestión de cambios (' + lc(noDot(u3.criterio)) + ') y los de la dedicación pactada. Los de nivel 1 (' + lc(noDot(u1.criterio)) + '; decide el ' + lc(u1.aprobador) + ') y los de nivel 2 (' + lc(noDot(u2.criterio)) + '; decide el ' + lc(u2.aprobador) + ') se registran en el registro de cambios y no modifican este acuerdo.'
+          : 'Las modificaciones del presupuesto, de la fecha de fin o de la dedicación pactada las propone el director de proyecto, las aprueba la Gerencia General y las firman como otrosí quienes firman este acuerdo. Los ajustes del alcance dentro de cada release los decide el dueño del producto y no modifican este acuerdo; el plan de gestión de cambios fijará los niveles de decisión con la línea base.',
+        /* el otrosí No. 1 cambia el presupuesto y los criterios de aceptación de los tres releases: lo firman todos */
+        firmas: rows('fi', [
+          ...FIRMANTES.map(([rol, nombre]) => ({ rol, nombre, fecha: START })),
+          ...(stage >= 1 ? FIRMANTES.map(([rol, nombre]) => ({ rol: rol + ' (otrosí No. 1)', nombre, fecha: LB0 })) : []),
+        ]),
+      };
+    };
+
+    /* ================================================================ 4.7 · INFORME DE BENEFICIOS (seguimiento programado) */
+    /* primer mes completo después del cierre; se mide al terminar su cierre contable (cinco primeros días hábiles del mes
+       siguiente); la próxima medición, el mes siguiente */
+    const measureOf = (k) => {
+      const from = D.addMonths(D.startOfMonth(END), k);
+      const to = D.add(D.addMonths(from, 1), -1);
+      const at = cal.addWork(cal.dateOf(cal.indexOf(D.addMonths(from, 1))), 5);
+      return { from, to, at };
+    };
+    const M1 = measureOf(1), M2 = measureOf(2);
+    const VIS = vision.metricasExito || [];
+    const dayCost = catItem('uc').unitCost;
+    const comp = {
+      fuga: r100k(BEN.ingresos * BEN.fuga),
+      util: r100k(BEN.m2 * (BEN.utilMeta - BEN.utilBase) * BEN.tarifa * 12 * BEN.atribucion * BEN.margen),
+      cartera: r100k(BEN.cartera * (BEN.carteraBase - BEN.carteraMeta) * BEN.tasa),
+      tiempo: r100k(BEN.diasPersona * dayCost),
+    };
+    const annual = comp.fuga + comp.util + comp.cartera + comp.tiempo;
+    const ramp0 = BEN.rampa[0];
+    const fullYear = BEN.years[BEN.rampa.findIndex((x) => x >= 1)] || BEN.years[BEN.years.length - 1];
+    const fullYearEnd = fullYear + '-12-31';
+    const migNote = /(\d+,\d+)\s*%/.exec(task('t17').notes || '');
+    const lastGolive = lbTask('t33').start || END;
+    const neto = caso.valorContrato - caso.costoEstimado;
+    const VIS_NOTE = [
+      'Se mide en cada cierre mensual con el reporte de facturación del ERP desde la salida del release 2.',
+      'Sin línea base numérica: hoy la factura se emite a mano en el portal del proveedor tecnológico. Meta: menos de ' + nm(numIn(VIS[1] && VIS[1].meta)) + ' % de las emitidas. La meta es un tope sin línea base, así que no va en la columna «Meta» y el avance hacia la meta no se calcula: se compara el resultado con el tope. Se mide con el reporte de rechazos del proveedor tecnológico desde la salida del release 2.',
+      'Se mide con el conteo cíclico mensual de bodega desde ' + monthName(D.addMonths(D.startOfMonth(golive1), 1)) + '.' + (migNote ? ' Primera medición al cierre del release 1: ' + migNote[1] + ' % de diferencia en la migración del inventario de la bodega principal (no es todavía el conteo cíclico).' : ''),
+      'Se mide cada mes con el inventario por bodega, obra y estado del ERP (m² alquilados y disponibles) hasta que lo reemplace el tablero gerencial del release 3.',
+      'Se mide con la cartera por edades del ERP desde la salida del release 2; su fecha meta es la última de la medición mensual de la PMO.',
+    ];
+    const benRow = (b) => {
+      const owner = 'Responsable: ' + b.responsable + '. ';
+      const vi = VIS.findIndex((m) => m.metrica === b.metrica);
+      if (vi >= 0) {
+        const m = VIS[vi];
+        /* sin línea base numérica la meta va en el comentario y no en la tabla: la plantilla tomaría 0 como línea base y,
+           para una meta que es un tope («menos de 1 %»), el avance calculado sería falso (2 % de rechazos daría 200 %) */
+        const lb = numIn(m.lineaBase);
+        return { beneficio: b.beneficio, indicador: b.metrica, unidad: UNIDAD_VISION[vi] || '', lineaBase: lb, meta: lb === null ? null : numIn(m.meta), fechaMeta: m.fecha, resultado: null, estado: 'Pendiente', comentario: owner + (VIS_NOTE[vi] || '') };
+      }
+      if (/[Ff]acturación recuperada/.test(b.beneficio)) {
+        return { beneficio: b.beneficio, indicador: b.metrica, unidad: 'COP al año', lineaBase: 0, meta: comp.fuga, fechaMeta: fullYearEnd, resultado: null, estado: 'Pendiente', comentario: owner + 'Meta a plena adopción (' + fullYear + '). Se mide cada año frente a la base de ' + BEN.baseYear + ' con la facturación por concepto del ERP, en la revisión anual del caso de negocio; en ' + BEN.years[0] + ' se espera el ' + pc(ramp0) + ' (' + ms(comp.fuga * ramp0) + ').' };
+      }
+      if (/[Tt]iempo administrativo/.test(b.beneficio)) {
+        return { beneficio: b.beneficio, indicador: b.metrica, unidad: 'días-persona al año', lineaBase: 0, meta: BEN.diasPersona, fechaMeta: fullYearEnd, resultado: null, estado: 'Pendiente', comentario: owner + 'Meta a plena adopción (' + fullYear + '): ' + n0(BEN.diasPersona) + ' días-persona a ' + money(dayCost) + ' = ' + ms(comp.tiempo) + ' al año. Se mide cada año con el registro de tiempos de las áreas; en ' + BEN.years[0] + ' se espera el ' + pc(ramp0) + ' (' + n0(BEN.diasPersona * ramp0) + ' días-persona).' };
+      }
+      if (/[Mm]antenimiento preventivo/.test(b.beneficio)) {
+        return { beneficio: b.beneficio, indicador: b.metrica, unidad: '% de la maquinaria serializada', lineaBase: 0, meta: numIn(b.meta), fechaMeta: dateIn(b.meta), resultado: null, estado: 'Pendiente', comentario: owner + 'La línea base es 0 % (' + lc(b.lineaBase) + '). Se mide con las órdenes de mantenimiento del ERP desde la salida del release 3.' };
+      }
+      /* intangibles: se verifican; la meta numérica solo si el plan la expresa como «toda», y la unidad es el universo de
+         esa meta («Toda devolución con diferencia de peso mayor a 3 % …» → «% de las devoluciones con diferencia de peso
+         mayor a 3 %») */
+      const all = /^Toda (\S+)( con .*?%)?/.exec(plain(b.meta || ''));
+      const plural = (w) => (/ón$/.test(w) ? w.replace(/ón$/, 'ones') : w + 's');
+      return {
+        beneficio: b.beneficio, indicador: b.metrica, unidad: all ? '% de las ' + plural(all[1]) + (all[2] || '') : '', lineaBase: null, meta: all ? 100 : null,
+        fechaMeta: /al salir cada release/.test(b.meta) ? lastGolive : END, resultado: null, estado: 'Pendiente',
+        comentario: owner + 'Intangible (línea base: ' + lc(b.lineaBase) + '). Se verifica la meta del plan: «' + noDot(b.meta) + '».',
+      };
+    };
+    const informe = {
+      proyecto: NAME,
+      numeroInforme: 'Seguimiento n.º 1 — ' + monthName(M1.from) + ' (programado)',
+      fechaMedicion: M1.at,
+      periodoDesde: M1.from,
+      periodoHasta: M1.to,
+      duenoBeneficios: pben.responsableBeneficios,
+      fuentes: 'Reportes del ERP (facturación, inventario por bodega, obra y estado, cartera por edades y órdenes de mantenimiento), tablero gerencial, conteos cíclicos de bodega y reporte de rechazos del proveedor tecnológico, según el mecanismo de medición del plan de gestión de los beneficios (' + ref('plan-gestion-beneficios', R1_REVIEW) + '). Se mide con los datos de ' + monthName(M1.from) + ', primer mes completo después del cierre del proyecto (' + dl(END) + '), al terminar el cierre contable de ese mes (cinco primeros días hábiles del mes siguiente).',
+      beneficios: rows('be', [
+        ...(pben.beneficios || []).map(benRow),
+        { beneficio: 'Beneficio bruto anual del caso de negocio', indicador: 'Facturación recuperada + valor de la mayor utilización del andamio + menor costo financiero de la cartera + tiempo administrativo liberado', unidad: 'COP al año', lineaBase: 0, meta: annual, fechaMeta: fullYearEnd, resultado: null, estado: 'Pendiente',
+          comentario: 'Responsable: ' + ROLE.pof + ', ante la Gerencia General. Caso de negocio (' + ref('caso-negocio', R1_REVIEW) + '): facturación completa ' + ms(comp.fuga) + ', utilización del andamio ' + ms(comp.util) + ', costo financiero de la cartera vencida ' + ms(comp.cartera) + ' y tiempo administrativo liberado ' + ms(comp.tiempo) + '; beneficio neto a tres años de ' + ms(neto) + ' con el presupuesto aprobado. En ' + BEN.years[0] + ' se espera el ' + pc(ramp0) + ' (' + ms(annual * ramp0) + ').' },
+      ]),
+      noPrevistos: [],
+      desviaciones: '',
+      acciones: rows('ac', [
+        { accion: 'Medir cada mes los indicadores de facturación, inventario, utilización, cartera y mantenimiento hasta la meta de cartera y presentar el resultado a la Gerencia General (transición del plan de gestión de los beneficios).', responsable: R.dir + ' y ' + lc(ROLE.pof), fechaObjetivo: (VIS[4] && VIS[4].fecha) || M2.to, estado: 'Pendiente' },
+        { accion: 'Pasar los indicadores al tablero gerencial a cargo de cada dueño y cerrar el seguimiento de la PMO con el informe de beneficios.', responsable: R.dir, fechaObjetivo: M2.at, estado: 'Pendiente' },
+        { accion: 'Presentar en la revisión anual del caso de negocio la facturación recuperada, el tiempo liberado y el valor de la utilización y de la cartera frente a lo previsto.', responsable: ROLE.pof, fechaObjetivo: BEN.years[0] + '-12-31', estado: 'Pendiente' },
+        { accion: 'Verificar en cada medición que ninguna área volvió a las hojas de cálculo de control y que todas consultan la disponibilidad y el estado de los equipos en el ERP (supuesto del plan de gestión de los beneficios y obligación de adopción del acuerdo interno).', responsable: ROLE.adop, fechaObjetivo: M1.at, estado: 'Pendiente' },
+      ]),
+      conclusionCaso: 'Aún no se puede concluir',
+      conclusion: 'Seguimiento programado: los resultados y la conclusión se escriben con la medición del ' + dl(M1.at) + '. El caso de negocio se cumple si se alcanzan las metas de las métricas de éxito y el beneficio bruto anual previsto (' + ms(annual) + ' a plena adopción, desde ' + fullYear + ').',
+      proximaMedicion: M2.at,
+      alcanceProximaMedicion: 'Seguimiento n.º 2 con los datos de ' + monthName(M2.from) + ': metas de cartera vencida y de mantenimiento preventivo (' + dl((VIS[4] && VIS[4].fecha) || M2.to) + ') y última medición mensual de la PMO; después, los indicadores pasan al tablero gerencial a cargo de cada dueño. La facturación recuperada y el tiempo liberado se miden en la revisión anual del caso de negocio.',
+    };
+
+    /* ================================================================ entradas por plantilla */
+    return {
+      'evaluacion-necesidades': {
+        status: 'aprobado', rev: '0', date: SUP.decision, created: SUP.evaluacion,
+        titleBlock: { elaboro: ROLE.pmo, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: evaluacion,
+      },
+      'acuerdo-cliente': {
+        status: 'aprobado', rev: '1', date: LB0, created: START, titleBlock: { elaboro: R.dir, reviso: ROLE.pof, aprobo: ROLE.pat }, fields: acuFields(1),
+        revs: [
+          { rev: '0', status: 'aprobado', date: START, note: 'Acuerdo interno firmado con el acta de constitución: presupuesto preliminar de ' + ms(valorInicial) + ', dedicación de las áreas y gobierno del proyecto.', fields: acuFields(0) },
+          { rev: '1', status: 'aprobado', date: LB0, note: 'Otrosí No. 1 con la LB0: presupuesto aprobado de ' + ms(budget) + ', tramos del financiamiento y criterios de aceptación de los tres releases.' },
+        ],
+      },
+      'informe-beneficios': { instances: [
+        { key: 'seguimiento-1', title: 'Seguimiento de beneficios n.º 1 — programado para el ' + dl(M1.at), status: 'borrador', rev: 'A', date: R1_REVIEW, created: R1_REVIEW,
+          titleBlock: { elaboro: ROLE.pof, reviso: R.dir, aprobo: ROLE.pat }, fields: informe },
+      ] },
+    };
+  }
+
+  PM.exampleDocs = PM.exampleDocs || {};
+  (PM.exampleDocs.erpParts = PM.exampleDocs.erpParts || []).push(part);
+  /* supuestos del módulo, para las pruebas y la documentación */
+  PM.exampleDocs.erpNegocio = { SUP: cp(SUP), UNIDAD_VISION: cp(UNIDAD_VISION) };
+})();
+
+</script>
+<script>
+/* ==========================================================================
+   98-example-medellin-docs-negocio.js — documentos de negocio del ejemplo
+   «Edificio Atalaya del Occidente» (Medellín) para las plantillas de
+   15-templates-negocio.js. Se agregan a PM.exampleDocs.medellin con
+   Object.assign, como 92 y 93; el constructor 91-example-medellin.js convierte
+   cada entrada en un documento (estado, revisión, cajetín y revisiones).
+
+   - Evaluación de necesidades (ANTES del proyecto): la elabora el
+     estructurador financiero y la junta directiva decide, en su sesión
+     ordinaria del segundo martes de diciembre de 2024 (10 de diciembre),
+     elaborar el caso de negocio que aprueba el 10 de enero de 2025.
+   - Acuerdo con el cliente: el promotor desarrolla el proyecto para sí mismo
+     (el cliente del proyecto es el propio promotor), así que el instrumento que
+     lo origina no es un contrato con un tercero sino la decisión de la junta
+     directiva que aprueba el caso de negocio y encarga el proyecto a la gerencia
+     del proyecto (acta JD-2025-01E: sesión extraordinaria del viernes 10 de
+     enero de 2025; la ordinaria de enero era el martes 14): un acuerdo interno
+     con el presupuesto del acta de constitución (COP 143.339 millones), sin
+     anticipo, retención ni pólizas. La fiducia, el encargo de preventas, el
+     crédito y la construcción son contratos derivados (registro de
+     adquisiciones, 93).
+     Revisiones: rev. 0 con la decisión de la junta (10 de enero de 2025) y
+     rev. 1 con la orden de cambio No. 1 del CC-002 (aprobado el 10 de marzo de
+     2026; LB1 del 13 de marzo de 2026), que no cambia el presupuesto ni el fin
+     del proyecto. La decisión de inversión (22 de abril de 2025, acta de junta
+     de abril de 2025) cumple una condición que el acuerdo ya pactaba: no es una
+     modificación, no va en la tabla de modificaciones ni origina una revisión;
+     la factibilidad aprobada entra a los documentos del acuerdo en la rev. 1.
+     Antes de esa decisión el gerente ejecuta, además de los COP 420 millones
+     de la fase de estructuración, la gerencia, la gestión administrativa y el
+     inicio de los diseños dentro del presupuesto asignado (costos reales del
+     ejemplo y registro de adquisiciones, CT-004 desde el 3 de marzo de 2025).
+   - Informe de realización de los beneficios: no se diligencia; el proyecto
+     no ha cerrado al corte (30 de septiembre de 2026).
+
+   Cifras: las del caso de negocio, el plan de gestión de los beneficios y el
+   acta de constitución (92) y del modelo del ejemplo; el plazo en días sale
+   de PM.date. Los documentos aprobados no citan hechos posteriores a su
+   fecha. Empresas y cifras ficticias; personas por su rol.
+   ========================================================================== */
+(function () {
+  'use strict';
+  const PM = window.PM;
+  if (!PM) return;
+
+  const M = 1e6;
+  const cp = (x) => JSON.parse(JSON.stringify(x));
+  /* filas de tabla con id fijo */
+  const rows = (prefix, list) => list.map((r, i) => ({ id: prefix + '-' + String(i + 1).padStart(2, '0'), ...r }));
+
+  const R = {
+    jun: 'Junta directiva del promotor', ger: 'Gerente de proyecto', est: 'Estructurador financiero', com: 'Gerente comercial',
+    abo: 'Abogado del proyecto', ctd: 'Contador del proyecto',
+  };
+  const P = {
+    name: 'EJEMPLO · Edificio Atalaya del Occidente — Medellín',
+    client: 'Promotora Modelo Occidente S.A.S. (ficticia)',
+    sponsor: R.jun,
+    start: '2025-01-13',
+    end: '2029-03-28',
+    budget: 143339 * M,
+  };
+  /* Fechas del ejemplo (modelo, §10 y §21) */
+  const EVALUACION = '2024-12-06';   /* presentación de la evaluación a la junta */
+  const DECISION_EVN = '2024-12-10'; /* sesión ordinaria de la junta (segundo martes de diciembre de 2024) */
+  const CASO = '2025-01-10';         /* caso de negocio y plan de gestión de los beneficios aprobados */
+  /* La decisión de inversión y la LB0 (22 de abril de 2025) no originan una revisión del acuerdo (ver ORDEN_CAMBIO_1). */
+  const CC002 = '2026-03-10';        /* CC-002 aprobado por la junta */
+  const LB1 = '2026-03-13';          /* LB1 */
+
+  /* Plazo del acuerdo en días calendario, del inicio al fin del proyecto (ambos incluidos), con el calendario de la aplicación. */
+  const PLAZO_DIAS = PM.date && typeof PM.date.diff === 'function' ? PM.date.diff(P.start, P.end) + 1 : 1536;
+  const fmtInt = (n) => (PM.fmt && typeof PM.fmt.num === 'function' ? PM.fmt.num(n, 0) : String(n));
+
+  /* ================================================================== ANTES · 4.1 Evaluación de necesidades */
+  const evaluacionNecesidades = {
+    status: 'aprobado', rev: '0', date: DECISION_EVN,
+    titleBlock: { elaboro: R.est, reviso: R.com, aprobo: R.jun },
+    fields: {
+      nombre: P.name,
+      origen: 'Implementar o cambiar una estrategia de negocio o tecnológica',
+      solicitante: 'Gerente general del promotor, en la revisión del portafolio para el plan estratégico 2025-2028',
+      patrocinador: P.sponsor,
+      responsableAnalisis: 'Estructurador financiero, con el gerente comercial (mercado y producto)',
+      fechaEvaluacion: EVALUACION,
+      problema: 'La Promotora Modelo Occidente S.A.S. (ficticia) no tiene proyectos en preventas para 2025 y 2026 y su banco de tierras en el Valle de Aburrá está agotado. Sin un proyecto nuevo, el equipo de gerencia, estructuración financiera y ventas queda subutilizado y el promotor incumple su meta de mantener al menos un proyecto en preventas y uno en construcción cada año. En suelo urbano consolidado del occidente de Medellín un lote para el mismo número de viviendas cuesta varias veces más por metro cuadrado y obliga a productos de mayor precio, fuera del segmento de estrato 3, el de mayor demanda del occidente de la ciudad. Al promotor le ofrecen un lote de 50.000 m² en el borde urbano occidental (zona 4), en suelo de expansión con tratamiento de Desarrollo (DE) y plan parcial adoptado, por COP 15.000 millones (COP 300.000/m² bruto).',
+      objetivosOrganizacion: 'Plan estratégico 2025-2028 del promotor: (1) mantener al menos un proyecto en preventas y uno en construcción cada año; (2) margen antes de impuestos de al menos 12 % de las ventas en No VIS y 8 % en VIS; (3) al menos 25 % de las unidades en VIS, para atender la demanda con subsidio de las cajas de compensación; (4) retorno del capital aportado de al menos 14 % efectivo anual antes de impuestos.',
+      urgencia: 'Para tener un proyecto en preventas en el segundo semestre de 2025 hay que asegurar el lote en el primer trimestre (promesa de compraventa con arras) y radicar la licencia durante 2025. La norma de referencia del lote es la del Acuerdo 48 de 2014 y la revisión de mediano plazo del POT puede cambiarla. Si el promotor no decide, el lote puede venderse a otro desarrollador y el vacío de preventas se extiende más allá de 2026.',
+      brechas: rows('evn-br', [
+        { aspecto: 'Proyectos en preventas', actual: 'Ningún proyecto en preventas para 2025 y 2026.', deseada: 'Al menos un proyecto en preventas y uno en construcción cada año (plan estratégico 2025-2028).', indicador: 'Proyectos en preventas por año', valorActual: 0, valorDeseado: 1 },
+        { aspecto: 'Banco de tierras', actual: 'Sin lote para un proyecto nuevo en el Valle de Aburrá; el suelo consolidado del occidente cuesta varias veces más por m² y lleva a productos de mayor precio.', deseada: 'Un lote con norma para vivienda VIS y No VIS de estrato 3, a un precio que permita el margen del plan estratégico.', indicador: '', valorActual: null, valorDeseado: null },
+        { aspecto: 'Capacidad para desarrollar suelo de expansión', actual: 'El promotor tiene experiencia en VIS en el Valle de Aburrá, pero no ha desarrollado suelo de expansión con cargas de plan parcial: no existe un procedimiento de unidad de actuación, reparto de cargas y compensación VIP.', deseada: 'Procedimiento documentado y aplicado en un proyecto, con lecciones aprendidas para el siguiente lote.', indicador: 'Procedimientos documentados de unidad de actuación, cargas y compensación VIP', valorActual: 0, valorDeseado: 1 },
+        { aspecto: 'Satisfacción de los compradores', actual: 'Promedio de 4,1 / 5 en la encuesta de entrega de los dos últimos proyectos del promotor.', deseada: 'Al menos 4,3 / 5 y 60 % de compradores que recomiendan el proyecto.', indicador: 'Calificación de la encuesta de entrega (escala 1 a 5)', valorActual: 4.1, valorDeseado: 4.3 },
+        { aspecto: 'Calidad de la construcción entregada', actual: 'Promedio histórico de 2,3 solicitudes de posventa por vivienda en el primer año.', deseada: 'Como máximo 1,5 solicitudes por vivienda, todas atendidas en los plazos del procedimiento de posventas (Ley 1480 de 2011).', indicador: 'Solicitudes de posventa por vivienda en el primer año', valorActual: 2.3, valorDeseado: 1.5 },
+      ]),
+      causas: [
+        'El banco de tierras del promotor en el Valle de Aburrá está agotado: no hay lote para lanzar preventas en 2025 y 2026.',
+        'En suelo urbano consolidado del occidente un lote para el mismo número de viviendas cuesta varias veces más por m² y obliga a productos de mayor precio, fuera del estrato 3.',
+        'El suelo disponible en el borde occidental es de expansión: exige ceder vías y espacio público, construir redes, estabilizar laderas y gestionar la unidad de actuación y el reparto de cargas del plan parcial, una capacidad que el promotor todavía no tiene.',
+      ],
+      afectados: rows('evn-af', [
+        { interesado: R.jun, afectacion: 'Sin un proyecto nuevo no cumple el plan estratégico 2025-2028 ni obtiene el margen y el retorno esperados del capital.', expectativa: 'Margen antes de impuestos de al menos 12 % en No VIS y 8 % en VIS, retorno del aporte de al menos 14 % efectivo anual y exposición de capital acotada.', grado: 'Alto' },
+        { interesado: 'Equipo de gerencia, estructuración financiera y ventas del promotor', afectacion: 'Queda subutilizado sin proyectos en preventas en 2025 y 2026.', expectativa: 'Un proyecto que ocupe al equipo desde 2025 y abra la línea de suelo de expansión.', grado: 'Alto' },
+        { interesado: 'Hogares de estrato 3 del occidente de Medellín (compradores potenciales)', afectacion: 'Son el segmento con mayor demanda del occidente de la ciudad, pero en suelo urbano consolidado el costo del lote obliga a productos de mayor precio, fuera de su segmento: la vivienda VIS y No VIS a su alcance depende de que se desarrolle suelo nuevo, como el de expansión.', expectativa: 'Vivienda VIS con subsidio de caja de compensación o crédito VIS, entregada a tiempo y con calidad.', grado: 'Medio' },
+        { interesado: 'Distrito de Medellín (DAP) y comunidad vecina', afectacion: 'El suelo de expansión sin desarrollar no aporta vías, espacio público ni equipamiento al sector.', expectativa: 'Cesiones, vías y redes del plan parcial; control de ruido, polvo y tránsito de volquetas durante la obra.', grado: 'Medio' },
+        { interesado: 'Fiduciaria y banco del crédito constructor (por seleccionar)', afectacion: 'Administrarían y financiarían los recursos de un proyecto nuevo.', expectativa: 'Preventas suficientes y condiciones de giro verificables.', grado: 'Bajo' },
+      ]),
+      opciones: rows('evn-op', [
+        { opcion: 'No hacer nada (no comprar el lote)', descripcion: 'Desistir de la oferta y esperar una oportunidad en suelo urbano consolidado.', atiende: 'No', ventajas: 'Sin inversión ni exposición del capital del promotor.', desventajas: 'Ningún proyecto en preventas en 2025 y 2026; equipo subutilizado; el suelo consolidado del occidente cuesta varias veces más por m² y reduce la participación de la VIS.', pasaCaso: true },
+        { opcion: 'Hacer lo mínimo: urbanizar y vender súper lotes', descripcion: 'Comprar el lote, gestionar la unidad de actuación, ejecutar las cargas urbanísticas y vender el área útil a otros constructores.', atiende: 'Parcialmente', ventajas: 'Menor plazo y menor exposición comercial que desarrollar vivienda.', desventajas: 'Pocos compradores para súper lotes en el borde; la obligación VIS no se traslada y castiga el precio del suelo; el promotor financia las cargas sin preventas ni crédito constructor y sigue sin proyecto en preventas.', pasaCaso: true },
+        { opcion: 'Hacer más: desarrollo integral del lote', descripcion: 'Comprar el lote y desarrollar, vender y construir vivienda VIS y No VIS en propiedad horizontal, con preventas por encargo fiduciario. Con la norma de referencia (100 viviendas/ha) caben hasta 500 viviendas; el caso de negocio compara el desarrollo en una sola etapa y en dos.', atiende: 'Sí', ventajas: 'Llena el vacío de preventas, aporta vivienda VIS al portafolio y crea la capacidad de desarrollar suelo de expansión.', desventajas: 'Mayor capital y plazo; riesgos de velocidad de ventas, tasas de interés, costos de construcción, taludes en ladera y trámites con la curaduría, la Secretaría de Movilidad y EPM.', pasaCaso: true },
+      ]),
+      recomendacion: 'Elaborar el caso de negocio con las tres opciones, y con el desarrollo integral en una y en dos etapas, y presentarlo a la junta en enero de 2025, antes de comprometer recursos con el propietario del lote. Antes de decidir la compra hay que tener: (1) estudio de títulos, avalúo comercial y levantamiento topográfico del lote; (2) la norma confirmada con la ficha normativa del DAP y la curaduría; (3) una estimación de las cargas del plan parcial y de la compensación de la obligación VIP con el ISVIMED; (4) un estudio de mercado del occidente de Medellín. Se recomienda solicitar desde ya ofertas para el estudio de títulos, el avalúo y el estudio de mercado.',
+      criteriosEvaluacion: [
+        'Margen antes de impuestos: al menos 12 % de las ventas en No VIS y 8 % en VIS.',
+        'Retorno del capital aportado: al menos 14 % efectivo anual antes de impuestos.',
+        'Participación de la VIS: al menos 25 % de las unidades.',
+        'Exposición máxima del capital del promotor y pico de caja.',
+        'Riesgo comercial: velocidad de ventas necesaria para alcanzar el punto de equilibrio de las preventas.',
+        'Riesgos técnicos y regulatorios: taludes en ladera, cargas del plan parcial y trámite de la licencia.',
+      ],
+      supuestosRestricciones: [
+        'Norma de referencia del polígono Z4_DE_1 del Acuerdo 48 de 2014 (100 viviendas/ha, índice de construcción de 0,6 sobre área bruta y 8 pisos), por verificar con la ficha normativa del DAP y la curaduría.',
+        'Plan parcial adoptado: el promotor no lo formula ni lo modifica.',
+        'Restricción: el lote se paga con aporte de capital del promotor, sin crédito.',
+        'Restricción: las preventas se hacen por encargo fiduciario según la Circular Básica Jurídica de la Superintendencia Financiera, y la obra de cada etapa solo empieza con su punto de equilibrio.',
+        'Precio de la VIS por debajo del tope de 150 SMMLV del año de escrituración (Ley 2294 de 2023, art. 293).',
+      ],
+      decision: 'Elaborar el caso de negocio',
+      fechaDecision: DECISION_EVN,
+    },
+  };
+
+  /* ================================================================== ANTES · 4.1 Acuerdo (interno) que origina el proyecto */
+  const POLIZAS = [
+    { id: 'poliza-1', amparo: 'Cumplimiento', estado: 'No aplica' },
+    { id: 'poliza-2', amparo: 'Pago de salarios, prestaciones sociales e indemnizaciones laborales', estado: 'No aplica' },
+    { id: 'poliza-3', amparo: 'Responsabilidad civil extracontractual', estado: 'No aplica' },
+  ];
+  const OBLIGACIONES = rows('acu-ob', [
+    { parte: 'Contratista o área ejecutora', obligacion: 'Estructurar, vender, construir y entregar el proyecto según la alternativa aprobada en el caso de negocio, dentro del presupuesto y del plazo de este acuerdo.', clausula: 'Primera', responsable: R.ger },
+    { parte: 'Contratista o área ejecutora', obligacion: 'Contratar el estudio de títulos, el avalúo comercial y el levantamiento topográfico del lote antes de firmar la promesa de compraventa y pagar las arras del 20 % (COP 3.000 millones).', clausula: 'Segunda', responsable: R.abo },
+    { parte: 'Contratista o área ejecutora', obligacion: 'Presentar a la junta la factibilidad técnica, legal y financiera, con el estudio de mercado y el plan para la dirección del proyecto, antes de pagar el 80 % del lote con la escritura.', clausula: 'Segunda', responsable: R.est },
+    { parte: 'Contratista o área ejecutora', obligacion: 'Hacer las preventas por encargo fiduciario y manejar los recursos del proyecto en un patrimonio autónomo administrado por una fiduciaria vigilada por la Superintendencia Financiera, con el SAGRILAFT del promotor al día.', clausula: 'Tercera', responsable: R.est },
+    { parte: 'Contratista o área ejecutora', obligacion: 'Informar cada mes a la junta (segundo martes) el avance, las ventas, el flujo de caja, los riesgos y los cambios, y someter a su aprobación lo que exceda la autoridad del gerente.', clausula: 'Quinta', responsable: R.ger },
+    { parte: 'Contratante o patrocinador', obligacion: 'Aportar el capital del promotor (COP 24.000 millones) para el lote, la compensación VIP y los gastos preoperativos, según el flujo de caja de la factibilidad.', clausula: 'Cuarta', responsable: R.jun },
+    { parte: 'Contratante o patrocinador', obligacion: 'Asignar al gerente de proyecto con dedicación completa y al equipo del promotor: estructurador financiero (50 %), gerente comercial (100 %), abogado del proyecto (25 %) y contador del proyecto (50 %).', clausula: 'Cuarta', responsable: R.jun },
+    { parte: 'Contratante o patrocinador', obligacion: 'Decidir sobre la factibilidad (decisión de inversión), las líneas base, los cambios fuera de la autoridad del gerente, el uso de la reserva de gestión y el inicio de cada etapa constructiva.', clausula: 'Cuarta', responsable: R.jun },
+    { parte: 'Ambas partes', obligacion: 'Revisar en la sesión mensual de la junta el desempeño frente a los criterios de éxito del caso de negocio: utilidad antes de impuestos de al menos 12 % de las ventas, punto de equilibrio de cada etapa en el plazo y certificado técnico de ocupación de cada etapa.', clausula: 'Quinta', responsable: 'Junta directiva del promotor y gerente de proyecto' },
+  ]);
+  /* La decisión de inversión (LB0) no es una modificación: cumple la condición de las cláusulas Segunda y Cuarta. La única
+     modificación del acuerdo al corte es la orden de cambio No. 1 (CC-002), que agrega obras al objeto. */
+  const ORDEN_CAMBIO_1 = {
+    numero: 'Orden de cambio No. 1', tipo: 'Orden de cambio', fecha: CC002,
+    objeto: 'Incorpora al objeto las obras de mitigación vial exigidas en la licencia (bahía de acceso, carril de desaceleración y semaforización sobre la vía colectora), con cargo a la reserva para contingencias (COP 430 millones), y reprograma el inicio de obra de la etapa 1 al 16 de marzo de 2026, con la línea base LB1. El presupuesto de COP 143.339 millones y el fin del proyecto (28 de marzo de 2029) no cambian.',
+    solicitudCambio: 'CC-002', efectoValor: 0, efectoPlazo: 0, estado: 'Firmada',
+  };
+  const MODIFICACIONES = rows('acu-mo', [ORDEN_CAMBIO_1]);
+  /* Acta de la sesión que origina el acuerdo: el 10 de enero de 2025 fue viernes y la sesión ordinaria de enero era el
+     segundo martes (14 de enero), así que es extraordinaria; numeración de las actas de junta del ejemplo (JD-AAAA-MM y
+     «E» para las extraordinarias, como el acta JD-2026-09E de 93). */
+  const ACTA_JD = 'Acta JD-2025-01E';
+  const DOCS_REV0 = [
+    ACTA_JD + ' (sesión extraordinaria de la junta directiva del 10 de enero de 2025), que aprueba el caso de negocio y encarga el proyecto (este acuerdo), y sus modificaciones.',
+    'Caso de negocio y plan de gestión de los beneficios aprobados el 10 de enero de 2025.',
+    'Evaluación de necesidades decidida por la junta el 10 de diciembre de 2024.',
+    'Plan estratégico 2025-2028 del promotor.',
+  ];
+  const DOCS_REV1 = [
+    ACTA_JD + ' (sesión extraordinaria de la junta directiva del 10 de enero de 2025), que aprueba el caso de negocio y encarga el proyecto (este acuerdo), con la orden de cambio No. 1.',
+    'Acta de constitución del proyecto (13 de enero de 2025).',
+    DOCS_REV0[1],
+    'Factibilidad técnica, legal y financiera aprobada en la decisión de inversión (acta de junta de abril de 2025, sesión del 22 de abril de 2025), con la que se cumple la condición de las cláusulas Segunda y Cuarta.',
+    'Plan para la dirección del proyecto vigente, con la línea base LB1 (13 de marzo de 2026).',
+    DOCS_REV0[2],
+    DOCS_REV0[3],
+  ];
+  const acuerdoFields = {
+    tipoAcuerdo: 'Acuerdo interno o memorando de entendimiento',
+    numeroAcuerdo: ACTA_JD + ' — sesión extraordinaria de la junta directiva del 10 de enero de 2025 (ficticia)',
+    objeto: 'La junta directiva encarga a la gerencia del proyecto estructurar, vender, construir y entregar el Edificio Atalaya del Occidente en el lote de 50.000 m² del borde urbano occidental de Medellín, según la alternativa aprobada en el caso de negocio: 416 viviendas (104 VIS y 312 No VIS) en cuatro bloques de 8 pisos sobre una plataforma de parqueaderos, vendidas y construidas en dos etapas con encargo fiduciario y punto de equilibrio del 75 % por etapa, con las cargas urbanísticas del plan parcial, hasta liquidar el fideicomiso y el crédito constructor.',
+    contratante: P.client + ', por decisión de su junta directiva (patrocinador)',
+    contratista: 'Gerencia del proyecto de ' + P.client + ': gerente de proyecto, con el estructurador financiero, el gerente comercial, el abogado y el contador del proyecto',
+    modalidadPrecio: 'Presupuesto interno asignado',
+    fechaFirma: CASO,
+    fechaInicio: P.start,
+    fechaTerminacion: P.end,
+    plazo: fmtInt(PLAZO_DIAS) + ' días calendario (unos 4,2 años): del 13 de enero de 2025 (inicio del proyecto) al 28 de marzo de 2029 (cierre del proyecto, a más tardar).',
+    valorInicial: P.budget,
+    baseValor: 'No aplica (acuerdo interno)',
+    anticipoPct: 0,
+    anticipoValor: 0,
+    retencionPct: 0,
+    formaPago: 'No hay pagos entre las partes: el gerente ejecuta el presupuesto asignado por fases y con sus límites de contratación (los contratos de más de COP 1.000 millones requieren aprobación de la junta). Fase de estructuración: la junta autoriza hasta COP 420 millones para la debida diligencia, el estudio de mercado y la factibilidad, y las arras del lote (COP 3.000 millones) sujetas al estudio de títulos; la gerencia, la gestión administrativa, la unidad de actuación urbanística y el inicio de los diseños se ejecutan dentro del presupuesto asignado. La decisión de inversión (factibilidad aprobada por la junta) autoriza pagar el 80 % del lote con la escritura (COP 12.000 millones) y contratar la fiducia mercantil y el encargo fiduciario de preventas. Fuentes: aporte de capital del promotor de COP 24.000 millones para el lote, la compensación VIP y los gastos preoperativos; cuotas iniciales de los compradores en el encargo fiduciario, liberadas al patrimonio autónomo con el punto de equilibrio de cada etapa; crédito constructor de COP 56.000 millones, y saldos de precio a la escrituración. El gerente ordena los pagos (a través de la fiduciaria desde que se constituya el patrimonio autónomo) y presenta cada mes a la junta la ejecución del presupuesto.',
+    polizas: cp(POLIZAS),
+    obligaciones: cp(OBLIGACIONES),
+    supervision: 'Junta directiva del promotor: recibe el informe mensual del gerente (segundo martes), aprueba los entregables de decisión y actúa como comité de control de cambios; la revisoría fiscal del promotor audita la ejecución del presupuesto.',
+    responsableContratista: 'Gerente de proyecto; firma como representante legal del promotor el gerente general.',
+    condicionesAceptacion: 'La junta acepta con acta los entregables de decisión: la factibilidad y la línea base (decisión de inversión), cada nueva línea base, el inicio de cada etapa constructiva y el cierre. Una etapa queda aprobada para construir cuando la fiduciaria certifica su punto de equilibrio y el banco aprueba el crédito constructor. Los entregables técnicos los acepta el gerente con la verificación de la supervisión técnica independiente (Ley 1796 de 2016), y los regulatorios con el acto administrativo en firme. El encargo termina con el acta de cierre, después de liquidar el fideicomiso y el crédito constructor.',
+    multas: 'No aplican: en un acuerdo interno no hay multas ni cláusula penal entre las partes. Las desviaciones se controlan con el informe mensual a la junta y el escalamiento de riesgos y cambios; las multas, la cláusula penal y las garantías se pactan en cada contrato con terceros, según su objeto: los consultores, la comercializadora y el constructor otorgan pólizas; la fiduciaria es una entidad vigilada por la Superintendencia Financiera y su contrato no las exige.',
+    suspensionTerminacion: 'La junta puede suspender o terminar el encargo de forma anticipada si la factibilidad da un margen antes de impuestos menor de 12 % de las ventas, si el estudio de títulos tiene observaciones insalvables (la promesa de compraventa debe incluir una condición resolutoria, para que solo se pierdan los costos de la debida diligencia) o si una etapa no alcanza su punto de equilibrio en el plazo del encargo fiduciario (la fiduciaria devuelve a los compradores sus aportes con rendimientos).',
+    otrasClausulas: 'Confidencialidad de la información del lote, de la factibilidad y de los precios hasta el lanzamiento. Los estudios, los diseños y la marca comercial del proyecto son del promotor. Las pólizas no aplican entre las partes: se exigen en los contratos con terceros que las requieren y, para la construcción, se suma el amparo patrimonial de la Ley 1796 de 2016. Las diferencias entre las áreas las resuelve la junta directiva.',
+    documentosContractuales: DOCS_REV1.slice(),
+    modificaciones: cp(MODIFICACIONES),
+    controlModificaciones: 'Las modificaciones del objeto, del presupuesto o del plazo las aprueba la junta directiva como comité de control de cambios, con la solicitud de cambio y el análisis de impacto del gerente, y se formalizan con una orden de cambio numerada, firmada por el presidente de la junta y el gerente general (representante legal). Los cambios dentro de la autoridad del gerente (sin efecto en hitos ni en la utilidad y de hasta COP 300 millones con cargo a la reserva para contingencias) no modifican el acuerdo. Las decisiones que este acuerdo ya prevé (la decisión de inversión y el inicio de cada etapa constructiva) se registran en el acta de la junta y tampoco lo modifican.',
+    firmas: rows('acu-fi', [
+      { rol: 'Patrocinador', nombre: 'Presidente de la junta directiva del promotor', fecha: CASO },
+      { rol: 'Representante legal del promotor', nombre: 'Gerente general del promotor', fecha: CASO },
+      { rol: 'Área ejecutora', nombre: R.ger, fecha: CASO },
+    ]),
+  };
+  const acuerdoCliente = {
+    status: 'aprobado', rev: '1', date: LB1,
+    titleBlock: { elaboro: R.abo, reviso: R.ger, aprobo: R.jun },
+    fields: acuerdoFields,
+    revs: [
+      { rev: '0', status: 'aprobado', date: CASO, note: 'Emisión inicial: la junta, en sesión extraordinaria (' + ACTA_JD + '), aprueba el caso de negocio y encarga el proyecto a la gerencia del proyecto.', fields: { ...cp(acuerdoFields), documentosContractuales: DOCS_REV0.slice(), modificaciones: [] } },
+      { rev: '1', status: 'aprobado', date: LB1, note: 'Orden de cambio No. 1 (CC-002) con la LB1: mitigación vial con cargo a la reserva para contingencias; presupuesto y fin del proyecto sin cambio. Entran a los documentos del acuerdo el acta de constitución, la factibilidad aprobada en la decisión de inversión (condición ya pactada, que no modifica el acuerdo) y el plan con la LB1.' },
+    ],
+  };
+
+  PM.exampleDocs = PM.exampleDocs || {};
+  PM.exampleDocs.medellin = Object.assign(PM.exampleDocs.medellin || {}, {
+    'evaluacion-necesidades': evaluacionNecesidades,
+    'acuerdo-cliente': acuerdoCliente,
+    /* informe-beneficios: posterior al cierre; el proyecto no ha cerrado al corte (2026-09-30), no se crea */
+  });
 })();
 
 </script>

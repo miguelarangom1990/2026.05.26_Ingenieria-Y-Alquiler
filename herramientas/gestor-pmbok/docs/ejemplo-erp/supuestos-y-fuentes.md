@@ -3,8 +3,8 @@
 Este documento explica las cifras del proyecto de ejemplo ágil `erp` del Gestor de Proyectos PMBOK (SPEC §9.7). El proyecto es **ficticio**: las cifras son **supuestos del ejemplo**, calibrados con guías de proveedores de software y consultoría que se citan en la sección 2. No son cotizaciones ni precios de un fabricante, un implementador o un proveedor tecnológico real. Se usan roles, no nombres de personas.
 
 - Datos y cálculos: `src/94-example-erp.js` (EDT, cronograma, costos, capa ágil, backlog, RACI y línea base LB0).
-- Documentos: `src/95-example-erp-docs.js`, los ejemplos de las plantillas ágiles en `src/14-templates-agile.js` y cuatro módulos que se registran en `PM.exampleDocs.erpParts` (secciones 11 a 14): `src/97-example-erp-docs-integracion.js`, `src/97-example-erp-docs-adquisiciones.js`, `src/97-example-erp-docs-comunicaciones.js` y `src/97-example-erp-docs-equipo.js`.
-- Verificación: `test/example-erp.test.mjs` compara cada cifra de los documentos con lo que calcula la aplicación (`PM.calc.*`, `PM.agile.*`); cada módulo 97 tiene su prueba (`test/example-erp-docs-integracion.test.mjs`, `-adquisiciones`, `-comunicaciones` y `-equipo`).
+- Documentos: `src/95-example-erp-docs.js`, los ejemplos de las plantillas ágiles en `src/14-templates-agile.js` y cinco módulos que se registran en `PM.exampleDocs.erpParts` (secciones 10 a 14): `src/97-example-erp-docs-integracion.js`, `src/97-example-erp-docs-adquisiciones.js`, `src/97-example-erp-docs-comunicaciones.js`, `src/97-example-erp-docs-equipo.js` y `src/97-example-erp-docs-negocio.js`.
+- Verificación: `test/example-erp.test.mjs` compara cada cifra de los documentos con lo que calcula la aplicación (`PM.calc.*`, `PM.agile.*`); cada módulo 97 tiene su prueba (`test/example-erp-docs-integracion.test.mjs`, `-adquisiciones`, `-comunicaciones`, `-equipo` y `-negocio`).
 
 Todas las cifras están en pesos colombianos (COP) antes de IVA; "M" significa millones de COP. Supuesto: la empresa es responsable de IVA y lo descuenta, así que el presupuesto del proyecto no lo incluye.
 
@@ -30,14 +30,14 @@ Todas las cifras están en pesos colombianos (COP) antes de IVA; "M" significa m
 
 Módulos del ERP: inventario y alquiler de equipos (contratos de alquiler, despachos y devoluciones, disponibilidad por bodega y obra), facturación electrónica DIAN y cartera, mantenimiento de equipos (hojas de vida, órdenes de trabajo, inspecciones) y tablero gerencial. Además: migración de datos maestros, integración con el proveedor tecnológico de facturación electrónica y con las básculas de despacho (CC-001), capacitación y gestión del cambio, tres salidas en vivo y estabilización (hypercare).
 
-**Documentos del ejemplo y enfoque de la metodología.** La lista de documentos tiene la columna «Enfoque» y el filtro «Enfoque de la metodología» (`src/11-doc-approach.js`). De las 59 plantillas, 25 son predictivas, 6 ágiles y 28 de ambos enfoques. El filtro «Proyecto ágil (ágiles y de ambos enfoques)» muestra las que aplican a este proyecto. La clasificación es orientativa: dice a qué enfoque pertenece cada documento, no que esté prohibido en el otro.
+**Documentos del ejemplo y enfoque de la metodología.** La lista de documentos tiene la columna «Enfoque» y el filtro «Enfoque de la metodología» (`src/11-doc-approach.js`). De las 62 plantillas, 25 son predictivas, 6 ágiles y 31 de ambos enfoques. El filtro «Proyecto ágil (ágiles y de ambos enfoques)» muestra las que aplican a este proyecto. La clasificación es orientativa: dice a qué enfoque pertenece cada documento, no que esté prohibido en el otro.
 
 | Enfoque | Plantillas que usa el ejemplo | Documentos al corte |
 |---|---|---:|
 | Ágil | Las 6: visión del producto, definición de listo y de terminado, plan de releases, planificación, revisión y retrospectiva de la iteración | 22 |
-| Ambos enfoques | 26 de 28: todas las que corresponden a la fecha de corte. El informe final y el acta de cierre se harán al cierre, en enero de 2027 | 34 |
+| Ambos enfoques | 29 de 31: todas las que corresponden a la fecha de corte, incluidas la evaluación de necesidades, el acuerdo con el cliente (acuerdo interno) y el informe de realización de los beneficios (un seguimiento programado, en borrador; sección 14). El informe final y el acta de cierre se harán al cierre, en enero de 2027 | 37 |
 | Predictivo | 2 de 25: el plan de gestión de cambios y el plan de gestión de los riesgos (rev. 0 del 10 de julio de 2026), aprobados con la LB0. El ejemplo los usa para el control de cambios en dos niveles y la reserva para contingencias por riesgo | 2 |
-| **Total** | **34 plantillas** | **58** |
+| **Total** | **37 plantillas** | **61** |
 
 Las plantillas múltiples (enunciados del trabajo, planificaciones de la iteración, actas de reunión, etc.) juntan las instancias de 95 y de los módulos 97 y se numeran por fecha de creación (`src/94-example-erp.js`). Por eso las planificaciones de las iteraciones 6 y 7, que están en 95, son PIT-06 y PIT-07.
 
@@ -117,8 +117,8 @@ Iteraciones de 10 días hábiles con el calendario de lunes a viernes y los fest
 - **Capacidad**: cinco personas, dos de ellas al 50 % = 4 personas equivalentes × 10 días = 40 días-persona por iteración, menos ausencias.
 - **Salidas a producción** el día hábil siguiente a la última revisión del release, salvo cierres: release 1 el 10 de septiembre, release 2 el 10 de noviembre (después de los cinco primeros días hábiles de noviembre) y release 3 el 12 de enero de 2027 (después del cierre anual).
 - **Tablero**: columnas por defecto (Por hacer; En curso, WIP 3; En revisión, WIP 2; Terminado) más «Pruebas de usuario» (en curso, WIP 2), agregada en la retrospectiva de la iteración 3 (26 de agosto). Umbral de cambio de alcance de los releases: 10 %.
-- **Eventos documentados**: cada iteración cerrada (1 a 6) tiene su acta de revisión y su retrospectiva, vinculadas a la iteración en «Releases e iteraciones»; las iteraciones 1 a 7 tienen además su planificación (PIT-01 a PIT-07; las de la 1 a la 5 están en la sección 14). Las actas citan los elementos que nacieron en cada revisión (por ejemplo, DF-001 y ME-001 en la iteración 1, ME-002 y la solicitud de las básculas en la 2, DF-002 y ME-003 en la 3) y las lecciones de cada retrospectiva están en el registro de lecciones aprendidas. El acta de revisión de la iteración 1 se aprobó el día hábil siguiente (28 de julio), con DF-001 ya registrado.
-- **Equipo y pruebas**: el equipo Scrum tiene su acta de constitución (rev. 1, con los acuerdos de las retrospectivas de las iteraciones 1 a 3). Los documentos de prueba y evaluación (rev. 2A, en revisión al corte) organizan las pruebas por elemento, por release y por migración (sección 14).
+- **Eventos documentados**: cada iteración cerrada (1 a 6) tiene su acta de revisión y su retrospectiva, vinculadas a la iteración en «Releases e iteraciones»; las iteraciones 1 a 7 tienen además su planificación (PIT-01 a PIT-07; las de la 1 a la 5 están en la sección 13). Las actas citan los elementos que nacieron en cada revisión (por ejemplo, DF-001 y ME-001 en la iteración 1, ME-002 y la solicitud de las básculas en la 2, DF-002 y ME-003 en la 3) y las lecciones de cada retrospectiva están en el registro de lecciones aprendidas. El acta de revisión de la iteración 1 se aprobó el día hábil siguiente (28 de julio), con DF-001 ya registrado.
+- **Equipo y pruebas**: el equipo Scrum tiene su acta de constitución (rev. 1, con los acuerdos de las retrospectivas de las iteraciones 1 a 3). Los documentos de prueba y evaluación (rev. 2A, en revisión al corte) organizan las pruebas por elemento, por release y por migración (sección 13).
 
 ---
 
@@ -195,7 +195,7 @@ La herramienta «resources» del ejemplo (`src/94-example-erp.js`, SPEC §10) ti
 
 - **Formas de costeo.** Todas las actividades conservan su precio global salvo dos cuyo costo calculado es exactamente el presupuestado: el release 2 (t26) de forma mixta, con la bolsa fija de COP 8,0 M del conector más el equipo (40 días × COP 2,4 M = COP 96,0 M), y la estabilización (t34) por recursos (13 días × COP 1,74 M = COP 22,62 M). El valor ganado de la sección 8 no cambia.
 - **Categorías de costo.** Cada actividad con presupuesto lleva su categoría (`costCategory`) para el desglose de costos por categoría: tiempo del personal interno (dirección, facilitación, migración y conciliaciones) como mano de obra; consultores externos, implementador (iteraciones de precio fijo, capacitación y salidas en vivo), suscripción del ERP y proveedor de facturación electrónica como servicios; tabletas, lectores, impresoras y red de bodegas como equipos. En t26 es la categoría de la bolsa fija (servicios); en t34 cada línea va por el tipo de su recurso. Plan vigente (M): Servicios 447,4, Mano de obra 125,9 y Equipos 28,0 (suma 601,3). No cambia costos ni valor ganado.
-- **Equipo Scrum y capacidad sugerida.** Las cinco personas del equipo de desarrollo están marcadas como equipo ágil con su dedicación (dos al 50 %) y 8 horas por día, con sus ausencias: incapacidad del desarrollador ERP del 15 al 17 de septiembre (iteración 5: 37 días-persona; no se conocía al planificarla, sección 14), vacaciones del analista de TI el 1 y el 2 de octubre (iteración 6: 38) y vacaciones del analista de pruebas del 26 al 30 de octubre (iteración 8: 37,5). La capacidad sugerida es la velocidad media (29,3 puntos) por la proporción entre los días-persona de la iteración y el promedio de las iteraciones de las que sale esa velocidad (5 a 7: 37, 38 y 40, en promedio 38,3): 30,6 puntos en la iteración 7, con el equipo completo, y **28,7 puntos** en la 8. Los festivos del 12 de octubre y del 2 de noviembre no son días de esas iteraciones. En el histograma, los días de ausencia aparecen sin disponibilidad frente a la asignación del release.
+- **Equipo Scrum y capacidad sugerida.** Las cinco personas del equipo de desarrollo están marcadas como equipo ágil con su dedicación (dos al 50 %) y 8 horas por día, con sus ausencias: incapacidad del desarrollador ERP del 15 al 17 de septiembre (iteración 5: 37 días-persona; no se conocía al planificarla, sección 13), vacaciones del analista de TI el 1 y el 2 de octubre (iteración 6: 38) y vacaciones del analista de pruebas del 26 al 30 de octubre (iteración 8: 37,5). La capacidad sugerida es la velocidad media (29,3 puntos) por la proporción entre los días-persona de la iteración y el promedio de las iteraciones de las que sale esa velocidad (5 a 7: 37, 38 y 40, en promedio 38,3): 30,6 puntos en la iteración 7, con el equipo completo, y **28,7 puntos** en la 8. Los festivos del 12 de octubre y del 2 de noviembre no son días de esas iteraciones. En el histograma, los días de ausencia aparecen sin disponibilidad frente a la asignación del release.
 - **No planificados.** Las tabletas de prueba del implementador, que el equipo usó en la iteración 2 mientras se configuraban las importadas (llegaron dos días hábiles tarde, INC-001), por cuenta del contratista, y las horas extra del ensayo de corte del release 1 (acción correctiva: su costo es una variación). Ninguno usa la reserva para contingencias, que no se ha usado, ni cambia la línea base.
 - **Estructura de desglose de los riesgos.** El plan de gestión de los riesgos (rev. 0, aprobado con la LB0) define ocho subcategorías en las cuatro categorías; cada riesgo del registro, y de sus revisiones, tiene la suya.
 
@@ -281,7 +281,7 @@ El alcance de cada ventana no se escribe a mano: el módulo lo calcula con las a
 | 3 | Octubre y noviembre de 2026 | Migración de cartera, capacitación y salida del release 2, migración de hojas de vida; el final de la iteración 6, las iteraciones 7 a 9 y el inicio de la 10 |
 | 4 | Diciembre de 2026 y enero de 2027 | Migración de hojas de vida, capacitación y salida del release 3, estabilización y cierre; el final de la iteración 10 y la 11 |
 
-- **Componentes de los egresos.** Implementador a precio fijo, COP 19,8 M por iteración = (660.000 + 660.000 + 330.000 + 330.000) × 10 días del catálogo; bolsas de COP 8,0 M (t26) y COP 6,0 M (presupuesto del release 3 menos tres iteraciones de COP 24,0 M); suscripción de COP 11.040.000 al mes de julio de 2026 a enero de 2027; equipos de bodega, paquete de facturación electrónica, consultores y horas internas. El documento remite a las condiciones de pago de cada contrato (sección 12): el desembolso de caja va detrás del devengo, así que los tramos dejan un margen de caja.
+- **Componentes de los egresos.** Implementador a precio fijo, COP 19,8 M por iteración = (660.000 + 660.000 + 330.000 + 330.000) × 10 días del catálogo; bolsas de COP 8,0 M (t26) y COP 6,0 M (presupuesto del release 3 menos tres iteraciones de COP 24,0 M); suscripción de COP 11.040.000 al mes de julio de 2026 a enero de 2027; equipos de bodega, paquete de facturación electrónica, consultores y horas internas. El documento remite a las condiciones de pago de cada contrato (sección 11): el desembolso de caja va detrás del devengo, así que los tramos dejan un margen de caja.
 - **Rev. 1A al corte del 9 de octubre.** Tramos 1 a 3 liberados: COP 542,4 M; costo real COP 352,1 M frente a un valor planificado de COP 355,7 M (holgura de COP 190,3 M). El tramo 1 cerró con COP 41,5 M reales frente a 39,7 M; el exceso de COP 1,8 M lo absorbió el tramo 2, disponible desde el 30 de junio. El tramo 2 cerró con COP 280,9 M frente a 315,3 M.
 - **Riesgos de la rev. 1A.** Materializado: la tasa de cambio encareció los equipos de bodega en COP 2,3 M (S-03). En seguimiento (R-004): el conector consumió COP 4,5 M de la bolsa de 8,0 M (horas adicionales de las iteraciones 5 y 6) con el release 2 en 46,7 % (56 de 120 puntos): COP 767.000 por encima de la parte de la bolsa que corresponde a ese avance (8,0 × 46,7 % = 3,7 M); al mismo ritmo llegaría a COP 9,6 M, 1,6 M más que la bolsa. No se presenta como un sobrecosto ya materializado. El EAC (COP 612,4 M, VAC −11,1 M) cabe en la reserva para contingencias, que ya está en los tramos.
 
@@ -289,7 +289,7 @@ El alcance de cada ventana no se escribe a mano: el módulo lo calcula con las a
 
 - **Supuestos.** Coinciden con los del plan de releases: dedicación del dueño del producto, usuarios clave, ambiente de habilitación, velocidad de 28 a 32 puntos y salidas fuera del cierre mensual.
 - **Fechas de validación**, tomadas de los datos: S-03 (tasa de cambio), descartado el 24 de julio con el sobrecosto real de la actividad t14; S-08 (depuración en 20 días hábiles), descartado el 14 de agosto, tres días hábiles después de la LB0; S-09 (habilitación del proveedor tecnológico), validado el 31 de agosto; S-14 (básculas), validado con el CC-001 el 13 de agosto; S-12 (suscripción de 45 usuarios) y S-13 (precio fijo del implementador), restricciones de los contratos del 30 de junio.
-- **S-13.** Limita la regla de horas adicionales a las iteraciones: el implementador trabaja a precio fijo de 240 horas por iteración y las horas adicionales de las iteraciones solo entran con las bolsas del conector y del tablero gerencial o con una solicitud de cambio. Sus servicios fuera de los releases (ambientes, formación, capacitación, apoyo a la migración, salidas y estabilización) son aparte: se contratan con órdenes de servicio a la tarifa del contrato (sección 12).
+- **S-13.** Limita la regla de horas adicionales a las iteraciones: el implementador trabaja a precio fijo de 240 horas por iteración y las horas adicionales de las iteraciones solo entran con las bolsas del conector y del tablero gerencial o con una solicitud de cambio. Sus servicios fuera de los releases (ambientes, formación, capacitación, apoyo a la migración, salidas y estabilización) son aparte: se contratan con órdenes de servicio a la tarifa del contrato (sección 11).
 - **Por validar al corte.** S-10 (velocidad, R-008) hasta el cierre de la iteración 7 (22 de octubre) y S-11 (auxiliar de cartera, INC-003) hasta el 13 de octubre.
 - **Plan para la dirección: fases.** Usan las fechas de la LB0: contratos el 30 de junio, LB0 el 10 de julio, salidas a producción el 10 de septiembre, el 10 de noviembre y el 12 de enero, y cierre el 29 de enero de 2027.
 - **Mantenimiento del plan.** Se revisa después del cierre de cada release, con la hoja de ruta actualizada del plan de releases, y con cada cambio aprobado a una línea base. Cada versión cita la revisión vigente a su fecha de cada plan y documento, también los de los otros módulos 97: la rev. 0 cita PGCM rev. 0, PGAD rev. 1, PIIN rev. 0, ACE rev. 0 y DPE rev. 0, y la rev. 2 cita PGCM rev. 1, PIIN rev. 1, ACE rev. 1 y DPE rev. 1.
@@ -500,12 +500,143 @@ Los ocho documentos los genera `src/97-example-erp-docs-equipo.js`. `test/exampl
 
 ---
 
-## 14. Limitaciones
+## 14. Documentos de negocio: evaluación de necesidades, acuerdo interno e informe de beneficios
+
+Los tres documentos los genera `src/97-example-erp-docs-negocio.js` con las plantillas de `src/15-templates-negocio.js`, y `test/example-erp-docs-negocio.test.mjs` compara cada cifra con su fuente. Las tres plantillas son de ambos enfoques. El módulo se apoya en dos grupos de documentos:
+
+- De 95: el acta de constitución, la visión del producto, el registro de interesados, el plan de gestión de cambios, el plan de releases y la solicitud CC-001.
+- De los otros módulos 97: el caso de negocio, el plan de gestión de los beneficios, los requisitos de financiamiento, el plan para la dirección y el registro de contratos y acuerdos.
+
+Sin el módulo de integración, el módulo no genera nada.
+
+| Documento | Código | Estado al corte | Versiones |
+|---|---|---|---|
+| Evaluación de necesidades | PRY-2026-021-EVN | Aprobada, rev. 0 del 17 de abril de 2026 | Se elaboró el 14 de abril y se aprobó con la decisión de la Gerencia General de elaborar el caso de negocio. Es anterior al caso de negocio rev. 0 (elaborado el 28 de abril y aprobado con el acta el 4 de mayo) y al inicio del proyecto. |
+| Acuerdo con el cliente (acuerdo interno o memorando de entendimiento) | PRY-2026-021-ACU | Aprobado, rev. 1 del 10 de julio de 2026 | Rev. 0 del 4 de mayo de 2026, firmada con el acta de constitución: presupuesto preliminar de COP 700 M. Rev. 1 del 10 de julio: otrosí No. 1 con la LB0 (presupuesto aprobado de COP 680 M), firmado por los mismos nueve firmantes. |
+| Informe de realización de los beneficios | PRY-2026-021-IRB-01 | Borrador, rev. A del 11 de septiembre de 2026 | «Seguimiento de beneficios n.º 1 — programado para el 8 de marzo de 2027». Se preparó con la rev. 2 del plan de gestión de los beneficios (revisión al cierre del release 1). No tiene resultados. |
+
+### 14.1 Supuestos del módulo (constante `SUP`, expuesta en `PM.exampleDocs.erpNegocio`)
+
+| Supuesto | Valor | Por qué |
+|---|---|---|
+| Fecha de la evaluación de necesidades | 14 de abril de 2026 (martes) | Es anterior al caso de negocio rev. 0 (28 de abril de 2026) y cae fuera de la Semana Santa (2 y 3 de abril de 2026). |
+| Fecha de la decisión del patrocinador | 17 de abril de 2026 (viernes) | Es la aprobación de la evaluación: «Elaborar el caso de negocio». Deja una semana y media para elaborar el caso. |
+| Número del memorando | `MDE-` + código del proyecto = MDE-PRY-2026-021 | Es distinto de los consecutivos de contratos y órdenes del registro de contratos y acuerdos (CT-, OS- y OC-2026-…, sección 11.2). |
+
+### 14.2 Evaluación de necesidades
+
+- **Brechas medibles.** Usan los valores de los criterios de éxito del caso de negocio rev. 0, estimados antes del descubrimiento. Son también las líneas base de la rev. 0 del plan de gestión de los beneficios. La plantilla calcula la brecha (valor deseado − valor actual).
+
+  | Brecha | Valor actual | Valor deseado | Brecha calculada | Fuente |
+  |---|---|---|---:|---|
+  | Cierre mensual de facturación | 5 días hábiles | 1 día hábil | −4 | Caso de negocio rev. 0 |
+  | Diferencia de inventario | Cerca de 4 % | 0,5 % | −3,5 | Caso de negocio rev. 0 |
+  | Utilización del andamio multidireccional | 62 % | 75 % | 13 | Caso de negocio rev. 0 (`BEN.utilBase` y `BEN.utilMeta`) |
+  | Cartera vencida a más de 60 días | 18 % | 10 % | −8 | Caso de negocio rev. 0 (`BEN.carteraBase` y `BEN.carteraMeta`) |
+
+  La factura electrónica no tiene línea base, porque hoy se digita en el portal del proveedor tecnológico. Su meta es menos de 1 % de rechazos.
+- **Momento de la medición.** Coincide con la rev. 0 del plan de beneficios y con la visión del producto:
+  - La diferencia de inventario se mide en el descubrimiento.
+  - La utilización se mide con el inventario de julio. La visión del producto fija la línea base en «62 % (julio de 2026)» y el plan rev. 0 dice «se mide en julio».
+
+  La recomendación y la brecha de utilización lo dicen así. La prueba lo compara con el plan rev. 0 y con la visión.
+- **Opciones.** Son las cuatro alternativas del caso de negocio (A a D), sin cifras, y todas pasan al caso. La C, que el caso recomienda, atiende la necesidad; «no hacer nada» no la atiende.
+- **Interesados afectados.** Son los roles del registro de interesados rev. 0, más los clientes de alquiler (externos, que no están en el registro).
+- **Supuestos y restricciones.** Son los que pasan al registro de supuestos rev. 0 del 5 de mayo: S-04 (factura electrónica DIAN), S-05 (cierre mensual) y S-06 (conciliación de saldos). Se suman dos más: el financiamiento con recursos propios, sin crédito, y la dedicación de los usuarios clave, que se pacta en el acuerdo interno.
+- No cita la LB0, el presupuesto aprobado, los contratos ni el registro de riesgos, porque todos son posteriores.
+
+### 14.3 Acuerdo interno (memorando de entendimiento)
+
+- **Partes.** La Gerencia General es la patrocinadora («contratante o patrocinador»). Del otro lado están las áreas usuarias con usuario clave, con la oficina de proyectos (PMO) y TI como áreas ejecutoras. Las áreas usuarias son comercial, logística, almacén, mantenimiento, facturación y cartera: seis usuarios clave, uno por área.
+  - La lista sale de la nota de `rec-uc` del catálogo de recursos. Coincide con el acta de la reunión de arranque. No incluye contabilidad.
+  - Contabilidad participa por medio del contador (`rec-con`, COP 250.000 por día), que concilia los saldos migrados.
+- **Condiciones del acuerdo.** Es de tipo «Acuerdo interno o memorando de entendimiento», con modalidad «Presupuesto interno asignado» y base del valor «No aplica (acuerdo interno)». No tiene anticipo, retención en garantía ni pólizas (las de los proveedores van en sus contratos), ni multas ni cláusula penal.
+- **Firmas.** Firman nueve personas:
+  1. Gerencia General.
+  2. Gerente administrativo y financiero, como dueño del producto y por contabilidad, que depende de él.
+  3. Jefe de la PMO.
+  4. Jefe de TI.
+  5. Gerente comercial.
+  6. Coordinador logístico.
+  7. Jefe de almacén.
+  8. Jefe de mantenimiento.
+  9. Jefe de facturación y cartera, que firma por esas dos áreas.
+
+  El campo «Responsable por el contratista o el área ejecutora» enuncia esta misma regla.
+- **Regla de modificación.** Cada otrosí lo firman quienes firman el acuerdo. Por eso el otrosí No. 1 lo firman los mismos nueve el 10 de julio (LB0): cambia el presupuesto y los criterios de aceptación de los tres releases, que comprometen a todas las áreas. La tabla de firmas de la rev. 1 tiene 18 filas: nueve de la rev. 0 y nueve del otrosí.
+- **Valor.** El valor inicial es el presupuesto preliminar del acta rev. 0 (COP 700 M). El otrosí No. 1 del 10 de julio (LB0) tiene un efecto de −COP 20 M (680 − 700) y de 0 días en el plazo. La columna calculada «Adiciones acumuladas» da −$ 20.000.000. El valor vigente es entonces el presupuesto aprobado del acta rev. 1: COP 680 M = BAC de 601,3 + contingencia de 60,0 + reserva de gestión de 18,7.
+- **Plazo.** 271 días calendario (181 días hábiles con el calendario del proyecto), del 4 de mayo de 2026 al 29 de enero de 2027. Se calcula con `PM.date.diff` y `cal.countWork`.
+- **Dedicación** (catálogo de recursos):
+  - Dueño del producto: al menos dos horas diarias (25 % de su jornada); su tiempo no se imputa al proyecto.
+  - Usuarios clave: uno por área usuaria (seis, con suplente); sus horas se imputan a COP 180.000 por día.
+  - Jefe de la PMO al 25 % y Scrum Master al 50 %.
+- **Forma de pago (rev. 1).** No hay pagos entre las partes. La Gerencia General libera los cuatro tramos de los requisitos de financiamiento rev. 0 (COP 661,3 M, la línea base de costos). La reserva de gestión (COP 18,7 M) queda en la tesorería. Los pagos a los proveedores siguen sus contratos (registro de contratos y acuerdos rev. 0).
+- **Aceptación.** Cada versión usa los requisitos de aprobación de su acta y las salidas a producción que esa acta tiene:
+  - Rev. 0: solo el release 1, el 10 de septiembre.
+  - Rev. 1: los tres releases, el 10 de septiembre y el 10 de noviembre de 2026 y el 12 de enero de 2027.
+- **Decisión sobre el CC-001.** No modifica el acuerdo. El CC-001 fue de nivel 2 (lo decidió el comité de control de cambios). Cambió el alcance del release 1, pero no su presupuesto (COP 96 M) ni su fecha de fin (9 de septiembre), ni la fecha de fin del proyecto ni la dedicación pactada. La regla de la rev. 1 usa los niveles del plan de gestión de cambios rev. 0:
+  - Solo los cambios de nivel 3 o de la dedicación requieren otrosí.
+  - Los de nivel 1 y 2 quedan en el registro de cambios.
+
+  Así el acuerdo no necesita citar el CC-001, que es posterior a su fecha.
+- **Documentos del acuerdo.** Cada versión cita los documentos con la revisión vigente a su fecha:
+  - Rev. 0: acta rev. 0, caso de negocio rev. 0 y plan de beneficios rev. 0.
+  - Rev. 1: acta rev. 1, plan para la dirección rev. 0, plan de releases rev. 0, plan de gestión de cambios rev. 0, requisitos de financiamiento rev. 0, caso de negocio rev. 0 y plan de beneficios rev. 1. La forma de pago cita además el registro de contratos y acuerdos rev. 0.
+
+### 14.4 Informe de realización de los beneficios (seguimiento programado)
+
+- **Fechas.**
+  - Primera medición: **8 de marzo de 2027**, sexto día hábil de marzo con el calendario del proyecto. Mide el primer mes completo después del cierre (febrero de 2027) y se hace al terminar su cierre contable, en los cinco primeros días hábiles de marzo (como la restricción S-05).
+  - Próxima medición: **8 de abril de 2027**, con los datos de marzo de 2027. Marzo es el mes de las metas de cartera y de mantenimiento preventivo (31 de marzo de 2027), la última de la medición mensual de la PMO según la transición del plan de beneficios.
+- **Beneficios.** Hay once filas, todas «Pendiente» y sin resultado: las diez del plan de gestión de los beneficios rev. 2, con su nombre e indicador, más el beneficio bruto anual del caso de negocio.
+  - **Métricas de la visión del producto.** La línea base, la meta y la fecha meta numéricas salen de la visión:
+
+    | Métrica | Línea base | Meta | Fecha meta |
+    |---|---|---|---|
+    | Cierre mensual de facturación | 5 días hábiles | 1 día hábil | 31 de diciembre de 2026 |
+    | Diferencia de inventario | 3,8 % | 0,5 % | 30 de septiembre de 2026 |
+    | Utilización del andamio | 62 % | 75 % | 31 de diciembre de 2026 |
+    | Cartera vencida a más de 60 días | 18 % | 10 % | 31 de marzo de 2027 |
+    | Rechazos de la DIAN | Sin línea base ni meta en la tabla (punto 14.5) | Menos de 1 %, en el comentario | 30 de noviembre de 2026 |
+
+  - **Facturación recuperada.** Meta de COP 220,0 M al año a plena adopción (2028, primer año con 100 % de `BEN.rampa`). El comentario da lo esperado en 2027: 70 %, COP 154 M.
+  - **Tiempo administrativo liberado.** Meta de 420 días-persona (COP 75,6 M) al año a plena adopción. Lo esperado en 2027 es el 70 %: 294 días-persona.
+  - **Mantenimiento preventivo.** De 0 % a 100 % de la maquinaria serializada al 31 de marzo de 2027. La fecha y la meta salen del texto del plan.
+  - **Intangibles.** Son dos y se verifican:
+    - Un solo dato por equipo: sin meta numérica y con fecha meta en la salida del release 3 (12 de enero de 2027, LB0).
+    - Cobro con soporte de faltantes y daños: meta de 100 % y fecha meta en el cierre (29 de enero de 2027). Su unidad es «% de las devoluciones con diferencia de peso mayor a 3 %», el universo de la meta del plan rev. 2 («Toda devolución con diferencia de peso mayor a 3 % contada por pieza y valorada antes de facturar»). No son todas las devoluciones.
+  - **Beneficio bruto anual del caso.** COP 481,8 M a plena adopción: la suma de los cuatro beneficios de la sección 10.1. El comentario incluye el beneficio neto a tres años del caso de negocio rev. 1 (COP 223,5 M).
+  - **Primera medición del inventario.** La del cierre del release 1 (0,4 % en la migración) solo va en el comentario, como en el plan de beneficios rev. 2.
+- **Sin resultados inventados.** No hay beneficios no previstos ni desviaciones, y «¿Se cumple el caso de negocio?» dice «Aún no se puede concluir».
+- **Acciones.** Son de sostenimiento, todas pendientes y con fecha posterior al cierre:
+  - Medición mensual hasta el 31 de marzo de 2027.
+  - Paso al tablero gerencial el 8 de abril de 2027.
+  - Revisión anual del caso de negocio el 31 de diciembre de 2027.
+  - Verificación, en cada medición desde el 8 de marzo de 2027, de que ninguna área volvió a las hojas de cálculo de control. Su responsable es el mismo de la obligación de adopción del acuerdo interno: «Dueño del producto y jefes de las áreas usuarias».
+
+  La tarea del proyecto de retirar las hojas al salir cada release no es una acción del informe; la cubre la meta del beneficio «Un solo dato por equipo».
+- **Dueño de los beneficios.** Es el mismo del plan de gestión de los beneficios (campo «Dueño de los beneficios»). Elabora el gerente administrativo y financiero (dueño de los beneficios), revisa el director de proyecto y aprueba la Gerencia General.
+
+### 14.5 Limitación de la plantilla que conviene anotar
+
+- **Qué hace la plantilla.** La columna «Avance hacia la meta» calcula (resultado − línea base) ÷ (meta − línea base) y toma 0 como línea base cuando no la hay.
+- **El problema.** Con una meta que es un tope y sin línea base, el avance sería engañoso en los dos sentidos. En los rechazos de la DIAN («menos de 1 %»):
+  - Un resultado de **0,4 %** (meta cumplida) daría **40 %**.
+  - Un resultado de **2 %** (meta incumplida) daría **200 %**, como si la hubiera superado.
+- **Cómo lo resuelve el informe.** Esa fila queda sin línea base y **sin meta numérica en la tabla**, así que el avance queda en «—» aunque se escriba un resultado. El tope («menos de 1 % de las emitidas») va en el comentario, y el resultado se compara con él.
+- **Verificación.** La prueba lo comprueba con la función de cálculo (2 %, 0,4 % y 1 % dan vacío). También escribe 2 en la fila con el teclado en el editor y revisa que el avance siga en «—».
+- **Regla para las demás filas.** En el informe, una fila sin línea base solo tiene meta cuando es «toda» (100 % desde 0 %). Ahí el avance desde 0 sí tiene sentido.
+- **Mejora posible de la plantilla** (fuera del alcance de este ejemplo, en `src/15-templates-negocio.js`): dejar vacío el avance cuando no hay línea base y la meta es un tope.
+
+---
+
+## 15. Limitaciones
 
 - Las cifras son supuestos de un ejemplo didáctico. Precios de suscripción, tarifas, equipos y plazos cambian por fabricante, implementador, número de usuarios, tasa de cambio y fecha; un proyecto real debe cotizarlos.
 - Las fuentes de la sección 2 son guías comerciales de proveedores; sus rangos son amplios y no distinguen el mercado colombiano (salvo Softland en plazos y facturación electrónica).
 - No se modelan el soporte anual del fabricante ni la suscripción después de enero de 2027 (operación de TI), ni el IVA, ni los costos de la nómina electrónica (fuera del alcance).
 - Las tarifas por hora y los costos de personal interno son supuestos redondeados para que las cuentas se puedan seguir a mano (por ejemplo, 240 horas × COP 82.500 = COP 19,8 M).
 - Los beneficios del caso de negocio (sección 10) son supuestos didácticos sobre una empresa ficticia; en un proyecto real se miden en el descubrimiento y se validan con contabilidad. No se modelan el valor del dinero en el tiempo (VPN o TIR) ni los impuestos sobre los beneficios. El flujo de financiamiento se calcula sobre el devengo de la LB0 y no modela el desfase de caja de cada contrato.
-- La duración máxima de los eventos, la hora de la reunión diaria, la regla de que una incapacidad médica no se conoce al planificar y el texto de los criterios de IN-001, HU-002, HU-029 y TA-010 antes de precisarlos son supuestos del ejemplo (sección 14). La lista del anexo técnico de la DIAN resume los criterios del backlog del ejemplo; no reproduce el anexo técnico vigente.
-- Las condiciones de los contratos (pólizas, plazos de pago, retención en garantía y jurisdicción), los números de contrato, los puntajes de las ofertas y las calificaciones de los proveedores (sección 12) son supuestos del ejemplo; no son un modelo de contrato y un proyecto real los revisa con su asesor jurídico.
+- La duración máxima de los eventos, la hora de la reunión diaria, la regla de que una incapacidad médica no se conoce al planificar y el texto de los criterios de IN-001, HU-002, HU-029 y TA-010 antes de precisarlos son supuestos del ejemplo (sección 13). La lista del anexo técnico de la DIAN resume los criterios del backlog del ejemplo; no reproduce el anexo técnico vigente.
+- Las condiciones de los contratos (pólizas, plazos de pago, retención en garantía y jurisdicción), los números de contrato, los puntajes de las ofertas y las calificaciones de los proveedores (sección 11) son supuestos del ejemplo; no son un modelo de contrato y un proyecto real los revisa con su asesor jurídico.
+- Las fechas de la evaluación de necesidades y de la decisión de la Gerencia General, y el número del memorando del acuerdo interno (sección 14), son supuestos del ejemplo. El acuerdo interno no es un modelo de memorando: un proyecto real lo ajusta a su gobierno corporativo.
